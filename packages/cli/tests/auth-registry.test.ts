@@ -34,6 +34,33 @@ import { PromptCancelled } from '../src/terminal-input.js';
 
 const TOKEN = 'robot-token-5f1c9e';
 
+/**
+ * A value shaped like a license key. Its `kid` is one no CLI knows, so it
+ * also shows that a key this CLI can't verify still goes to the registry,
+ * which judges it.
+ */
+const KEY = `kgi_lk_${Buffer.from(
+  JSON.stringify({
+    v: 1,
+    kid: 'test-only',
+    sub: 'gh-acme',
+    name: 'Acme',
+    use: 'non-production',
+    iat: 1_790_000_000,
+    exp: 1_793_888_000,
+  }),
+).toString('base64url')}.${Buffer.alloc(64, 7).toString('base64url')}`;
+
+/**
+ * A registry other than Kindgi's: a robot's username and token log in to
+ * it, where Kindgi's takes the license key.
+ */
+const ROBOT_REGISTRY = 'quay.io';
+const ON_ROBOT_REGISTRY = ['--registry', ROBOT_REGISTRY];
+const ROBOT_IMAGE = imageOnRegistry(DEFAULT_RUNTIME_IMAGE, ROBOT_REGISTRY);
+/** A robot's login there, before how its token comes. */
+const AS_ROBOT = [...ON_ROBOT_REGISTRY, '--username', 'robot'];
+
 interface DockerCall {
   readonly args: readonly string[];
   readonly options: DockerRunOptions | undefined;
@@ -107,9 +134,9 @@ describe('the registry', () => {
 
   test('login is to the pinned image registry by default, --registry otherwise', async () => {
     const byDefault = fakeDocker();
-    await runRegistry(['--username', 'robot', '--password-stdin'], {
+    await runRegistry(['--password-stdin'], {
       docker: byDefault.run,
-      readStdin: async () => TOKEN,
+      readStdin: async () => KEY,
     });
     const login = byDefault.calls.find((c) => c.args[0] === 'login');
     expect(login?.args[1]).toBe(RUNTIME_IMAGE_REGISTRY);
@@ -148,24 +175,18 @@ describe('the registry', () => {
 describe('logging in', () => {
   test('the token goes to docker login on stdin, never into its arguments or any output', async () => {
     const fake = fakeDocker();
-    const out = await runRegistry(['--username', 'robot', '--password-stdin'], {
+    const out = await runRegistry([...AS_ROBOT, '--password-stdin'], {
       docker: fake.run,
       readStdin: async () => `${TOKEN}\n`,
     });
     expect(out.exitCode).toBe(0);
     expect(fake.commands()).toEqual([
       'version --format {{.Server.Version}}',
-      'login registry.kindgi.com --username',
+      'login quay.io --username',
       'buildx imagetools inspect',
     ]);
     const login = fake.calls[1];
-    expect(login?.args).toEqual([
-      'login',
-      'registry.kindgi.com',
-      '--username',
-      'robot',
-      '--password-stdin',
-    ]);
+    expect(login?.args).toEqual(['login', 'quay.io', '--username', 'robot', '--password-stdin']);
     // The trailing newline isn't part of the token, as docker reads it.
     expect(login?.options).toEqual({ stdin: TOKEN });
     for (const call of fake.calls) {
@@ -173,16 +194,16 @@ describe('logging in', () => {
       if (call !== login) expect(call.options?.stdin).toBeUndefined();
     }
     expect(out.stdout + out.stderr).not.toContain(TOKEN);
-    expect(out.stderr).toContain('✓ Logged in to registry.kindgi.com as robot');
+    expect(out.stderr).toContain('✓ Logged in to quay.io as robot');
     expect(out.stderr).toContain(
-      `✓ You can pull ${DEFAULT_RUNTIME_IMAGE}, the image this CLI runs.`,
+      `✓ You can pull ${ROBOT_IMAGE}, the image this CLI runs, from quay.io.`,
     );
   });
 
   test('without --password-stdin, the token comes from a hidden prompt', async () => {
     const fake = fakeDocker();
     const prompt = fakeTty(TOKEN);
-    const out = await runRegistry(['--username', 'robot'], {
+    const out = await runRegistry([...AS_ROBOT], {
       docker: fake.run,
       stdinIsTty: () => true,
       tty: prompt.tty,
@@ -191,7 +212,7 @@ describe('logging in', () => {
       },
     });
     expect(out.exitCode).toBe(0);
-    expect(prompt.state.prompts).toEqual(['Token for robot at registry.kindgi.com: ']);
+    expect(prompt.state.prompts).toEqual(['Token for robot at quay.io: ']);
     expect(prompt.state.closed).toBe(true);
     expect(fake.calls.find((c) => c.args[0] === 'login')?.options).toEqual({ stdin: TOKEN });
     expect(out.stdout + out.stderr).not.toContain(TOKEN);
@@ -200,7 +221,7 @@ describe('logging in', () => {
   test('with --password-stdin, stdin is read and no prompt is shown', async () => {
     const fake = fakeDocker();
     const prompt = fakeTty('not-this-one');
-    const out = await runRegistry(['--username', 'robot', '--password-stdin'], {
+    const out = await runRegistry([...AS_ROBOT, '--password-stdin'], {
       docker: fake.run,
       stdinIsTty: () => true,
       tty: prompt.tty,
@@ -214,7 +235,7 @@ describe('logging in', () => {
   test('Ctrl+C at the prompt cancels: nothing logged in', async () => {
     const fake = fakeDocker();
     let closed = false;
-    const out = await runRegistry(['--username', 'robot'], {
+    const out = await runRegistry([...AS_ROBOT], {
       docker: fake.run,
       stdinIsTty: () => true,
       tty: {
@@ -234,7 +255,7 @@ describe('logging in', () => {
 
   test('no terminal and no --password-stdin fails before anything logs in', async () => {
     const fake = fakeDocker();
-    const out = await runRegistry(['--username', 'robot'], {
+    const out = await runRegistry([...AS_ROBOT], {
       docker: fake.run,
       stdinIsTty: () => false,
     });
@@ -246,7 +267,7 @@ describe('logging in', () => {
 
   test('an empty token is refused', async () => {
     const fake = fakeDocker();
-    const out = await runRegistry(['--username', 'robot', '--password-stdin'], {
+    const out = await runRegistry([...AS_ROBOT, '--password-stdin'], {
       docker: fake.run,
       readStdin: async () => '\n',
     });
@@ -257,7 +278,7 @@ describe('logging in', () => {
 
   test('a login needs --username', async () => {
     const fake = fakeDocker();
-    const out = await runRegistry(['--password-stdin'], { docker: fake.run });
+    const out = await runRegistry([...ON_ROBOT_REGISTRY, '--password-stdin'], { docker: fake.run });
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --username');
     expect(out.stderr).toContain(
@@ -271,19 +292,18 @@ describe('logging in', () => {
       login: {
         code: 1,
         stdout: '',
-        stderr: `Error response from daemon: Get "https://registry.kindgi.com/v2/": unauthorized: bad credentials for ${TOKEN}\n`,
+        stderr: `Error response from daemon: Get "https://quay.io/v2/": unauthorized: bad credentials for ${TOKEN}\n`,
       },
     });
-    const out = await runRegistry(['--username', 'robot', '--password-stdin'], {
+    const out = await runRegistry([...AS_ROBOT, '--password-stdin'], {
       docker: fake.run,
       readStdin: async () => TOKEN,
     });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain(
-      'docker login registry.kindgi.com failed: Error response from daemon',
-    );
+    expect(out.stderr).toContain('docker login quay.io failed: Error response from daemon');
     expect(out.stderr).toContain('unauthorized: bad credentials for ***');
-    expect(out.stderr).toContain('Signing in at https://access.kindgi.com shows both.');
+    // The access page is named for the pinned image's registry only.
+    expect(out.stderr).toContain('for ***\n  Check the username and the token.\n');
     expect(out.stderr).not.toContain(TOKEN);
     // No check after a failed login.
     expect(fake.calls.some((c) => c.args[0] === 'buildx')).toBe(false);
@@ -298,7 +318,7 @@ describe('logging in', () => {
           "WARNING! Your credentials are stored unencrypted in '/home/dev/.docker/config.json'.\n",
       },
     });
-    const out = await runRegistry(['--username', 'robot', '--password-stdin'], {
+    const out = await runRegistry([...AS_ROBOT, '--password-stdin'], {
       docker: fake.run,
       readStdin: async () => TOKEN,
     });
@@ -315,7 +335,7 @@ describe('logging in', () => {
           "WARNING! Your credentials are stored unencrypted in '/home/dev/.docker/config.json'.\n",
       },
     });
-    const out = await runRegistry(['--username', 'robot', '--password-stdin', '--quiet'], {
+    const out = await runRegistry([...AS_ROBOT, '--password-stdin', '--quiet'], {
       docker: warned.run,
       readStdin: async () => TOKEN,
     });
@@ -324,7 +344,7 @@ describe('logging in', () => {
       "    docker: WARNING! Your credentials are stored unencrypted in '/home/dev/.docker/config.json'.\n",
     );
 
-    const quiet = await runRegistry(['--username', 'robot', '--password-stdin', '--quiet'], {
+    const quiet = await runRegistry([...AS_ROBOT, '--password-stdin', '--quiet'], {
       docker: fakeDocker().run,
       readStdin: async () => TOKEN,
     });
@@ -334,16 +354,16 @@ describe('logging in', () => {
 
   test('--json prints a summary on stdout, without the token', async () => {
     const fake = fakeDocker();
-    const out = await runRegistry(['--username', 'robot', '--password-stdin', '--json'], {
+    const out = await runRegistry([...AS_ROBOT, '--password-stdin', '--json'], {
       docker: fake.run,
       readStdin: async () => TOKEN,
     });
     expect(JSON.parse(out.stdout)).toEqual({
       ok: true,
-      registry: 'registry.kindgi.com',
+      registry: 'quay.io',
       loggedIn: true,
       username: 'robot',
-      image: DEFAULT_RUNTIME_IMAGE,
+      image: ROBOT_IMAGE,
       checkedWith: 'docker buildx imagetools inspect',
     });
     expect(out.stdout).not.toContain(TOKEN);
@@ -394,18 +414,18 @@ describe('--check', () => {
         code: 1,
         stdout: '',
         stderr:
-          'ERROR: unexpected status from HEAD request to https://registry.kindgi.com/v2/kindgi/runtime/manifests/sha256:91cb: 401 UNAUTHORIZED\n',
+          'ERROR: unexpected status from HEAD request to https://quay.io/v2/kindgi/runtime/manifests/sha256:91cb: 401 UNAUTHORIZED\n',
       },
     });
-    const out = await runRegistry(['--check'], { docker: fake.run });
+    const out = await runRegistry(['--check', ...ON_ROBOT_REGISTRY], { docker: fake.run });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain(
-      `✗ No access to ${DEFAULT_RUNTIME_IMAGE}: ERROR: unexpected status`,
-    );
+    expect(out.stderr).toContain(`✗ No access to ${ROBOT_IMAGE}: ERROR: unexpected status`);
     expect(out.stderr).toContain(
       'The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, then log in',
     );
-    expect(out.stderr).toContain('kindgi auth registry --username <your robot name>.');
+    expect(out.stderr).toContain(
+      'kindgi auth registry --username <your robot name> --registry quay.io.',
+    );
     expect(out.stderr).not.toContain("Couldn't find");
   });
 
@@ -429,35 +449,18 @@ describe('--check', () => {
     const fake = fakeDocker({
       'buildx imagetools inspect': { code: 1, stdout: '', stderr: 'ERROR: 403 Forbidden\n' },
     });
-    const out = await runRegistry(['--username', 'robot', '--password-stdin'], {
+    const out = await runRegistry([...AS_ROBOT, '--password-stdin'], {
       docker: fake.run,
       readStdin: async () => TOKEN,
     });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain('✓ Logged in to registry.kindgi.com as robot');
-    expect(out.stderr).toContain("robot is logged in to registry.kindgi.com but can't pull it");
+    expect(out.stderr).toContain('✓ Logged in to quay.io as robot');
+    expect(out.stderr).toContain("robot is logged in to quay.io but can't pull it");
     expect(out.stderr).toContain(
       'sign in at https://access.kindgi.com for your current pull credential (questions: contact@kindgi.com)',
     );
   });
 });
-
-/**
- * A value shaped like a license key. Its `kid` is one no CLI knows, so it
- * also shows that a key this CLI can't verify still goes to the registry,
- * which judges it.
- */
-const KEY = `kgi_lk_${Buffer.from(
-  JSON.stringify({
-    v: 1,
-    kid: 'test-only',
-    sub: 'gh-acme',
-    name: 'Acme',
-    use: 'non-production',
-    iat: 1_790_000_000,
-    exp: 1_793_888_000,
-  }),
-).toString('base64url')}.${Buffer.alloc(64, 7).toString('base64url')}`;
 
 const ON_KINDGI = ['--registry', KINDGI_REGISTRY];
 const KINDGI_IMAGE = imageOnRegistry(DEFAULT_RUNTIME_IMAGE, KINDGI_REGISTRY);
@@ -600,7 +603,7 @@ describe("Kindgi's registry: the license key logs in", () => {
     const fake = fakeDocker();
     for (const [argv, message] of [
       [
-        ['--key-from', 'file:key'],
+        [...ON_ROBOT_REGISTRY, '--key-from', 'file:key'],
         '--key-from reads a license key, which logs in to registry.kindgi.com only. quay.io takes its own username and token',
       ],
       [
@@ -728,10 +731,13 @@ describe("a credential helper Docker can't run (T276)", () => {
           'Error saving credentials: error storing credentials - err: exec: "docker-credential-desktop": executable file not found in $PATH, out: ``\n',
       },
     });
-    const out = await runRegistry(['--username=acme+robot', '--password-stdin'], {
-      docker: fake.run,
-      readStdin: async () => TOKEN,
-    });
+    const out = await runRegistry(
+      [...ON_ROBOT_REGISTRY, '--username=acme+robot', '--password-stdin'],
+      {
+        docker: fake.run,
+        readStdin: async () => TOKEN,
+      },
+    );
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('names docker-credential-desktop');
     expect(out.stderr).not.toContain('Check the username and the token');
@@ -884,9 +890,7 @@ describe('without Docker', () => {
 
 describe('the refused-pull hint of kindgi dev', () => {
   test('points to kindgi auth registry, naming the registry only when it is another one', () => {
-    expect(registryLoginCommand(DEFAULT_RUNTIME_IMAGE)).toBe(
-      'kindgi auth registry --username <your robot name>',
-    );
+    expect(registryLoginCommand(DEFAULT_RUNTIME_IMAGE)).toBe('kindgi auth registry');
     expect(registryLoginCommand('registry.example.com/kindgi/runtime:dev')).toBe(
       'kindgi auth registry --username <your robot name> --registry registry.example.com',
     );

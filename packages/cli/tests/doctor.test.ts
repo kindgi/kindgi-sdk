@@ -331,11 +331,16 @@ describe('the machine', () => {
     );
   });
 
-  test('no pull access: the fix is the registry login, the token piped in', async () => {
-    const { check } = await doctor({ seam: seam({ docker: dockerThat('no-access') }) });
+  test('no pull access on another registry: the fix is the robot login, the token piped in', async () => {
+    const { check } = await doctor({
+      seam: {
+        ...seam({ docker: dockerThat('no-access') }),
+        image: 'quay.io/kindgi/runtime:1.0.0@sha256:abc',
+      },
+    });
     expect(check('registry')).toMatchObject({ status: 'fail' });
     expect(check('registry')?.fix).toMatch(
-      /npx @kindgi\/cli@\S+ auth registry --username <your robot name> --password-stdin/,
+      /npx @kindgi\/cli@\S+ auth registry --username <your robot name> --registry quay\.io --password-stdin/,
     );
     expect(check('registry')?.fix).toContain(
       'the robot name and the token are on https://access.kindgi.com once you sign in with GitHub',
