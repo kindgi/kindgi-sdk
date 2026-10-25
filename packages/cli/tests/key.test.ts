@@ -162,13 +162,96 @@ describe('kindgi key create', () => {
 
   test('--env prints the kindgi.config.ts tip', async () => {
     const fixtures = makeFixtures();
-    const out = await runCli(
-      baseInputs(fixtures, ['key', 'create', 'staging-signer', '--env=staging']),
-    );
+    const out = await runCli({
+      ...baseInputs(fixtures, ['key', 'create', 'staging-signer', '--env=staging']),
+      buildConfigLoader: async () => ({}),
+    });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain('environments.staging');
     expect(out.stderr).toContain("signingKey: '~/.kindgi/keys/staging-signer.pem'");
     expect(out.stderr).toContain('kindgi build --env=staging');
+  });
+
+  test('--env: a block that already names this key says the build signs with it, with no hint', async () => {
+    for (const block of [
+      { signingKey: '~/.kindgi/keys/prod-signer.pem', signerKeyId: 'prod-signer' },
+      // The path written out, and no signerKeyId: the build names the key by its file.
+      { signingKey: '/tmp/fake-home/.kindgi/keys/prod-signer.pem' },
+      // A relative path: the build reads it from the folder it runs in.
+      { signingKey: '../fake-home/.kindgi/keys/prod-signer.pem' },
+    ]) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod']),
+        buildConfigLoader: async () => ({ environments: { prod: block } }),
+      });
+      expect(out.exitCode).toBe(0);
+      expect(out.stderr).toContain('environments.prod in kindgi.config.ts already names this key:');
+      expect(out.stderr).toContain('`kindgi build --env=prod` will sign with it.');
+      expect(out.stderr).not.toContain('Next step');
+    }
+  });
+
+  test('--env: a block that names another key shows what it has, then the hint', async () => {
+    for (const block of [
+      { signingKey: '~/.kindgi/keys/prod-old.pem', signerKeyId: 'prod-old' },
+      // This key's id on another key's file: the build would sign with the other file.
+      { signingKey: '~/.kindgi/keys/prod-old.pem', signerKeyId: 'prod-signer' },
+      // This key's file under another id: the signature would name the other key.
+      { signingKey: '~/.kindgi/keys/prod-signer.pem', signerKeyId: 'prod-old' },
+    ]) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod']),
+        buildConfigLoader: async () => ({ environments: { prod: block } }),
+      });
+      expect(out.exitCode).toBe(0);
+      const has = out.stderr.indexOf('environments.prod in kindgi.config.ts has these now:');
+      const next = out.stderr.indexOf('Next step: add to environments.prod in kindgi.config.ts:');
+      expect(has).toBeGreaterThan(-1);
+      expect(next).toBeGreaterThan(has);
+      const now = out.stderr.slice(has, next);
+      expect(now).toContain(`signingKey: '${block.signingKey}',`);
+      expect(now).toContain(`signerKeyId: '${block.signerKeyId}',`);
+      expect(out.stderr.slice(next)).toContain("signingKey: '~/.kindgi/keys/prod-signer.pem',");
+      expect(out.stderr).not.toContain('already names this key');
+    }
+  });
+
+  test('--env: with no HOME, a `~` path is not this key: the build reads `~` as nothing', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      argv: ['key', 'create', 'prod-signer', '--env=prod'],
+      env: {},
+      cwd: '/tmp/fake-cwd',
+      keyRunners: fixtures.runners,
+      buildConfigLoader: async () => ({
+        environments: { prod: { signingKey: '~/.kindgi/keys/prod-signer.pem' } },
+      }),
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain('environments.prod in kindgi.config.ts has these now:');
+    expect(out.stderr).not.toContain('already names this key');
+  });
+
+  test("--env: a config without the block, or one that won't load, keeps the hint and makes the key", async () => {
+    for (const buildConfigLoader of [
+      async () => ({ pack: { id: 'acme.app', version: '1.0.0' } }),
+      async () => {
+        throw new Error('kindgi.config.ts: SyntaxError');
+      },
+    ]) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod']),
+        buildConfigLoader,
+      });
+      expect(out.exitCode).toBe(0);
+      expect(fixtures.state.files.has('/tmp/fake-home/.kindgi/keys/prod-signer.pem')).toBe(true);
+      expect(out.stderr).toContain('Next step: add to environments.prod in kindgi.config.ts:');
+      expect(out.stderr).not.toContain('has these now');
+      expect(out.stderr).not.toContain('already names this key');
+    }
   });
 
   test('--home overrides HOME env + ctx home', async () => {
