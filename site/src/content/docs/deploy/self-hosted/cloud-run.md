@@ -816,7 +816,11 @@ A new grant can take a minute or two to apply.
   [log in there](../pull-the-runtime-image/) first. It runs the upgrade
   checks against the database, then backs the database up, and changes the
   running deployment only when you type `yes`. If the new revision doesn't
-  come up, it prints the way back rather than rolling back on its own. Use
+  come up, it prints the way back rather than rolling back on its own. To
+  see what it would do first, add `--dry-run`: it lists every change a real
+  run would make, in order, and shows Terraform's plan for the new image,
+  but changes nothing and never asks for `yes`. It doesn't run the upgrade
+  checks against the database, since they run as jobs in your project. Use
   the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
   you're upgrading to, or, before that release is out, its newest
   `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
