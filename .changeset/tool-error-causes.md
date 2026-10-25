@@ -15,5 +15,5 @@ Handler for tool "acme.list-orders" threw: TypeError: fetch failed; caused by Co
 - **A refused connection names its addresses:** `AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:4000, connect ECONNREFUSED 127.0.0.1:4000`.
 - **An error without a cause reads as it did.**
 - **The message is masked, its causes and the error's own words alike.** A Kindgi token becomes `[redacted]` whole, a `Bearer` value is redacted, a URL's password becomes `***`, and a URL's secret query or fragment value becomes `[redacted]`. `?token=`, `#access_token=`, `X-Amz-Signature=`, a SAS `sig=` and `?key=` are covered. Log lines keep their form, a token's last four included.
-- **A pack tool's own secrets and connection tokens are taken out first,** at any depth of the error, before the message is masked or cut. So no part of one is left, a connection string's host included.
+- **A pack tool's own secrets and connection tokens are taken out first,** at any depth of the error, before the message is masked or cut. So the mask, the cut and the one-line step can't leave part of one, a connection string's host included.
 - **`@kindgi/log`** exports `describeCauses(err)`, which gives the `; caused by …` text, and `scrubText(text, { fullMask: true })`, which is the mask for an error a run shows.
