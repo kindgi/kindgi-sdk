@@ -18,8 +18,8 @@ still change in a later release without the usual deprecation period.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Node 22.12 or later, and access to the runtime image: sign in at
-[access.kindgi.com](https://access.kindgi.com) with GitHub for its pull
-credentials, then log in once with `kindgi auth registry`. You also need a
+[access.kindgi.com](https://access.kindgi.com) with GitHub or your email
+address for a license key, then log in once with `kindgi auth registry`. You also need a
 JDK 17 or later, with `JAVA_HOME` set to it. Maven comes with the pack.
 
 ## 1. Create the pack

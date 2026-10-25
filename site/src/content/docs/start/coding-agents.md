@@ -129,7 +129,7 @@ agent uses yours (with `--json`, it gets the same as
   ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
 
 Logging in to the runtime image's registry is yours too:
-`kindgi auth registry` asks for your token the same way
+`kindgi auth registry` asks for your license key the same way
 ([Install](../install/)).
 
 ## Keep it out of your keys
