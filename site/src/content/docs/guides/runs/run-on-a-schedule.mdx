@@ -217,24 +217,35 @@ none.
 
 ## In the console
 
-A project's **Schedules** page lists its schedules, with a headline such as
-"2 schedules, 1 paused; the next fires in 14 h.". Each row says:
+A project's **Schedules** page lists its schedules. Each row says:
 
-- what it runs, such as "the agent demo.echo-agent (its live version)" or
-  "the flow acme.refunds 1.0.0";
-- its cron;
-- when it next fires, such as "Next in 14 h (2026-10-12 02:00 UTC)", or that
-  it's paused;
-- its last scheduled fire, and **Its runs →**.
+- its label, its cron in words, such as "Every day at 2:00 AM UTC", and the
+  cron;
+- whether it's **Active** or **Paused**;
+- what it runs, such as "the agent Dev-Echo Agent (its live version)", "the
+  flow Refunds 1.0.0" or, for a schedule that starts Improve runs, "Improve
+  runs on Acme Rank Scorer, when enough new answers have been marked wrong";
+- when it next fires, such as "Next in 23h (25 Oct 2026, 10:00 PM EDT)", or
+  that it's paused;
+- its last scheduled fire, and **Runs it started →**. A **Run now** fire is
+  on the schedule's own page, not here.
 
-Times are UTC. The list has a search box and sorts by a column's header.
-**Columns** chooses which columns it shows.
+Each row has **Pause** or **Resume**, **Run now** and **Remove**. Remove
+can't be undone: the runs it started stay, and you create it again to start
+over. Times are on your own clock, **Local**, to start with; **Times**, in
+the menu under your name, switches this browser to **UTC**. A cron's words
+keep the schedule's own zone. The list has a search box and sorts by a
+column's header. **Columns** chooses which columns it shows. **Schedule Improve**, at the top,
+makes a schedule that starts Improve runs
+([Schedule Improve in the console](#schedule-improve-in-the-console)).
 
-![The Schedules page: "2 schedules, 1 paused; the next fires in 14 h.", a search box and the Columns menu, the active nightly digest (the agent demo.echo-agent, 0 2 * * *, next in 14 h) with Pause, and the paused weekly report (the flow acme.refunds 1.0.0, 0 9 * * 1) with Resume, each with Run now and Unregister.](../../../../assets/schedules/schedules-list.png)
+![The Schedules page, with Schedule Improve at the top, a search box and the Columns menu: the active nightly digest (every day at 2:00 AM UTC, 0 2 * * *; the agent Dev-Echo Agent, its live version; next in 23h) with Pause, and the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1; the flow Refunds 1.0.0) with Resume, neither fired yet, each with Runs it started →, Run now and Remove.](../../../../assets/schedules/schedules-list.png)
 
 A schedule's page has:
-- **When:** its cron in UTC and its next five times. A paused one says
-  "It doesn’t fire while paused." instead.
+- **When:** its cron in words and the cron, in the schedule's own zone, and
+  its next five times, each in that zone (named when it isn't UTC) and also
+  on your clock when that reads differently. A paused one says "It doesn’t
+  fire while paused." instead.
 - **Runs as:** whose access its runs have, checked again at every fire, such
   as "Runs as you, with your access."
 - **Tools allowed unattended:** the tools its runs call without waiting
@@ -405,6 +416,40 @@ A fire that started an Improve run names it, as `passId`. The Improve run
 names the schedule and the fire, as `trigger`. When the Improve run suggests
 a change, it asks for the review at once, so the suggested change waits in
 reviewers' approvals.
+
+### Schedule Improve in the console
+
+**Schedule Improve** makes the same schedule in the console: on the
+project's **Schedules** page, where it asks which agent, or on an agent's
+**Suggested changes** page, for that agent. It shows to someone who can
+change the project's schedules (`write` on the project) and start Improve
+runs (`publish` on the agent). It asks for what `--input` and the flags
+take, with the same defaults:
+
+- **What to improve:** **Settings values**, or **The agent's instructions**
+  with a **Drafting model** and how many **Drafts of the instructions**;
+- **Better means a higher:** share marked right, or weighted precision@k;
+- **Learn from experts' corrections only (recommended)**, ticked to start
+  with, for `classWeights` `restricted-only`; unticked, it's `as-recorded`;
+- its scope: the project, or a segment of it;
+- **When (cron)** and **Time zone**, an IANA name, UTC to start with. Under
+  them it puts the cron in words, and it holds back one that fires more than
+  once an hour: "At most once an hour: name one minute (0 * * * * is every
+  hour). Each fire may start an Improve run, which costs money."
+- **Starts an Improve run at:** **Corrections marking an answer wrong**, **On
+  runs** and **From judges**, 5, 3 and 2 to start with. "Runs and judges
+  can't be more than corrections: each correction is on one run, by one
+  judge."
+- **Each Improve run spends at most (US$)**, 5, and for settings values
+  **And tries at most**, 30; **Its Improve runs spend at most, a month
+  (US$)**, 20: "A calendar month, UTC. An Improve run never spends more than
+  what's left of it.";
+- **Label (optional)**.
+
+**Create** makes it, running as you, and opens its page. Under `kindgi dev`,
+Schedule Improve is off, and the page says why: a schedule's Improve runs
+are each for one project, and a change under `kindgi dev` is for every
+project. Start Improve from the agent's **Suggested changes** page instead.
 
 ## Next
 
