@@ -195,6 +195,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
     });
   }
 
@@ -215,6 +216,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
     });
   }
 
@@ -237,6 +239,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
       pypi: cliInstall(ctx.env) === 'pypi',
     });
   }
@@ -253,6 +256,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
       linkLocal: ctx.options['link-local'] === true,
     });
   }
