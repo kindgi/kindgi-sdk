@@ -810,7 +810,7 @@ function parseThreshold(raw: unknown): ImproveThreshold | string {
     t.runs > t.judgments ||
     t.judges > t.judgments
   ) {
-    return `\`threshold\` is { judgments?, runs?, judges? }: how many trusted "no" judgments since the last pass (default ${d.judgments}), across how many runs (${d.runs}) and from how many judges (${d.judges}); runs and judges at most judgments`;
+    return `\`threshold\` is { judgments?, runs?, judges? }: how many answers marked wrong since the last Improve run (default ${d.judgments}), across how many runs (${d.runs}) and from how many judges (${d.judges}); runs and judges at most judgments`;
   }
   return t as ImproveThreshold;
 }
