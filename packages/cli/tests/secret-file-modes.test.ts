@@ -8,6 +8,7 @@
 
 import {
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   open,
@@ -15,6 +16,7 @@ import {
   readdir,
   rm,
   stat,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -90,6 +92,30 @@ describe.skipIf(process.platform === 'win32')('~/.kindgi/config.json', () => {
       token: 'kgi_tk_acme',
       theme: 'dark',
     });
+  });
+
+  test('a symlinked one stays a link: the old 0644 file it points to is replaced, 0600, the other keys kept', async () => {
+    const dir = join(home, '.kindgi');
+    const path = join(dir, 'config.json');
+    const linked = join(cwd, 'kindgi-config.json');
+    await mkdir(dir, { mode: 0o700 });
+    await writeFile(
+      linked,
+      JSON.stringify({ apiUrl: 'https://old.example.com', token: 'kgi_tk_old', theme: 'dark' }),
+    );
+    await chmod(linked, 0o644);
+    await symlink(linked, path);
+
+    await saveHomeConfig({ apiUrl: 'https://platform.example.com', token: 'kgi_tk_acme' }, home);
+
+    expect((await lstat(path)).isSymbolicLink()).toBe(true);
+    expect(await modeOf(linked)).toBe(0o600);
+    expect(JSON.parse(await readFile(linked, 'utf8'))).toEqual({
+      apiUrl: 'https://platform.example.com',
+      token: 'kgi_tk_acme',
+      theme: 'dark',
+    });
+    expect(await readdir(cwd)).toEqual(['kindgi-config.json']);
   });
 });
 

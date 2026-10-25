@@ -244,7 +244,8 @@ const HOME_DIR_MODE = 0o700;
  *
  * The file is `0600` and `~/.kindgi` `0700`, an older looser one
  * included: the new text is a new file that replaces the old one
- * (`writePrivateFile`), so a symlinked `config.json` becomes a file.
+ * (`writePrivateFile`). A symlinked `config.json` stays a link, and the
+ * file it points to is the one replaced.
  * Windows has no such modes: the write there is as before.
  */
 export async function saveHomeConfig(
