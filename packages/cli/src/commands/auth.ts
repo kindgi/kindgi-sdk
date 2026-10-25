@@ -33,6 +33,7 @@ import {
   secretStoreFor,
 } from '../license/stores.js';
 import { renderJson } from '../output.js';
+import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import {
   PromptCancelled,
   type TtySeam,
@@ -308,7 +309,7 @@ async function runRegistry(ctx: CommandContext): Promise<CommandResult> {
   const ready = await checkDocker(run, 'kindgi auth registry');
   if (ready.kind === 'error') return { kind: 'error', stderr: `${ready.message}\n`, exitCode: 1 };
 
-  const lines: string[] = [];
+  const lines: SaidLine[] = [];
   if (args.username !== undefined) {
     const login = await logIn(run, seam, args, args.username);
     if (login.kind === 'error') return login;
@@ -319,9 +320,13 @@ async function runRegistry(ctx: CommandContext): Promise<CommandResult> {
   const how = access.kind === 'no-tool' ? [] : checkedWith(access.method, ctx.globals.verbose);
   if (access.kind !== 'ok') {
     const why = accessFailure(access, image, args);
-    return { kind: 'error', stderr: `${[...lines, ...why, ...how].join('\n')}\n`, exitCode: 1 };
+    const said = [...lines.map((l) => l.text), ...why, ...how];
+    return { kind: 'error', stderr: `${said.join('\n')}\n`, exitCode: 1 };
   }
-  lines.push(`  ✓ You can pull ${image}${whichImage(image, pinned, args.host)}.`, ...how);
+  lines.push(
+    note(`  ✓ You can pull ${image}${whichImage(image, pinned, args.host)}.`),
+    ...how.map(note),
+  );
 
   const summary = {
     ok: true,
@@ -335,7 +340,7 @@ async function runRegistry(ctx: CommandContext): Promise<CommandResult> {
     kind: 'ok',
     rendered: {
       stdout: ctx.globals.formatRequested ? renderJson(summary, ctx.globals.format).stdout : '',
-      stderr: `${lines.join('\n')}\n`,
+      stderr: renderLines(lines, ctx.globals.format === 'quiet'),
     },
   };
 }
@@ -349,7 +354,7 @@ async function logIn(
   seam: RegistryAuthSeam,
   args: RegistryArgs,
   username: string,
-): Promise<{ readonly kind: 'ok'; readonly lines: readonly string[] } | TokenReadError> {
+): Promise<{ readonly kind: 'ok'; readonly lines: readonly SaidLine[] } | TokenReadError> {
   const secret = args.withKey
     ? await readKey(seam, args)
     : await readToken(seam, args.fromStdin, {
@@ -363,10 +368,13 @@ async function logIn(
   return {
     kind: 'ok',
     lines: [
-      args.withKey
-        ? `  ✓ Logged in to ${args.host} with your license key${from}. Docker keeps it in its own credential store; Kindgi stores nothing. When your key renews, log in again with the new one.`
-        : `  ✓ Logged in to ${args.host} as ${username}. Docker keeps the credential in its own credential store; Kindgi stores nothing.`,
-      ...login.notes.map((note) => `    docker: ${note}`),
+      note(
+        args.withKey
+          ? `  ✓ Logged in to ${args.host} with your license key${from}. Docker keeps it in its own credential store; Kindgi stores nothing. When your key renews, log in again with the new one.`
+          : `  ✓ Logged in to ${args.host} as ${username}. Docker keeps the credential in its own credential store; Kindgi stores nothing.`,
+      ),
+      // What docker login warned about: said under --quiet too.
+      ...login.notes.map((said) => warning(`    docker: ${said}`)),
     ],
   };
 }

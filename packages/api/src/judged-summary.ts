@@ -5,7 +5,7 @@
  * Judgments summed into what a judged item counts: per item key, the yes
  * and total weight (by judge class; an unclassified judgment counts 1),
  * the same sums for judgments recorded while their class was restricted,
- * and the reasons. A test set's cases are built this way, and so is a
+ * the judgments' ids, and the reasons. A test set's cases are built this way, and so is a
  * comparison's evidence from judging a replay's own answers.
  */
 
@@ -43,11 +43,14 @@ export async function summarizeJudgments(
   let yesWeight = 0;
   let totalWeight = 0;
   // What judges a class was restricted to asserted, as it was when each judgment was recorded.
-  const restricted = { yesWeight: 0, totalWeight: 0 };
+  const restricted = { yesWeight: 0, totalWeight: 0, judgmentIds: [] as string[] };
   for (const j of judgments) {
     const w = await weightOf(j.judgeClassId);
     totalWeight += w;
-    if (j.restricted === true) restricted.totalWeight += w;
+    if (j.restricted === true) {
+      restricted.totalWeight += w;
+      restricted.judgmentIds.push(j.id);
+    }
     if (j.verdict === 'yes') {
       yes += 1;
       yesWeight += w;
@@ -66,6 +69,7 @@ export async function summarizeJudgments(
     yesWeight,
     totalWeight,
     restricted,
+    judgmentIds: judgments.map((j) => j.id),
     reasons: judgments.flatMap((j) =>
       j.reason !== undefined
         ? [

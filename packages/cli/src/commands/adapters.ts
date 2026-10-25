@@ -86,6 +86,7 @@ const prepareCmd: LeafCommand = {
     });
 
     const jsonMode = ctx.globals.format === 'json';
+    const quiet = ctx.globals.format === 'quiet';
     const events: PrepareEvent[] = [];
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
@@ -112,7 +113,8 @@ const prepareCmd: LeafCommand = {
     if (terminal?.kind === 'error') {
       return {
         kind: 'error',
-        stderr: [...stderrChunks, `\n  Failed: ${terminal.message}\n\n`].join(''),
+        // Under --quiet, the failure without the progress before it.
+        stderr: [...(quiet ? [] : stderrChunks), `\n  Failed: ${terminal.message}\n\n`].join(''),
         exitCode: 1,
       };
     }
@@ -130,13 +132,17 @@ const prepareCmd: LeafCommand = {
       terminal?.kind === 'ready'
         ? (terminal.message ?? 'ready')
         : 'stream ended without terminal event';
-    stderrChunks.push(`\n  Ready: ${summary}\n\n`);
+    const ready = `\n  Ready: ${summary}\n\n`;
+    // Under --quiet, nothing for a prepare that's ready; a stream that
+    // ended without saying so is a warning, said either way.
+    const stderr = !quiet
+      ? [...stderrChunks, ready].join('')
+      : terminal?.kind === 'ready'
+        ? ''
+        : ready;
     return {
       kind: 'ok',
-      rendered: {
-        stdout: '',
-        stderr: stderrChunks.join(''),
-      },
+      rendered: { stdout: '', stderr },
     };
   },
 };

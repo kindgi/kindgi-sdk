@@ -42,6 +42,13 @@ README.md explains the whole design; keep it true when you change the pack.
   reads events (`order-reviewer`) has read-only tools. Keep it that way:
   an agent's guardrails check its answer after the turn, so they can't
   stop a tool call.
+- **The store agent's instructions are a prompt block:** their text is
+  `blocks/store-agent-prompt.liquid`, the block's file
+  `blocks/store-agent-prompt.json`. Change them there, and give the block
+  a new version in its file when you do, within the agent's range: a
+  deploy refuses a version whose content changed.
+  `agents/store-agent/index.test.ts` checks they still name every tool
+  that waits for a person.
 - **The store's password is a secret** (`WOO_APP_PASSWORD`, set with
   `kindgi secrets set`): never write it in a file, a test or the chat.
 
@@ -52,7 +59,8 @@ started, tools, guardrails, agents and flows, model providers, MCP servers,
 framework feedback, and guiding the person in using what you built
 (`kindgi-using`). Claude Code loads `.claude/skills/` on its own; Codex and
 Gemini CLI look in `.agents/skills/`; any other coding agent can read
-either. `kindgi skills sync` refreshes both.
+either. After an upgrade, `kindgi dev` refreshes both as it
+starts; `kindgi skills sync` refreshes them any time.
 
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root via

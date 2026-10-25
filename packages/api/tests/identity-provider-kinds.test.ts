@@ -33,7 +33,8 @@ import { NEEDS_SECRETS_STORE_MESSAGE } from '../src/routes/auth.js';
 
 const tenantId = randomUUID() as TenantId;
 const BEARER = 'providers-kinds-bearer';
-const resolveToken: TokenResolver = async (t) => (t === BEARER ? { tenantId, scopes: [] } : null);
+const resolveToken: TokenResolver = async (t) =>
+  t === BEARER ? { tenantId, scopes: ['tenant-admin'] } : null;
 
 const noSessions: SessionStoreBinding = {
   create: async () => {

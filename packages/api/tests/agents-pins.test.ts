@@ -289,6 +289,12 @@ describe('POST /v1/agents pins the data blocks an agent references', () => {
       kind: 'settings',
       content: { values: { volume: 11 } },
     });
+    await put({
+      id: 'acme.picks',
+      version: '1.0.0',
+      kind: 'settings',
+      content: { values: { model: 'claude-haiku-4-5', temperature: 0.2 } },
+    });
     return blocks;
   }
   const refs = {
@@ -346,6 +352,27 @@ describe('POST /v1/agents pins the data blocks an agent references', () => {
         message: expect.stringContaining(
           'model-settings block "acme.loud" version 1.0.0 isn\'t model settings',
         ),
+      },
+    ]);
+  });
+
+  test('model settings that name the model publish; with the agent naming it too, refused naming both', async () => {
+    const { app } = makeApp(PUBLISHED, await withBlocks());
+    const picks = { modelSettings: { id: 'acme.picks', version: '^1.0.0' } };
+    expect((await publish(app, body([], picks))).status).toBe(201);
+    const res = await publish(
+      app,
+      body([], { ...picks, version: '1.1.0', preferredModel: 'claude-sonnet-5-5' }),
+    );
+    expect(res.status).toBe(400);
+    const err = (await res.json()) as {
+      error: { details: { issues: { path: string; message: string }[] } };
+    };
+    expect(err.error.details.issues).toEqual([
+      {
+        path: '/modelSettings/version',
+        message:
+          'model-settings block "acme.picks" version 1.0.0: it sets model, and the agent version sets preferredModel: name the model in one place, the block or the agent version',
       },
     ]);
   });

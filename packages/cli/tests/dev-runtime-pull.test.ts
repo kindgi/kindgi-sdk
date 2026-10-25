@@ -120,7 +120,7 @@ describe.skipIf(process.platform === 'win32')('the runtime image pull', () => {
   test('a refused pull: a pull credential from the access page, the login, then kindgi dev again', async () => {
     vi.stubEnv('FAKE_PULL_DENIED', '1');
     const phases = createStartPhases({ emit: () => undefined });
-    const result = await ensureRuntimeImage('quay.io/acme/runtime:1.0', phases);
+    const result = await ensureRuntimeImage('registry.kindgi.com/acme/runtime:1.0', phases);
     phases.close();
     expect(result.kind).toBe('error');
     const message = result.kind === 'error' ? result.message : '';

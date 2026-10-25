@@ -50,6 +50,7 @@ import {
   scriptCommand,
   usablePackageManager,
 } from '../package-manager.js';
+import { note, renderLines, warning } from '../progress-lines.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { CLI_VERSION } from '../version-info.js';
 import { syncSkills } from './skills.js';
@@ -75,12 +76,12 @@ export const initCommand: LeafCommand = {
   description:
     'Scaffold a new Kindgi pack repo, or add Kindgi to an existing app: a Node.js, Python, Maven or sbt project, auto-detected from its `package.json`, `pyproject.toml`, `pom.xml` or `build.sbt` when no pack-name is given.',
   usage:
-    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
+    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
   optionSpec: {
     template: {
       type: 'string',
       description:
-        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store, with approvals), `drupal` (agents for a Drupal site through its MCP Server, with approvals), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
+        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store, with approvals), `drupal` (agents for a Drupal site through its MCP Server, with approvals), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
     },
     path: {
       type: 'string',
@@ -127,6 +128,7 @@ export const AVAILABLE_TEMPLATES = [
   'sample',
   'woocommerce',
   'drupal',
+  'follow-up',
   'python',
   'java',
   'scala',
@@ -284,6 +286,13 @@ function augmentTemplate(
         'The drupal template makes a pack of its own (its agents share the site settings in lib/), so init does not add it to an existing app.\nFor a standalone Drupal pack here: kindgi init <pack-name> --template=drupal --new-repo\n',
     };
   }
+  if (name === 'follow-up') {
+    return {
+      kind: 'err',
+      stderr:
+        'The follow-up template makes a pack of its own (its send tool comes from @kindgi/connections, which this app does not depend on), so init does not add it to an existing app.\nFor a standalone follow-up pack here: kindgi init <pack-name> --template=follow-up --new-repo\n',
+    };
+  }
   if (name === 'python') {
     return {
       kind: 'err',
@@ -408,26 +417,32 @@ async function runInitFresh(
     `${runner.KINDGI} dev  # runs the Kindgi runtime (Docker) + hot-reloads this pack`,
   ];
 
-  const stderr = [
-    `✓ Pack scaffolded at ${args.targetDir}/`,
-    ...access.lines,
-    ...(pnpmPin.kind === 'pinned'
-      ? [`✓ package.json pins pnpm@${pnpmPin.version} (packageManager)`]
-      : []),
-    '',
-    'Next steps:',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    ...(pnpmPin.kind === 'unread'
-      ? [
-          `package.json has no packageManager: pnpm's version couldn't be read here (${pnpmPin.reason}).`,
-          'Add "packageManager": "pnpm@<version>" (the pnpm you install with), so kindgi build, CI and teammates use the same pnpm.',
-          '',
-        ]
-      : []),
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Pack scaffolded at ${args.targetDir}/`),
+      ...access.lines,
+      ...(pnpmPin.kind === 'pinned'
+        ? [note(`✓ package.json pins pnpm@${pnpmPin.version} (packageManager)`)]
+        : []),
+      note(''),
+      note('Next steps:'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      ...(pnpmPin.kind === 'unread'
+        ? [
+            warning(
+              `package.json has no packageManager: pnpm's version couldn't be read here (${pnpmPin.reason}).`,
+            ),
+            warning(
+              'Add "packageManager": "pnpm@<version>" (the pnpm you install with), so kindgi build, CI and teammates use the same pnpm.',
+            ),
+            note(''),
+          ]
+        : []),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
 
   const payload = {
     template: args.template,
@@ -554,16 +569,18 @@ async function runInitPython(
     'uv run pytest',
     `${kindgi} dev  # boots Kindgi locally + runs this pack with its .venv, reloading on save`,
   ];
-  const stderr = [
-    `✓ Python pack scaffolded at ${args.targetDir}/`,
-    ...access.lines,
-    '',
-    'Next steps:',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Python pack scaffolded at ${args.targetDir}/`),
+      ...access.lines,
+      note(''),
+      note('Next steps:'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
   const rendered = renderJson(
     {
       template: args.template,
@@ -633,17 +650,19 @@ async function runInitJava(
     './mvnw test',
     `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
   ];
-  const stderr = [
-    `✓ Java pack scaffolded at ${args.targetDir}/ (preview)`,
-    ...access.lines,
-    `  ${JVM_PREVIEW}`,
-    '',
-    'Next steps (a JDK 17 or later, JAVA_HOME set):',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Java pack scaffolded at ${args.targetDir}/ (preview)`),
+      ...access.lines,
+      note(`  ${JVM_PREVIEW}`),
+      note(''),
+      note('Next steps (a JDK 17 or later, JAVA_HOME set):'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
   const rendered = renderJson(
     {
       template: args.template,
@@ -754,17 +773,19 @@ async function runInitScala(
     'sbt test',
     `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
   ];
-  const stderr = [
-    `✓ Scala pack scaffolded at ${args.targetDir}/ (preview)`,
-    ...access.lines,
-    `  ${JVM_PREVIEW}`,
-    '',
-    'Next steps (a JDK 17 or later, JAVA_HOME set, and sbt):',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Scala pack scaffolded at ${args.targetDir}/ (preview)`),
+      ...access.lines,
+      note(`  ${JVM_PREVIEW}`),
+      note(''),
+      note('Next steps (a JDK 17 or later, JAVA_HOME set, and sbt):'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
   const rendered = renderJson(
     {
       template: args.template,
@@ -881,7 +902,8 @@ async function pathExists(path: string): Promise<boolean> {
 
 /**
  * Stamp the resolved specs over the template's `workspace:*` entries
- * for `@kindgi/sdk` (dependencies) and `@kindgi/cli` (devDependencies).
+ * for `@kindgi/sdk` and `@kindgi/connections` (dependencies) and
+ * `@kindgi/cli` (devDependencies).
  */
 async function rewriteTemplateDependencySpecs(
   targetDir: string,
@@ -893,6 +915,9 @@ async function rewriteTemplateDependencySpecs(
     devDependencies?: Record<string, string>;
   };
   if (pkg.dependencies?.['@kindgi/sdk'] !== undefined) pkg.dependencies['@kindgi/sdk'] = specs.sdk;
+  if (pkg.dependencies?.['@kindgi/connections'] !== undefined) {
+    pkg.dependencies['@kindgi/connections'] = specs.connections;
+  }
   if (pkg.devDependencies?.['@kindgi/cli'] !== undefined) {
     pkg.devDependencies['@kindgi/cli'] = specs.cli;
   }

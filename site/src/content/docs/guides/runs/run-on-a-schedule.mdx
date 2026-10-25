@@ -49,6 +49,10 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
 - **Where:** `--project=<project-id>` is its project. Without it, it's the
   tenant's Default project.
 - **`--label`** names it, for lists and the console.
+- **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
+  needn't wait for a person's yes, though no person started them, once for
+  each tool. It takes `admin` on the project
+  ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 
 It prints the schedule, with its `id`. To see the next three times it runs,
 where `<schedule-id>` is that `id`:
@@ -64,9 +68,11 @@ Python).
 
 ## Run as a service account
 
-A schedule's runs act as its **owner**: whoever created it. To have them act
-as a service account instead, with the account's grants rather than yours,
-and keep running after you leave, name it with `--run-as`:
+A schedule's runs act as its **owner**: whoever created it, or last changed
+what it runs ([Who owns it after a change](#who-owns-it-after-a-change)).
+To have them act as a service account instead, with the account's grants
+rather than yours, and keep running after you leave, name it with
+`--run-as`:
 
 ```sh
 pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
@@ -81,16 +87,35 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   service-account-not-found`) or it was unregistered (`409
   service-account-unregistered`).
 - **The account must be able to run it,** as any owner must: a fire it may
-  no longer run is `refused`.
+  no longer run is `refused`. So is every fire after the account is
+  unregistered (runtime 0.1.9 or later): take the schedule over, or
+  delete it.
 - **To hand an existing schedule to an account:** `kindgi schedules
   take-ownership <schedule-id> --run-as=<service-account-id>`. It needs
   what taking it over yourself needs, `admin` on the project and `execute`
   on the agent or flow, and `act_as` on the account. Its next fire acts as
-  the account.
+  the account. The schedule keeps its tools allowed unattended.
 - **From your app:** `runAsServiceAccountId` on `schedules.register` and
   `schedules.takeOwnership` (`run_as_service_account_id` in Python).
 - **Each change of owner is recorded** as evidence, `trigger-owner-set`: a
-  schedule created to run as an account, and every take-over.
+  schedule created to run as an account, every take-over, and every change
+  that moves it.
+
+### Who owns it after a change
+
+When someone who isn't its owner changes what the schedule runs, they
+become its owner (runtime 0.2.0 or later), and its next fires act as
+them. So your own access only serves what you set it to run.
+
+- **These move it:** a new target or version, a new input, or a new list
+  of tools allowed unattended.
+- **These don't:** its label, its cron line or timezone, its catch-up,
+  overlap and deadline policies, and the same value sent again.
+- **A schedule a service account owns keeps its owner,** whoever changes
+  it. A service account that changes a person's schedule becomes its
+  owner.
+
+The answer to the change shows the owner after it.
 
 ## Each time it fires
 
@@ -109,7 +134,8 @@ each time still fires once.
   `--catch-up=skip` fires none of them. A time is missed when the fire would
   start more than `--starting-deadline` seconds late, 600 by default.
 - **Its owner may no longer run it,** such as when they lost their role on
-  the project, or were removed from the tenant (runtime 0.1.9 or later).
+  the project, or were removed from the tenant, or it's a service account
+  that was unregistered (runtime 0.1.9 or later).
   The fire is `refused`, with why. Whoever holds `admin` on the project can
   make themselves its owner: `kindgi schedules take-ownership <schedule-id>`,
   or hand it to a service account
@@ -141,7 +167,8 @@ history is newest first, kept for 30 days. Each row has:
   `refused`, `failed`, or `pending` while a fire is starting. A fire is
   `skipped` when an improve schedule's threshold isn't met or its monthly cap
   is reached, when its project is suspended, or when its tenant is suspended
-  or starts closing before its run or pass has started. `NOTE` says which.
+  or starts closing before its run or Improve run has started. `NOTE` says
+  which.
 - **`STARTED`:** a run's id, or `pass <id>` for an
   [improve schedule](#improve-on-a-schedule).
 - **`NOTE`:** why it was skipped, refused or failed, or how many missed times
@@ -180,31 +207,50 @@ none.
 - `kindgi schedules pause <schedule-id>` stops it. `resume` starts it again
   from its next time, without running the ones it missed while paused.
 - `kindgi schedules update <schedule-id>` changes when it runs, what it runs,
-  its input or its policies, with the same flags as `create`.
+  its input or its policies, with the same flags as `create`. A change to
+  what it runs can make you its owner
+  ([Who owns it after a change](#who-owns-it-after-a-change)).
+  `--allow-unattended` replaces its tools allowed unattended, and a new
+  `--agent` or `--flow` must name them again, or `none`. A new `--improve`
+  must name `none`.
 - `kindgi schedules unregister <schedule-id>` removes it.
 
 ## In the console
 
-A project's **Schedules** page lists its schedules, with a headline such as
-"2 schedules, 1 paused; the next fires in 14 h.". Each row says:
+A project's **Schedules** page lists its schedules. Each row says:
 
-- what it runs, such as "the agent demo.echo-agent (its live version)" or
-  "the flow acme.refunds 1.0.0";
-- its cron;
-- when it next fires, such as "Next in 14 h (2026-10-12 02:00 UTC)", or that
-  it's paused;
-- its last scheduled fire, and **Its runs →**.
+- its label, its cron in words, such as "Every day at 2:00 AM UTC", and the
+  cron;
+- whether it's **Active** or **Paused**;
+- what it runs, such as "the agent Dev-Echo Agent (its live version)", "the
+  flow Refunds 1.0.0" or, for a schedule that starts Improve runs, "Improve
+  runs on Acme Rank Scorer, when enough new answers have been marked wrong";
+- when it next fires, such as "Next in 23h (25 Oct 2026, 10:00 PM EDT)", or
+  that it's paused;
+- its last scheduled fire, and **Runs it started →**. A **Run now** fire is
+  on the schedule's own page, not here.
 
-Times are UTC. The list has a search box and sorts by a column's header.
-**Columns** chooses which columns it shows.
+Each row has **Pause** or **Resume**, **Run now** and **Remove**. Remove
+can't be undone: the runs it started stay, and you create it again to start
+over. Times are on your own clock, **Local**, to start with; **Times**, in
+the menu under your name, switches this browser to **UTC**. A cron's words
+keep the schedule's own zone. The list has a search box and sorts by a
+column's header. **Columns** chooses which columns it shows. **Schedule Improve**, at the top,
+makes a schedule that starts Improve runs
+([Schedule Improve in the console](#schedule-improve-in-the-console)).
 
-![The Schedules page: "2 schedules, 1 paused; the next fires in 14 h.", a search box and the Columns menu, the active nightly digest (the agent demo.echo-agent, 0 2 * * *, next in 14 h) with Pause, and the paused weekly report (the flow acme.refunds 1.0.0, 0 9 * * 1) with Resume, each with Run now and Unregister.](../../../../assets/schedules/schedules-list.png)
+![The Schedules page, with Schedule Improve at the top, a search box and the Columns menu: the active nightly digest (every day at 2:00 AM UTC, 0 2 * * *; the agent Dev-Echo Agent, its live version; next in 23h) with Pause, and the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1; the flow Refunds 1.0.0) with Resume, neither fired yet, each with Runs it started →, Run now and Remove.](../../../../assets/schedules/schedules-list.png)
 
 A schedule's page has:
-- **When:** its cron in UTC and its next five times. A paused one says
-  "It doesn’t fire while paused." instead.
+- **When:** its cron in words and the cron, in the schedule's own zone, and
+  its next five times, each in that zone (named when it isn't UTC) and also
+  on your clock when that reads differently. A paused one says "It doesn’t
+  fire while paused." instead.
 - **Runs as:** whose access its runs have, checked again at every fire, such
   as "Runs as you, with your access."
+- **Tools allowed unattended:** the tools its runs call without waiting
+  for a person's yes, or "None"
+  ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 - **What it fired:** a summary, such as "Of its 2 fires, 2 started a run.",
   and a table of its fires, newest first. Each fire has when it fired, the
   time it was for, what happened or why the fire was refused, and the run it
@@ -224,7 +270,9 @@ Project editors and up have, on the list and on the page:
 
 On a schedule that runs as someone else, project admins also get **Take
 over**: "Its next runs start as you, with your access. Runs already started
-keep theirs. If it's paused, it stays paused."
+keep theirs. If it's paused, it stays paused." On a schedule with tools
+allowed unattended, the dialog adds that its runs still call them, with
+the new owner's access.
 
 ![The Take this schedule over? dialog on a paused schedule that runs as a service account: its next runs start as you, runs already started keep theirs, and a paused one stays paused.](../../../../assets/schedules/schedule-take-over.png)
 
@@ -255,9 +303,9 @@ list filtered to that schedule.
 
 ## Improve on a schedule
 
-A schedule can start [improvement passes](../../evals/improve-an-agent/)
-instead of runs, when enough new trusted judgments have come in on an
-agent's runs:
+A schedule can start [Improve runs](../../evals/improve-an-agent/) instead
+of agent or flow runs, when enough new corrections have come in on an
+agent's runs, counted the way the Improve run will count them:
 
 ```sh
 pnpm exec kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> --segment=company:acme \
@@ -308,14 +356,17 @@ It prints the schedule, with the defaults applied to its input:
 }
 ```
 
-At each fire, it counts the trusted "no" judgments on the agent's runs in
-its scope since the agent's last pass there. A trusted judgment is one
-recorded under a
-[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class).
-The last pass is one that didn't fail or get cancelled, whoever started it.
-With enough of them, across enough runs, from enough judges, it starts a
-pass on a fresh test set of those runs, `improve.<pass-id>`. Otherwise the
-fire is `skipped`, and its note says which count was short.
+At each fire, it counts the corrections that marked the agent's runs wrong
+("no") in its scope since the agent's last Improve run there, the way the
+Improve run will count them:
+everyone's until the tenant, the project, or the agent being improved has a
+[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-correct-as-a-class),
+then only the ones recorded under one. With `classWeights` in the schedule's
+input, it counts the way that value says. The last Improve run is one that
+didn't fail or get cancelled, whoever started it. With enough of them, across
+enough runs, from enough judges, it starts an Improve run on fresh test cases
+of those runs, `improve.<pass-id>`. Otherwise the fire is `skipped`, and its note says which
+count was short.
 
 That schedule's first fire, started with `run-now`, was skipped: one judge
 short. Then the threshold was lowered to one judge:
@@ -324,8 +375,8 @@ short. Then the threshold was lowered to one judge:
 pnpm exec kindgi schedules update <schedule-id> --input='{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 1}, "monthlyCapUsd": 20}'
 ```
 
-It prints the schedule, with its new input. The next fire started a pass, and
-the third came while that pass was still running. Its history, newest first:
+It prints the schedule, with its new input. The next fire started an Improve
+run, and the third came while that Improve run was still running. Its history, newest first:
 
 ```sh
 pnpm exec kindgi schedules fires <schedule-id> --table
@@ -333,33 +384,75 @@ pnpm exec kindgi schedules fires <schedule-id> --table
 
 ```text
 FIRED                     FOR      OUTCOME          STARTED                                    NOTE
-────────────────────────  ───────  ───────────────  ─────────────────────────────────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────
-2026-10-09T13:25:40.917Z  run-now  skipped-overlap                                             Its previous pass 3599f4ab-8788-433f-af66-7990ddfa9f47 is still running.
+────────────────────────  ───────  ───────────────  ─────────────────────────────────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+2026-10-09T13:25:40.917Z  run-now  skipped-overlap                                             Its previous Improve run 3599f4ab-8788-433f-af66-7990ddfa9f47 is still running.
 2026-10-09T13:25:40.341Z  run-now  started          pass 3599f4ab-8788-433f-af66-7990ddfa9f47
-2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new trusted judgments so far: 1 of 2 judges (trusted "no" judgments met: 10, runs met: 10).
+2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new experts' corrections so far: 1 of 2 experts (enough: 10 answers experts marked wrong, 10 runs).
 ```
+
+This project has a restricted judge class, so the Improve run counts
+experts' corrections, and the skip note says "answers experts marked wrong"
+and "experts". Without one, it would count every answer marked wrong, and the
+note would say "answers marked wrong" and "people who corrected".
 
 - **Its scope** is the schedule's project, `--project`, or a segment of it,
   `--segment=<key:value>`, repeated for a path. It's never the tenant or an
-  org: a pass learns from one project's runs, so its evidence must cover the
-  scope it changes. Promote wider by hand after review.
-- **Its input,** `--input`, takes the pass's options, `threshold` and
+  org: an Improve run learns from one project's runs, so its evidence must
+  cover the scope it changes. Make it live more widely by hand after review.
+- **Its input,** `--input`, takes the Improve run's options, `threshold` and
   `monthlyCapUsd`. It's kept with the defaults applied: the thresholds
-  default to 5 judgments, 3 runs and 2 judges, and the cap to 20 US dollars a
-  month.
-- **A monthly cap:** once the schedule's passes this month, in UTC, have
-  cost `monthlyCapUsd`, its fires are skipped until the next month. A pass's
-  budget is never more than what's left of it.
-- **One pass at a time:** while the schedule's previous pass still runs, a
-  fire is `skipped-overlap`.
+  default to 5 corrections (`judgments`), across 3 runs (`runs`), from 2
+  people (`judges`), and the cap to 20 US dollars a month.
+- **A monthly cap:** once the schedule's Improve runs this month, in UTC,
+  have cost `monthlyCapUsd`, its fires are skipped until the next month. An
+  Improve run's budget is never more than what's left of it. Its cost counts
+  the runs on the test cases that prove its best candidate, which its budget
+  doesn't stop, so a month's Improve runs can cost more than the cap.
+- **One Improve run at a time:** while the schedule's previous Improve run
+  is still going, a fire is `skipped-overlap`.
 - **At most once an hour.** Registering needs `publish` on the agent.
 
-A fire that started a pass names it, as `passId`. The pass names the
-schedule and the fire, as `trigger`. When the pass proposes, it asks for the
-review at once, so the proposal waits in reviewers' approvals.
+A fire that started an Improve run names it, as `passId`. The Improve run
+names the schedule and the fire, as `trigger`. When the Improve run suggests
+a change, it asks for the review at once, so the suggested change waits in
+reviewers' approvals.
+
+### Schedule Improve in the console
+
+**Schedule Improve** makes the same schedule in the console: on the
+project's **Schedules** page, where it asks which agent, or on an agent's
+**Suggested changes** page, for that agent. It shows to someone who can
+change the project's schedules (`write` on the project) and start Improve
+runs (`publish` on the agent). It asks for what `--input` and the flags
+take, with the same defaults:
+
+- **What to improve:** **Settings values**, or **The agent's instructions**
+  with a **Drafting model** and how many **Drafts of the instructions**;
+- **Better means a higher:** share marked right, or weighted precision@k;
+- **Learn from experts' corrections only (recommended)**, ticked to start
+  with, for `classWeights` `restricted-only`; unticked, it's `as-recorded`;
+- its scope: the project, or a segment of it;
+- **When (cron)** and **Time zone**, an IANA name, UTC to start with. Under
+  them it puts the cron in words, and it holds back one that fires more than
+  once an hour: "At most once an hour: name one minute (0 * * * * is every
+  hour). Each fire may start an Improve run, which costs money."
+- **Starts an Improve run at:** **Corrections marking an answer wrong**, **On
+  runs** and **From judges**, 5, 3 and 2 to start with. "Runs and judges
+  can't be more than corrections: each correction is on one run, by one
+  judge."
+- **Each Improve run spends at most (US$)**, 5, and for settings values
+  **And tries at most**, 30; **Its Improve runs spend at most, a month
+  (US$)**, 20: "A calendar month, UTC. An Improve run never spends more than
+  what's left of it.";
+- **Label (optional)**.
+
+**Create** makes it, running as you, and opens its page. Under `kindgi dev`,
+Schedule Improve is off, and the page says why: a schedule's Improve runs
+are each for one project, and a change under `kindgi dev` is for every
+project. Start Improve from the agent's **Suggested changes** page instead.
 
 ## Next
 
 - [List runs](../list-runs/)
 - [Start runs from WooCommerce, Drupal or any signed webhook](../../webhooks/start-runs-from-webhooks/)
-- [Let a pass look for something better](../../evals/improve-an-agent/)
+- [Improve an agent](../../evals/improve-an-agent/)

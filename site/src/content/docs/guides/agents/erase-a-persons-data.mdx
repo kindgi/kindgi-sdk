@@ -205,21 +205,26 @@ Once it completes, new turns for the person start again.
   conversation then answers `404`.
 - **The runs that served them:** each run's input, output and journal, its
   snapshots and waitpoints, and what it left in provenance. The run itself
-  stays, with `contentErasedAt`. Judging such a run is refused,
+  stays, with `contentErasedAt`. Correcting such a run is refused,
   `410 run-erased`.
-- **The reasons in its ratings:** a judgment of such a run keeps its
-  verdict, who judged and when, and loses its reason and the judged item's
-  value. A judging-queue item still waiting for it closes as `erased`, and a
-  dismissal's reason is cleared.
+- **The reasons in its ratings:** a correction of such a run keeps its
+  verdict, who corrected it and when, and loses its reason,
+  [what it says the run should have done](../../evals/judge-a-runs-output/#say-what-it-should-have-done)
+  and the corrected item's value. An item still waiting for a correction
+  closes as `erased`, and a dismissal's reason is cleared.
 - **What else held their words:**
   - approvals' text, such as a tool call's arguments and a reviewer's
     rationale. The title, the status and who decided stay;
   - audit events' text, and monitoring observations;
   - a webhook delivery's error message, and a model call's error message
     (its cost stays);
-  - evals' copies. A test set's case copied from an erased run reads
-    `erased: true`, and comparisons leave it out and count it, in
-    `summary.erased`.
+  - evals' copies. A test case copied from an erased run reads
+    `erased: true`, and runs on the test cases leave it out and count it, in
+    `summary.erased`. For a case from such a run, or a replay of one, a run
+    on the test cases loses what could quote them: the case's `changes`,
+    `tools` and `error`, and what differed from what the run should have
+    done. Its scores, its counts, and whether each correction passed stay,
+    so its numbers do.
 
 Audit events of a kind your compliance setup holds, a legal hold, keep their
 text, and the erasure counts them. A fact under legal hold stops the erasure
@@ -232,10 +237,10 @@ before it starts: `409 legal-hold`, with the held facts in `details.factIds`.
   explains.
 - **Signed exports already made**, such as an approval's audit bundle.
 - **A webhook receiver's copy** of a delivery that was already sent.
-- **An improvement pass's drafted prompts and hypotheses.** A draft that
+- **An Improve run's drafted instructions and hypotheses.** A draft that
   quotes eight or more words in a row of a test case is refused, and such
   quotes are cut from a hypothesis, so they hold a paraphrase at most. The
-  reviewer who approves a proposal is the check.
+  reviewer who approves a suggested change is the check.
 
 ## Shared flows
 

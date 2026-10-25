@@ -421,12 +421,12 @@ Tell the person, in your own words:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let
 >    the agent call it".
-> 2. **Judge a few answers:** say yes or no to what it answered, so later
->    versions can be checked against your judgments
->    ([Judge a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
+> 2. **Correct a few answers:** say yes or no to what it answered, so later
+>    versions can be checked against your corrections
+>    ([Correct a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
->    judgments rate the new version higher
->    ([Compare a version on a test set](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).
+>    corrections rate the new version higher
+>    ([Try a version on the test cases](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).
 
 If the person then asks for an app that starts the agent's runs, read
 [Start runs from your app](https://docs.kindgi.com/start/call-from-your-app.md)

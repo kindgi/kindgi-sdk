@@ -105,7 +105,7 @@ describe('client.proposals', () => {
 
     const refused = errorFetch(422, {
       code: 'gate-failed',
-      message: 'The gate refused acme.scorer 1.0.1',
+      message: 'The release gate policy refused acme.scorer 1.0.1',
       details: { proposalId: ID },
     });
     await expect(clientWith(refused).proposals.request(ID)).rejects.toMatchObject({

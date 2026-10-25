@@ -7,12 +7,19 @@ import { ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
-import { isTenantAdmin } from '../caller.js';
+import { callerRef, isTenantAdmin } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
-import type { TriggerOwner } from '../trigger-binding.js';
+import type {
+  CronTriggerRecord,
+  TriggerOwner,
+  TriggerRecord,
+  TriggerRegistryBinding,
+  UpdateTriggerError,
+  WebhookTriggerRecord,
+} from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 
@@ -216,6 +223,92 @@ export async function recordOwnerSet(args: {
     },
     ...(log !== undefined && { log }),
   });
+}
+
+/**
+ * The owner an edit moves a trigger to, or `undefined` when it stays. A
+ * trigger runs as whoever created it, or last changed what it runs: its
+ * target or version, its input, its `toolsAllowedUnattended`, a webhook's
+ * signing secret. So when anyone but the person who owns it changes one of
+ * those, the editor becomes its owner, as `POST …/owner` would make them,
+ * and a person's own connections only serve what that person set it to
+ * run. A label, the cron line or a pause doesn't move it, nor does an edit
+ * by its owner. A trigger a service account owns keeps its owner; a service
+ * account that changes a person's trigger makes it the service account's.
+ */
+export function ownerAfterEdit(
+  c: Context<AppEnv>,
+  owner: TriggerOwner,
+  changesWhatItRuns: boolean,
+): TriggerOwner | undefined {
+  if (!changesWhatItRuns || owner.kind !== 'user') return undefined;
+  const editor = ownerOf(c);
+  return editor.kind === 'user' && editor.id === owner.id ? undefined : editor;
+}
+
+/** What {@link editMovingOwner} answers. */
+export type EditMovingOwnerOutcome =
+  | { readonly kind: 'ok'; readonly value: TriggerRecord }
+  | { readonly kind: 'err'; readonly error: { readonly code: string; readonly message: string } }
+  /** The edit moves the owner, and the binding can't (no `setOwner`). */
+  | { readonly kind: 'unsupported' };
+
+/**
+ * Makes an edit, under the owner {@link ownerAfterEdit} names when it
+ * names one. That owner is set first, so no fire runs the change as the
+ * owner before; when the edit then fails, the owner is put back. An owner
+ * that ends up changed is audited as `trigger-owner-set`, by the editor.
+ */
+export async function editMovingOwner(
+  c: Context<AppEnv>,
+  args: {
+    readonly binding: Pick<TriggerRegistryBinding, 'setOwner'>;
+    readonly auditEvents: EmitAuditEventArgs['auditEvents'];
+    readonly trigger: CronTriggerRecord | WebhookTriggerRecord;
+    readonly to: TriggerOwner | undefined;
+    readonly edit: () => Promise<
+      | { readonly kind: 'ok'; readonly value: TriggerRecord }
+      | { readonly kind: 'err'; readonly error: UpdateTriggerError }
+    >;
+  },
+): Promise<EditMovingOwnerOutcome> {
+  const { binding, auditEvents, trigger, to, edit } = args;
+  if (to === undefined) return edit();
+  if (binding.setOwner === undefined) return { kind: 'unsupported' };
+  const { tenantId, triggerId } = trigger;
+  const moved = await binding.setOwner({ tenantId, triggerId, owner: to });
+  if (moved.kind === 'err') return moved;
+  const audit = (record: TriggerRecord) => {
+    const tools = record.kind === 'event' ? undefined : record.toolsAllowedUnattended;
+    return recordOwnerSet({
+      auditEvents,
+      tenantId,
+      projectId: trigger.projectId,
+      triggerId: triggerId as unknown as string,
+      triggerKind: trigger.kind === 'webhook' ? 'webhook' : 'cron',
+      from: trigger.owner,
+      to,
+      by: callerRef(c),
+      correlationId: c.get('requestId'),
+      log: c.get('log'),
+      ...(tools !== undefined && { toolsAllowedUnattended: tools }),
+    });
+  };
+  const edited = await edit();
+  if (edited.kind === 'ok') {
+    await audit(edited.value);
+    return edited;
+  }
+  const putBack = await binding.setOwner({ tenantId, triggerId, owner: trigger.owner });
+  if (putBack.kind === 'err') {
+    // The edit failed with the owner already moved: the move stands, so
+    // it's audited, and the edit's own error is the answer.
+    c.get('log').warn(
+      `trigger ${triggerId}: the edit failed and its owner couldn't be put back: ${putBack.error.message}`,
+    );
+    await audit(moved.value);
+  }
+  return edited;
 }
 
 function ownerError(

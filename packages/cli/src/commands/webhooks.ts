@@ -4,7 +4,8 @@
 import type { WebhookSignature, WebhooksClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
-import { type Rendered, renderJson } from '../output.js';
+import { type Rendered, renderJson, successNote } from '../output.js';
+import { type SaidLine, note, renderLines, warning } from '../progress-lines.js';
 import {
   type TableSpec,
   allowUnattendedField,
@@ -255,11 +256,13 @@ function limitFields(ctx: CommandContext): {
   };
 }
 
-/** Where to point the sender, or why there's nothing to point it at yet. */
-function receiveNote(t: Trigger): string {
+/** Where to point the sender, a note; or why there's nothing to point it at yet, a warning. */
+function receiveLine(t: Trigger): SaidLine {
   return t.receiveUrl !== undefined
-    ? `  Receive URL (the sender posts here): ${t.receiveUrl}\n`
-    : `  No receive URL: this deployment has no public URL configured. Set KINDGI_PUBLIC_URL on the runtime to the address your sender reaches it at, then \`kindgi webhooks get ${t.triggerId}\` shows it.\n`;
+    ? note(`  Receive URL (the sender posts here): ${t.receiveUrl}`)
+    : warning(
+        `  No receive URL: this deployment has no public URL configured. Set KINDGI_PUBLIC_URL on the runtime to the address your sender reaches it at, then \`kindgi webhooks get ${t.triggerId}\` shows it.`,
+      );
 }
 
 const register: LeafCommand = {
@@ -329,30 +332,47 @@ const register: LeafCommand = {
         } as RegisterInput);
         const preset = stringFlag(ctx, 'preset');
         const rendered = renderJson(trigger, ctx.globals.format);
+        const quiet = ctx.globals.format === 'quiet';
         return {
-          stdout: rendered.stdout,
-          stderr: [
-            '',
-            `  Registered webhook trigger ${trigger.triggerId}: each signed delivery starts ${flowId}@${flowVersion}.`,
-            ...(runAs !== undefined
-              ? [`  Its runs act as service account ${trigger.owner.id} (${trigger.owner.kind}).`]
-              : []),
-            receiveNote(trigger).trimEnd(),
-            ...(trigger.signingSecret !== undefined
-              ? [
-                  `  Signing secret (stored as ${secretName} in project ${trigger.projectId}; shown this once): ${trigger.signingSecret}`,
-                ]
-              : []),
-            // You administer no scope its secret could be read at: say so plainly.
-            ...(trigger.hmacSecretScope === null
-              ? [
-                  `  Nothing is read for ${secretName} until a project admin names it again (\`kindgi webhooks update ${trigger.triggerId} --secret=${secretName}\`): you don't administer a scope it could be read at. Or register with --generate-secret, which stores a new one in the project.`,
-                ]
-              : []),
-            ...(preset !== undefined ? [`  ${WEBHOOK_PRESETS[preset]?.where ?? ''}`] : []),
-            '',
-            '',
-          ].join('\n'),
+          // Shown this once: under --quiet, alone on stdout, as `connections connect`'s link is.
+          stdout:
+            quiet && trigger.signingSecret !== undefined
+              ? `${trigger.signingSecret}\n`
+              : rendered.stdout,
+          stderr: renderLines(
+            [
+              note(''),
+              note(
+                `  Registered webhook trigger ${trigger.triggerId}: each signed delivery starts ${flowId}@${flowVersion}.`,
+              ),
+              ...(runAs !== undefined
+                ? [
+                    note(
+                      `  Its runs act as service account ${trigger.owner.id} (${trigger.owner.kind}).`,
+                    ),
+                  ]
+                : []),
+              receiveLine(trigger),
+              ...(trigger.signingSecret !== undefined
+                ? [
+                    note(
+                      `  Signing secret (stored as ${secretName} in project ${trigger.projectId}; shown this once): ${trigger.signingSecret}`,
+                    ),
+                  ]
+                : []),
+              // You administer no scope its secret could be read at: say so plainly.
+              ...(trigger.hmacSecretScope === null
+                ? [
+                    warning(
+                      `  Nothing is read for ${secretName} until a project admin names it again (\`kindgi webhooks update ${trigger.triggerId} --secret=${secretName}\`): you don't administer a scope it could be read at. Or register with --generate-secret, which stores a new one in the project.`,
+                    ),
+                  ]
+                : []),
+              ...(preset !== undefined ? [note(`  ${WEBHOOK_PRESETS[preset]?.where ?? ''}`)] : []),
+              note(''),
+            ],
+            quiet,
+          ),
         };
       },
     ),
@@ -398,7 +418,13 @@ const get: LeafCommand = {
     runSdkRendered(ctx, 'webhooks get', async () => {
       const trigger = await ctx.client().webhooks.get(requiredPositional(ctx, 0, 'trigger-id'));
       const rendered = renderJson(trigger, ctx.globals.format);
-      return { stdout: rendered.stdout, stderr: `\n${receiveNote(trigger)}\n` };
+      return {
+        stdout: rendered.stdout,
+        stderr: renderLines(
+          [note(''), receiveLine(trigger), note('')],
+          ctx.globals.format === 'quiet',
+        ),
+      };
     }),
 };
 
@@ -453,8 +479,10 @@ const pause: LeafCommand = {
       const rendered = renderJson(trigger, ctx.globals.format);
       return {
         stdout: rendered.stdout,
-        stderr:
+        stderr: successNote(
+          ctx.globals.format,
           '\n  Paused. Deliveries are taken and recorded as skipped (`kindgi webhooks fires`), and start nothing: their events are dropped. WooCommerce never resends them, so resuming does not bring them back.\n\n',
+        ),
       };
     }),
 };
@@ -511,13 +539,18 @@ const takeOwnership: LeafCommand = {
       const rendered = renderJson(trigger, ctx.globals.format);
       return {
         stdout: rendered.stdout,
-        stderr: [
-          '',
-          `  Trigger ${trigger.triggerId} now runs as ${trigger.owner.displayName ?? trigger.owner.id} (${trigger.owner.kind}), from the next delivery.`,
-          ...keptToolsNote(trigger),
-          '',
-          '',
-        ].join('\n'),
+        // The tools it keeps allowed unattended are a warning: said under --quiet too.
+        stderr: renderLines(
+          [
+            note(''),
+            note(
+              `  Trigger ${trigger.triggerId} now runs as ${trigger.owner.displayName ?? trigger.owner.id} (${trigger.owner.kind}), from the next delivery.`,
+            ),
+            ...keptToolsNote(trigger).map(warning),
+            note(''),
+          ],
+          ctx.globals.format === 'quiet',
+        ),
       };
     }),
 };

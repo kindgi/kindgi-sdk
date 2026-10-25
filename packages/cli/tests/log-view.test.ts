@@ -130,15 +130,15 @@ describe('the view', () => {
     });
   });
 
-  test('--quiet: error, whatever the env says, unless --log-level says otherwise', () => {
+  test('--quiet: warn, whatever the env says, unless --log-level says otherwise', () => {
     const quiet = (f: DevLogFlags) =>
       resolveDevLogView(f, env({ KINDGI_LOG_LEVEL: 'debug', KINDGI_LOG_LEVELS: 'http=trace' }));
     expect(quiet(flags({ quiet: true }))).toMatchObject({
       kind: 'ok',
-      value: { level: 'error', levels: {}, quiet: true },
+      value: { level: 'warn', levels: {}, quiet: true },
     });
-    expect(quiet(flags({ quiet: true, level: 'warn' }))).toMatchObject({
-      value: { level: 'warn' },
+    expect(quiet(flags({ quiet: true, level: 'error' }))).toMatchObject({
+      value: { level: 'error' },
     });
   });
 

@@ -10,6 +10,14 @@ import { type AuthClient, makeAuthClient } from './resources/auth.js';
 import { type BlocksClient, makeBlocksClient } from './resources/blocks.js';
 import { type CapabilitiesClient, makeCapabilitiesClient } from './resources/capabilities.js';
 import { type ComplianceClient, makeComplianceClient } from './resources/compliance.js';
+import {
+  type ConnectionAppsClient,
+  type ConnectionEntriesClient,
+  type ConnectionsClient,
+  makeConnectionAppsClient,
+  makeConnectionEntriesClient,
+  makeConnectionsClient,
+} from './resources/connections.js';
 import { type ConversationsClient, makeConversationsClient } from './resources/conversations.js';
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
@@ -168,6 +176,9 @@ export interface KindgiClient {
   readonly events: EventsClient;
   readonly artifacts: ArtifactsClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
+  readonly connectionEntries: ConnectionEntriesClient;
+  readonly connectionApps: ConnectionAppsClient;
+  readonly connections: ConnectionsClient;
   /** Inbound webhook triggers: a signed request starts a flow run. */
   readonly webhooks: WebhooksClient;
   // Packs
@@ -245,6 +256,9 @@ export function createClient(options: ClientOptions): KindgiClient {
     events: makeEventsClient(transport),
     artifacts: makeArtifactsClient(transport),
     webhookEndpoints: makeWebhookEndpointsClient(transport),
+    connectionEntries: makeConnectionEntriesClient(transport),
+    connectionApps: makeConnectionAppsClient(transport),
+    connections: makeConnectionsClient(transport),
     webhooks: makeWebhooksClient(transport),
     packs: makePacksClient(transport),
   };

@@ -15,6 +15,7 @@ import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, type ItemServing, shownLatest } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -56,6 +57,12 @@ export function blocksRouter(
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
+  // A read-only registry (under `kindgi dev`, the pack's files) refuses
+  // every write before anything else runs.
+  r.use(
+    '*',
+    refuseWritesWhenReadOnly(() => binding.readOnly),
+  );
 
   async function canProject(
     c: Context<AppEnv>,

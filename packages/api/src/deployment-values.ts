@@ -211,8 +211,8 @@ async function toolSecrets(
 ): Promise<DeploymentValue[]> {
   const out: DeploymentValue[] = [];
   const optional = new Set(toolOptionalSecretNames(tool));
-  const authorization = tool.spec?.authorization?.secretRef?.name;
-  if (authorization !== undefined) optional.delete(authorization);
+  const auth = tool.spec?.authorization;
+  if (auth !== undefined && auth.kind !== 'connection') optional.delete(auth.secretRef.name);
   for (const ref of toolSecretRefs(tool, deps.envName)) {
     const base = { name: ref.name, kind: 'secret' as const, neededBy };
     if (deps.secrets === undefined || ref.envName === undefined) {

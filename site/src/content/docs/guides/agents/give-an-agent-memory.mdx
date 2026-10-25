@@ -283,6 +283,15 @@ name.
   a run that names none (`participantId`) isn't offered the tool, and its
   result carries a `memory-needs-participant` warning. `same-conversation`,
   `same-project` and `tenant` are what they say.
+- **`tenant` takes a tenant admin**
+  [with authorization on](../../../deploy/authorization/): facts every
+  project reads are a tenant-level decision. In a turn that a person or a
+  key runs, the agent proposes one only when that caller is a tenant admin.
+  With anyone else, the call doesn't run, and the model is told:
+
+  ```text
+  You don't have permission to remember facts for everyone in the organization: that needs a tenant admin.
+  ```
 - **Every remembered fact** is `unverified`, attributed to the agent version
   and the tool call that wrote it, and kept `keepDays` (30 by default) unless
   a person verifies it.
@@ -528,8 +537,8 @@ For reference, the retrieval intent it writes looks like this:
   customer), whoever had them.
 - **`same-project`:** the project's conversations, whoever had them.
 
-A comparison's replays are never recalled, in any scope: a replay re-runs a
-past turn on another version, and its answers are no one's.
+The replays of a run on the test cases are never recalled, in any scope: a
+replay re-runs a past turn on another version, and its answers are no one's.
 
 **The people's own words, by default.** Recall returns users' messages only,
 and the messages either side of a hit follow the same rule. `roles: ['user',

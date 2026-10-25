@@ -1,45 +1,74 @@
 ---
-title: Judging reference
-description: Judgments and their items, judge classes and restrictions, judging rules, the judging queue, rule results, and the console's Quality section.
+title: Corrections reference
+description: Corrections and their items, judge classes and restrictions, judging rules, the answers waiting for a correction, rule results, and the console's Quality section.
 sidebar:
   order: 1.5
 ---
 
-This page lists everything about judging runs: what a judgment holds, how
-judge classes weigh it, what judging rules match, what the judging queue
-holds, how a rule's results count, and what the console's Quality section
-shows. To judge a run, follow [Judge a run's output](../judge-a-runs-output/).
+This page lists everything about correcting runs: what a correction holds,
+how judge classes weigh it, what judging rules match, what the answers
+waiting for a correction hold, how a rule's results count, and what the
+console's Quality section shows. To correct a run, follow
+[Correct a run's output](../judge-a-runs-output/).
 
-## Judgments
+## Corrections
 
 - **`item.key`** is your stable id for the item: `answer` for the whole
   answer, or, for a list, the id of the element, such as a matched case's id.
 - **`item.pointer`** (optional) is where the item is in the run's output, as
-  a JSON Pointer such as `/matches/2`. Its value is kept with the judgment.
+  a JSON Pointer such as `/matches/2`. Its value is kept with the correction.
 - **`item.rank`** (optional) is its place in a ranked list, 0 first.
-- **Who judged** comes from the token, as `assertedBy`. An app that judges
-  for its own users adds `participantId`, its own opaque id for the user.
-- **Judging the same item again,** as the same caller and participant, under
-  any class or none, replaces the earlier judgment. The earlier one stays in
-  the history. So each person has one verdict per item, and its class only
-  says how much it counts.
-- **A judgment keeps copies** of the run's input and output, so it outlives
+- **Who corrected it** comes from the token, as `assertedBy`. An app that
+  records corrections for its own users adds `participantId`, its own opaque
+  id for the user.
+- **Correcting the same item again,** as the same caller and participant,
+  under any class or none, replaces the earlier correction. The earlier one
+  stays in the history. So each person has one verdict per item, and its
+  class only says how much it counts.
+- **A correction keeps copies** of the run's input and output, so it outlives
   the run's own retention.
-- **Judging a run takes write access** to its project, as cancelling it does.
+- **Correcting a run takes write access** to its project, as cancelling it does.
+- **What it should have done** (runtime 0.2.0 or later): a correction of
+  an agent's run can say it, in `correction: { calls, notCalled }`. Each of
+  `calls` is `{ tool, args }`, and each of `notCalled` is a tool id. Both
+  lists are required, and one of them can be empty. It's about the whole
+  run, so it's recorded under the item `kindgi:correction`, with `pointer`
+  `""` or none. Its verdict says whether the run's decisions were right,
+  `yes` or `no`, and its reason is optional, as for any correction.
+- **How it's checked,** on a replay: only the tools it names are compared.
+  Each tool in `calls` must be called as many times as it's listed, each
+  call matching one listed call, in any order. A listed call's `args` match
+  when each field given equals the call's top-level argument of that name,
+  compared whole, and `{}` matches any arguments. A tool in `notCalled`
+  must not be called. A call the replay refused still counts as called.
+- **Its limits:** up to 50 `calls` and 50 `notCalled`, tool ids up to 200
+  characters, and each `args` up to 100 fields and 4,000 characters of JSON.
 
-Only a finished run can be judged, and the pointer must find something:
+Only a finished run can be corrected, and the pointer must find something:
 
 ```text
 Run "fc26b436-611b-4962-9913-2f2669ade7e1" has no output to judge yet (status suspended).
 Nothing at "/no/such" in run "bc6d1b53-3562-48c9-9f29-719779e3d110"'s output.
 ```
 
+When what it should have done breaks a rule, the correction is refused with
+`400 bad-input`, such as:
+
+```text
+correction needs at least one of calls or notCalled.
+each correction call needs an args object ({} asks only that the tool was called).
+"acme-store.refund" can't be in both correction.calls and correction.notCalled.
+a correction is recorded under the item "kindgi:correction", not "answer".
+the item "kindgi:correction" is reserved for corrections; judge an item of the output instead.
+The judged version has no tool "acme-store.refunds".
+```
+
 ## Judge classes
 
-- **A class weighs its judgments:** `--weight=3` counts each three times.
-  Without a class, a judgment counts once.
+- **A class weighs its corrections:** `--weight=3` counts each three times.
+  Without a class, a correction counts once.
 - **A class applies** to the tenant, a project, or an agent in a project.
-- **A restriction says who may judge as the class:**
+- **A restriction says who may correct as the class:**
   - `--min-reviewer-role`: `standard`, `senior` or `admin`, a reviewer of
     that role or above;
   - `--principal-kind`: `user` for people, or `service` for service tokens;
@@ -50,18 +79,18 @@ Nothing at "/no/such" in run "bc6d1b53-3562-48c9-9f29-719779e3d110"'s output.
 - **Whom a class names is for the admins of its scope.** Anyone else who
   reads the class gets how many it names, as `principalCount`, not their
   ids.
-- **A judgment made under a restriction carries `"restricted": true`,** in
-  `kindgi judgments list` too. It's decided when the judgment is made:
-  judgments recorded before the restriction don't count as restricted.
+- **A correction made under a restriction carries `"restricted": true`,**
+  in `kindgi judgments list` too. It's decided when the correction is made:
+  corrections recorded before the restriction don't count as restricted.
 - **Lifting a restriction,** with
   `kindgi judge-classes set <judge-class-id> --unrestricted`, keeps the
-  earlier judgments restricted. New ones aren't.
+  earlier corrections restricted. New ones aren't.
 - **`kindgi judge-classes set` with restriction flags replaces the whole
   restriction.**
 
-A test set counts restricted judgments apart, and a comparison can count
-only them, as
-[Compare a version on a test set](../compare-an-agent-version/#count-only-restricted-judges)
+Test cases count restricted corrections apart, and a run on the test cases
+can count only them, as
+[Try a version on the test cases](../compare-an-agent-version/#count-only-experts-corrections)
 shows.
 
 ## Judging rules
@@ -75,9 +104,9 @@ What a rule matches, in `when`, each field narrowing it:
   agent's live version rather than one the caller named. So the rule follows
   each release.
 - **`status`**: how the run ended. Only `completed`, since only a completed
-  run can be judged. It's also the default.
-- **`includeDryRuns`**: dry runs are left out unless this is `true`. A
-  comparison's runs on a test set are never queued.
+  run can be corrected. It's also the default.
+- **`includeDryRuns`**: dry runs are left out unless this is `true`. The
+  runs that a run on the test cases makes are never queued.
 
 How much of it to queue:
 
@@ -85,9 +114,9 @@ How much of it to queue:
   rule always give the same answer, across the rule's versions too. So
   raising it later keeps the runs it took before, and adds more.
 - **`maxOpen`**: the rule adds nothing while this many of its runs wait, and
-  starts again as they're judged.
-- **`judgeClassId`**: whose judgment the rule wants, a
-  [judge class](#judge-classes). Without it, any judgment does.
+  starts again as they're corrected.
+- **`judgeClassId`**: whose correction the rule wants, a
+  [judge class](#judge-classes). Without it, any correction does.
 
 A rule applies to runs that end after it's made. To try one before you make
 it, `judgingRules.preview` takes the same fields. It answers how many of the
@@ -95,6 +124,23 @@ project's last 100 runs it would have queued, with its `sample` but not its
 `maxOpen`. `last` sets how many runs, up to 500. Give an existing rule's
 `ruleId` to sample as it does. Without one, the count is an estimate. A run
 that doesn't record how its version was chosen never matches `live`.
+
+To catch a rule up on runs that ended before it was made,
+`judgingRules.queueRecent` queues its matches among the project's recent
+runs: the `last` of them (up to 1,000, newest first), those completed at or
+after `since`, or, with both, the `last` of those completed at or after
+`since`. It samples as the rule samples, so it picks the runs the rule
+itself would have. It doesn't apply `maxOpen`: a catch-up can leave more
+than `maxOpen` of the rule's runs waiting, and the rule then adds nothing at
+run end until fewer wait. The answer counts the matches three ways, which
+together are all of them:
+
+- **`queued`**: queued for the rule by this call, as a new item or added to one that's already waiting for another rule.
+- **`alreadyQueued`**: the rule had queued them already, and they're still waiting.
+- **`alreadyReviewed`**: their run was already corrected or dismissed, so
+  they're left as they are.
+
+An erased run isn't a match, so it's in none of the three.
 
 A rule only lists runs: it never runs a model or spends anything.
 
@@ -108,31 +154,33 @@ A rule only lists runs: it never runs a model or spends anything.
 - **`judgingRules.unregister`** stops a rule. It queues nothing more. Its
   versions and the runs it queued stay.
 
-## The judging queue
+## Answers waiting for a correction
 
-`judgingQueue.list` gives the queue, oldest first.
+`judgingQueue.list` gives the queue of answers waiting for a correction,
+oldest first.
 
 - **Each item** is a run: its agent or flow and version, how it ended, the
   rules that queued it, each at the version that did, the judge classes they
-  want, and the judgments on it so far, by class. It carries none of the
-  run's content: open the run to judge it.
+  want, and the corrections on it so far, by class. It carries none of the
+  run's content: open the run to correct it.
 - **`forMe: true`** keeps the items you can close: those that want a class
-  you may judge as, or any judgment.
+  you may correct as, or any correction.
 - **An item closes** as `judged` once each rule that queued it has the
-  judgment it wants: one of its class, or any judgment for a rule without a
-  class.
+  correction it wants: one of its class, or any correction for a rule
+  without a class.
 - **`judgingQueue.dismiss`,** with an optional reason, takes a run not worth
-  judging out of the queue. `judgingQueue.reopen` puts it back. Each item's
+  correcting out of the queue. `judgingQueue.reopen` puts it back. Each item's
   `can` says whether you may.
 - **Counts:** `limit: 0` answers only the `total`. With `state`,
-  `addedAfter` and `closedAfter`, it gives "N waiting, M judged this week".
+  `addedAfter` and `closedAfter`, it counts, for example, how many are
+  waiting and how many were corrected this week.
 - **When a run's content is gone,** erased or purged by
   [retention](../../../deploy/retention/), its waiting item closes as
   `erased` and shows nothing of the run.
 
 Reading the rules and the queue takes read access to the project. Changing a
-rule, and dismissing or reopening an item, take write access, as judging a
-run does.
+rule, queueing its recent matches, and dismissing or reopening an item, take
+write access, as correcting a run does.
 
 ## A rule's results
 
@@ -141,16 +189,16 @@ agent version:
 
 - **The runs it queued:** `added`, and of them `open`, `judged`,
   `dismissed` and `erased`.
-- **The judgments on them,** with their weighted `yes` share, and the
-  judgments by class.
-- **The `yes` share is per judgment:** one person's verdict on one item of a
-  run's output.
-- **`runsWithJudgments`** counts the runs those judgments come from: the
-  queued runs with at least one live judgment, whatever their item's state
+- **The corrections on them,** with their weighted share marked right, and
+  the corrections by class.
+- **The share marked right is per correction:** one person's verdict on one
+  item of a run's output.
+- **`runsWithJudgments`** counts the runs those corrections come from: the
+  queued runs with at least one live correction, whatever their item's state
   now. That's still open, closed as `judged`, or dismissed after someone
-  judged it. `judgments` counts verdicts, so several people judging one run
-  make several judgments but one run here. To see how much a share rests on,
-  count runs, not judgments.
+  corrected it. `judgments` counts verdicts, so several people correcting one
+  run make several corrections but one run here. To see how much a share
+  rests on, count runs, not corrections.
 - **`skippedByCap`** counts the runs the rule matched and sampled but didn't
   queue because `maxOpen` were waiting, even when another rule queued them.
   So `added` + `skippedByCap` is every run it matched and sampled. When it
@@ -158,11 +206,11 @@ agent version:
 - **Never pooled:** each version of each rule is a sample of its own `when`,
   so its results are never added to another's.
 
-Here a rule that wants an expert's judgment queued four runs. An expert,
-with weight 3, and a peer judged the first. A peer judged the second `no`,
-and it's still open. A peer judged the third, which was then dismissed. The
-fourth was never judged. So `judgments` is 4, `runsWithJudgments` 3, and
-`yesShare` 0.83: 5 of 6 weighted verdicts.
+Here a rule that wants an expert's correction queued four runs. An expert,
+with weight 3, and a peer corrected the first. A peer marked the second
+`no`, and it's still open. A peer corrected the third, which was then
+dismissed. The fourth was never corrected. So `judgments` is 4,
+`runsWithJudgments` 3, and `yesShare` 0.83: 5 of 6 weighted verdicts.
 
 ```json
 {
@@ -199,51 +247,47 @@ fourth was never judged. So `judgments` is 4, `runsWithJudgments` 3, and
 
 ## In the console
 
-A project's **Quality** section is the judging queue and its rules in the
-console. Its headline says where judging stands:
+A project's **Quality** section is the answers waiting for a correction and
+the judging rules in the console. Its header says what it holds: "Answers
+waiting for a correction, where each corrected one stands, and the judging
+rules that pick them." The section has five tabs: **To correct**, **Rules**, **Trends**,
+**Judge classes** and **Suggested changes**. Their tables sort by a
+column's header, and **Columns** chooses which columns each shows. The tab,
+the filters and each table's view go in the page's address, such as
+`?tab=rules`, so a link opens the same view.
 
-> 5 runs wait for a judgment (3 for you) · 1 judged this week · 1 dismissed
-> this week · 7 added this week · 0 proposals to review.
+### To correct
 
-When a proposal waits for a reviewer, "· 1 waiting for a reviewer" follows.
-The section has five tabs: **Waiting**, **Rules**, **Trends**, **Judge
-classes** and **Proposals**. Their tables sort by a column's header, and
-**Columns** chooses which columns each shows. The tab, the filters and each
-table's view go in the page's address, such as `?tab=rules`, so a link opens
-the same view.
-
-### Waiting
-
-![The Quality section's Waiting tab: the headline, the filters, "2 more wait for other judges.", the Columns menu, and three runs of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert judgment, with Dismiss.](../../../../assets/quality/quality-waiting.png)
+![The Quality section's To correct tab, showing Waiting and For me: the Show and Whose filters, "2 more wait for other judges.", the Columns menu, and three runs of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert correction, with a Dismiss icon.](../../../../assets/quality/quality-waiting.png)
 
 Each row is a run in the queue:
 
 - **What ran:** the agent or flow and its version, and when it finished. It
-  links the run's **Judgments** tab, where you judge it, as
-  [Judge an item](../judge-a-runs-output/#judge-an-item) shows.
+  links the run's **Corrections** tab, where you correct it, as
+  [Correct an item](../judge-a-runs-output/#correct-an-item) shows.
 - **Why it's here:** the rules that queued it.
 - **Where it stands:** what it still needs, such as "Needs an expert
-  judgment (1 so far, unclassified)", or how a closed one ended.
+  correction (1 so far, unclassified)", or how a closed one ended.
 
-Filter it by state, **Waiting**, **Judged**, **Dismissed** or **Erased**. Or
+Filter it by state, **Waiting**, **Corrected**, **Dismissed** or **Erased**. Or
 by **For me** or **Everyone's** ("2 more wait for other judges."), by rule
 and by agent. **Dismiss** takes a run out of the queue with a reason, and
 **Reopen** puts a dismissed one back.
 
-![The Waiting tab filtered to Dismissed and Everyone's: a run of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by a person (11111111…) 2026-10-11 12:23 UTC: A test order", with Reopen.](../../../../assets/quality/quality-dismissed.png)
+![The To correct tab filtered to Dismissed and Everyone's: a run of Dev-Echo Agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by you 24 Oct 2026, 9:02 PM EDT: A test order", with a Reopen icon.](../../../../assets/quality/quality-dismissed.png)
 
 ### Rules
 
-![The Rules tab: "3 judging rules." with New rule, a search box and the Columns menu, and the Support sample, Everything and Bot review rules, each with which runs it takes, what it wants, its cap, its open items, and History, Change and Unregister.](../../../../assets/quality/quality-rules.png)
+![The Rules tab: New rule, a search box and the Columns menu, and the Support sample, Everything and Bot review rules, each with which runs it takes, what it wants, its cap, its open items, and History, Change and Remove icons.](../../../../assets/quality/quality-rules.png)
 
 Each rule is in words:
 
 - **Which runs:** "Completed runs of Dev-Echo Agent", and how many it takes:
   "Takes every matching run", or "Takes 1 in 10".
-- **What it wants:** "An expert judgment", "Any judgment" or "A bot
-  judgment".
+- **What it wants:** "An expert correction", "Any correction" or "A bot
+  correction".
 - **Its cap:** "No cap", or no new items while that many are open.
-- **What it has open now:** for example "3 open", linking **Waiting**.
+- **What it has open now:** for example "3 open", linking **To correct**, filtered to the rule.
 
 A rule matches an agent's or a flow's own runs, not an agent's turns as a
 flow's step. Replays never match.
@@ -251,30 +295,31 @@ flow's step. Replays never match.
 Project editors see **New rule**, and **Change** on each rule. The editor
 shows what the rule would have queued from the recent runs, and saving makes
 a new version of the rule. **History** lists what each version changed, who
-changed it and when. **Unregister** stops a rule, and the runs it queued
-stay in the queue.
+changed it and when. **Remove** stops a rule, and the runs it queued stay
+in the queue.
 
 ![The New judging rule dialog, over the Rules tab.](../../../../assets/quality/quality-rule-editor.png)
 
-![Echo half: its versions, over the Rules tab: "Version 2 · a person (11111111…) · 2026-10-11 12:23 UTC" changed "Cap: No new items while 5 are open → No cap" and "Wants: any judgment → an expert judgment"; Version 1, by the same person at the same time, "Created".](../../../../assets/quality/quality-rule-history.png)
+![Echo half: its versions, over the Rules tab: "Version 2 · a person (11111111…) · 24 Oct 2026, 9:03 PM EDT" changed "Cap: No new items while 5 are open → No cap" and "Wants: any correction → an expert correction"; Version 1, by the same person a minute earlier, "Created".](../../../../assets/quality/quality-rule-history.png)
 
 ### Trends
 
-![The Trends tab: each rule by its latest version, with the share of yes for each agent version. The Trend check rule's chart shows 1.1.0 at about 95% yes and 1.0.0 at about 25%, "1.1.0 is judged better than 1.0.0."](../../../../assets/quality/quality-trends.png)
+![The Trends tab: per rule, by its latest version, the share of people's corrections of each agent version that marked its answer right, weighted by judge class. The Trend check rule's chart shows 1.1.0 at about 95% marked right and 1.0.0 at about 25%, from 12 corrections each, and "1.1.0 is marked right more often than 1.0.0."](../../../../assets/quality/quality-trends.png)
 
-**Trends** shows, per rule and by its latest version, the share of yes
-among people's judgments of each agent version, over all time or the last 90
-or 30 days. These are [a rule's results](#a-rules-results):
+**Trends** shows, per rule and by its latest version, the share marked
+right among people's corrections of each agent version, over all time or the
+last 90 or 30 days. These are [a rule's results](#a-rules-results):
 
-- **A version shows from 10 judgments.** With fewer, it says so: "1.0.0: too
-  few judgments to say (2 so far)".
-- **Each line names its judgments and its range:** "1.1.0: about 95% yes,
-  from 12 judgments (12 runs judged so far); range 64–100%".
-- **A comparison only when the ranges are apart:** "1.1.0 is judged better
-  than 1.0.0."
-- **The weights, in words:** "Weighted by judge class: An expert's judgment
-  counts 3× an unclassified one; a bot's judgment counts the same as an
-  unclassified one."
+- **A version shows from 10 corrections.** With fewer, it says so: "1.0.0:
+  too few corrections to say (2 so far)".
+- **Each line names its corrections and its range:** "1.1.0: about 95%
+  marked right, from 12 corrections (12 runs corrected so far); range
+  64–100%".
+- **A comparison only when the ranges are apart:** "1.1.0 is marked right
+  more often than 1.0.0."
+- **The weights, in words:** "Weighted by judge class: An expert's
+  correction counts 3× an unclassified one; a bot's correction counts the
+  same as an unclassified one."
 - **What the numbers leave out:** an earlier version of the rule is "shown
   apart, never added in". Runs the cap kept out are counted: "1 matched run
   wasn't queued because the rule already had its most open runs waiting, so
@@ -282,11 +327,11 @@ or 30 days. These are [a rule's results](#a-rules-results):
 
 **Every count** opens the counts behind a rule's trend.
 
-![A rule's trend after the rule changed, now at rule version 2: too few judgments to chart yet, 1.2.0 with too few judgments to say, the one matched run the cap kept out, and rule version 1 shown apart, never added in.](../../../../assets/quality/quality-trends-changed.png)
+![A rule's trend after the rule changed, now at rule version 2: "Too few corrections to chart yet: a version shows from 10 corrections.", 1.2.0 with too few corrections to say (0 so far), the one matched run the cap kept out, and rule version 1 shown apart, never added in.](../../../../assets/quality/quality-trends-changed.png)
 
 ### Judge classes
 
-![The Judge classes tab: "2 judge classes apply to this project's runs. An unclassified judgment counts 1." The expert class counts 3×, applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services.](../../../../assets/quality/quality-classes.png)
+![The Judge classes tab: New class, the Columns menu, and two classes, both Restricted. The expert class "Counts 3× an unclassified one", applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services, and no rule wants it. Below: "A share weights each correction by its class."](../../../../assets/quality/quality-classes.png)
 
 Each [judge class](#judge-classes) that applies to the project's runs, in
 words:
@@ -297,18 +342,23 @@ words:
   restricted class is counted here, never listed;
 - the rules that want it.
 
+Below the list, the tab says what makes an expert: "Corrections in a
+restricted class are the experts' corrections: "Count only experts" counts
+only those."
+
 Project admins add, change and remove a project's classes, and tenant admins
 a tenant's. Removing a class names the rules that want it.
 
-![The Remove expert? dialog, over the Judge classes tab: "No new judgment can name it. Judgments that named it keep it, and still count with its weight in trends." and "2 rules want its judgment (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
+![The Remove expert? dialog, over the Judge classes tab: "No new correction can name it. Corrections that named it keep it, and still count with its weight in trends." and "2 rules want its correction (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
 
-### Proposals
+### Suggested changes
 
-![The Proposals tab: "0 to review · 0 waiting for a reviewer · 1 being evaluated · 1 needs a look." Tuned agent's proposals: one drafted and not evaluated yet, one "Not better on the test set", and a withdrawn one under Closed.](../../../../assets/quality/quality-proposals.png)
+![The Suggested changes tab: Tuned agent's suggested changes, one under "Being evaluated (1)", drafted and not evaluated yet; one under "Need a look (1)", "Not better on the test cases"; and a withdrawn one under "Closed (1)".](../../../../assets/quality/quality-proposals.png)
 
-The project's agents' [proposals](../improve-an-agent/), grouped by what
-they wait for: **To review**, **Waiting for a reviewer**, **Being
-evaluated**, **Need a look** and **Closed**. Each says where it stands, such
-as "Not better on the test set", with the judged yes share it was evaluated
-on. Each links its page: "Each proposal's page holds its actions: evaluate,
-request, roll back, withdraw."
+The project's agents' [suggested changes](../improve-an-agent/), grouped by
+what they wait for: **To review**, **Waiting for a reviewer**, **Being
+evaluated**, **Need a look** and **Closed**, each shown only when it has
+any, with its count, such as "Need a look (1)". Each says where it stands,
+such as "Not better on the test cases", with the share marked right it was
+evaluated on. Each links its page: "Each suggested change's page holds its
+actions: evaluate, ask to make it live, roll back, withdraw."
