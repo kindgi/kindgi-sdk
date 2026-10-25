@@ -280,10 +280,11 @@ describe('logging in', () => {
     const fake = fakeDocker();
     const out = await runRegistry([...ON_ROBOT_REGISTRY, '--password-stdin'], { docker: fake.run });
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('Missing --username');
     expect(out.stderr).toContain(
-      'Sign in with GitHub at https://access.kindgi.com: the page shows this command with your robot name',
+      'Missing --username=<name>: quay.io takes its own username and token. registry.kindgi.com takes your license key with no username: for it, leave out --registry quay.io.',
     );
+    expect(out.stderr).toContain('kindgi auth registry --check --registry quay.io.');
+    expect(out.stderr).not.toContain('access.kindgi.com');
     expect(fake.calls).toEqual([]);
   });
 
@@ -302,7 +303,7 @@ describe('logging in', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('docker login quay.io failed: Error response from daemon');
     expect(out.stderr).toContain('unauthorized: bad credentials for ***');
-    // The access page is named for the pinned image's registry only.
+    // Another registry's credentials aren't on the access page.
     expect(out.stderr).toContain('for ***\n  Check the username and the token.\n');
     expect(out.stderr).not.toContain(TOKEN);
     // No check after a failed login.
@@ -408,7 +409,7 @@ describe('--check', () => {
     expect(fake.calls).toEqual([]);
   });
 
-  test('a refusal is no access: pull credentials come from the access page', async () => {
+  test("a refusal is no access: that registry's own username and token", async () => {
     const fake = fakeDocker({
       'buildx imagetools inspect': {
         code: 1,
@@ -421,11 +422,9 @@ describe('--check', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(`✗ No access to ${ROBOT_IMAGE}: ERROR: unexpected status`);
     expect(out.stderr).toContain(
-      'The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one, then log in',
+      'The runtime image needs your username and token for quay.io, then log in',
     );
-    expect(out.stderr).toContain(
-      'kindgi auth registry --username <your robot name> --registry quay.io.',
-    );
+    expect(out.stderr).toContain('kindgi auth registry --username <username> --registry quay.io.');
     expect(out.stderr).not.toContain("Couldn't find");
   });
 
@@ -455,10 +454,10 @@ describe('--check', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('✓ Logged in to quay.io as robot');
-    expect(out.stderr).toContain("robot is logged in to quay.io but can't pull it");
     expect(out.stderr).toContain(
-      'sign in at https://access.kindgi.com for your current pull credential (questions: contact@kindgi.com)',
+      "robot is logged in to quay.io but can't pull it: that username needs access to the image on quay.io.",
     );
+    expect(out.stderr).not.toContain('access.kindgi.com');
   });
 });
 
@@ -892,19 +891,20 @@ describe('the refused-pull hint of kindgi dev', () => {
   test('points to kindgi auth registry, naming the registry only when it is another one', () => {
     expect(registryLoginCommand(DEFAULT_RUNTIME_IMAGE)).toBe('kindgi auth registry');
     expect(registryLoginCommand('registry.example.com/kindgi/runtime:dev')).toBe(
-      'kindgi auth registry --username <your robot name> --registry registry.example.com',
+      'kindgi auth registry --username <username> --registry registry.example.com',
     );
   });
 
   test("on Kindgi's registry: the license key, with no username", () => {
-    expect(registryLoginCommand(KINDGI_IMAGE)).toMatch(
-      /^kindgi auth registry( --registry registry\.kindgi\.com)?$/,
+    // A hostname is case-insensitive: still the pinned image's registry.
+    expect(registryLoginCommand('Registry.Kindgi.com/kindgi/runtime:dev')).toBe(
+      'kindgi auth registry',
     );
     expect(pullCredentialNeeded(KINDGI_IMAGE)).toBe(
       'The runtime image needs your license key: sign in at https://access.kindgi.com for it',
     );
     expect(pullCredentialNeeded('quay.io/kindgi/runtime:1.0')).toBe(
-      'The runtime image needs a pull credential: sign in with GitHub at https://access.kindgi.com for one',
+      'The runtime image needs your username and token for quay.io',
     );
   });
 });

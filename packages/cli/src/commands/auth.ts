@@ -183,7 +183,7 @@ const registry: LeafCommand = {
   optionSpec: {
     username: {
       type: 'string',
-      description: `Your username on another registry, such as your pull credential's robot name (shown at ${KINDGI_ACCESS_ORIGIN} once you sign in with GitHub). Not needed on ${KINDGI_REGISTRY}, which takes your license key.`,
+      description: `Your username on another registry, which goes with that registry's own token. Not needed on ${KINDGI_REGISTRY}, which takes your license key.`,
     },
     'password-stdin': {
       type: 'boolean',
@@ -241,7 +241,7 @@ function registryArgs(ctx: CommandContext): RegistryArgs | (CommandResult & { ki
   const named = typeof username === 'string' && username !== '' ? username : undefined;
   if (!check && !withKey && named === undefined) {
     return usageError(
-      `Missing --username=<name>: your pull credential's robot name. Sign in with GitHub at ${KINDGI_ACCESS_ORIGIN}: the page shows this command with your robot name, and the token to paste.\nTo check access without logging in: kindgi auth registry --check.`,
+      `Missing --username=<name>: ${host} takes its own username and token. ${KINDGI_REGISTRY} takes your license key with no username: for it, leave out --registry ${host}.\nTo check access without logging in: kindgi auth registry --check --registry ${host}.`,
     );
   }
   const store = typeof keyFrom === 'string' ? keyStore(ctx, keyFrom) : undefined;
@@ -412,7 +412,7 @@ function accessFailure(
         ? `    ${pullCredentialNeeded(image)}, then log in: ${registryLoginCommand(image)}.`
         : args.withKey
           ? `    Your license key logged in to ${args.host} but can't pull it: sign in at ${KINDGI_ACCESS_ORIGIN} for a current key, then log in again (questions: contact@kindgi.com).`
-          : `    ${args.username} is logged in to ${args.host} but can't pull it: sign in at ${KINDGI_ACCESS_ORIGIN} for your current pull credential (questions: contact@kindgi.com).`,
+          : `    ${args.username} is logged in to ${args.host} but can't pull it: that username needs access to the image on ${args.host}.`,
     ];
   }
   if (access.kind === 'credential-helper') {

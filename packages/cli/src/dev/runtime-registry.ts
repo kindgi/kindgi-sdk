@@ -65,7 +65,7 @@ export function registryLoginArgs(registry: string): readonly string[] {
   const other = host === RUNTIME_IMAGE_REGISTRY ? [] : ['--registry', host];
   return host === KINDGI_REGISTRY
     ? ['auth', 'registry', ...other]
-    : ['auth', 'registry', '--username', '<your robot name>', ...other];
+    : ['auth', 'registry', '--username', '<username>', ...other];
 }
 
 /** The command that logs Docker in to `image`'s registry, as a message shows it. */
@@ -73,11 +73,12 @@ export function registryLoginCommand(image: string): string {
   return ['kindgi', ...registryLoginArgs(registryOf(image))].join(' ');
 }
 
-/** What pulling `image` takes, and where it comes from: a hint's first words. */
+/** What pulling `image` takes (on Kindgi's registry, where it comes from): a hint's first words. */
 export function pullCredentialNeeded(image: string): string {
-  return isKindgiRegistry(registryOf(image))
+  const registry = registryOf(image);
+  return isKindgiRegistry(registry)
     ? `The runtime image needs your license key: sign in at ${KINDGI_ACCESS_ORIGIN} for it`
-    : `The runtime image needs a pull credential: sign in with GitHub at ${KINDGI_ACCESS_ORIGIN} for one`;
+    : `The runtime image needs your username and token for ${registry}`;
 }
 
 /** The end of what `docker` wrote to stderr, with `secret` (the token) blanked out. */
@@ -122,7 +123,7 @@ function loginRefusedHint(registry: string): string {
   if (isKindgiRegistry(registry)) {
     return `Check the license key: signing in at ${KINDGI_ACCESS_ORIGIN} shows yours.`;
   }
-  return `Check the username and the token.${registry === RUNTIME_IMAGE_REGISTRY ? ` Signing in at ${KINDGI_ACCESS_ORIGIN} shows both.` : ''}`;
+  return 'Check the username and the token.';
 }
 
 /**
