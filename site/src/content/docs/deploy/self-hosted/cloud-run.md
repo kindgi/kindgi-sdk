@@ -820,7 +820,10 @@ A new grant can take a minute or two to apply.
   the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
   you're upgrading to, or, before that release is out, its newest
   `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
-  and refuses a later `--to`. The module's README has the rest, under
+  and refuses a later `--to`. A server-only release, such as 0.2.0.1, is a
+  server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
+  `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. The
+  module's README has the rest, under
   [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading),
   and `./upgrade.sh --help` lists its options.
 - **Backups:** Cloud SQL backs the database up daily, with point-in-time
