@@ -39,10 +39,12 @@ import {
   isZodSchema,
   parseWithSchema,
 } from '@kindgi/schema';
-import { type ToolConnection, connectionRejectionOf } from '@kindgi/tools';
+import { type ToolConnection, connectionRejectionOf, withoutConnectionTokens } from '@kindgi/tools';
 import type { Result } from '@kindgi/types';
 
+import { serializeCause, stringifyError } from './error-text.js';
 import { MAX_PAUSE_NAME_LENGTH, MAX_PAUSE_TIMEOUT_MS, type WaitTokenRef } from './protocol.js';
+import { withoutSecretValues } from './without-values.js';
 
 /**
  * What a handler gets beside its input: the tenant and run it serves,
@@ -425,13 +427,17 @@ async function callHandler(
         error: { code: 'pause-not-available', message: cause.message, toolId: tool.id },
       };
     }
+    // The call's own values go before the message is built: its masking,
+    // its one-line causes and their cut could otherwise leave part of one
+    // where a match on the whole value no longer finds it.
+    const shown = withoutCallValues(cause, ctx);
     return {
       kind: 'err',
       error: {
         code: 'handler-throw',
-        message: `Handler for tool "${tool.id}" threw: ${stringifyError(cause)}${missingPackageHint(cause)}`,
+        message: `Handler for tool "${tool.id}" threw: ${stringifyError(shown)}${missingPackageHint(shown)}`,
         toolId: tool.id,
-        cause: serializeCause(cause),
+        cause: serializeCause(shown),
       },
     };
   }
@@ -808,36 +814,14 @@ async function defaultImportHandler(modulePath: string): Promise<HandlerModule> 
   return (await import(importSpecifier(modulePath))) as HandlerModule;
 }
 
-function stringifyError(err: unknown): string {
-  if (err instanceof Error) return `${err.name}: ${err.message}`;
-  return String(err);
-}
-
 /**
- * Handlers may throw arbitrary values (Error, string, plain objects,
- * undefined). The wire protocol carries `cause` as JSON — serialize to
- * a shape JSON.stringify handles cleanly. Preserve the original message
- * + name when `err` is an Error; fall back to a stringified rep otherwise.
+ * A thrown value with the call's connection tokens and secret values
+ * replaced by `[redacted]`, at any depth (`withoutConnectionTokens`,
+ * `withoutSecretValues`).
  */
-function serializeCause(err: unknown): unknown {
-  if (err instanceof Error) {
-    return { name: err.name, message: err.message, stack: err.stack };
-  }
-  if (err === undefined) return null;
-  if (
-    err === null ||
-    typeof err === 'string' ||
-    typeof err === 'number' ||
-    typeof err === 'boolean'
-  ) {
-    return err;
-  }
-  try {
-    JSON.stringify(err);
-    return err;
-  } catch {
-    return String(err);
-  }
+function withoutCallValues(cause: unknown, ctx: HandlerContext): unknown {
+  const secrets = ctx.secrets === undefined ? [] : Object.values(ctx.secrets);
+  return withoutSecretValues(withoutConnectionTokens(cause, [ctx.connections]), secrets);
 }
 
 /**

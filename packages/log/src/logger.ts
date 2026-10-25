@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { codeOf, fieldOf, isError, textOf } from './error-fields.js';
 import { formatJson, formatPretty } from './format.js';
 import { type LogLevel, SEVERITY, levelEnabled, levelFor } from './levels.js';
 import { redactValue, scrubText } from './redact.js';
@@ -55,48 +56,6 @@ const CORRELATION = [
 const FIXED: ReadonlySet<string> = new Set(['time', 'level', 'severity', 'subsystem', 'message']);
 /** Names a field can't take: the fixed five and `inMessage`, the record's own. */
 const RESERVED: ReadonlySet<string> = new Set([...FIXED, 'inMessage']);
-
-/** `err[key]`, or undefined when reading it throws (a getter, a revoked proxy). */
-function fieldOf(err: object, key: 'name' | 'message' | 'code'): unknown {
-  try {
-    return (err as Readonly<Record<string, unknown>>)[key];
-  } catch {
-    return undefined;
-  }
-}
-
-/** A string or numeric `code`, as a string. */
-function codeOf(err: object): { readonly code?: string } {
-  const code = fieldOf(err, 'code');
-  return typeof code === 'string' || typeof code === 'number' ? { code: String(code) } : {};
-}
-
-/** `err instanceof Error`, and false where asking throws (a revoked proxy). */
-function isError(err: unknown): err is Error {
-  try {
-    return err instanceof Error;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * `String(value)`, for a value that isn't an error. One that can't be made
- * a string (no prototype, a throwing `toString`) is its
- * `Object.prototype.toString` tag, and a revoked proxy `[unreadable]`:
- * logging it never throws.
- */
-function textOf(value: unknown): string {
-  try {
-    return String(value);
-  } catch {
-    try {
-      return Object.prototype.toString.call(value);
-    } catch {
-      return '[unreadable]';
-    }
-  }
-}
 
 /**
  * A plain object in an error's place (a storage error is
