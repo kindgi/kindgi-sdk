@@ -59,16 +59,32 @@ export interface RunInitScalaAugmentInputs {
   readonly javaSource?: KindgiJavaSource;
 }
 
-/** The build's own `name` and `version` (`name := "…"`, or `ThisBuild / version := "…"`). */
+/**
+ * The build's own `name` and `version` (`name := "…"`, or `ThisBuild / version := "…"`):
+ * on a line of its own, or inside `.settings(…)` on one line with others. A
+ * commented-out one isn't the build's.
+ */
 export function readSbtIdentity(build: string): {
   readonly name?: string;
   readonly version?: string;
 } {
+  const code = withoutComments(build);
   const setting = (key: string): string | undefined =>
-    new RegExp(`(?:^|\\n)\\s*(?:ThisBuild\\s*/\\s*)?${key}\\s*:=\\s*"([^"]+)"`).exec(build)?.[1];
+    new RegExp(`(?:^|[\\n(,])\\s*(?:ThisBuild\\s*/\\s*)?${key}\\s*:=\\s*"([^"]+)"`).exec(code)?.[1];
   const name = setting('name');
   const version = setting('version');
   return { ...(name !== undefined && { name }), ...(version !== undefined && { version }) };
+}
+
+/**
+ * Scala's strings (`"…"`, `"""…"""`) and comments (`// …`, `/* … *\/`): the
+ * leftmost match wins, so a `//` inside a string stays part of the string.
+ */
+const STRING_OR_COMMENT = /"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|\/\/[^\n]*|\/\*[\s\S]*?\*\//g;
+
+/** The build with its comments blanked, strings untouched. */
+function withoutComments(build: string): string {
+  return build.replace(STRING_OR_COMMENT, (match) => (match.startsWith('/') ? ' ' : match));
 }
 
 /** The line an app's build.sbt adds for kindgi-pack-scala. */
