@@ -17,7 +17,7 @@
  */
 export const CLI_DEFAULTS = {
   'auth registry': {
-    registry: "`quay.io`, the runtime image's registry",
+    registry: "`registry.kindgi.com`, the runtime image's registry",
     username: 'required (except with `--check`)',
   },
   init: {
