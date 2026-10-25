@@ -7,7 +7,11 @@ import { describe, expect, test, vi } from 'vitest';
 import type { ModelCallInput } from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
 
-import { type AnthropicModelInfo, createAnthropicProvider } from '../src/provider.js';
+import {
+  type AnthropicModelInfo,
+  THINKING_USED_MAX_TOKENS,
+  createAnthropicProvider,
+} from '../src/provider.js';
 
 const OPUS_MODEL: AnthropicModelInfo = {
   name: 'claude-opus-4-7',
@@ -664,6 +668,148 @@ describe("createAnthropicProvider — thinking: 'lowest'", () => {
     expect(result.message.content).toBe('PASS\nOn topic.');
     expect(result.finishReason).toBe('stop');
     expect(result.usage.completionTokens).toBe(90);
+  });
+});
+
+describe('createAnthropicProvider — thinking through a tool loop', () => {
+  const SONNET = { ...OPUS_MODEL, name: 'claude-sonnet-5-5' };
+  const metadata = { id: 'anthropic', region: 'us-east-1', models: [SONNET] } as const;
+  const thinking = {
+    type: 'thinking',
+    thinking: 'Order A-1: look it up before answering.',
+    signature: 'EqQBCkgIBxABGAIiQL…',
+  };
+  const lookupTool = {
+    name: 'acme.orders.lookup',
+    description: 'Look up an order.',
+    inputSchema: { type: 'object' },
+  };
+
+  test("the call after a tool call sends the answer's thinking back, unchanged and before the call", async () => {
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce(
+        fakeResponse({
+          model: 'claude-sonnet-5-5',
+          content: [
+            thinking,
+            { type: 'text', text: 'Let me look.' },
+            { type: 'tool_use', id: 'tu-1', name: 'acme__orders__lookup', input: { order: 'A-1' } },
+          ],
+          stop_reason: 'tool_use',
+        }),
+      )
+      .mockResolvedValueOnce(
+        fakeResponse({ model: 'claude-sonnet-5-5', content: [{ type: 'text', text: 'Shipped.' }] }),
+      );
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata,
+      client: { messages: { create } } as unknown as Anthropic,
+    });
+    const asked = { role: 'user' as const, content: 'Where is order A-1?' };
+    const first = await provider.invoke({
+      model: 'claude-sonnet-5-5',
+      messages: [asked],
+      tools: [lookupTool],
+    });
+    expect(first.finishReason).toBe('tool-use');
+    expect(first.message.toolCalls?.[0]?.name).toBe('acme.orders.lookup');
+
+    await provider.invoke({
+      model: 'claude-sonnet-5-5',
+      messages: [
+        asked,
+        first.message,
+        { role: 'tool', content: '{"status":"shipped"}', toolCallId: 'tu-1' },
+      ],
+      tools: [lookupTool],
+    });
+    const body = create.mock.calls[1]?.[0] as { messages: Anthropic.MessageParam[] };
+    expect(body.messages[1]).toEqual({
+      role: 'assistant',
+      content: [
+        thinking,
+        { type: 'text', text: 'Let me look.' },
+        { type: 'tool_use', id: 'tu-1', name: 'acme__orders__lookup', input: { order: 'A-1' } },
+      ],
+    });
+    // The cache breakpoint stays on the tool result, never on a thinking block.
+    expect(body.messages[2]?.content).toEqual([
+      {
+        type: 'tool_result',
+        tool_use_id: 'tu-1',
+        content: '{"status":"shipped"}',
+        cache_control: { type: 'ephemeral' },
+      },
+    ]);
+  });
+
+  describe('thinking that takes the whole output cap', () => {
+    const answer = async (
+      content: readonly unknown[],
+      stopReason: string,
+      maxOutputTokens?: number,
+    ) => {
+      const { client } = fakeClient(
+        fakeResponse({ model: 'claude-sonnet-5-5', content, stop_reason: stopReason }),
+      );
+      return createAnthropicProvider({ apiKey: 'sk-unused', metadata, client }).invoke({
+        model: 'claude-sonnet-5-5',
+        messages: [{ role: 'user', content: 'Plan the migration.' }],
+        ...(maxOutputTokens !== undefined && { maxOutputTokens }),
+      });
+    };
+
+    test('gives an empty answer that says so: thinking-used-max-tokens, naming the cap and the fix', async () => {
+      const result = await answer([thinking], 'max_tokens');
+      expect(result.message).toEqual({ role: 'assistant', content: '' });
+      expect(result.finishReason).toBe('length');
+      expect(result.warnings).toEqual([
+        {
+          code: THINKING_USED_MAX_TOKENS,
+          message:
+            "claude-sonnet-5-5 used all 4096 output tokens, its thinking included, and gave no answer: raise maxOutputTokens in the agent's model-settings block or on the provider's model.",
+        },
+      ]);
+      expect(THINKING_USED_MAX_TOKENS).toBe('thinking-used-max-tokens');
+    });
+
+    test('names the cap the call asked for', async () => {
+      const result = await answer(
+        [{ type: 'redacted_thinking', data: 'EmwK…' }],
+        'max_tokens',
+        1024,
+      );
+      expect(result.warnings?.[0]?.message).toContain('used all 1024 output tokens');
+    });
+
+    test('a tool call the cap cut short, after thinking, says so too: it is not run', async () => {
+      const cut = { type: 'tool_use', id: 'tu-1', name: 'acme__lookup', input: {} };
+      const result = await answer([thinking, cut], 'max_tokens');
+      expect(result.finishReason).toBe('length');
+      expect(result.message.content).toBe('');
+      expect(result.message.toolCalls?.map((c) => c.id)).toEqual(['tu-1']);
+      expect(result.warnings?.map((w) => w.code)).toEqual([THINKING_USED_MAX_TOKENS]);
+    });
+
+    test.each([
+      [
+        'an answer cut short after some text',
+        [thinking, { type: 'text', text: 'First, ' }],
+        'max_tokens',
+      ],
+      ['a cut-short answer without thinking', [{ type: 'text', text: '' }], 'max_tokens'],
+      [
+        'a cut-short tool call without thinking',
+        [{ type: 'tool_use', id: 'tu-1', name: 'acme__lookup', input: {} }],
+        'max_tokens',
+      ],
+      ['a finished answer, however short', [thinking], 'end_turn'],
+    ] as const)('no warning for %s', async (_, content, stopReason) => {
+      const result = await answer(content, stopReason);
+      expect(result.warnings).toBeUndefined();
+    });
   });
 });
 

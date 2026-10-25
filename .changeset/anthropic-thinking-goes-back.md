@@ -1,0 +1,7 @@
+---
+"@kindgi/adapter-model-anthropic": patch
+---
+
+**Claude's thinking goes back with the tool results.** When Claude thinks before it calls a tool, the Messages API wants that thinking back, unchanged and where it was, on the call that sends the tool's result. The adapter dropped it, so the next step lost the model's reasoning. An answer with thinking and tool calls now keeps its content, in order, in its first tool call's `signature` (`anth1.`), as the OpenAI Responses adapter and the shared AI SDK engine keep their own state there. The next call to the same model sends it back: `thinking` blocks with their signatures, `redacted_thinking` as it came, and the text as it was split. A message whose text or calls changed since, or a call to another model, goes back as before. Earlier turns' tool-call messages carry it too. Sending it back needs it unchanged, so the thinking text is kept as Anthropic's API returned it, encoded but not encrypted, with the conversation and the turn's run: whoever can read them can read it. `toAnthropicMessages` and `fromAnthropicResponse` take the model as a new optional argument.
+
+**An answer the output cap cut off after thinking says so.** Thinking counts against `max_tokens`. When the cap is reached before any answer text, the answer is empty, the call finishes with `length`, and a tool call the cap cut short isn't run. Such an answer now carries a `thinking-used-max-tokens` warning (`THINKING_USED_MAX_TOKENS`) that names the cap and says to raise `maxOutputTokens`.

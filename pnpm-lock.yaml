@@ -405,6 +405,9 @@ importers:
         specifier: ^10.29.0
         version: 10.29.0
     devDependencies:
+      '@kindgi/adapter-model-anthropic':
+        specifier: workspace:*
+        version: link:../adapters/model-anthropic
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.3
