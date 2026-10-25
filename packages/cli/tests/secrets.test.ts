@@ -1123,7 +1123,7 @@ describe('kindgi secrets — the scope it prints and sends', () => {
     );
     expect(hard.exitCode, hard.stderr).toBe(0);
     expect(hard.stderr).toBe(
-      `  Your secret manager keeps a recoverable copy until ${until}, then purges it on its own. If you set this name again before then, the copy stays, disabled, until you hard-revoke it again.\n\n`,
+      `  Your secret manager keeps a recoverable copy until ${until}, then purges it on its own. If you set this name again before then, Kindgi purges the copy if it now can; if it still can't, the copy stays, disabled, until you hard-revoke it again.\n\n`,
     );
   });
 });
