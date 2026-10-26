@@ -370,6 +370,8 @@ describe('googleMail.since', () => {
   it("charges each date's get as a minimal one: the list and 299 gets fit one mailbox's minute", async () => {
     // 5 for the list and 20 a get make 5,985 of the 6,000 units, so none waits.
     // Charged as a whole get (60), the 100th would wait for the bucket to fill.
+    // The pacer's timers are fake, so a wait shows as a timer however slow the run is.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const listed = Array.from({ length: 299 }, (_, i) => ({ id: `m${i}`, threadId: `t${i}` }));
     const { call, calls } = gmail((url) => {
       const id = /\/messages\/([^/]+)$/.exec(url.pathname)?.[1];
@@ -377,20 +379,27 @@ describe('googleMail.since', () => {
       return Response.json({ messages: listed, resultSizeEstimate: 299 });
     });
     const stop = new AbortController();
-    const since = googleMail.since(
-      { ...call, abortSignal: stop.signal },
-      { from: new Date('2026-10-26T02:00:00Z'), max: 299 },
-    );
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const waited = new Promise<'waited'>((resolve) => {
-      timer = setTimeout(() => resolve('waited'), 1_000);
-    });
-    const first = await Promise.race([since.then(() => 'done' as const), waited]);
-    clearTimeout(timer);
-    stop.abort();
-    await since.catch(() => undefined);
-    expect(first).toBe('done');
-    expect(calls).toHaveLength(300);
+    let settled = false;
+    const since = googleMail
+      .since(
+        { ...call, abortSignal: stop.signal },
+        { from: new Date('2026-10-26T02:00:00Z'), max: 299 },
+      )
+      .finally(() => {
+        settled = true;
+      });
+    try {
+      while (!settled && vi.getTimerCount() === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(vi.getTimerCount()).toBe(0);
+      await since;
+      expect(calls).toHaveLength(300);
+    } finally {
+      stop.abort();
+      await since.catch(() => undefined);
+      vi.useRealTimers();
+    }
   });
 
   it('dates a mail gone since the list, or with no date, as the one before it, and breaks a tie by id', async () => {
