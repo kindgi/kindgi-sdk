@@ -423,6 +423,14 @@ tool with the same arguments.
   own run records no `startedBy`, as no replay does. A delivery earlier in the
   conversation reads that way too, unless an earlier runtime kept it: that one
   reads as it came.
+- **A recorded result that was data from outside stays data** (runtime 0.3.0
+  or later). Where the past run's model read a tool's result in an `<event>`
+  block, as another system's answer to a call that
+  [paused](../../tools/wait-for-another-system/#in-an-agent), or as the
+  result of a tool whose
+  [results are from outside](../../tools/read-only-tools/#results-from-outside),
+  the replay's model reads the past run's result the same way. On an earlier
+  runtime it reads as it came.
 
 **The replay runs** are ordinary runs, marked with `replayOf`, the past run,
 and `evalRunId`. Lists of runs leave them out. `kindgi runs list
