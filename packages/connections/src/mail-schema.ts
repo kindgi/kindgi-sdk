@@ -53,5 +53,7 @@ export const MAIL_MESSAGE = {
       },
     },
     autoSubmitted: { type: 'boolean' },
+    replyRef: { type: 'string', pattern: '^[0-9a-f]{32}$' },
+    sent: { type: 'boolean' },
   },
 } as const;

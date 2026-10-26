@@ -455,16 +455,19 @@ describe('microsoftMail.read', () => {
     });
   });
 
-  /** A conversation as Graph lists it across folders: a draft, one deleted and one in junk among the rest. */
+  /** A conversation as Graph lists it across folders: a draft, one deleted, one in junk and one sent among the rest. */
   function folders(missing?: 'junkemail') {
+    const ids: Record<string, string> = {
+      deleteditems: 'AAMkAGDeletedItems=',
+      junkemail: 'AAMkAGJunkEmail=',
+      sentitems: 'AAMkAGSentItems=',
+    };
     return graph((url) => {
-      if (url.pathname.endsWith('/me/mailFolders/deleteditems')) {
-        return Response.json({ id: 'AAMkAGDeletedItems=' });
-      }
-      if (url.pathname.endsWith('/me/mailFolders/junkemail')) {
-        return missing === 'junkemail'
+      const folder = /\/me\/mailFolders\/([a-z]+)$/.exec(url.pathname)?.[1];
+      if (folder !== undefined) {
+        return folder === missing
           ? graphError(404, 'ErrorFolderNotFound', 'The specified folder could not be found.')
-          : Response.json({ id: 'AAMkAGJunkEmail=' });
+          : Response.json({ id: ids[folder] });
       }
       if (url.pathname.endsWith('/me/messages')) {
         return Response.json({
@@ -475,7 +478,12 @@ describe('microsoftMail.read', () => {
               uniqueBody: { contentType: 'text', content: "I'll refund the full 500." },
             }),
             message('t1', '2026-10-25T11:30:00Z', { parentFolderId: 'AAMkAGDeletedItems=' }),
-            message('m2', '2026-10-25T11:00:00Z', { parentFolderId: 'AAMkAGInbox=' }),
+            message('m2', '2026-10-25T11:00:00Z', {
+              parentFolderId: 'AAMkAGSentItems=',
+              internetMessageHeaders: [
+                { name: 'X-Reply-Ref', value: '2118217d737b7ef413cde9791b633d32' },
+              ],
+            }),
             message('j1', '2026-10-25T10:30:00Z', { parentFolderId: 'AAMkAGJunkEmail=' }),
             message('m1', '2026-10-25T10:00:00Z', { parentFolderId: 'AAMkAGInbox=' }),
             message('m0', '2026-10-25T09:00:00Z', { parentFolderId: 'AAMkAGInbox=' }),
@@ -502,6 +510,7 @@ describe('microsoftMail.read', () => {
     ).toEqual([
       `${GRAPH}/me/mailFolders/deleteditems?$select=id IdType="ImmutableId"`,
       `${GRAPH}/me/mailFolders/junkemail?$select=id IdType="ImmutableId"`,
+      `${GRAPH}/me/mailFolders/sentitems?$select=id IdType="ImmutableId"`,
     ]);
   });
 
@@ -509,6 +518,16 @@ describe('microsoftMail.read', () => {
     const { call } = folders('junkemail');
     const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_THREAD_BUDGET });
     expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'j1', 'm1', 'm0']);
+  });
+
+  it('marks a message in Sent Items sent, and gives no reply mark: Outlook replies carry none', async () => {
+    const { call } = folders();
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_THREAD_BUDGET });
+    expect(read.kind === 'ok' && read.thread.map((m) => [m.id, m.sent, m.replyRef])).toEqual([
+      ['m2', true, undefined],
+      ['m1', undefined, undefined],
+      ['m0', undefined, undefined],
+    ]);
   });
 
   it("gives the message alone when Graph refuses the conversation's filter", async () => {

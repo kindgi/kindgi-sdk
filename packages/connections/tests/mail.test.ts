@@ -3,7 +3,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { MailCallError, isMailCallError, isMailScopeMissing } from '../src/mail.js';
+import {
+  MailCallError,
+  REPLY_REF_HEADER,
+  isMailCallError,
+  isMailScopeMissing,
+  isReplyRef,
+} from '../src/mail.js';
 
 describe('MailCallError', () => {
   it('names the status and the reason, and nothing else', () => {
@@ -58,5 +64,22 @@ describe('isMailScopeMissing', () => {
       ),
     ).toBe(false);
     expect(isMailScopeMissing(undefined)).toBe(false);
+  });
+});
+
+describe('isReplyRef', () => {
+  it('is 32 lowercase hex characters, the mark a reply carries in X-Reply-Ref', () => {
+    expect(REPLY_REF_HEADER).toBe('X-Reply-Ref');
+    expect(isReplyRef('2118217d737b7ef413cde9791b633d32')).toBe(true);
+    for (const value of [
+      '2118217D737B7EF413CDE9791B633D32',
+      '2118217d737b7ef413cde9791b633d3',
+      '2118217d737b7ef413cde9791b633d321',
+      ' 2118217d737b7ef413cde9791b633d32',
+      '2118217d737b7ef413cde9791b633d3g',
+      '',
+    ]) {
+      expect(isReplyRef(value)).toBe(false);
+    }
   });
 });

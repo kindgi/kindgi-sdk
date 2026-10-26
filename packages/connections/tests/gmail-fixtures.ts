@@ -43,6 +43,8 @@ export interface FullMessage {
   readonly html?: string;
   readonly labelIds?: readonly string[];
   readonly autoSubmitted?: string;
+  /** Its `X-Reply-Ref` header, or one header for each value. */
+  readonly replyRef?: string | readonly string[];
   readonly attachment?: { readonly name: string; readonly type: string; readonly size: number };
 }
 
@@ -56,6 +58,7 @@ export function fullMessage(id: string, threadId: string, m: FullMessage = {}) {
     ...(m.replyTo !== undefined ? [{ name: 'Reply-To', value: m.replyTo }] : []),
     { name: 'Subject', value: m.subject ?? 'Order 1042' },
     ...(m.autoSubmitted !== undefined ? [{ name: 'Auto-Submitted', value: m.autoSubmitted }] : []),
+    ...[m.replyRef ?? []].flat().map((value) => ({ name: 'X-Reply-Ref', value })),
     { name: 'MIME-Version', value: '1.0' },
   ];
   const text = m.text ?? 'Where is order 1042?';

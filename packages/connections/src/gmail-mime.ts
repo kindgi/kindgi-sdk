@@ -19,7 +19,7 @@ import {
   isAutoSubmitted,
   parseAddressList,
 } from './mail-text.js';
-import type { MailAttachment, MailMessage } from './mail.js';
+import { type MailAttachment, type MailMessage, REPLY_REF_HEADER, isReplyRef } from './mail.js';
 
 /** One MIME part of a Gmail message, as the API gives it. */
 export interface GmailPart {
@@ -62,6 +62,8 @@ export function gmailMessage(raw: GmailMessage, chars: number): MailMessage {
   const from = parseAddressList(header('From'))[0];
   const { text, attachments } = gmailBody(payload);
   const body = cutText(text, chars);
+  const replyRef = replyRefOf(payload);
+  const sent = (Array.isArray(raw.labelIds) ? raw.labelIds : []).includes('SENT');
   return {
     id: typeof raw.id === 'string' ? raw.id : '',
     ...(typeof raw.threadId === 'string' && raw.threadId !== '' && { threadId: raw.threadId }),
@@ -75,7 +77,17 @@ export function gmailMessage(raw: GmailMessage, chars: number): MailMessage {
     bodyCut: body.cut,
     attachments,
     autoSubmitted: isAutoSubmitted(gmailHeader(payload, 'Auto-Submitted')),
+    ...(replyRef !== undefined && { replyRef }),
+    ...(sent && { sent: true }),
   };
+}
+
+/** The message's reply mark: its one `X-Reply-Ref` header, in a mark's form. */
+function replyRefOf(payload: GmailPart): string | undefined {
+  const wanted = REPLY_REF_HEADER.toLowerCase();
+  const values = (payload.headers ?? []).filter((h) => h.name?.toLowerCase() === wanted);
+  const value = values.length === 1 ? values[0]?.value?.trim() : undefined;
+  return value !== undefined && isReplyRef(value) ? value : undefined;
 }
 
 /** What a text part Gmail keeps apart (with an `attachmentId`, no `data`) reads as. */

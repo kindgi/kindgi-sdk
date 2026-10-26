@@ -63,8 +63,9 @@ const CONVERSATION_ID = /^[A-Za-z0-9+/=_-]{1,1024}$/;
 const GRAPH_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?Z$/;
 /** The most a `since` lists: one page of `$top` (1,000), less the one that shows there are more. */
 const SINCE_MAX = 999;
-/** Folders whose messages a thread leaves out, by their well-known names: deleted, and spam. */
-const LEFT_OUT_FOLDERS = ['deleteditems', 'junkemail'] as const;
+/** The folders a thread's read looks up by their well-known names: deleted and spam (left out), and sent. */
+const THREAD_FOLDERS = ['deleteditems', 'junkemail', 'sentitems'] as const;
+type ThreadFolder = (typeof THREAD_FOLDERS)[number];
 /** How many more messages a conversation's read asks for than the budget, for those left out. */
 const LEFT_OUT_ROOM = 10;
 
@@ -240,8 +241,9 @@ function foundMessage(
 /**
  * The messages of the conversation received before `mail`, newest first,
  * each its `uniqueBody` (what it added). Drafts, and messages in Deleted
- * Items or Junk Email, are left out. If Graph refuses the conversation's
- * filter, the run gets the message alone: its body quotes what came before.
+ * Items or Junk Email, are left out; one in Sent Items is marked `sent`.
+ * If Graph refuses the conversation's filter, the run gets the message
+ * alone: its body quotes what came before.
  */
 async function earlier(
   send: AppSend,
@@ -273,7 +275,9 @@ async function earlier(
   }
   const items = Array.isArray(answer?.value) ? (answer.value as (RawMessage | null)[]) : [];
   if (items.length === 0) return [];
-  const leftOut = await leftOutFolders(send);
+  const folders = await threadFolders(send);
+  const leftOut = new Set([folders.deleteditems, folders.junkemail]);
+  leftOut.delete(undefined);
   return items
     .filter(
       (m): m is RawMessage =>
@@ -281,19 +285,23 @@ async function earlier(
         typeof m.id === 'string' &&
         m.id !== mail.id &&
         m.isDraft !== true &&
-        !(typeof m.parentFolderId === 'string' && leftOut.has(m.parentFolderId)),
+        !leftOut.has(m.parentFolderId ?? undefined),
     )
     .slice(0, budget.earlier)
-    .map((m) => outlookMessage(m, budget.earlierChars, 'uniqueBody'));
+    .map((m) => {
+      const message = outlookMessage(m, budget.earlierChars, 'uniqueBody');
+      const sent = folders.sentitems !== undefined && m.parentFolderId === folders.sentitems;
+      return sent ? { ...message, sent: true } : message;
+    });
 }
 
 /**
- * The ids of Deleted Items and Junk Email, read with the same id format as
- * the messages. A mailbox without one has nothing in it to leave out.
+ * The ids of the folders a thread's read looks up, read with the same id
+ * format as the messages. A mailbox without one has nothing in it.
  */
-async function leftOutFolders(send: AppSend): Promise<ReadonlySet<string>> {
+async function threadFolders(send: AppSend): Promise<Partial<Record<ThreadFolder, string>>> {
   const ids = await Promise.all(
-    LEFT_OUT_FOLDERS.map(async (name) => {
+    THREAD_FOLDERS.map(async (name) => {
       try {
         const folder = (await graphJson(
           send,
@@ -308,7 +316,9 @@ async function leftOutFolders(send: AppSend): Promise<ReadonlySet<string>> {
       }
     }),
   );
-  return new Set(ids.filter((id): id is string => id !== undefined));
+  return Object.fromEntries(
+    THREAD_FOLDERS.flatMap((name, i) => (ids[i] === undefined ? [] : [[name, ids[i]]])),
+  );
 }
 
 /** The folder: a well-known name (`inbox`, the default) or a folder's id. */

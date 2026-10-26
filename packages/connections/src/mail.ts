@@ -52,6 +52,28 @@ export interface MailMessage {
   readonly attachments: readonly MailAttachment[];
   /** An `Auto-Submitted` header other than `no` (RFC 3834): an out-of-office or other automatic reply. */
   readonly autoSubmitted: boolean;
+  /**
+   * The mark a reply the agent sent carries, its one `X-Reply-Ref` header
+   * ({@link REPLY_REF_HEADER}), so the runtime knows the agent's own
+   * replies in a thread. Gmail only: Outlook's replies carry none. Absent
+   * when the mail has no such header, more than one, or one not in a
+   * mark's form ({@link isReplyRef}). Anyone can set the header on mail
+   * they send: a mark counts only on the mailbox's own sent mail.
+   */
+  readonly replyRef?: string;
+  /**
+   * `true` for the mailbox's own sent mail: Gmail's `SENT` label, or
+   * Outlook's Sent Items for a thread's earlier messages. Absent otherwise.
+   */
+  readonly sent?: boolean;
+}
+
+/** The header a reply the agent sends carries its mark in. */
+export const REPLY_REF_HEADER = 'X-Reply-Ref';
+
+/** Whether a header's value is in a reply mark's form: 32 lowercase hex characters. */
+export function isReplyRef(value: string): boolean {
+  return /^[0-9a-f]{32}$/.test(value);
 }
 
 /**
