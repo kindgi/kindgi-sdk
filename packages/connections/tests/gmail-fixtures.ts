@@ -9,9 +9,14 @@
  *   in epoch milliseconds as a string, `payload` as MIME parts with
  *   `body.data` in base64url, `sizeEstimate`);
  * - an error: `{error: {code, message, errors: [{message, domain, reason}],
- *   status, details}}`, as Google's APIs answer
- *   (cloud.google.com/apis/design/errors: `details` may hold an ErrorInfo
- *   naming the reason, as a missing scope's 403 does).
+ *   status, details}}`: `errors` as Gmail's error guide shows it
+ *   (developers.google.com/workspace/gmail/api/guides/handle-errors),
+ *   `details` and its ErrorInfo as google.aip.dev/193 gives them. A
+ *   missing scope's ErrorInfo reason, `ACCESS_TOKEN_SCOPE_INSUFFICIENT` in
+ *   the `googleapis.com` domain, is in Google's list of reasons
+ *   (github.com/googleapis/googleapis/blob/master/google/api/error_reason.proto).
+ *   No Gmail page names the `errors[].reason` that goes with it,
+ *   `insufficientPermissions`.
  */
 
 /** A text part, its content in UTF-8, base64url. */
