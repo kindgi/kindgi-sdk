@@ -575,6 +575,43 @@ describe('the command', () => {
     assert.match(local.stdout, /warning: can't list the other pull requests' heads/);
   });
 
+  test('a page, a reference entry, a skill, a README or the contributor docs are its docs', () => {
+    const f = fixture();
+    const { work } = f;
+    const docs = [
+      'site/src/content/docs/guides/acme.md',
+      'site/scripts/reference/entries/errors.mjs',
+      'packages/sdk/skills/acme/SKILL.md',
+      'packages/cli/README.md',
+      'docs/ACME.md',
+    ];
+    for (const [n, path] of docs.entries()) {
+      work.git('checkout', '-q', '-b', `documented-${n}`, 'main');
+      const head = work.commit(`documented in ${path}`, {
+        [CONTRACT]: `export const a = ${100 + n};\n`,
+        [path]: 'words\n',
+      });
+      work.pull(100 + n, head);
+      const out = f.check(['--event', f.event(100 + n, work.git('rev-parse', 'main'), head)]);
+      assert.equal(out.status, 0, `${path}: ${out.stderr}`);
+      assert.match(out.stdout, /1 contract file\(s\) changed, with docs/, path);
+    }
+  });
+
+  test("the reference's builders are code, not docs", () => {
+    const f = fixture();
+    const { work } = f;
+    work.git('checkout', '-q', '-b', 'builder');
+    const head = work.commit('a builder', {
+      [CONTRACT]: 'export const a = 110;\n',
+      'site/scripts/reference/errors.mjs': 'export {};\n',
+    });
+    work.pull(110, head);
+    const out = f.check(['--event', f.event(110, work.git('rev-parse', 'main'), head)]);
+    assert.equal(out.status, 1, out.stdout);
+    assert.match(out.stderr, /a reference entry in\nsite\/scripts\/reference\/entries\//);
+  });
+
   test('no contract changed, through a symlink: it runs and says so', () => {
     const f = fixture();
     const { work } = f;
