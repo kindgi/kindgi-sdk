@@ -115,7 +115,10 @@ export const microsoftMail: MailFunctions = mailCalls({
     const listed = (answer.value as (DeltaItem | null)[])
       .map((item) => foundMessage(item, 'catch-up'))
       .filter((m): m is MailFoundMessage => m !== undefined);
-    return { messages: listed.slice(0, input.max), more: listed.length > input.max };
+    return {
+      messages: await withThreadIds(mailSend(call), listed.slice(0, input.max)),
+      more: listed.length > input.max,
+    };
   },
 
   async read(call, input) {
@@ -171,7 +174,7 @@ async function readDelta(send: AppSend, url: string): Promise<MailChanges> {
     if (typeof delta === 'string') {
       return {
         kind: 'ok',
-        messages: [...found.values()],
+        messages: await withThreadIds(send, [...found.values()]),
         cursor: graphLink(delta, "Outlook's delta link"),
       };
     }
@@ -182,7 +185,43 @@ async function readDelta(send: AppSend, url: string): Promise<MailChanges> {
     link = graphLink(next, "Outlook's next page link");
   }
   // More pages than one call reads: the next call goes on from the next page.
-  return { kind: 'ok', messages: [...found.values()], cursor: link };
+  return { kind: 'ok', messages: await withThreadIds(send, [...found.values()]), cursor: link };
+}
+
+/**
+ * Each found message with its conversation's id: one that came without
+ * it is read for it, its metadata only. Still without one when Graph has
+ * none, or the message is gone: the caller refuses its fire.
+ */
+async function withThreadIds(
+  send: AppSend,
+  found: readonly MailFoundMessage[],
+): Promise<MailFoundMessage[]> {
+  const messages: MailFoundMessage[] = [];
+  for (const m of found) {
+    messages.push(
+      m.threadId === undefined ? { ...m, ...(await threadIdOf(send, m.messageId)) } : m,
+    );
+  }
+  return messages;
+}
+
+async function threadIdOf(send: AppSend, id: string): Promise<{ readonly threadId?: string }> {
+  try {
+    const raw = (await graphJson(
+      send,
+      'outlook.messages.get',
+      `${GRAPH}/me/messages/${encodeURIComponent(id)}?${query({ $select: 'conversationId' })}`,
+      IMMUTABLE_IDS,
+    )) as { readonly conversationId?: unknown } | null;
+    const conversation = raw?.conversationId;
+    return typeof conversation === 'string' && conversation !== ''
+      ? { threadId: conversation }
+      : {};
+  } catch (err) {
+    if (err instanceof GraphNotFound) return {};
+    throw err;
+  }
 }
 
 /** One delta page, or `'expired'` when Microsoft no longer knows the link. */

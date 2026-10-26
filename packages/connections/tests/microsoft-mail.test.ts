@@ -226,6 +226,45 @@ describe('microsoftMail.changes', () => {
     expect(calls.map((c) => c.url)).toEqual([cursor]);
   });
 
+  it('reads the conversation of an item that came without one, its metadata only, once', async () => {
+    const next = `${INBOX_DELTA}?$deltatoken=Nn5gS1Vb9A`;
+    const { call, calls } = graph((url) => {
+      if (url.pathname.endsWith('/delta')) {
+        return Response.json({
+          value: [
+            item('m9', '2026-10-26T02:01:00Z'),
+            { id: 'm8', receivedDateTime: '2026-10-26T02:02:00Z' },
+            { id: 'm7', receivedDateTime: '2026-10-26T02:03:00Z', conversationId: '' },
+            { id: 'm6', receivedDateTime: '2026-10-26T02:04:00Z' },
+          ],
+          '@odata.deltaLink': next,
+        });
+      }
+      if (url.pathname.endsWith('/m8'))
+        return Response.json({ id: 'm8', conversationId: 'conv-m8' });
+      if (url.pathname.endsWith('/m7')) return Response.json({ id: 'm7', conversationId: null });
+      return graphError(
+        404,
+        'ErrorItemNotFound',
+        'The specified object was not found in the store.',
+      );
+    });
+    const changes = await microsoftMail.changes(call, { cursor });
+    expect(changes.kind === 'ok' && changes.messages.map((m) => [m.messageId, m.threadId])).toEqual(
+      [
+        ['m9', 'conv-m9'],
+        ['m8', 'conv-m8'],
+        ['m7', undefined],
+        ['m6', undefined],
+      ],
+    );
+    expect(calls.slice(1).map((c) => `${c.url} ${c.headers.prefer}`)).toEqual(
+      ['m8', 'm7', 'm6'].map(
+        (id) => `${GRAPH}/me/messages/${id}?$select=conversationId IdType="ImmutableId"`,
+      ),
+    );
+  });
+
   it.each([
     ['a 410', () => new Response(null, { status: 410, headers: { location: `${INBOX_DELTA}` } })],
     [
@@ -382,6 +421,19 @@ describe('microsoftMail.since', () => {
       $top: '3',
       $select: 'id,receivedDateTime,conversationId',
     });
+  });
+
+  it('reads the conversation of an item listed without one', async () => {
+    const { call } = graph((url) =>
+      url.pathname.endsWith('/messages')
+        ? Response.json({ value: [{ id: 'm3', receivedDateTime: '2026-10-26T01:59:00Z' }] })
+        : Response.json({ id: 'm3', conversationId: 'conv-m3' }),
+    );
+    const since = await microsoftMail.since(call, {
+      from: new Date('2026-10-26T02:00:00Z'),
+      max: 2,
+    });
+    expect(since.messages.map((m) => [m.messageId, m.threadId])).toEqual([['m3', 'conv-m3']]);
   });
 
   it('refuses a max outside one page', async () => {
