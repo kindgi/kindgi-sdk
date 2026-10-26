@@ -367,6 +367,32 @@ describe('googleMail.since', () => {
     });
   });
 
+  it("charges each date's get as a minimal one: the list and 299 gets fit one mailbox's minute", async () => {
+    // 5 for the list and 20 a get make 5,985 of the 6,000 units, so none waits.
+    // Charged as a whole get (60), the 100th would wait for the bucket to fill.
+    const listed = Array.from({ length: 299 }, (_, i) => ({ id: `m${i}`, threadId: `t${i}` }));
+    const { call, calls } = gmail((url) => {
+      const id = /\/messages\/([^/]+)$/.exec(url.pathname)?.[1];
+      if (id !== undefined) return Response.json({ id, internalDate: '1761444000000' });
+      return Response.json({ messages: listed, resultSizeEstimate: 299 });
+    });
+    const stop = new AbortController();
+    const since = googleMail.since(
+      { ...call, abortSignal: stop.signal },
+      { from: new Date('2026-10-26T02:00:00Z'), max: 299 },
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const waited = new Promise<'waited'>((resolve) => {
+      timer = setTimeout(() => resolve('waited'), 1_000);
+    });
+    const first = await Promise.race([since.then(() => 'done' as const), waited]);
+    clearTimeout(timer);
+    stop.abort();
+    await since.catch(() => undefined);
+    expect(first).toBe('done');
+    expect(calls).toHaveLength(300);
+  });
+
   it('dates a mail gone since the list, or with no date, as the one before it, and breaks a tie by id', async () => {
     const { call } = gmail((url) => {
       const id = /\/messages\/([^/]+)$/.exec(url.pathname)?.[1];

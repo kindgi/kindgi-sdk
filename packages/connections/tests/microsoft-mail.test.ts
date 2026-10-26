@@ -249,6 +249,39 @@ describe('microsoftMail.changes', () => {
     ]);
   });
 
+  it('gives the mail oldest first when the call stops at its last page, too', async () => {
+    const nextLink = `${GRAPH}/me/mailfolders('AQMkADNkNAAAgEMAAAA')/messages/delta?$skiptoken=GwcBoTmPuoTQ`;
+    const { call, calls } = graph(() =>
+      Response.json({
+        value: [item('m2', '2026-10-26T02:01:00Z'), item('m1', '2026-10-26T02:00:00Z')],
+        '@odata.nextLink': nextLink,
+      }),
+    );
+    const changes = await microsoftMail.changes(call, { cursor });
+    expect(calls).toHaveLength(20);
+    expect(changes).toMatchObject({ kind: 'ok', cursor: nextLink });
+    expect(changes.kind === 'ok' && changes.messages.map((m) => m.messageId)).toEqual(['m1', 'm2']);
+  });
+
+  it('keeps first a mail with no time that came first, having none before it to take', async () => {
+    const { call } = graph(() =>
+      Response.json({
+        value: [
+          { id: 'm0', receivedDateTime: 'not a time', conversationId: 'conv-m0' },
+          item('m2', '2026-10-26T02:01:00Z'),
+          item('m1', '2026-10-26T02:00:00Z'),
+        ],
+        '@odata.deltaLink': `${INBOX_DELTA}?$deltatoken=Nn5gS1Vb9A`,
+      }),
+    );
+    const changes = await microsoftMail.changes(call, { cursor });
+    expect(changes.kind === 'ok' && changes.messages.map((m) => m.messageId)).toEqual([
+      'm0',
+      'm1',
+      'm2',
+    ]);
+  });
+
   it('reads the conversation of an item that came without one, its metadata only, once', async () => {
     const next = `${INBOX_DELTA}?$deltatoken=Nn5gS1Vb9A`;
     const { call, calls } = graph((url) => {

@@ -233,6 +233,18 @@ describe('mailTurn', () => {
     const whole = turn({ read: read(thread, 'm4') }).text;
     const within = (turnChars: number) => ({ ...MAIL_TURN_BUDGET, turnChars });
 
+    it("keeps room on the first line for the mails a new conversation didn't read", () => {
+      // 9 mails read and 2 not: the first line counts 11, a digit more than the 9 read.
+      const nine = Array.from({ length: 9 }, (_, i) =>
+        mail(`n${i}`, `2026-10-20T1${i}:00:00Z`, { body: `${i}`.repeat(100) }),
+      );
+      const all = turn({ read: read(nine, 'n8', 2) }).text;
+      expect(all.split('\n')[0]).toContain(': 11 mails, 9 shown,');
+      // One character short of all of it: a first line kept a digit short would let it all in.
+      const t = turn({ read: read(nine, 'n8', 2), budget: within(all.length - 1) });
+      expect(t.text.length).toBeLessThanOrEqual(all.length - 1);
+    });
+
     it('carries the whole thread when its text fits, to the character', () => {
       const t = turn({ read: read(thread, 'm4'), budget: within(whole.length) });
       expect(t.input.thread.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);

@@ -257,6 +257,15 @@ describe('htmlToText', () => {
     );
   });
 
+  it("compares a link's text with its address in any case, and each dot only as a dot", () => {
+    // The address lowercases the host; the text keeps the case it was written in.
+    expect(htmlToText('<a href="https://evil.example/">EVIL.Example</a>')).toBe('EVIL.Example');
+    // A dot in the address matches only a dot, not any character.
+    expect(htmlToText('<a href="https://p.ypal.example/">paypal.example</a>')).toBe(
+      'paypal.example <https://p.ypal.example/>',
+    );
+  });
+
   it("drops what shows as nothing from a link's text before it looks for the address", () => {
     for (const [html, shown] of [
       ['evil.example&#xFEFF;.bank.example', 'evil.example\ufeff.bank.example'],
