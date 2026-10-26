@@ -9,7 +9,7 @@
  *   /vX.Y.Z/     every release, from its `@kindgi/sdk@X.Y.Z` tag (not indexed;
  *                any but the newest shows a banner pointing at the newest)
  *   /vX.Y/       redirects to its line's newest release, page for page
- *                (`/_redirects`)
+ *                (`/_redirects`); a line with no release yet, to `/next/`
  *   /next/       the newest pre-release (`@kindgi/sdk@0.1.4-rc.0`) while it's
  *                newer than every release: marked as a release candidate,
  *                never indexed, and gone once its release ships. Like a
