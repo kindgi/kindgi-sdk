@@ -189,7 +189,7 @@ print_go_back() {
   local fresh="${DATABASE_NAME}_r$(date -u +%Y%m%d)"
   local ledger="erasures-$(date -u +%F).json"
   # Both CLI commands talk to the release the run started from: the export to
-  # the server serving now, the replay to the old image put back (step 5 below).
+  # the server serving now, the replay to the old image put back (step 6 below).
   local cli="@kindgi/cli@$(line_of "$CURRENT")" rc_note=""
   # A range never matches a pre-release, so on an rc, @kindgi/cli@X.Y finds no
   # version until X.Y.Z is out. The rc's own number doesn't name the CLI: the
@@ -197,7 +197,7 @@ print_go_back() {
   # never moved to its final reads as an rc here.
   if [[ $CURRENT == *-rc.* ]]; then
     rc_note=$'\n'"    This deployment runs a pre-release, ${CURRENT}. Until $(release_of "$CURRENT") is out,"
-    rc_note+=$'\n'"    npx finds no ${cli}: in this step and in step 6, name the"
+    rc_note+=$'\n'"    npx finds no ${cli}: in this step and in step 7, name the"
     rc_note+=$'\n'"    CLI's own pre-release instead, as @kindgi/cli@$(release_of "$CURRENT")-rc.N"
     rc_note+=$'\n'"    (npm view @kindgi/cli versions lists them)."
   fi
@@ -217,26 +217,35 @@ To go back:
     If no server answers, the backup's own ledger is all there is: an
     erasure made after ${STAMP} can't be replayed.
 
- 2. A fresh database on the same instance:
+ 2. Before the database changes, put the old image(s) back and save the
+    plan, then read it:
+      cp ${VARFILE_BACKUP} ${VAR_FILE}
+      terraform plan -var-file=${VAR_FILE} -out=back.tfplan
+    The server runs its migrations each time an instance of it starts. An
+    instance of the new version that starts after step 5 and before the
+    apply would migrate the fresh database too, so apply right after step 5.
+
+ 3. A fresh database on the same instance:
       gcloud sql databases create ${fresh} --instance=${DB_INSTANCE} --project=${PROJECT}
 
- 3. Import the backup into it (the instance's service account already has
+ 4. Import the backup into it (the instance's service account already has
     objectAdmin on gs://${BUCKET_ONLY}, from the backup step):
       gcloud sql import sql ${DB_INSTANCE} ${EXPORT_URI} \\
         --database=${fresh} --user=kindgi --project=${PROJECT}
 
- 4. Point the server at the fresh database: add a new version of the secret
+ 5. Point the server at the fresh database: add a new version of the secret
     ${DB_URL_SECRET}, with host=/cloudsql/${SQL_CONNECTION_NAME} and dbname
     ${fresh}. Set the password as in README step 3, never in a command's
     arguments. (Don't change database_name instead: the module would drop
     the migrated database, then fail to create ${fresh}.)
 
- 5. Put the old image(s) back and apply. The new revision reads the new
+ 6. Right away, apply the saved plan. The new revision reads the new
     secret version when it starts:
-      cp ${VARFILE_BACKUP} ${VAR_FILE}
-      terraform apply -var-file=${VAR_FILE}
+      terraform apply back.tfplan
+    If Terraform refuses the plan as stale, plan again as in step 2 and
+    apply at once.
 
- 6. Before anyone uses it, replay the erasures:
+ 7. Before anyone uses it, replay the erasures:
       npx --yes ${cli} memory erasures replay ${ledger}
     A replay matches only when the server has KINDGI_ERASURE_LEDGER_KEY
     (server_secret_env); without it, every erasure comes back unmatched.
