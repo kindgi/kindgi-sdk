@@ -77,7 +77,7 @@ terraform apply -var-file=dev.tfvars \
 
 ## 2. Images into Artifact Registry
 
-Cloud Run pulls from Artifact Registry. Copy the runtime's **whole multi-platform index** by digest. A `docker pull` / `push` from an arm64 machine would copy only arm64, and Cloud Run needs amd64.
+Cloud Run pulls from Artifact Registry. Copy the runtime's **whole multi-platform index** by digest. A `docker pull` / `push` from an arm64 machine would copy only arm64, and Cloud Run needs amd64. The copy goes through the machine you run it on and takes both platforms, so on a slow uplink it can take most of an hour.
 
 **An existing repository instead of the module's own (`image_repository`).**
 - **Setting it:** `image_repository = { project, location, repository }` uses a repository you already have. The module then creates none.
