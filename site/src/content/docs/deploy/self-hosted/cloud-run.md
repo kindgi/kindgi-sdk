@@ -1075,17 +1075,21 @@ repository from
 6. **Plan, and save the plan:**
 
    ```sh
-   terraform plan -var-file=prod.tfvars -out=upgrade.tfplan
+   (umask 077 && terraform plan -var-file=prod.tfvars -out=upgrade.tfplan)
    ```
 
    Terraform also reads every `*.auto.tfvars.json` in the folder, your
    pack's env among them. Read the plan: it should change the services'
    images, and what the release notes say. A plan that removes the pack's
    env was made without its file ([3. The secrets](#3-the-secrets)).
+
+   The plan holds your variables' values, secret ones too: `umask 077`
+   keeps it readable by you alone, and you delete it once it's applied.
 7. **Apply exactly that plan:**
 
    ```sh
    terraform apply upgrade.tfplan
+   rm upgrade.tfplan
    ```
 
    A saved plan applies as you read it, with the variables it was made
@@ -1107,8 +1111,10 @@ database:
    `prod.tfvars` you kept, then plan, and read it:
 
    ```sh
-   terraform plan -var-file=prod.tfvars -out=back.tfplan
+   (umask 077 && terraform plan -var-file=prod.tfvars -out=back.tfplan)
    ```
+
+   Like the upgrade's plan, this one holds your secret values too.
 
    The server runs its migrations each time one of its instances starts.
    So apply this plan as soon as the database is back: an instance of the
@@ -1153,6 +1159,7 @@ database:
 
    ```sh
    terraform apply back.tfplan
+   rm back.tfplan
    ```
 
    If Terraform refuses it as stale, plan again and apply at once.
@@ -1161,8 +1168,8 @@ database:
    A replay matches only when the server has its ledger key
    (**Erasures, after a restore** under [Operate it](#operate-it)). With
    `secrets_backend = "postgres"`, also run the old version's
-   `check stored-secrets`, as a job like step 3's, with the server's
-   secrets settings as well as its database URL.
+   `check stored-secrets`, as a job like the checks in the upgrade's
+   step 3, with the server's secrets settings as well as its database URL.
 
 ## Tear it down
 

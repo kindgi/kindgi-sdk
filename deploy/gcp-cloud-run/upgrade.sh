@@ -220,7 +220,9 @@ To go back:
  2. Before the database changes, put the old image(s) back and save the
     plan, then read it:
       cp ${VARFILE_BACKUP} ${VAR_FILE}
-      terraform plan -var-file=${VAR_FILE} -out=back.tfplan
+      (umask 077 && terraform plan -var-file=${VAR_FILE} -out=back.tfplan)
+    The plan holds your variables' values, secret ones too: umask 077 keeps
+    it readable by you alone, and step 6 deletes it.
     The server runs its migrations each time an instance of it starts. An
     instance of the new version that starts after step 5 and before the
     apply would migrate the fresh database too, so apply right after step 5.
@@ -242,6 +244,7 @@ To go back:
  6. Right away, apply the saved plan. The new revision reads the new
     secret version when it starts:
       terraform apply back.tfplan
+      rm back.tfplan
     If Terraform refuses the plan as stale, plan again as in step 2 and
     apply at once.
 
