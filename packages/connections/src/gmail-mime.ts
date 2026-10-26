@@ -95,15 +95,30 @@ export const PART_NOT_READ = '[Part of this message’s text is too long to read
  *   part that isn't text: an image pasted into the mail, say, with no
  *   name. One shown in the body is marked `inline`. An attached message
  *   (`message/rfc822`) is one attachment; what's inside isn't read.
+ * - **A `multipart/alternative`'s other choices:** one that's the body in
+ *   another form (`text/x-amp-html`, `text/watch-html`) is neither text
+ *   nor an attachment. An invite's `text/calendar` choice without a name
+ *   is listed, unless the mail attaches a calendar file too: an invite is
+ *   listed once.
  */
 export function gmailBody(payload: GmailPart): {
   readonly text: string;
   readonly attachments: readonly MailAttachment[];
 } {
   const attachments: MailAttachment[] = [];
-  collectAttachments(payload, attachments);
-  return { text: textOf(payload)?.text ?? '', attachments };
+  const invites = new Set<MailAttachment>();
+  collectAttachments(payload, attachments, invites);
+  const fileToo = attachments.some((a) => !invites.has(a) && CALENDAR_FILES.has(a.contentType));
+  return {
+    text: textOf(payload)?.text ?? '',
+    attachments: fileToo ? attachments.filter((a) => !invites.has(a)) : attachments,
+  };
 }
+
+/** The body in another form, beside the plain and HTML choices. */
+const BODY_FORMS = new Set(['text/x-amp-html', 'text/watch-html']);
+/** An invite as a file. */
+const CALENDAR_FILES = new Set(['text/calendar', 'application/ics']);
 
 /** A header's value, by name in any case: the first one. */
 export function gmailHeader(part: GmailPart, name: string): string | undefined {
@@ -148,20 +163,37 @@ function textOf(part: GmailPart): PartText | undefined {
   };
 }
 
-function collectAttachments(part: GmailPart, into: MailAttachment[], inRelated = false): void {
+/**
+ * The attachments under `part`, `parent` its container's type. Each
+ * nameless `text/calendar` choice of an alternative goes in `invites` too.
+ */
+function collectAttachments(
+  part: GmailPart,
+  into: MailAttachment[],
+  invites: Set<MailAttachment>,
+  parent = '',
+): void {
+  const type = mimeTypeOf(part);
+  const choice = parent === 'multipart/alternative';
+  if (choice && BODY_FORMS.has(type)) return;
   if (isAttachment(part)) {
-    const type = mimeTypeOf(part);
     const name = decodeEncodedWords(part.filename ?? '').trim();
-    into.push({
-      name: name !== '' ? name : type === 'message/rfc822' ? 'message.eml' : 'attachment',
-      contentType: type !== '' ? type : 'application/octet-stream',
-      size: typeof part.body?.size === 'number' ? part.body.size : 0,
-      ...(isInline(part, inRelated) && { inline: true }),
-    });
+    const attachment = attachmentOf(part, name, parent === 'multipart/related');
+    into.push(attachment);
+    if (choice && type === 'text/calendar' && name === '') invites.add(attachment);
     return;
   }
-  const related = mimeTypeOf(part) === 'multipart/related';
-  for (const child of part.parts ?? []) collectAttachments(child, into, related);
+  for (const child of part.parts ?? []) collectAttachments(child, into, invites, type);
+}
+
+function attachmentOf(part: GmailPart, name: string, inRelated: boolean): MailAttachment {
+  const type = mimeTypeOf(part);
+  return {
+    name: name !== '' ? name : type === 'message/rfc822' ? 'message.eml' : 'attachment',
+    contentType: type !== '' ? type : 'application/octet-stream',
+    size: typeof part.body?.size === 'number' ? part.body.size : 0,
+    ...(isInline(part, inRelated) && { inline: true }),
+  };
 }
 
 function isAttachment(part: GmailPart): boolean {

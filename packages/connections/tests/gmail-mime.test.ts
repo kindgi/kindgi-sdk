@@ -120,6 +120,54 @@ describe('gmailBody', () => {
     });
   });
 
+  it('lists no attachment for the choices that are the body in another form', () => {
+    const payload = multipart(
+      'alternative',
+      text('text/plain', 'Your order shipped.'),
+      text('text/x-amp-html', '<!doctype html><html amp4email><body>Track it</body></html>'),
+      text('text/watch-html', '<b>Shipped</b>'),
+      text('text/html', '<p>Your order shipped.</p>'),
+    );
+    expect(gmailBody(payload)).toEqual({ text: 'Your order shipped.', attachments: [] });
+  });
+
+  /** An invite as a mailer sends it: a `text/calendar` choice beside the text, without a name. */
+  const inviteChoice: GmailPart = {
+    mimeType: 'text/calendar',
+    filename: '',
+    headers: [{ name: 'Content-Type', value: 'text/calendar; charset="UTF-8"; method=REQUEST' }],
+    body: { size: 1_400, data: Buffer.from('BEGIN:VCALENDAR').toString('base64url') },
+  };
+
+  it('lists an invite once when the mail attaches it as a file too', () => {
+    const payload = multipart(
+      'mixed',
+      multipart(
+        'alternative',
+        text('text/plain', 'Tasting at the roastery, Thursday.'),
+        text('text/html', '<p>Tasting at the roastery, Thursday.</p>'),
+        inviteChoice,
+      ),
+      file('application/ics', 'invite.ics', 1_400),
+    );
+    expect(gmailBody(payload)).toEqual({
+      text: 'Tasting at the roastery, Thursday.',
+      attachments: [{ name: 'invite.ics', contentType: 'application/ics', size: 1_400 }],
+    });
+  });
+
+  it('lists an invite that is only a choice', () => {
+    const payload = multipart(
+      'alternative',
+      text('text/plain', 'Tasting at the roastery, Thursday.'),
+      text('text/html', '<p>Tasting at the roastery, Thursday.</p>'),
+      inviteChoice,
+    );
+    expect(gmailBody(payload).attachments).toEqual([
+      { name: 'attachment', contentType: 'text/calendar', size: 1_400 },
+    ]);
+  });
+
   it('takes the HTML choice when the plain one is blank', () => {
     const payload = multipart(
       'alternative',
