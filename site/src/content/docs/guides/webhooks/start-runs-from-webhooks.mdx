@@ -628,7 +628,8 @@ registered it, or the account named with
   owner's name, else its id, and whether the trigger is personal or
   shared, such as "Sam Lee (personal)". One that runs as its project's own
   account says "this project (shared)", and has `isProjectAccount: true`
-  in its `owner`.
+  in its `owner`. A trigger with no owner says
+  "no owner (an admin can take it over)".
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 - **A trigger registered with a token the runtime made at startup** is
