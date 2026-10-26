@@ -7,9 +7,10 @@ import { describe, expect, test } from 'vitest';
 
 import type { AgentRegistry } from '@kindgi/agents';
 import { createAgentRegistry, defineAgent } from '@kindgi/agents';
+import type { TupleIntent } from '@kindgi/authz';
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
-import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -915,5 +916,64 @@ describe('API — publishing an agent that searches memory by meaning', () => {
     expect(((await res.json()) as { memory?: unknown }).memory).toEqual({
       instructionTypes: ['acme.policy'],
     });
+  });
+});
+
+describe("API — agents publish: who is made the agent's owner", () => {
+  const PERSON = randomUUID() as UserId;
+  const PERSON_KEY = 'agents-owner-person';
+  const ACCOUNT_KEY = 'agents-owner-account';
+
+  /** The app, keeping the entries each publish writes. */
+  function makeOwnerApp() {
+    const inner = bindingFromRegistry(createAgentRegistry());
+    const written: TupleIntent[] = [];
+    const agentRegistry: AgentRegistryBinding = {
+      ...inner,
+      async publish(input) {
+        const outcome = await inner.publish(input);
+        if (outcome.kind === 'ok') {
+          written.push(...input.enqueueTuples(outcome.agentId as unknown as string));
+        }
+        return outcome;
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async (token) => {
+        if (token === PERSON_KEY) return { tenantId, userId: PERSON };
+        if (token === ACCOUNT_KEY) return { tenantId, serviceAccountId: 'sa-ci' };
+        return null;
+      },
+      runHandler,
+      agentRegistry,
+    });
+    const publish = async (key: string) => {
+      const res = await app.request('/v1/agents', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify(agentSpec()),
+      });
+      expect(res.status).toBe(201);
+    };
+    return { publish, written };
+  }
+
+  const owners = (written: readonly TupleIntent[]) =>
+    written.filter((t) => t.relation === 'owner').map((t) => t.user);
+
+  test("a person's key makes them its owner", async () => {
+    const { publish, written } = makeOwnerApp();
+    await publish(PERSON_KEY);
+    expect(owners(written)).toEqual([`user:${PERSON}`]);
+  });
+
+  test("a service account's key makes no one its owner; its project is still its parent", async () => {
+    const { publish, written } = makeOwnerApp();
+    await publish(ACCOUNT_KEY);
+    expect(owners(written)).toEqual([]);
+    expect(written.filter((t) => t.relation === 'parent').map((t) => t.user)).toEqual([
+      expect.stringMatching(/^project:/),
+    ]);
   });
 });
