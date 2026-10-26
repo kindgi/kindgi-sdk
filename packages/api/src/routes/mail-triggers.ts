@@ -703,7 +703,7 @@ const OWNER_MOVES_BY_TAKE_OVER =
   "a mail trigger's owner changes only by a take-over (`POST /v1/mail-triggers/{triggerId}/owner`)";
 
 const ONLY_THE_OWNER_CHOOSES_WHAT_IT_READS =
-  "Only the trigger's owner may choose what it reads from their mailbox, its mailbox and its folder or label: take it over to watch your own.";
+  "Only the trigger's owner may choose which of their mailboxes it reads, and which folder or Gmail label in it: take it over to watch your own.";
 
 const PERSON_MAILBOX_IS_A_PERSONS =
   "a trigger on a person's mailbox reads its owner's own mail, so a person owns it: not a service account (`runAsServiceAccountId` goes with the company's mailbox)";

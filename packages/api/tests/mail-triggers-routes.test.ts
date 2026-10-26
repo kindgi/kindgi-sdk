@@ -309,7 +309,7 @@ describe('who may change a personal trigger', () => {
     });
     expect(otherApp.status).toBe(403);
     expect(otherApp.body.error.message).toMatch(
-      /Only the trigger's owner may choose what it reads/,
+      /Only the trigger's owner may choose which of their mailboxes it reads, and which folder or Gmail label in it/,
     );
     const folder = { config: { folder: 'Label_7' } };
     expect((await h.call('PATCH', `${BASE}/${id}`, folder)).status).toBe(403);
