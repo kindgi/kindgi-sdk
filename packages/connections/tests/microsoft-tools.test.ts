@@ -614,6 +614,7 @@ describe('Outlook tools for the company mailbox', () => {
       if (notes !== undefined) expect(toManifest(company).effects?.[0]?.notes).toBe(notes);
       // The same version for both: an id keeps its `as` (tool-pins.test.ts pins each).
       expect(company.version).toBe(person.version);
+      expect(company.resultIsOutsideData).toBe(person.resultIsOutsideData);
     },
   );
 

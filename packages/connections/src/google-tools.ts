@@ -219,6 +219,8 @@ const gmailMessagesListSpec = (
   },
   effects: READS,
   mutating: false,
+  // A mail is anyone's text: the agent reads it as data, not instructions.
+  resultIsOutsideData: true,
   network: NETWORK,
   needsSpec: {
     connections: { mail: { app: 'google', permissions: ['gmail.readonly'], as } },
@@ -284,6 +286,8 @@ const gmailMessageGetSpec = (
   output: MAIL_MESSAGE,
   effects: READS,
   mutating: false,
+  // A mail is anyone's text: the agent reads it as data, not instructions.
+  resultIsOutsideData: true,
   network: NETWORK,
   needsSpec: {
     connections: { mail: { app: 'google', permissions: ['gmail.readonly'], as } },

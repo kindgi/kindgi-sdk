@@ -961,6 +961,7 @@
         }
       ],
       "mutating": false,
+      "resultIsOutsideData": true,
       "network": {
         "kind": "allowlist",
         "hosts": ["gmail.googleapis.com"]
@@ -1062,6 +1063,7 @@
         }
       ],
       "mutating": false,
+      "resultIsOutsideData": true,
       "network": {
         "kind": "allowlist",
         "hosts": ["gmail.googleapis.com"]
@@ -1252,6 +1254,7 @@
         }
       ],
       "mutating": false,
+      "resultIsOutsideData": true,
       "network": {
         "kind": "allowlist",
         "hosts": ["gmail.googleapis.com"]
@@ -1442,6 +1445,7 @@
         }
       ],
       "mutating": false,
+      "resultIsOutsideData": true,
       "network": {
         "kind": "allowlist",
         "hosts": ["gmail.googleapis.com"]

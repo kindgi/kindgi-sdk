@@ -105,6 +105,7 @@ describe('gmailMessagesList', () => {
       id: 'acme.gmail.list',
       version: '1.0.0',
       mutating: false,
+      resultIsOutsideData: true,
       network: { kind: 'allowlist', hosts: ['gmail.googleapis.com'] },
       needsSpec: {
         connections: { mail: { app: 'google', permissions: ['gmail.readonly'], as: 'person' } },
@@ -277,6 +278,7 @@ describe('gmailMessageGet', () => {
       id: 'acme.gmail.get',
       version: '1.0.0',
       mutating: false,
+      resultIsOutsideData: true,
       network: { kind: 'allowlist', hosts: ['gmail.googleapis.com'] },
       needsSpec: {
         connections: { mail: { app: 'google', permissions: ['gmail.readonly'], as: 'person' } },
@@ -475,6 +477,7 @@ describe('Gmail tools for the company mailbox', () => {
       if (notes !== undefined) expect(toManifest(company).effects?.[0]?.notes).toBe(notes);
       // The same version for both: an id keeps its `as` (tool-pins.test.ts pins each).
       expect(company.version).toBe(person.version);
+      expect(company.resultIsOutsideData).toBe(person.resultIsOutsideData);
     },
   );
 
