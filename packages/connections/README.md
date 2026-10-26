@@ -40,7 +40,11 @@ entry.
 Ready-made tools that act with a connection, one subpath per app:
 
 - `@kindgi/connections/google/tools`: `gmailSend` sends a plain-text mail
-  as the person whose Google connection the call has.
+  as the person whose Google connection the call has; `gmailMessagesList`
+  lists or searches their mailbox; and `gmailMessageGet` reads one message
+  whole, as a `MailMessage`.
+- `@kindgi/connections/microsoft/tools`: `outlookSend`,
+  `outlookMessagesList` and `outlookMessageGet`, the same for Outlook.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
@@ -62,6 +66,17 @@ export default gmailSend({ id: 'acme.gmail.send' });
 The id is the pack's because a tool id is the tenant's, filed under the
 first project that publishes it. Sending, labelling and posting are
 `mutating`, and wait for a person's yes in a run no person started.
+
+A mail tool acts in the person's own mailbox. With `as: 'company'` it uses
+the company's instead, connected by signing in as that mailbox
+(`support@acme.example`). `as` is part of what the tool declares, so an id
+you've published keeps its `as`: give a company mailbox its own tool id
+(`acme.support-mail.list`).
+
+`@kindgi/connections/google/mail` and `@kindgi/connections/microsoft/mail`
+are `googleMail` and `microsoftMail`: the calls a runtime makes to watch a
+mailbox for new mail and read each one, with its thread, for a run
+(`MailFunctions`, from `@kindgi/connections/mail`).
 
 Each calls its app's API with `appFetch(ctx, call)`, from
 `@kindgi/connections/app-fetch`, which a tool of your own can use too. It

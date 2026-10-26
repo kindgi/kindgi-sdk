@@ -4,24 +4,39 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { type ToolManifest, changedToolFields, toManifest, toolDefinition } from '@kindgi/tools';
+import {
+  type AnyTool,
+  type ToolManifest,
+  changedToolFields,
+  toManifest,
+  toolDefinition,
+} from '@kindgi/tools';
 import { describe, expect, it } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
-import { gmailSend } from '../src/google-tools.js';
+import { gmailMessageGet, gmailMessagesList, gmailSend } from '../src/google-tools.js';
 import { linkedinPost } from '../src/linkedin-tools.js';
 import { outlookMessageGet, outlookMessagesList, outlookSend } from '../src/microsoft-tools.js';
 
+/** Each tool as a pack includes it, and each mail tool for the company's mailbox too: `as` changes what it declares. */
 const TOOLS = {
-  gmailSend,
-  githubIssuesList,
-  githubLabelsList,
-  githubIssuesAddLabels,
-  outlookSend,
-  outlookMessagesList,
-  outlookMessageGet,
-  linkedinPost,
-};
+  gmailSend: (id: string) => gmailSend({ id }),
+  'gmailSend as company': (id: string) => gmailSend({ id, as: 'company' }),
+  gmailMessagesList: (id: string) => gmailMessagesList({ id }),
+  'gmailMessagesList as company': (id: string) => gmailMessagesList({ id, as: 'company' }),
+  gmailMessageGet: (id: string) => gmailMessageGet({ id }),
+  'gmailMessageGet as company': (id: string) => gmailMessageGet({ id, as: 'company' }),
+  githubIssuesList: (id: string) => githubIssuesList({ id }),
+  githubLabelsList: (id: string) => githubLabelsList({ id }),
+  githubIssuesAddLabels: (id: string) => githubIssuesAddLabels({ id }),
+  outlookSend: (id: string) => outlookSend({ id }),
+  'outlookSend as company': (id: string) => outlookSend({ id, as: 'company' }),
+  outlookMessagesList: (id: string) => outlookMessagesList({ id }),
+  'outlookMessagesList as company': (id: string) => outlookMessagesList({ id, as: 'company' }),
+  outlookMessageGet: (id: string) => outlookMessageGet({ id }),
+  'outlookMessageGet as company': (id: string) => outlookMessageGet({ id, as: 'company' }),
+  linkedinPost: (id: string) => linkedinPost({ id }),
+} satisfies Record<string, (id: string) => AnyTool>;
 
 /**
  * Each tool's version and its definition at that version (`toolDefinition`,
@@ -45,7 +60,7 @@ const BUMP =
 
 describe("each tool's version moves with what it declares", () => {
   it.each(Object.keys(TOOLS) as (keyof typeof TOOLS)[])('%s', (name) => {
-    const tool = toManifest(TOOLS[name]({ id: `acme.${name.toLowerCase()}` }));
+    const tool = toManifest(TOOLS[name](`acme.${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`));
     const pin = PINS[name];
     if (pin?.version !== tool.version && WRITE) {
       PINS[name] = { version: tool.version, definition: toolDefinition(tool) };
