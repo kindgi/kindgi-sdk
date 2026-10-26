@@ -2488,7 +2488,6 @@ export const CLI_GROUP_SEE_ALSO = {
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
   connections: ['deploy/people-and-keys'],
-  'mail-triggers': ['guides/connections/google', 'guides/connections/microsoft'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],

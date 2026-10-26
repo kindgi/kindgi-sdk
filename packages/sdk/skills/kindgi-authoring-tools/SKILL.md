@@ -199,7 +199,7 @@ const defined = defineTool({
 - **An HTTP tool** sends the token with no code: `authorization: { kind: 'connection', connection: 'mail' }`.
 - **Ready-made tools:** for Gmail, Outlook, GitHub and LinkedIn, include one from `@kindgi/connections` instead of writing it. Each is a factory, and the pack names its id; there's no default, because a tool id is the tenant's, filed under the first project that publishes it. A tool folder's `index.ts` is one line, `export default gmailSend({ id: 'acme.gmail.send' })` (`@kindgi/connections/google/tools`, with `gmailMessagesList`, `gmailMessageGet` and `gmailReply`); `githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels` come from `@kindgi/connections/github/tools`, `outlookSend`, `outlookMessagesList`, `outlookMessageGet` and `outlookReply` from `@kindgi/connections/microsoft/tools`, and `linkedinPost` from `@kindgi/connections/linkedin/tools`. Agents and approval settings use the pack's id. A mail tool acts in the person's own mailbox; `as: 'company'` makes it use the company's. `as` is part of what the tool declares, so an id you've published keeps its `as`: give a company mailbox its own tool id.
 - **Your own calls to an app's API:** `appFetch(ctx, { entry, connection, toolId, url, method, headers, body })` from `@kindgi/connections/app-fetch` sends the connection's token as the only `Authorization`, paces calls by the entry's `rateLimits` (`toolId` is what its `costs` charge; 1 when not listed), tries a busy answer again, and throws a 401 as `ConnectionRejectedError`.
-- **Unattended runs:** in a run no person started, a tool that uses an `as: 'person'` connection waits for that person's yes, reads included: `mutating: false` doesn't lift it. The agent's `conversationPolicy.hitl` can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
+- **Unattended runs:** in a run no person started, a tool that uses an `as: 'person'` connection waits for that person's yes, reads included: `mutating: false` doesn't lift it. The agent's `conversationPolicy.hitl` can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `mutating: false`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `ctx.connections` is optional in the type; build a context with `toolContextForTest({ connections: { mail: { accessToken: 'test', account: { id: '1', label: 'ana@acme.com' }, … } } })` (`@kindgi/sdk/define`).
 
 Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
@@ -241,10 +241,11 @@ export default defined.value;
 
 ## Read-only tools: `mutating`
 
-`mutating: false` declares that the tool changes nothing outside Kindgi; it only reads. Leaving `mutating` out counts as mutating, the same as `true`. It decides two things, in both authoring modes:
+`mutating: false` declares that the tool changes nothing outside Kindgi; it only reads. Leaving `mutating` out counts as mutating, the same as `true`. It decides three things, in both authoring modes:
 
 - **Dry runs.** `kindgi runs start --dry-run` runs a tool only if it's `mutating: false` and its `effects` declare no `writes`, `deletes`, `spawns-run`, `emits-event` or `external-side-effect`. The first other tool stops the run with `dry-run-effectful-tool`.
 - **Approval gates.** When an agent turns tool gates on (`conversationPolicy.hitl.tools`) and sets neither an override for the tool nor a `default`, a `mutating: false` tool runs straight through, and any other tool asks for approval on its first use.
+- **Runs a new mail started.** A call of a tool that isn't `mutating: false` waits for a person's yes, unless the mail trigger's `toolsAllowedUnattended` lists it.
 
 So declare `mutating: false` on every tool that only reads, and never on one that writes.
 
@@ -259,11 +260,11 @@ The kinds are `reads`, `writes`, `deletes`, `network`, `spawns-run`, `emits-even
 
 ## A person's yes when no one is watching: `needsApprovalWhenUnattended`
 
-`needsApprovalWhenUnattended: true` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, an event or a service account's key started. In such a run:
+`needsApprovalWhenUnattended: true` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, a new mail, an event or a service account's key started. In such a run:
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
-- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's or a schedule's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks` and `kindgi schedules`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Absent means `false`. Declare it on a tool that moves money or changes something people rely on:
 
