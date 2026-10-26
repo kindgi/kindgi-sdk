@@ -44,6 +44,18 @@ One non-streaming `models.generateContent` call per `invoke`:
 
 `usage.promptTokens` includes cached tokens and built-in tool prompts; `usage.cachedTokens` reports the cached ones when there are any.
 
+## How much it thinks
+
+Gemini 3 models think before they answer unless they're told otherwise. The thinking bills as output, and it counts against `maxOutputTokens`, so a high level with a small cap can end with no answer.
+
+- **`thinkingLevels`** sets a level for each model it names: `minimal`, `low`, `medium` or `high`. That's Gemini's `thinkingLevel`, sent upper-cased on every call to that model. A model it doesn't name thinks as Google sets by default.
+  - In code: `thinkingLevels: { 'gemini-3.8-flash': 'low' }`.
+  - On a registration: `adapter_config.thinkingLevels: "gemini-3.8-flash=low,gemini-3.5-flash-lite=minimal"`.
+- **Each model it names** needs `thinking` in `metadata.models`, and a level no lower than its `thinking.lowest`. Gemini 3.8 Flash takes `low` at the least, and Vertex AI refuses `minimal` on it. Anything else is refused, naming the model, when the provider is made or registered.
+- **A call's `thinking: 'lowest'`** (judges set it) still sends the model's `thinking.lowest`.
+- **Gemini 2.5** takes a token budget instead of a level, and isn't covered.
+- **It takes effect from the 0.2.0-rc.1 adapter.** An older one ignores the key, as the adapter ignores any `adapter_config` key it doesn't know. Keys are case-sensitive, so a misspelled one is ignored too.
+
 ## Exports
 
 - **`createGeminiProvider(options)`**: a `ModelProvider` whose `metadata` is `options.metadata`. `invoke()` throws when `input.model` is not one of `metadata.models[].name`.
@@ -52,12 +64,15 @@ One non-streaming `models.generateContent` call per `invoke`:
   - `vertex: { project, location }`: the Vertex AI project, and the location (`global` or a region).
   - `credentials?: () => string | Promise<string>`: a service-account key, resolved on every call. The client is rebuilt only when the resolved key changes, so a rotated key applies on the next call. Absent: Application Default Credentials.
   - `client?`: an injected `GeminiClient` (anything with `models.generateContent`), used as is. For tests.
+  - `thinkingLevels?: Record<string, GeminiThinkingLevel>`: a thinking level for each model it names (see [How much it thinks](#how-much-it-thinks)).
 - **`geminiAdapterFactory`** / **`GEMINI_ADAPTER_ID`** (`'@kindgi/adapter-model-gemini'`): the factory a server registers. A provider row carries:
   - `adapter_config.project` (required);
   - `metadata.region` as the location (`unspecified` means `global`);
-  - an optional `secret_ref` holding a service-account key.
+  - an optional `secret_ref` holding a service-account key;
+  - an optional `adapter_config.thinkingLevels`, `"model=level,…"`.
 - **`vertexTarget(input)`**: the project and location a registration names, as the factory reads them.
-- **`geminiAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, `geminiAdapterFactory` plus **`geminiCheckConfig(input)`**. The check reports what the factory would throw on (`adapter_config.api`, `secret_ref` on the Developer API, `adapter_config.project`, `metadata.region`) with the factory's own messages, without building anything.
+- **`geminiAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, `geminiAdapterFactory` plus **`geminiCheckConfig(input)`**. The check reports what the factory would throw on (`adapter_config.api`, `secret_ref` on the Developer API, `adapter_config.project`, `metadata.region`, `adapter_config.thinkingLevels`) with the factory's own messages, without building anything.
+- **`GeminiThinkingLevel`**: `'minimal' | 'low' | 'medium' | 'high'`.
 - **Cost helpers**: `computeCostUsd(usage, rates)`, `toFrameworkUsage(usageMetadata)`, `GeminiCostRates`, `GeminiModelInfo`, `DEFAULT_CACHED_PROMPT_MULTIPLIER`.
 - **Translation helpers**: `toGeminiRequest(messages)`, `toGeminiFunctions(tools)`, `fromGeminiResponse(response)`, `mapFinishReason(reason)`, `checkFunctionName(name)`.
 
