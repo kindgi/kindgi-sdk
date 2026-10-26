@@ -65,6 +65,11 @@
       "types": "./dist/app-fetch.d.ts",
       "import": "./dist/app-fetch.js",
       "default": "./dist/app-fetch.js"
+    },
+    "./mail": {
+      "types": "./dist/mail.d.ts",
+      "import": "./dist/mail.js",
+      "default": "./dist/mail.js"
     }
   },
   "files": ["dist", "src", "README.md"],
