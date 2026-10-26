@@ -38,7 +38,7 @@ agent that uses it, a flow around both) loads each one in turn.
 
 | Skill | Loaded when |
 |---|---|
-| `kindgi-getting-started`, `kindgi-python-getting-started`, `kindgi-java-getting-started`, `kindgi-scala-getting-started` | Setting up or orienting in a pack |
+| `kindgi-getting-started`, `kindgi-python-getting-started`, `kindgi-java-getting-started`, `kindgi-scala-getting-started` | Setting up or orienting in a pack, or upgrading a self-hosted deployment |
 | `kindgi-authoring-tools`, `kindgi-python-authoring-tools`, `kindgi-java-authoring-tools`, `kindgi-scala-authoring-tools` | Writing a tool: typed input and output, side effects, secrets, HTTP tools |
 | `kindgi-authoring-agents`, `kindgi-python-authoring-agents`, `kindgi-java-authoring-agents`, `kindgi-scala-authoring-agents` | Writing an agent: instructions, tools, typed output, budgets |
 | `kindgi-authoring-flows`, `kindgi-python-authoring-flows`, `kindgi-java-authoring-flows`, `kindgi-scala-authoring-flows` | Writing a flow: steps, edges, conditions, loops, fanout |
@@ -129,7 +129,7 @@ agent uses yours (with `--json`, it gets the same as
   ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
 
 Logging in to the runtime image's registry is yours too:
-`kindgi auth registry` asks for your token the same way
+`kindgi auth registry` asks for your license key the same way
 ([Install](../install/)).
 
 ## Keep it out of your keys

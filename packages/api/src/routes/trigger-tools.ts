@@ -304,7 +304,7 @@ export async function recordToolsAllowedUnattendedSet(args: {
   readonly tenantId: TenantId;
   readonly projectId?: ProjectId;
   readonly triggerId: string;
-  readonly triggerKind: 'webhook' | 'cron';
+  readonly triggerKind: 'webhook' | 'cron' | 'mail';
   readonly target: TriggerTarget;
   readonly from?: readonly string[];
   readonly to: readonly string[];

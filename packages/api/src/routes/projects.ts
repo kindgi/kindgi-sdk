@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Context } from 'hono';
 import { Hono } from 'hono';
 
 import { type Principal, ref } from '@kindgi/authz';
@@ -17,9 +18,11 @@ import type {
 } from '@kindgi/platform';
 import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
+import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
 import {
   membershipExistsError,
@@ -91,6 +94,11 @@ export function projectsRouter(
    * email) by email. Without it, an id is taken as given.
    */
   directory?: IdentityDirectoryBinding,
+  /**
+   * Optional. Where a project's own account is read and unregistered: a
+   * deleted project's account is unregistered with it.
+   */
+  serviceAccounts?: Pick<ServiceAccountBinding, 'projectAccounts' | 'unregister'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -772,11 +780,48 @@ export function projectsRouter(
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }
+    // Only once the project is gone: a delete refused before here leaves
+    // its triggers their account.
+    await unregisterProjectAccount(c, serviceAccounts, tenantId, projectId);
     c.status(204);
     return c.body(null);
   });
 
   return r;
+}
+
+/**
+ * Unregisters a deleted project's own account, if it has one. Best effort,
+ * and logged when it fails: the project is gone, the account has no keys,
+ * and its one grant names the gone project, so a missed one can't be used.
+ */
+async function unregisterProjectAccount(
+  c: Context<AppEnv>,
+  serviceAccounts: Pick<ServiceAccountBinding, 'projectAccounts' | 'unregister'> | undefined,
+  tenantId: TenantId,
+  projectId: ProjectId,
+): Promise<void> {
+  const accounts = serviceAccounts?.projectAccounts;
+  if (serviceAccounts === undefined || accounts === undefined) return;
+  const failed = (why: string) =>
+    c
+      .get('log')
+      .warn(
+        `project ${projectId as unknown as string} deleted, but its own account wasn't unregistered (request ${c.get('requestId')}): ${why}`,
+      );
+  try {
+    const account = await accounts.get({ tenantId, projectId: projectId as unknown as string });
+    if (account === null) return;
+    const by = callerRef(c);
+    const result = await serviceAccounts.unregister({
+      tenantId,
+      serviceAccountId: account.serviceAccountId,
+      ...(by !== undefined && { by }),
+    });
+    if (result.kind === 'err') failed(result.error.message);
+  } catch (err) {
+    failed(err instanceof Error ? err.message : String(err));
+  }
 }
 
 /** Who a new member is: exactly one of `userId` and `email`. */

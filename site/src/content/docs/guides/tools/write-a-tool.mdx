@@ -234,6 +234,18 @@ In every language:
 - `mutating: false` (`.mutating(false)` in Java, `.readOnly` in Scala)
   declares that the tool only reads. See
   [Mark a tool read-only](../read-only-tools/).
+- A `pattern` (`@Pattern` in Java and Scala) is read as JavaScript's
+  `RegExp` reads it, in the runtime. In Python, Java and Scala, the pack
+  checks data against it with its own regular expressions too, so it must be
+  one both read, as `^ord_\d+$` is:
+  - In Python, one JavaScript doesn't read, such as `(?P<name>.)`, is
+    refused when the tool is defined. A schema given as a dict has its data
+    checked with Python's `re`, so one `re` doesn't read, such as `\p{L}`, is
+    refused then too. A pydantic model's `Field(pattern=...)` is checked by
+    pydantic, which reads `\p{L}`. One pydantic doesn't read, such as `a\Z`,
+    fails when the model class is created.
+  - In Java and Scala, one JavaScript or Java doesn't read, such as `[^]`,
+    which Java doesn't, is refused when the pack is indexed.
 - What the handler prints shows in the `kindgi dev` terminal, prefixed `[pack]`.
 - Open files, databases and connections inside the handler, on first use,
   not at the module's top level (in a static field or an object's `val`, in
@@ -561,6 +573,14 @@ uv run kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_999
   "status": "failed",
   "failureMessage": "handler-error: Tool \"my-pack.lookup-order\" handler threw: handler-throw: Handler for tool \"my-pack.lookup-order\" threw: Error: No order ord_9999",
 ```
+
+In TypeScript, the message goes on to say what caused the error, as Node
+writes it, up to three causes. A `fetch` that failed says why, where it
+said only `fetch failed`:
+`TypeError: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)`.
+The message is masked, its causes included: a Kindgi token, and a URL's
+secret query value such as `?token=` or `X-Amz-Signature=`, show as
+`[redacted]`.
 
 What the handler returns is checked against the output schema too; a return
 value that doesn't fit fails with `output-validation-failed`.

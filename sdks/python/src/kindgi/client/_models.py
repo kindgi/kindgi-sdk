@@ -78,7 +78,7 @@ class OtherItem(BaseModel):
 
 class RunTrigger(BaseModel):
     """
-    Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. The runtime fires schedules only; `event` and `webhook` are kept for event triggers and inbound webhooks, which aren't served yet.
+    Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook) or `mail` (new mail in a mailbox).
     """
 
     model_config = ConfigDict(
@@ -86,7 +86,7 @@ class RunTrigger(BaseModel):
         populate_by_name=True,
     )
     trigger_id: Annotated[UUID, Field(alias="triggerId")]
-    kind: Annotated[Literal["schedule", "event", "webhook"] | str, _open.OPEN]
+    kind: Annotated[Literal["schedule", "event", "webhook", "mail"] | str, _open.OPEN]
     fire_id: Annotated[str, Field(alias="fireId")]
     """
     The fire that started the run: one entry of the trigger's fire history.
@@ -280,6 +280,9 @@ class Replay(BaseModel):
     max_diverged: Annotated[int | None, Field(alias="maxDiverged", ge=0)] = None
     max_errors: Annotated[int | None, Field(alias="maxErrors", ge=0)] = None
     max_refused_writes: Annotated[int | None, Field(alias="maxRefusedWrites", ge=0)] = None
+    """
+    At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.
+    """
     max_stopped: Annotated[int | None, Field(alias="maxStopped", ge=0)] = None
 
 
@@ -7079,86 +7082,13 @@ class Changes(BaseModel):
     new: list[NewItem]
 
 
-class Differences(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["count"]
-    expected: Annotated[int, Field(ge=0)]
-    actual: Annotated[int, Field(ge=0)]
-    refused: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many of the actual calls were refused on the replay. Absent when none were.
-    """
-
-
-class Differences1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["must-not-call"]
-    actual: Annotated[int, Field(ge=1)]
-    refused: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many of the forbidden calls were refused on the replay. Absent when none were.
-    """
-
-
-class Differences2(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["missing-field"]
-    field: str
-    expected: Any
-    refused: bool | None = None
-    """
-    Present and true when the call blamed for the miss was refused on the replay.
-    """
-
-
-class Differences3(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["field-value"]
-    field: str
-    expected: Any
-    actual: Any
-    refused: bool | None = None
-    """
-    Present and true when the call blamed for the miss was refused on the replay.
-    """
-
-
-class CorrectionDifference(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
-    repetition: Annotated[int, Field(ge=1)]
-    """
-    Which repetition (1-based) these differences are from.
-    """
-    differences: list[Differences | Differences1 | Differences2 | Differences3]
-
-
 class CostUsdItem(RootModel[float]):
     root: Annotated[float, Field(ge=0.0)]
 
 
 class Stopped(BaseModel):
     """
-    Set when the replay stopped at a refused write: what it would have done.
+    Set when the replay stopped at a refused tool call: what it would have done.
     """
 
     model_config = ConfigDict(
@@ -7200,7 +7130,7 @@ class EvalRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
@@ -9055,6 +8985,7 @@ class EvidenceKind(RootModel[str]):
                 "person-ungranted",
                 "trigger-owner-set",
                 "trigger-tools-allowed-unattended-set",
+                "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -9224,6 +9155,7 @@ class ComplianceEvidence(BaseModel):
                 "person-ungranted",
                 "trigger-owner-set",
                 "trigger-tools-allowed-unattended-set",
+                "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -9321,6 +9253,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-ungranted",
                 "trigger-owner-set",
                 "trigger-tools-allowed-unattended-set",
+                "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -9395,6 +9328,7 @@ class Filter(BaseModel):
                 "person-ungranted",
                 "trigger-owner-set",
                 "trigger-tools-allowed-unattended-set",
+                "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -10219,6 +10153,10 @@ class TriggerOwner(BaseModel):
     """
     The owner's name at the time of the response: the person's display name, or the service account's name. Absent when it can't be read (no directory, a removed account) and from a runtime before Kindgi 0.1.6: show the id then.
     """
+    is_project_account: Annotated[Literal[True] | None, Field(alias="isProjectAccount")] = None
+    """
+    Set when the owner is the trigger's project's own service account (`runAsProject`): the trigger is shared, and runs as the project. Show it as "This project". Absent otherwise.
+    """
 
 
 class ScheduleFire(BaseModel):
@@ -10437,7 +10375,7 @@ class Config8(BaseModel):
 
 class TakeTriggerOwnerBody(BaseModel):
     """
-    Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.
+    Who the trigger's runs act as from now: for a trigger whose owner left, or to make one shared or personal. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. With `runAsProject`: the project's own account does. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.
     """
 
     model_config = ConfigDict(
@@ -10448,7 +10386,11 @@ class TakeTriggerOwnerBody(BaseModel):
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
     ] = None
     """
-    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`).
+    """
+    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
+    """
+    `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
     """
 
 
@@ -10459,6 +10401,268 @@ class WebhookTriggerUnregisterResult(BaseModel):
     )
     trigger_id: Annotated[str, Field(alias="triggerId")]
     unregistered: bool
+
+
+class MailTriggerMailbox(BaseModel):
+    """
+    The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company's connection of that app; `person`: the trigger owner's own, through their connection).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    app: Annotated[Literal["google", "microsoft"] | str, _open.OPEN]
+    as_: Annotated[Annotated[Literal["company", "person"] | str, _open.OPEN], Field(alias="as")]
+
+
+class Account(BaseModel):
+    """
+    The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    label: str
+
+
+class MailTriggerRecord(BaseModel):
+    """
+    A mail trigger: each new mail in its mailbox's folder starts a run of its agent or flow, with the mail as the run's input, as its owner. In such a run, every call that changes something, or uses the run's own mailbox, waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as, with their connections. A service account owns a shared trigger, on the company's mailbox: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). A person owns a personal one: every trigger on a person's mailbox, and one on the company's mailbox registered without either. No edit moves it; only a take-over (`POST …/owner`) does.
+    """
+    mailbox: MailTriggerMailbox
+    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
+    """
+    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    """
+    poll_seconds: Annotated[int, Field(alias="pollSeconds", ge=30, le=3600)]
+    """
+    How often it looks for new mail, in seconds (default 60).
+    """
+    runs_per_hour: Annotated[int, Field(alias="runsPerHour", ge=1, le=600)]
+    """
+    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
+    """
+    label: str | None
+    status: Annotated[Literal["active", "paused"] | str, _open.OPEN]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.
+    """
+    account: Account | None = None
+    """
+    The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.
+    """
+    last_polled_at: Annotated[AwareDatetime | None, Field(alias="lastPolledAt")] = None
+    """
+    When it last polled the mailbox and got an answer.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class Config10(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mailbox: MailTriggerMailbox
+    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
+    """
+    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    """
+    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
+    """
+    How often it looks for new mail, in seconds (default 60).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
+    """
+
+
+class RegisterMailTriggerBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the mail, so it takes none. A trigger on a person's mailbox reads the caller's own mail and is theirs: it needs `write` on the project. One on the company's mailbox needs `admin` on the project. Both need `execute` on what it runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The trigger's project. Absent → the tenant's default project.
+    """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
+    """
+    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
+    """
+    On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
+    """
+    config: Config10
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class Config11(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mailbox: MailTriggerMailbox | None = None
+    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
+    """
+    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    """
+    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
+    """
+    How often it looks for new mail, in seconds (default 60).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
+    """
+
+
+class PatchMailTriggerBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its mailbox (replaced whole), folder, pace or label. A personal trigger's change is its owner's or a project admin's; a shared one's, a project admin's; and the company's mailbox, before or after, takes a project admin. The owner stays.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    config: Config11 | None = None
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class MailFire(BaseModel):
+    """
+    One mail a mail trigger found and what came of it. A thread's mail runs one at a time, oldest first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fire_id: Annotated[str, Field(alias="fireId")]
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
+    outcome: Annotated[
+        Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
+    ]
+    """
+    `pending` while its run starts, or while an earlier mail of its thread waits or that mail's run hasn't finished (`detail` starts `thread-busy:`). `skipped`: no run started, as `detail` says: the mail is from the mailbox's own address (`own-address`), an automatic reply (`auto-submitted`), received before the trigger began watching (`before-since`), found in a mailbox that changed account before it was read (`mailbox-changed`), gone by the time it was read (`not-found`), or already had by an earlier run of its thread (`mail-already-given:`); or the poll started afresh (`cursor-reset:`). `refused`: over the trigger's `runsPerHour` (`over-limit:`), the mailbox's connection missing, lapsed or lacking a scope (`connection-missing:` and why), or the app gave the mail no thread (`no-thread-id`); a refused mail doesn't run later. `failed`: the run couldn't start.
+    """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The run it started.
+    """
+    detail: str | None = None
+    """
+    Why it was skipped, refused or failed, or why a `pending` fire waits.
+    """
+    counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
+    """
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:`, `connection-missing:` and `no-thread-id` refusals: the limit passes, connecting again ends a missing connection, and a mail with no thread is the app's doing, not the trigger's. Skips never count.
+    """
+
+
+class MailFirePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MailFire]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class MailTriggerCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MailTriggerRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class FlowId(RootModel[str]):
@@ -11153,7 +11357,7 @@ class Threshold(BaseModel):
 
 class ImproveScheduleInput(BaseModel):
     """
-    An improve schedule's `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent's runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.
+    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
     """
 
     model_config = ConfigDict(
@@ -11776,6 +11980,82 @@ class ComparisonCandidateFlow(BaseModel):
     flow_id: Annotated[str, Field(alias="flowId")]
     version: str
     versions: FlowVersionOverrides | None = None
+
+
+class CallDifferenceCount(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["count"]
+    expected: Annotated[int, Field(ge=0)]
+    actual: Annotated[int, Field(ge=0)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the actual calls were refused on the replay. Absent when none were.
+    """
+
+
+class CallDifferenceMustNotCall(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["must-not-call"]
+    actual: Annotated[int, Field(ge=1)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the forbidden calls were refused on the replay. Absent when none were.
+    """
+
+
+class CallDifferenceMissingField(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["missing-field"]
+    field: str
+    expected: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
+
+
+class CallDifferenceFieldValue(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["field-value"]
+    field: str
+    expected: Any
+    actual: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
 
 
 class ScopeTenant(BaseModel):
@@ -13226,6 +13506,10 @@ class ServiceAccount(BaseModel):
     """
     Set once unregistered: it has no grants, and its keys no longer work.
     """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs that project's shared triggers, it has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.
+    """
 
 
 class ServiceAccountPage(BaseModel):
@@ -13843,11 +14127,15 @@ class RegisterToolBody(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`.
     """
     pauses: bool | None = None
     """
     `true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
+    """
+    `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -14504,7 +14792,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
     """
-    Tool calls refused across the cases (what the candidate would have done).
+    Tool calls the replay refused across the cases (what the candidate would have done). Reads count too, despite the name: the replay refuses a call it can't run live (a write, or a read that needs an approval or reaches outside, say) that has no recording of the same call.
     """
     errors: Annotated[int, Field(ge=0)]
     """
@@ -14524,7 +14812,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     stopped: Annotated[int, Field(ge=0)]
     """
-    Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.
+    Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics.
     """
     reads: Literal["recorded", "live"]
     class_weights: Annotated[
@@ -14545,6 +14833,24 @@ class JudgedComparisonSummary(BaseModel):
     Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
     """
     cost_usd: Annotated[JudgedComparisonCost | None, Field(alias="costUsd")] = None
+
+
+class CorrectionDifference(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    repetition: Annotated[int, Field(ge=1)]
+    """
+    Which repetition (1-based) these differences are from.
+    """
+    differences: list[
+        CallDifferenceCount
+        | CallDifferenceMustNotCall
+        | CallDifferenceMissingField
+        | CallDifferenceFieldValue
+    ]
 
 
 class ComparisonCaseResult(BaseModel):
@@ -14593,12 +14899,15 @@ class ComparisonCaseResult(BaseModel):
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
+    """
+    Tool calls the replay refused in this case: the most in any one of its repetitions. Reads count too, despite the name.
+    """
     no_context: Annotated[bool, Field(alias="noContext")]
     approval_skipped: Annotated[bool, Field(alias="approvalSkipped")]
     error: str | None = None
     stopped: Stopped | None = None
     """
-    Set when the replay stopped at a refused write: what it would have done.
+    Set when the replay stopped at a refused tool call: what it would have done.
     """
     rescored: Literal[False] | None = None
     """
@@ -15396,7 +15705,7 @@ class WebhookTriggerRecord(BaseModel):
     """
     owner: TriggerOwner
     """
-    Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every delivery.
+    Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every delivery.
     """
     input: Any | None = None
     """
@@ -15531,7 +15840,11 @@ class RegisterWebhookTriggerBody(BaseModel):
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
     ] = None
     """
-    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
+    """
+    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
+    """
+    `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
     """
     tools_allowed_unattended: Annotated[
         list[ToolsAllowedUnattendedItem] | None,
@@ -15966,16 +16279,18 @@ class Run(BaseModel):
     waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
     trigger: RunTrigger | None = None
     started_by: Annotated[
-        Annotated[Literal["person", "key", "schedule", "webhook", "event"] | str, _open.OPEN]
+        Annotated[
+            Literal["person", "key", "schedule", "webhook", "event", "mail"] | str, _open.OPEN
+        ]
         | None,
         Field(alias="startedBy"),
     ] = None
     """
-    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule or a webhook fired (`startedBy` `schedule` or `webhook`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -16061,16 +16376,18 @@ class Datum(BaseModel):
     waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
     trigger: RunTrigger | None = None
     started_by: Annotated[
-        Annotated[Literal["person", "key", "schedule", "webhook", "event"] | str, _open.OPEN]
+        Annotated[
+            Literal["person", "key", "schedule", "webhook", "event", "mail"] | str, _open.OPEN
+        ]
         | None,
         Field(alias="startedBy"),
     ] = None
     """
-    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
+    How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule or a webhook fired (`startedBy` `schedule` or `webhook`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -16156,11 +16473,15 @@ class Tool(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`.
     """
     pauses: bool | None = None
     """
     `true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
+    """
+    `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -16265,11 +16586,15 @@ class ToolVersionRow(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`.
     """
     pauses: bool | None = None
     """
     `true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
+    """
+    `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
     """
     sandbox: Annotated[Literal["none", "context-isolated", "strict"] | str, _open.OPEN] | None = (
         None
@@ -16472,7 +16797,7 @@ class ScheduleRecord(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
     """
-    A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).
+    A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options).
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -16480,7 +16805,7 @@ class ScheduleRecord(BaseModel):
     """
     owner: TriggerOwner | None = None
     """
-    Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire.
+    Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every fire.
     """
     cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
     """
@@ -16580,7 +16905,11 @@ class RegisterScheduleBody(BaseModel):
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
     ] = None
     """
-    A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.
+    A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
+    """
+    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
+    """
+    `true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
     """
     config: Config6
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None

@@ -38,7 +38,8 @@ export const GLOBAL_OPTION_SPEC = {
   raw: { type: 'boolean' as const, description: 'Output compact, one-line JSON.' },
   quiet: {
     type: 'boolean' as const,
-    description: 'Print errors and warnings only: the exit code reports the result.',
+    description:
+      "Print errors and warnings only, and what's shown only once (a link, a secret, a code) alone on stdout: the exit code reports the result.",
   },
 } as const;
 

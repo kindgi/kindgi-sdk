@@ -17,8 +17,10 @@
  */
 export const CLI_DEFAULTS = {
   'auth registry': {
-    registry: "`quay.io`, the runtime image's registry",
-    username: 'required (except with `--check`)',
+    'key-from': 'none',
+    registry: "`registry.kindgi.com`, the runtime image's registry",
+    username:
+      '`kindgi` on `registry.kindgi.com`; required on another registry (except with `--check`)',
   },
   init: {
     'pack-id': "derived from the existing app's name",
@@ -495,8 +497,8 @@ export const CLI_DEFAULTS = {
   'proposals improve': {
     agent: 'required',
     'class-weights':
-      "none (counts everyone until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only those)",
-    drafts: '`3` (`1` to `5`; a prompt pass only)',
+      "none (counts everyone until the test cases' project, its tenant, or the agent improved there has a restricted judge class, then only those)",
+    drafts: '`3` (`1` to `5`; with `--tier=prompt` only)',
     'from-version': 'the version serving the scope',
     'idempotency-key': 'none',
     'max-candidates': '`30`',
@@ -664,6 +666,48 @@ export const CLI_DEFAULTS = {
   'webhooks take-ownership': {
     'run-as': 'none (you own the trigger)',
   },
+  'mail-triggers list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: 'none',
+    status: 'none (both active and paused)',
+  },
+  'mail-triggers create': {
+    agent: 'none',
+    'agent-version': 'none (its live version, else the latest)',
+    'allow-unattended': 'none (a tool that waits for a person still waits)',
+    as: '`person` (your own mailbox)',
+    flow: 'none',
+    'flow-version': 'required with `--flow`',
+    folder: 'none (the inbox)',
+    label: 'none',
+    mailbox: 'required',
+    poll: '`60` (seconds)',
+    project: "the tenant's Default project",
+    'run-as': 'none (you own the trigger)',
+    'runs-per-hour': '`60`',
+  },
+  'mail-triggers update': {
+    agent: 'unchanged',
+    'agent-version': 'unchanged',
+    'allow-unattended':
+      'unchanged; a trigger that has a list and moves to another flow, agent or mailbox must name it again, or `none`',
+    as: 'unchanged (given with `--mailbox`)',
+    flow: 'unchanged',
+    'flow-version': 'unchanged',
+    folder: 'unchanged',
+    label: 'unchanged',
+    mailbox: 'unchanged (given with `--as`)',
+    poll: 'unchanged',
+    'runs-per-hour': 'unchanged',
+  },
+  'mail-triggers fires': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'mail-triggers take-ownership': {
+    'run-as': 'none (you own the trigger)',
+  },
   'sites register': {
     'allowed-role': '`administrator` and `shop_manager`',
     'approvals-url': 'required',
@@ -739,8 +783,8 @@ export const CLI_DEFAULTS = {
     spec: 'required',
   },
   'judgments add': {
-    class: 'none (the judgment is unclassified)',
-    correction: 'none (an ordinary judgment, with no correction)',
+    class: 'none (the correction is unclassified)',
+    correction: 'none (an ordinary correction, without what the agent should have done)',
     item: 'required',
     no: 'off (exactly one of `--yes` or `--no` is required)',
     participant: 'none',
@@ -772,7 +816,7 @@ export const CLI_DEFAULTS = {
   'judge-classes add': {
     agent: 'none',
     description: 'none',
-    'min-reviewer-role': 'none (anyone who may judge the run may assert)',
+    'min-reviewer-role': 'none (anyone who may correct the run may assert)',
     name: 'required',
     'principal-id': 'none (no restriction)',
     'principal-kind': 'none (no restriction)',
@@ -796,7 +840,7 @@ export const CLI_DEFAULTS = {
     status: '`completed` (only completed runs match)',
     sample: '`1` (every matching run)',
     'max-open': 'none (no cap)',
-    class: 'none (any judgment closes an item)',
+    class: 'none (any correction closes an item)',
     'queue-last':
       'none (nothing is queued on create unless `--queue-last` or `--queue-since` is given)',
     'queue-since': 'none',
@@ -1130,16 +1174,26 @@ export const CLI_EXAMPLES = {
   'auth registry': [
     {
       purpose:
-        "Log Docker in to the runtime image's registry with the robot name you were given, then check the pull; the token is prompted for.",
-      line: 'kindgi auth registry --username=acme+reader',
+        'Log Docker in to registry.kindgi.com with your license key, then check the pull; the key is prompted for.',
+      line: 'kindgi auth registry',
     },
     {
-      purpose: 'Log in in a script, reading the token from stdin.',
-      line: 'kindgi auth registry --username=acme+reader --password-stdin < registry-token.txt',
+      purpose: 'Log in in a script, reading the license key from stdin.',
+      line: 'kindgi auth registry --password-stdin < kindgi-license-key.txt',
+    },
+    {
+      purpose:
+        'Log in to registry.kindgi.com with the license key a deployment already keeps, so it never passes through your shell.',
+      line: 'kindgi auth registry --key-from env-file:kindgi.env#KINDGI_LICENSE_KEY',
     },
     {
       purpose: 'Check that Docker can already pull the image, without logging in.',
       line: 'kindgi auth registry --check',
+    },
+    {
+      purpose:
+        "Log in to a mirror of the image instead, with that registry's own username and token; the check then looks for the image there.",
+      line: 'kindgi auth registry --registry=registry.acme.example --username=acme-ci --password-stdin < mirror-token.txt',
     },
   ],
   upgrade: [
@@ -1248,7 +1302,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose:
-        'Promote to prod and make each agent the build carries live there, each through its gate.',
+        'Promote to prod and make each agent the build carries live there, each through its release gate policy.',
       line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
     },
     {
@@ -1481,7 +1535,7 @@ export const CLI_EXAMPLES = {
   ],
   'agents gate-policy': [
     {
-      purpose: 'Show the gate policy for the whole tenant.',
+      purpose: 'Show the release gate policy for the whole tenant.',
       line: 'kindgi agents gate-policy acme.order-desk --tenant',
     },
     {
@@ -1491,7 +1545,7 @@ export const CLI_EXAMPLES = {
   ],
   'agents promotions get': [
     {
-      purpose: 'Show one promotion of an agent.',
+      purpose: "Show one entry of an agent's go-live history.",
       line: 'kindgi agents promotions get acme.order-desk <promotion-id>',
     },
   ],
@@ -1501,7 +1555,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi conversations list --status=open',
     },
     {
-      purpose: 'List only comparison replays, a page at a time.',
+      purpose: 'List only the replays of runs on the test cases, a page at a time.',
       line: 'kindgi conversations list --replays=only --limit=10',
     },
   ],
@@ -1709,6 +1763,74 @@ export const CLI_EXAMPLES = {
       line: 'kindgi webhooks unregister <trigger-id>',
     },
   ],
+  'mail-triggers list': [
+    {
+      purpose: 'List the mail triggers in a project.',
+      line: 'kindgi mail-triggers list --project=<project-id>',
+    },
+    {
+      purpose: 'List only the paused ones, as a table, with why each is paused.',
+      line: 'kindgi mail-triggers list --status=paused --table',
+    },
+  ],
+  'mail-triggers get': [
+    {
+      purpose: 'Fetch a mail trigger: what it runs, its mailbox and folder, and its status.',
+      line: 'kindgi mail-triggers get <trigger-id>',
+    },
+  ],
+  'mail-triggers create': [
+    {
+      purpose: 'Run an agent for each new mail in your own Gmail inbox.',
+      line: 'kindgi mail-triggers create --agent=acme.order-desk --mailbox=google',
+    },
+    {
+      purpose:
+        "Run a flow for each new mail in a folder of the company's Outlook mailbox, looking every two minutes.",
+      line: 'kindgi mail-triggers create --flow=acme.triage --flow-version=1.0.0 --mailbox=microsoft --as=company --folder=<folder-id> --poll=120',
+    },
+  ],
+  'mail-triggers update': [
+    {
+      purpose: 'Look for new mail every five minutes, and start at most 30 runs an hour.',
+      line: 'kindgi mail-triggers update <trigger-id> --poll=300 --runs-per-hour=30',
+    },
+    {
+      purpose: 'Watch the inbox again, on a trigger of your own Gmail.',
+      line: 'kindgi mail-triggers update <trigger-id> --folder=INBOX',
+    },
+  ],
+  'mail-triggers pause': [
+    {
+      purpose: 'Pause a mail trigger: it stops looking for new mail.',
+      line: 'kindgi mail-triggers pause <trigger-id>',
+    },
+  ],
+  'mail-triggers resume': [
+    {
+      purpose:
+        "Resume a paused mail trigger; mail that came while it was paused doesn't start runs.",
+      line: 'kindgi mail-triggers resume <trigger-id>',
+    },
+  ],
+  'mail-triggers fires': [
+    {
+      purpose: 'See the run each new mail started, or why it waits or was skipped, as a table.',
+      line: 'kindgi mail-triggers fires <trigger-id> --table',
+    },
+  ],
+  'mail-triggers take-ownership': [
+    {
+      purpose: 'Take over a trigger whose owner left, so its runs act as you.',
+      line: 'kindgi mail-triggers take-ownership <trigger-id>',
+    },
+  ],
+  'mail-triggers unregister': [
+    {
+      purpose: 'Remove a mail trigger: it stops looking for new mail.',
+      line: 'kindgi mail-triggers unregister <trigger-id>',
+    },
+  ],
   'sites register': [
     {
       purpose:
@@ -1824,7 +1946,7 @@ export const CLI_EXAMPLES = {
   ],
   'judging-rules create': [
     {
-      purpose: "Queue a quarter of an agent's completed runs for judging.",
+      purpose: "Queue a quarter of an agent's completed runs for correction.",
       line: 'kindgi judging-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
     },
     {
@@ -1895,23 +2017,23 @@ export const CLI_EXAMPLES = {
   ],
   'judging-queue list': [
     {
-      purpose: 'List the runs waiting for a judgment, as a table.',
+      purpose: 'List the runs waiting for a correction, as a table.',
       line: 'kindgi judging-queue list --state=open --table',
     },
     {
-      purpose: 'List the open items one of your judgments would close.',
+      purpose: 'List the open items one of your corrections would close.',
       line: 'kindgi judging-queue list --state=open --for-me',
     },
   ],
   'judging-queue dismiss': [
     {
-      purpose: 'Dismiss a queued run that needs no judgment.',
+      purpose: 'Dismiss a queued run that needs no correction.',
       line: 'kindgi judging-queue dismiss <run-id> --reason="not a refund"',
     },
   ],
   'judging-queue reopen': [
     {
-      purpose: 'Reopen a dismissed item so it waits for a judgment again.',
+      purpose: 'Reopen a dismissed item so it waits for a correction again.',
       line: 'kindgi judging-queue reopen <run-id>',
     },
   ],
@@ -1933,7 +2055,7 @@ export const CLI_EXAMPLES = {
   ],
   'eval-runs rescore': [
     {
-      purpose: 'Rescore a completed comparison and wait for the new run.',
+      purpose: 'Rescore a completed run on the test cases and wait for the new run.',
       line: 'kindgi eval-runs rescore <run-id> --wait',
     },
     {
@@ -1963,7 +2085,7 @@ export const CLI_EXAMPLES = {
   ],
   'eval-suites cases': [
     {
-      purpose: "List the first page of a test set's cases.",
+      purpose: 'List the first page of the test cases.',
       line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0',
     },
     {
@@ -1973,7 +2095,7 @@ export const CLI_EXAMPLES = {
   ],
   'blocks list': [
     {
-      purpose: 'List the prompt blocks of a project.',
+      purpose: "List a project's instructions (its prompt blocks).",
       line: 'kindgi blocks list --project=<project-id> --kind=prompt',
     },
     {
@@ -2015,7 +2137,7 @@ export const CLI_EXAMPLES = {
   ],
   'gate-policies list': [
     {
-      purpose: 'List the gate policies of one agent.',
+      purpose: 'List the release gate policies of one agent.',
       line: 'kindgi gate-policies list --agent=acme.order-desk --table',
     },
     {
@@ -2041,13 +2163,13 @@ export const CLI_EXAMPLES = {
   ],
   'gate-policies unregister': [
     {
-      purpose: 'Unregister a gate policy version.',
+      purpose: 'Unregister a release gate policy version.',
       line: 'kindgi gate-policies unregister acme.order-desk-release 1.0.0',
     },
   ],
   'gate-policies reinstate': [
     {
-      purpose: 'Reinstate an unregistered gate policy version.',
+      purpose: 'Reinstate an unregistered release gate policy version.',
       line: 'kindgi gate-policies reinstate acme.order-desk-release 1.0.0',
     },
   ],

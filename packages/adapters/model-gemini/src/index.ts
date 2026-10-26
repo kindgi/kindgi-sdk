@@ -9,7 +9,7 @@ export {
   geminiCheckConfig,
   vertexTarget,
 } from './provider.js';
-export type { GeminiClient, GeminiProviderOptions } from './provider.js';
+export type { GeminiClient, GeminiProviderOptions, GeminiThinkingLevel } from './provider.js';
 export { DEFAULT_CACHED_PROMPT_MULTIPLIER, computeCostUsd, toFrameworkUsage } from './cost.js';
 export type { GeminiCostRates, GeminiModelInfo } from './cost.js';
 export {

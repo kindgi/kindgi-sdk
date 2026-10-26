@@ -18,9 +18,9 @@ You run four containers on one Docker network:
 Everything here runs on one machine with Docker Desktop. On a server the pieces are the same; step 2 says what changes.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Before you start
@@ -43,19 +43,26 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 
   `init` lists the files it made, and `pnpm install` its packages.
 
-- **A license key.** Outside development mode, the runtime needs one: a free non-production key covers staging and CI, and a production key comes with a commercial license. To get one, write to contact@kindgi.com. [Licensing](../../../concepts/licensing/) explains the keys. `kindgi dev` needs none.
+- **A license key.** Outside development mode, the runtime needs one, and
+  pulling its image needs one too. A free non-production key covers staging
+  and CI: get one at [access.kindgi.com](https://access.kindgi.com). A
+  production key comes with a commercial license from contact@kindgi.com.
+  [Licensing](../../../concepts/licensing/) explains the keys.
 
 ## 1. Pull the runtime image
 
-The runtime runs from Kindgi's image. Log in to its registry and pull it:
+The runtime runs from Kindgi's image. Log in to its registry with your
+license key, and pull it:
 
 ```sh
-docker login quay.io
+docker login registry.kindgi.com --username kindgi
 docker pull quay.io/kindgi/runtime:0.1.10
 ```
 
-`docker login` prints `Login Succeeded`. It asks for the robot name and
-token only if `kindgi auth registry` hasn't logged Docker in already. `docker pull` prints the image's digest when it's done.
+`docker login` asks for the password: paste your key. It prints
+`Login Succeeded`. `docker pull` prints the image's digest when it's done.
+[Pull the runtime image](../pull-the-runtime-image/) covers logging in from a
+script or CI, and other clients.
 
 ## 2. Start Postgres and a registry
 
@@ -132,7 +139,8 @@ npx --yes @kindgi/cli@0.2 key create acme-selfhost --env selfhost
 It prints the key's JSON, then the paths of its private and public key files
 and its fingerprint.
 [Rotate a signing key](../rotate-keys/#rotate-a-signing-key) shows that
-output in full.
+output in full for a second key, with the key lines the `selfhost` block has
+by then.
 
 Add an environment for this deployment to `kindgi.config.ts`:
 

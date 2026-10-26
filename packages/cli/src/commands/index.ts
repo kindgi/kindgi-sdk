@@ -35,6 +35,7 @@ import { judgingRulesCommand } from './judging-rules.js';
 import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
 import { licenseCommand } from './license.js';
+import { mailTriggersCommand } from './mail-triggers.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
@@ -101,6 +102,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   flowsCommand,
   schedulesCommand,
   webhooksCommand,
+  mailTriggersCommand,
   approvalsCommand,
   reviewersCommand,
   observationsCommand,

@@ -34,8 +34,9 @@ import { satisfiesSpecifiers } from '../build/version-specifier.js';
 import { PACK_ID_REGEX } from '../commands/init.js';
 import { syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
-import { renderJson } from '../output.js';
+import { type OutputFormat, renderJson } from '../output.js';
 import { type BinRunner, binDisplay } from '../package-manager.js';
+import { note, renderLines, warning } from '../progress-lines.js';
 import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { CLI_VERSION } from '../version-info.js';
 import { agentAccessRows, patchAgentAccess } from './agent-access.js';
@@ -70,6 +71,8 @@ export interface RunInitPythonAugmentInputs {
   readonly packIdOverride?: string;
   /** Overwrite locally edited skills. */
   readonly force: boolean;
+  /** As `RunInitAugmentInputs.format`: default `json`, as with no flag. */
+  readonly format?: OutputFormat;
   /** This CLI is the PyPI one (`kindgi-cli`): the app runs it from its own environment. */
   readonly pypi?: boolean;
   /** Test seams. */
@@ -176,23 +179,28 @@ export async function runInitPythonAugment(
     warnings: access.warnings,
     nextSteps,
   };
+  const format = inputs.format ?? 'json';
   return {
     kind: 'ok',
     rendered: {
-      stdout: renderJson(summary, 'json').stdout,
-      stderr: [
-        '',
-        `  Kindgi added to ${inputs.targetDir} (a Python pack in the app).`,
-        `  Pack id: ${packId.id}    Version: ${version}`,
-        `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
-        ...access.outside.map((line) => `  ✓ ${line}`),
-        ...access.warnings.map((warning) => `  ⚠ ${warning}`),
-        '',
-        '  Next steps:',
-        ...nextSteps.map((step) => `    ${step}`),
-        '',
-        '',
-      ].join('\n'),
+      stdout: renderJson(summary, format).stdout,
+      stderr: renderLines(
+        [
+          note(''),
+          note(`  Kindgi added to ${inputs.targetDir} (a Python pack in the app).`),
+          note(`  Pack id: ${packId.id}    Version: ${version}`),
+          note(
+            `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+          ),
+          ...access.outside.map((line) => note(`  ✓ ${line}`)),
+          ...access.warnings.map((w) => warning(`  ⚠ ${w}`)),
+          note(''),
+          note('  Next steps:'),
+          ...nextSteps.map((step) => note(`    ${step}`)),
+          note(''),
+        ],
+        format === 'quiet',
+      ),
     },
   };
 }

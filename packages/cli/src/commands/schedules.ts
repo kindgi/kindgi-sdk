@@ -12,8 +12,10 @@ import {
   integerFlag,
   readJsonInput,
   requiredPositional,
+  runAsFields,
   runSdk,
   runSdkRendered,
+  runsAsCell,
   segmentsFlag,
   stringFlag,
 } from './helpers.js';
@@ -61,7 +63,7 @@ const SCHEDULES_TABLE: TableSpec<SchedulePage, Schedule> = {
     { header: 'CRON', get: (s) => s.cronExpression },
     { header: 'TIMEZONE', get: (s) => s.timezone ?? 'UTC' },
     { header: 'STATUS', get: (s) => s.status },
-    { header: 'OWNER', get: (s) => s.owner?.displayName ?? s.owner?.id ?? '' },
+    { header: 'RUNS AS', get: (s) => runsAsCell(s.owner) },
     { header: 'NEXT', get: (s) => s.nextFireAt ?? '' },
     { header: 'LABEL', get: (s) => s.label ?? '' },
   ],
@@ -93,7 +95,7 @@ const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   improve: {
     type: 'string',
     description:
-      'Start improvement passes on this agent (instead of runs), when enough new trusted "no" judgments have come in: for the project (--project), or a segment of it (--segment). `--input` takes the pass options, `threshold` and `monthlyCapUsd`.',
+      'Start Improve runs on this agent (instead of running it), when enough new corrections marking answers wrong have come in: for the project (--project), or a segment of it (--segment). `--input` takes the Improve options, `threshold` and `monthlyCapUsd`.',
   },
   segment: {
     type: 'string',
@@ -115,7 +117,7 @@ const WHEN_FLAGS = {
   input: {
     type: 'string',
     description:
-      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its pass options (`{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}`, the defaults).',
+      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its Improve options (`{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}`, the defaults).',
   },
   'catch-up': {
     type: 'string',
@@ -146,7 +148,7 @@ const UPDATE_WHEN_FLAGS: Readonly<Record<keyof typeof WHEN_FLAGS, ParseArgsOptio
   input: {
     type: 'string',
     description:
-      'The input each run gets from now on, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input; --improve takes its pass options.',
+      'The input each run gets from now on, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input; --improve takes its Improve options.',
   },
   'catch-up': {
     type: 'string',
@@ -173,7 +175,7 @@ function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']
   const segments = segmentsFlag(ctx);
   if (project === undefined) {
     throw new Error(
-      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (a pass learns from one project; promote to the tenant by hand after review)',
+      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (an Improve run learns from one project; make its suggested change live for the tenant by hand after review)',
     );
   }
   return segments.length > 0
@@ -188,7 +190,7 @@ function targetFields(ctx: CommandContext): Partial<RegisterInput> {
     if (
       ['agent', 'agent-version', 'flow', 'flow-version'].some((f) => ctx.options[f] !== undefined)
     ) {
-      throw new Error('--improve starts improvement passes: not with --agent or --flow');
+      throw new Error('--improve starts Improve runs: not with --agent or --flow');
     }
     return { improve: { agentId: improve, scope: improveScope(ctx) } };
   }
@@ -281,14 +283,15 @@ const get: LeafCommand = {
 };
 
 /**
- * `--run-as`: the schedule's runs act as this service account, not you. Needs
- * `act_as` on the account. Shared by `create` and `take-ownership`.
+ * `--run-as`: the schedule's runs act as this service account, or as its
+ * project's own account (`project`), not you. Shared by `create` and
+ * `take-ownership`.
  */
 const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   'run-as': {
     type: 'string',
     description:
-      "A service account, by id: the schedule's owner, so its runs act as that account from the next fire (not as you). Needs `act_as` on the account; omit it to own the schedule yourself.",
+      "A service account, by id, or `project`: the schedule's owner, so its runs act as that account from the next fire (not as you). `project` runs it as the project's own account, made the first time, and takes `admin` on the project. A named account takes `act_as`. Omit it to own the schedule yourself.",
   },
 };
 
@@ -307,9 +310,9 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Run an agent or a flow on a schedule, or start improvement passes on an agent (--improve). Its runs act as you, checked again at every run; they're in your project's runs, naming the schedule.",
+    "Run an agent or a flow on a schedule, or start Improve runs on an agent (--improve). It's personal: its runs act as you, and only you or a project admin can change it. With `--run-as=project`, it's shared and acts as the project's own account; with `--run-as=<service-account-id>`, as that service account. Who it acts as is checked again at every run; its runs are in your project's runs, naming the schedule.",
   usage:
-    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>] [--allow-unattended=<tool-id>]…',
+    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>|project] [--allow-unattended=<tool-id>]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...WHEN_FLAGS,
@@ -331,7 +334,7 @@ const create: LeafCommand = {
         config: { ...config, cronExpression: config.cronExpression },
         ...(project !== undefined && { projectId: project }),
         ...policyFields(ctx),
-        ...(runAs !== undefined && { runAsServiceAccountId: runAs }),
+        ...runAsFields(runAs),
         ...allowUnattendedField(ctx, 'register'),
       } as RegisterInput);
     }),
@@ -387,8 +390,8 @@ const takeOwnership: LeafCommand = {
   kind: 'leaf',
   name: 'take-ownership',
   description:
-    "Become a schedule's owner, so its runs act as you from the next fire (for a schedule whose owner left). With --run-as, a service account becomes the owner instead.",
-  usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>]',
+    "Become a schedule's owner, so its runs act as you from the next fire: for a schedule whose owner left, or to make it shared (--run-as=project, the project's own account becomes the owner; --run-as=<service-account-id>, that service account) or yours. Takes a project admin.",
+  usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>|project]',
   optionSpec: { ...RUN_AS_FLAG },
   run: (ctx) =>
     runSdkRendered(ctx, 'schedules take-ownership', async (): Promise<Rendered> => {
@@ -396,7 +399,7 @@ const takeOwnership: LeafCommand = {
       const runAs = stringFlag(ctx, 'run-as');
       const schedulesClient = ctx.client().schedules;
       const schedule = await (runAs !== undefined
-        ? schedulesClient.takeOwnership(id, { runAsServiceAccountId: runAs })
+        ? schedulesClient.takeOwnership(id, runAsFields(runAs))
         : schedulesClient.takeOwnership(id));
       const rendered = renderJson(schedule, ctx.globals.format);
       const kept = schedule.toolsAllowedUnattended ?? [];

@@ -8,6 +8,9 @@
  * `@kindgi/crypto` directly.
  */
 
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
+
 import { describe, expect, test } from 'vitest';
 
 import { KindgiApiError } from '@kindgi/client';
@@ -162,13 +165,152 @@ describe('kindgi key create', () => {
 
   test('--env prints the kindgi.config.ts tip', async () => {
     const fixtures = makeFixtures();
-    const out = await runCli(
-      baseInputs(fixtures, ['key', 'create', 'staging-signer', '--env=staging']),
-    );
+    const out = await runCli({
+      ...baseInputs(fixtures, ['key', 'create', 'staging-signer', '--env=staging']),
+      buildConfigLoader: async () => ({}),
+    });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain('environments.staging');
     expect(out.stderr).toContain("signingKey: '~/.kindgi/keys/staging-signer.pem'");
     expect(out.stderr).toContain('kindgi build --env=staging');
+  });
+
+  test('--env: a block that already names this key says the build signs with it, with no hint', async () => {
+    for (const block of [
+      { signingKey: '~/.kindgi/keys/prod-signer.pem', signerKeyId: 'prod-signer' },
+      // The path written out, and no signerKeyId: the build names the key by its file.
+      { signingKey: '/tmp/fake-home/.kindgi/keys/prod-signer.pem' },
+      // A relative path: the build reads it from the folder it runs in.
+      { signingKey: '../fake-home/.kindgi/keys/prod-signer.pem' },
+    ]) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod']),
+        buildConfigLoader: async () => ({ environments: { prod: block } }),
+      });
+      expect(out.exitCode).toBe(0);
+      expect(out.stderr).toContain('environments.prod in kindgi.config.ts already names this key:');
+      expect(out.stderr).toContain('`kindgi build --env=prod` will sign with it.');
+      expect(out.stderr).not.toContain('Next step');
+    }
+  });
+
+  test('--env: a block that names another key shows what it has, then the hint', async () => {
+    for (const block of [
+      { signingKey: '~/.kindgi/keys/prod-old.pem', signerKeyId: 'prod-old' },
+      // This key's id on another key's file: the build would sign with the other file.
+      { signingKey: '~/.kindgi/keys/prod-old.pem', signerKeyId: 'prod-signer' },
+      // This key's file under another id: the signature would name the other key.
+      { signingKey: '~/.kindgi/keys/prod-signer.pem', signerKeyId: 'prod-old' },
+    ]) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod']),
+        buildConfigLoader: async () => ({ environments: { prod: block } }),
+      });
+      expect(out.exitCode).toBe(0);
+      const has = out.stderr.indexOf('environments.prod in kindgi.config.ts has these now:');
+      const next = out.stderr.indexOf('Next step: add to environments.prod in kindgi.config.ts:');
+      expect(has).toBeGreaterThan(-1);
+      expect(next).toBeGreaterThan(has);
+      const now = out.stderr.slice(has, next);
+      expect(now).toContain(`signingKey: '${block.signingKey}',`);
+      expect(now).toContain(`signerKeyId: '${block.signerKeyId}',`);
+      expect(out.stderr.slice(next)).toContain("signingKey: '~/.kindgi/keys/prod-signer.pem',");
+      expect(out.stderr).not.toContain('already names this key');
+    }
+  });
+
+  test('--env: with no HOME, a `~` path is not this key: the build reads `~` as nothing', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      argv: ['key', 'create', 'prod-signer', '--env=prod'],
+      env: {},
+      cwd: '/tmp/fake-cwd',
+      keyRunners: fixtures.runners,
+      buildConfigLoader: async () => ({
+        environments: { prod: { signingKey: '~/.kindgi/keys/prod-signer.pem' } },
+      }),
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain('environments.prod in kindgi.config.ts has these now:');
+    expect(out.stderr).not.toContain('already names this key');
+  });
+
+  test("--env: a config without the block, or one that won't load, keeps the hint and makes the key", async () => {
+    for (const buildConfigLoader of [
+      async () => ({ pack: { id: 'acme.app', version: '1.0.0' } }),
+      async () => {
+        throw new Error('kindgi.config.ts: SyntaxError');
+      },
+    ]) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod']),
+        buildConfigLoader,
+      });
+      expect(out.exitCode).toBe(0);
+      expect(fixtures.state.files.has('/tmp/fake-home/.kindgi/keys/prod-signer.pem')).toBe(true);
+      expect(out.stderr).toContain('Next step: add to environments.prod in kindgi.config.ts:');
+      expect(out.stderr).not.toContain('has these now');
+      expect(out.stderr).not.toContain('already names this key');
+    }
+  });
+
+  test('--env --home: outside the home, the hint names the file the key went to, since the build reads `~` as the home', async () => {
+    for (const [home, signingKey] of [
+      ['/override/root', "'/override/root/.kindgi/keys/prod-signer.pem'"],
+      // A relative --home: the key went to it from here.
+      ['keys-home', "'/tmp/fake-cwd/keys-home/.kindgi/keys/prod-signer.pem'"],
+      // A sibling whose name starts with the home's is not under it.
+      ['/tmp/fake-home-2', "'/tmp/fake-home-2/.kindgi/keys/prod-signer.pem'"],
+      // A quote in the path: the hint is still one string in kindgi.config.ts.
+      ["/srv/o'brien", "'/srv/o\\'brien/.kindgi/keys/prod-signer.pem'"],
+    ] as const) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod', `--home=${home}`]),
+        buildConfigLoader: async () => ({}),
+      });
+      expect(out.exitCode).toBe(0);
+      expect(out.stderr).toContain('Next step: add to environments.prod in kindgi.config.ts:');
+      expect(out.stderr).toContain(`signingKey: ${signingKey},`);
+      expect(out.stderr).not.toContain('~/.kindgi/keys/');
+    }
+  });
+
+  test('--env: under the home the build reads `~` as, the hint gives the key from `~`', async () => {
+    for (const [homeFlag, signingKey] of [
+      // No --home, and a --home that is the home.
+      [[], "'~/.kindgi/keys/prod-signer.pem'"],
+      [['--home=/tmp/fake-home/'], "'~/.kindgi/keys/prod-signer.pem'"],
+      // A --home under the home (`--home ~/work`), given whole or from here.
+      [['--home=/tmp/fake-home/work'], "'~/work/.kindgi/keys/prod-signer.pem'"],
+      [['--home=../fake-home/work'], "'~/work/.kindgi/keys/prod-signer.pem'"],
+    ] as const) {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures, ['key', 'create', 'prod-signer', '--env=prod', ...homeFlag]),
+        buildConfigLoader: async () => ({}),
+      });
+      expect(out.exitCode).toBe(0);
+      expect(out.stderr).toContain(`signingKey: ${signingKey},`);
+    }
+    // With no HOME, the build reads `~` as nothing: the hint names the file.
+    const fixtures = makeFixtures();
+    const out = await runCli({
+      argv: ['key', 'create', 'prod-signer', '--env=prod'],
+      env: {},
+      cwd: '/tmp/fake-cwd',
+      keyRunners: fixtures.runners,
+      buildConfigLoader: async () => ({}),
+    });
+    expect(out.exitCode).toBe(0);
+    const file = resolve(homedir(), '.kindgi', 'keys', 'prod-signer.pem');
+    expect(out.stderr).toContain(
+      `signingKey: '${file.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}',`,
+    );
+    expect(out.stderr).not.toContain('~/.kindgi/keys/');
   });
 
   test('--home overrides HOME env + ctx home', async () => {
@@ -461,6 +603,23 @@ describe('kindgi key revoke', () => {
     expect(out.stderr).toContain("acme-signing wasn't revoked");
   });
 
+  test("--quiet: a revoke says nothing; one that wasn't revoked still says so", async () => {
+    const revoked = revoker({ keyId: 'acme-signing', revoked: true });
+    const done = await runCli(
+      remoteInputs(makeFixtures(), ['key', 'revoke', 'acme-signing', '--quiet'], revoked.client),
+    );
+    expect(done.exitCode, done.stderr).toBe(0);
+    expect([done.stdout, done.stderr]).toEqual(['', '']);
+
+    const unknown = revoker({ keyId: 'acme-signing', revoked: false });
+    const out = await runCli(
+      remoteInputs(makeFixtures(), ['key', 'revoke', 'acme-signing', '--quiet'], unknown.client),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain("acme-signing wasn't revoked");
+  });
+
   test("an id `kindgi key create` wouldn't make still goes to the runtime", async () => {
     const { calls, client } = revoker({ keyId: 'Release:2026', revoked: true });
     const out = await runCli(
@@ -476,5 +635,35 @@ describe('kindgi key revoke', () => {
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing required argument: keyId');
     expect(calls).toEqual([]);
+  });
+});
+
+describe('kindgi key --quiet', () => {
+  test('create, list (with keys or none) and trust print nothing; each does its work', async () => {
+    const none = await runCli(baseInputs(makeFixtures(), ['key', 'list', '--quiet']));
+    const fixtures = makeFixtures();
+    const created = await runCli(
+      baseInputs(fixtures, ['key', 'create', 'acme-signing', '--env=staging', '--quiet']),
+    );
+    expect([...fixtures.state.files.keys()].sort()).toEqual([
+      `${KEYS_DIR}/acme-signing.pem`,
+      `${KEYS_DIR}/acme-signing.pub.pem`,
+    ]);
+    const listed = await runCli(baseInputs(fixtures, ['key', 'list', '--quiet']));
+    const calls: unknown[] = [];
+    const trusted = await runCli(
+      remoteInputs(fixtures, ['key', 'trust', 'acme-signing', '--quiet'], {
+        signingKeys: {
+          trust: async (input: unknown) => {
+            calls.push(input);
+            return { keyId: 'acme-signing', publicKey: RAW_PUBLIC_KEY_BASE64 };
+          },
+        },
+      }),
+    );
+    expect(calls).toEqual([{ keyId: 'acme-signing', publicKey: RAW_PUBLIC_KEY_BASE64 }]);
+    for (const out of [none, created, listed, trusted]) {
+      expect([out.exitCode, out.stdout, out.stderr]).toEqual([0, '', '']);
+    }
   });
 });

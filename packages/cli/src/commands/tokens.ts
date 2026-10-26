@@ -129,9 +129,17 @@ const create: LeafCommand = {
         ...(label !== undefined && { label }),
         ...(capabilities.length > 0 && { capabilities }),
       });
+      const id = String(created.meta.id);
+      // Shown this once: under --quiet, alone on stdout, as `connections connect`'s link is.
+      if (ctx.globals.format === 'quiet') {
+        return {
+          stdout: `${created.secret}\n`,
+          stderr: `⚠ The secret of key ${id} is shown once: store it now.\n`,
+        };
+      }
       return {
         ...renderJson(created, ctx.globals.format),
-        stderr: `⚠ The secret of key ${String(created.meta.id)} is shown once, above: store it now.\n`,
+        stderr: `⚠ The secret of key ${id} is shown once, above: store it now.\n`,
       };
     }),
 };

@@ -2507,6 +2507,12 @@ export interface ServiceAccount {
   readonly createdAt: import('@kindgi/types').Timestamp;
   /** Set once unregistered: it has no grants, and its keys no longer work. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
+  /**
+   * Set on a project's own account: made by the first trigger that runs as
+   * the project (`runAsProject`). It runs that project's shared triggers,
+   * it has no keys, and its grant is fixed.
+   */
+  readonly projectId?: string;
 }
 
 /**

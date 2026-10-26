@@ -1080,6 +1080,31 @@ OPERATIONS: dict[str, Operation] = {
     "webhooks.takeOwnership": Operation(
         "webhooks.takeOwnership", "POST", "/v1/webhooks/{triggerId}/owner", "json", True
     ),
+    "mailTriggers.list": Operation("mailTriggers.list", "GET", "/v1/mail-triggers", "json", False),
+    "mailTriggers.register": Operation(
+        "mailTriggers.register", "POST", "/v1/mail-triggers", "json", True
+    ),
+    "mailTriggers.get": Operation(
+        "mailTriggers.get", "GET", "/v1/mail-triggers/{triggerId}", "json", False
+    ),
+    "mailTriggers.update": Operation(
+        "mailTriggers.update", "PATCH", "/v1/mail-triggers/{triggerId}", "json", True
+    ),
+    "mailTriggers.pause": Operation(
+        "mailTriggers.pause", "POST", "/v1/mail-triggers/{triggerId}/pause", "json", True
+    ),
+    "mailTriggers.resume": Operation(
+        "mailTriggers.resume", "POST", "/v1/mail-triggers/{triggerId}/resume", "json", True
+    ),
+    "mailTriggers.unregister": Operation(
+        "mailTriggers.unregister", "POST", "/v1/mail-triggers/{triggerId}/unregister", "json", True
+    ),
+    "mailTriggers.fires": Operation(
+        "mailTriggers.fires", "GET", "/v1/mail-triggers/{triggerId}/fires", "json", False
+    ),
+    "mailTriggers.takeOwnership": Operation(
+        "mailTriggers.takeOwnership", "POST", "/v1/mail-triggers/{triggerId}/owner", "json", True
+    ),
     "webhookEndpoints.list": Operation(
         "webhookEndpoints.list", "GET", "/v1/webhook-endpoints", "json", False
     ),
@@ -2555,7 +2580,7 @@ class ServiceAccountsResource:
     ) -> _models.ServiceAccount:
         """Unregister a service account. `POST /v1/service-accounts/{serviceAccountId}/unregister`
 
-        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.
+        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only. Unregistering a project's own account stops the triggers that run as it until an admin takes each over; the next `runAsProject` makes a new one.
         """
         return self._client._request(
             _OPERATIONS["serviceAccounts.unregister"],
@@ -4337,7 +4362,7 @@ class ProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -7315,7 +7340,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentRecord:
         """Register a signed deployment. `POST /v1/deployments`
 
-        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
+        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
         """
         return self._client._request(
             _OPERATIONS["deployments.register"],
@@ -8848,7 +8873,10 @@ class ProjectsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`"""
+        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
+
+        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        """
         return self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
@@ -9536,7 +9564,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its target or version, its input or `toolsAllowedUnattended`, the caller becomes its owner, as `POST /v1/schedules/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. A label, the cron line or the policies don't move it, nor does the same value sent again. A schedule a service account owns keeps its owner. The answer shows the owner after the change.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.
         """
         return self._client._request(
             _OPERATIONS["schedules.update"],
@@ -9558,7 +9586,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -9579,7 +9607,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -9600,7 +9628,7 @@ class SchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -9643,7 +9671,7 @@ class SchedulesResource:
     ) -> _models.ScheduleFire:
         """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
 
-        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner or a project admin fires it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["schedules.runNow"],
@@ -9666,7 +9694,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -9756,7 +9784,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A trigger runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName`, the caller becomes its owner, as `POST /v1/webhooks/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. The label, the delivery settings or the same value sent again don't move it. A trigger a service account owns keeps its owner. The answer shows the owner after the change.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after), never their values.
         """
         return self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -9778,7 +9806,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`
 
-        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back.
+        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back. A personal trigger's owner or a project admin pauses it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["webhooks.pause"],
@@ -9797,7 +9825,10 @@ class WebhooksResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerRecord:
-        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
+        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`
+
+        A personal trigger's owner or a project admin resumes it; a shared one, any writer of its project.
+        """
         return self._client._request(
             _OPERATIONS["webhooks.resume"],
             path={"triggerId": trigger_id},
@@ -9815,7 +9846,10 @@ class WebhooksResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerUnregisterResult:
-        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
+        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
+
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.
+        """
         return self._client._request(
             _OPERATIONS["webhooks.unregister"],
             path={"triggerId": trigger_id},
@@ -9859,7 +9893,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -9868,6 +9902,205 @@ class WebhooksResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+
+class MailTriggersResource:
+    """`client.mail_triggers` — the `mailTriggers` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerCollectionPage:
+        """List mail triggers. `GET /v1/mail-triggers`
+
+        The tenant's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.MailTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    def register(
+        self,
+        body: _models.RegisterMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Register a mail trigger. `POST /v1/mail-triggers`
+
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerRecord:
+        """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
+        return self._client._request(
+            _OPERATIONS["mailTriggers.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
+
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Pause a mail trigger. `POST /v1/mail-triggers/{triggerId}/pause`
+
+        A paused trigger doesn't poll. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Resume a mail trigger. `POST /v1/mail-triggers/{triggerId}/resume`
+
+        It starts afresh: mail that came while it was paused doesn't start runs. Who may resume it is as for a pause.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
+
+        Who may unregister it is as for a pause.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailFirePage:
+        """A mail trigger's mail. `GET /v1/mail-triggers/{triggerId}/fires`
+
+        Newest first: each mail the trigger found and what came of it (`MailFire`): the run it started, why it waits (`thread-busy:`), or why it was skipped, refused or failed.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
+
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
+            response=_models.MailTriggerRecord,
             timeout=timeout,
         )
 
@@ -11682,7 +11915,7 @@ class AsyncServiceAccountsResource:
     ) -> _models.ServiceAccount:
         """Unregister a service account. `POST /v1/service-accounts/{serviceAccountId}/unregister`
 
-        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.
+        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only. Unregistering a project's own account stops the triggers that run as it until an admin takes each over; the next `runAsProject` makes a new one.
         """
         return await self._client._request(
             _OPERATIONS["serviceAccounts.unregister"],
@@ -13474,7 +13707,7 @@ class AsyncProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -16462,7 +16695,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentRecord:
         """Register a signed deployment. `POST /v1/deployments`
 
-        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
+        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
         """
         return await self._client._request(
             _OPERATIONS["deployments.register"],
@@ -17997,7 +18230,10 @@ class AsyncProjectsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`"""
+        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
+
+        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        """
         return await self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
@@ -18685,7 +18921,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its target or version, its input or `toolsAllowedUnattended`, the caller becomes its owner, as `POST /v1/schedules/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. A label, the cron line or the policies don't move it, nor does the same value sent again. A schedule a service account owns keeps its owner. The answer shows the owner after the change.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.
         """
         return await self._client._request(
             _OPERATIONS["schedules.update"],
@@ -18707,7 +18943,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -18728,7 +18964,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -18749,7 +18985,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -18792,7 +19028,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleFire:
         """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
 
-        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner or a project admin fires it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["schedules.runNow"],
@@ -18815,7 +19051,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -18905,7 +19141,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A trigger runs as whoever created it, or last changed what it runs: when anyone but the person who owns it changes its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName`, the caller becomes its owner, as `POST /v1/webhooks/{triggerId}/owner` would make them, and the change is audited as `trigger-owner-set`. The label, the delivery settings or the same value sent again don't move it. A trigger a service account owns keeps its owner. The answer shows the owner after the change.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after), never their values.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -18927,7 +19163,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`
 
-        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back.
+        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back. A personal trigger's owner or a project admin pauses it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.pause"],
@@ -18946,7 +19182,10 @@ class AsyncWebhooksResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerRecord:
-        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
+        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`
+
+        A personal trigger's owner or a project admin resumes it; a shared one, any writer of its project.
+        """
         return await self._client._request(
             _OPERATIONS["webhooks.resume"],
             path={"triggerId": trigger_id},
@@ -18964,7 +19203,10 @@ class AsyncWebhooksResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerUnregisterResult:
-        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
+        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
+
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.
+        """
         return await self._client._request(
             _OPERATIONS["webhooks.unregister"],
             path={"triggerId": trigger_id},
@@ -19008,7 +19250,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -19017,6 +19259,205 @@ class AsyncWebhooksResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+
+class AsyncMailTriggersResource:
+    """`client.mail_triggers` — the `mailTriggers` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerCollectionPage:
+        """List mail triggers. `GET /v1/mail-triggers`
+
+        The tenant's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.MailTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    async def register(
+        self,
+        body: _models.RegisterMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Register a mail trigger. `POST /v1/mail-triggers`
+
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerRecord:
+        """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
+
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Pause a mail trigger. `POST /v1/mail-triggers/{triggerId}/pause`
+
+        A paused trigger doesn't poll. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Resume a mail trigger. `POST /v1/mail-triggers/{triggerId}/resume`
+
+        It starts afresh: mail that came while it was paused doesn't start runs. Who may resume it is as for a pause.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
+
+        Who may unregister it is as for a pause.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    async def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailFirePage:
+        """A mail trigger's mail. `GET /v1/mail-triggers/{triggerId}/fires`
+
+        Newest first: each mail the trigger found and what came of it (`MailFire`): the run it started, why it waits (`thread-busy:`), or why it was skipped, refused or failed.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    async def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
+
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
+            response=_models.MailTriggerRecord,
             timeout=timeout,
         )
 
@@ -19570,6 +20011,7 @@ class Resources:
     secrets: SecretsResource
     schedules: SchedulesResource
     webhooks: WebhooksResource
+    mail_triggers: MailTriggersResource
     webhook_endpoints: WebhookEndpointsResource
     connection_entries: ConnectionEntriesResource
     connection_apps: ConnectionAppsResource
@@ -19629,6 +20071,7 @@ class Resources:
         self.secrets = SecretsResource(client)
         self.schedules = SchedulesResource(client)
         self.webhooks = WebhooksResource(client)
+        self.mail_triggers = MailTriggersResource(client)
         self.webhook_endpoints = WebhookEndpointsResource(client)
         self.connection_entries = ConnectionEntriesResource(client)
         self.connection_apps = ConnectionAppsResource(client)
@@ -19690,6 +20133,7 @@ class AsyncResources:
     secrets: AsyncSecretsResource
     schedules: AsyncSchedulesResource
     webhooks: AsyncWebhooksResource
+    mail_triggers: AsyncMailTriggersResource
     webhook_endpoints: AsyncWebhookEndpointsResource
     connection_entries: AsyncConnectionEntriesResource
     connection_apps: AsyncConnectionAppsResource
@@ -19749,6 +20193,7 @@ class AsyncResources:
         self.secrets = AsyncSecretsResource(client)
         self.schedules = AsyncSchedulesResource(client)
         self.webhooks = AsyncWebhooksResource(client)
+        self.mail_triggers = AsyncMailTriggersResource(client)
         self.webhook_endpoints = AsyncWebhookEndpointsResource(client)
         self.connection_entries = AsyncConnectionEntriesResource(client)
         self.connection_apps = AsyncConnectionAppsResource(client)

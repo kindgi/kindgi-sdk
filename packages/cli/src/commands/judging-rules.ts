@@ -39,7 +39,7 @@ const WHEN_OPTIONS: Readonly<Record<string, ParseArgsOption>> = {
     type: 'string',
     multiple: true,
     description:
-      'Match runs by how they ended. Only `completed` is accepted — a judgment needs a completed run, so `failed` and `cancelled` are refused.',
+      'Match runs by how they ended. Only `completed` is accepted — a correction needs a completed run, so `failed` and `cancelled` are refused.',
   },
   'include-dry-runs': {
     type: 'boolean',
@@ -78,7 +78,7 @@ function whenFromFlags(ctx: CommandContext): JudgingRuleWhen {
   for (const s of status) {
     if (!(RUN_STATUSES as readonly string[]).includes(s)) {
       throw new UsageError(
-        `--status takes only 'completed' (a judgment needs a completed run), got "${s}"`,
+        `--status takes only 'completed' (a correction needs a completed run), got "${s}"`,
       );
     }
   }
@@ -95,7 +95,7 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    'Create a judging rule: which of the project’s finished runs a person is asked to judge, and how many to queue.',
+    'Create a judging rule: which of the project’s finished runs a person is asked to correct, and how many to queue.',
   usage:
     'kindgi judging-rules create --name=<name> [--project=<id>] [--agent=<id>] [--flow=<id>] [--agent-version=<v>] [--status=completed] [--include-dry-runs] [--sample=<0-1>] [--max-open=<n>] [--class=<judge-class-id>] [--disabled] [--queue-last=<n>] [--queue-since=<time>]',
   optionSpec: {
@@ -114,7 +114,7 @@ const create: LeafCommand = {
     class: {
       type: 'string',
       description:
-        'The judge class whose judgment closes an item. Without it, any judgment closes it.',
+        'The judge class whose correction closes an item. Without it, any correction closes it.',
     },
     disabled: { type: 'boolean', description: 'Create the rule disabled (it matches nothing).' },
     'queue-last': {
@@ -248,10 +248,10 @@ const update: LeafCommand = {
     sample: { type: 'string', description: 'A new sample share, greater than 0 and at most 1.' },
     'max-open': { type: 'string', description: 'A new open-items cap.' },
     'clear-max-open': { type: 'boolean', description: 'Remove the open-items cap.' },
-    class: { type: 'string', description: 'A new judge class whose judgment closes an item.' },
+    class: { type: 'string', description: 'A new judge class whose correction closes an item.' },
     'clear-class': {
       type: 'boolean',
-      description: 'Remove the judge class; any judgment closes an item.',
+      description: 'Remove the judge class; any correction closes an item.',
     },
     enable: { type: 'boolean', description: 'Enable the rule.' },
     disable: { type: 'boolean', description: 'Disable the rule.' },
@@ -407,6 +407,6 @@ export const judgingRulesCommand: Command = {
   kind: 'group',
   name: 'judging-rules',
   description:
-    "A project's judging rules — which finished runs a person is asked to judge (create / list / show / update / remove / versions / results / preview / queue-recent).",
+    "A project's judging rules — which finished runs a person is asked to correct (create / list / show / update / remove / versions / results / preview / queue-recent).",
   subcommands: [create, list, show, update, remove, versions, results, preview, queueRecent],
 };

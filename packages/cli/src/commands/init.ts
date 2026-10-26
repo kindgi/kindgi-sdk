@@ -50,6 +50,7 @@ import {
   scriptCommand,
   usablePackageManager,
 } from '../package-manager.js';
+import { note, renderLines, warning } from '../progress-lines.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { CLI_VERSION } from '../version-info.js';
 import { syncSkills } from './skills.js';
@@ -194,6 +195,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
     });
   }
 
@@ -214,6 +216,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
     });
   }
 
@@ -236,6 +239,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
       pypi: cliInstall(ctx.env) === 'pypi',
     });
   }
@@ -252,6 +256,7 @@ export async function runInit(
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
+      format: ctx.globals.format,
       linkLocal: ctx.options['link-local'] === true,
     });
   }
@@ -416,26 +421,32 @@ async function runInitFresh(
     `${runner.KINDGI} dev  # runs the Kindgi runtime (Docker) + hot-reloads this pack`,
   ];
 
-  const stderr = [
-    `✓ Pack scaffolded at ${args.targetDir}/`,
-    ...access.lines,
-    ...(pnpmPin.kind === 'pinned'
-      ? [`✓ package.json pins pnpm@${pnpmPin.version} (packageManager)`]
-      : []),
-    '',
-    'Next steps:',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    ...(pnpmPin.kind === 'unread'
-      ? [
-          `package.json has no packageManager: pnpm's version couldn't be read here (${pnpmPin.reason}).`,
-          'Add "packageManager": "pnpm@<version>" (the pnpm you install with), so kindgi build, CI and teammates use the same pnpm.',
-          '',
-        ]
-      : []),
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Pack scaffolded at ${args.targetDir}/`),
+      ...access.lines,
+      ...(pnpmPin.kind === 'pinned'
+        ? [note(`✓ package.json pins pnpm@${pnpmPin.version} (packageManager)`)]
+        : []),
+      note(''),
+      note('Next steps:'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      ...(pnpmPin.kind === 'unread'
+        ? [
+            warning(
+              `package.json has no packageManager: pnpm's version couldn't be read here (${pnpmPin.reason}).`,
+            ),
+            warning(
+              'Add "packageManager": "pnpm@<version>" (the pnpm you install with), so kindgi build, CI and teammates use the same pnpm.',
+            ),
+            note(''),
+          ]
+        : []),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
 
   const payload = {
     template: args.template,
@@ -562,16 +573,18 @@ async function runInitPython(
     'uv run pytest',
     `${kindgi} dev  # boots Kindgi locally + runs this pack with its .venv, reloading on save`,
   ];
-  const stderr = [
-    `✓ Python pack scaffolded at ${args.targetDir}/`,
-    ...access.lines,
-    '',
-    'Next steps:',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Python pack scaffolded at ${args.targetDir}/`),
+      ...access.lines,
+      note(''),
+      note('Next steps:'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
   const rendered = renderJson(
     {
       template: args.template,
@@ -641,17 +654,19 @@ async function runInitJava(
     './mvnw test',
     `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
   ];
-  const stderr = [
-    `✓ Java pack scaffolded at ${args.targetDir}/ (preview)`,
-    ...access.lines,
-    `  ${JVM_PREVIEW}`,
-    '',
-    'Next steps (a JDK 17 or later, JAVA_HOME set):',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Java pack scaffolded at ${args.targetDir}/ (preview)`),
+      ...access.lines,
+      note(`  ${JVM_PREVIEW}`),
+      note(''),
+      note('Next steps (a JDK 17 or later, JAVA_HOME set):'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
   const rendered = renderJson(
     {
       template: args.template,
@@ -762,17 +777,19 @@ async function runInitScala(
     'sbt test',
     `${binDisplay('kindgiw', 'kindgi', ['dev'])}  # the CLI the pack pins (kindgi.config.json "cli"): boots Kindgi locally + compiles and runs this pack, recompiling on save`,
   ];
-  const stderr = [
-    `✓ Scala pack scaffolded at ${args.targetDir}/ (preview)`,
-    ...access.lines,
-    `  ${JVM_PREVIEW}`,
-    '',
-    'Next steps (a JDK 17 or later, JAVA_HOME set, and sbt):',
-    ...nextSteps.map((s) => `  ${s}`),
-    '',
-    "Read the pack's README.md for details.",
-    '',
-  ].join('\n');
+  const stderr = renderLines(
+    [
+      note(`✓ Scala pack scaffolded at ${args.targetDir}/ (preview)`),
+      ...access.lines,
+      note(`  ${JVM_PREVIEW}`),
+      note(''),
+      note('Next steps (a JDK 17 or later, JAVA_HOME set, and sbt):'),
+      ...nextSteps.map((s) => note(`  ${s}`)),
+      note(''),
+      note("Read the pack's README.md for details."),
+    ],
+    ctx.globals.format === 'quiet',
+  );
   const rendered = renderJson(
     {
       template: args.template,

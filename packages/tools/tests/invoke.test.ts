@@ -133,6 +133,65 @@ describe('invokeTool — handler errors', () => {
     }
   });
 
+  /** The handler-error message of a tool whose handler throws `thrown`. */
+  async function thrownMessage(thrown: unknown): Promise<string> {
+    const spec = defineTool({
+      id: 'acme.probe' as ToolId,
+      description: 'x',
+      version: '1.0.0',
+      input: { type: 'null' },
+      output: { type: 'null' },
+      handler: async () => {
+        throw thrown;
+      },
+    });
+    if (spec.kind === 'err') throw new Error(spec.error.message);
+    const r = await invokeTool(spec.value, null, ctx());
+    if (r.kind !== 'err' || r.error.code !== 'handler-error')
+      throw new Error('expected a handler-error');
+    return r.error.message;
+  }
+
+  test("a throw says its causes: fetch's failure says undici's reason", async () => {
+    const timeout = Object.assign(
+      new Error(
+        'Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)',
+      ),
+      { name: 'ConnectTimeoutError', code: 'UND_ERR_CONNECT_TIMEOUT' },
+    );
+    expect(await thrownMessage(new TypeError('fetch failed', { cause: timeout }))).toBe(
+      'Tool "acme.probe" handler threw: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)',
+    );
+  });
+
+  test("a cause the error's message already says isn't said again", async () => {
+    const answered = new Error('handler-throw: x', {
+      cause: { code: 'handler-throw', message: 'x' },
+    });
+    expect(await thrownMessage(answered)).toBe('Tool "acme.probe" handler threw: handler-throw: x');
+  });
+
+  test("the message is masked: the error's words, its causes, and a thrown string", async () => {
+    expect(
+      await thrownMessage(
+        new Error('key kgi_bt_0123456789abcdefWXYZ refused', {
+          cause: new Error('GET /orders?token=t-1&page=2 answered 401'),
+        }),
+      ),
+    ).toBe(
+      'Tool "acme.probe" handler threw: key [redacted] refused; caused by Error: GET /orders?token=[redacted]&page=2 answered 401',
+    );
+    expect(await thrownMessage('Bearer abc123 rejected')).toBe(
+      'Tool "acme.probe" handler threw: Bearer [redacted] rejected',
+    );
+  });
+
+  test("an error whose message isn't a string reads as before", async () => {
+    expect(await thrownMessage(Object.assign(new Error(), { message: 42 }))).toBe(
+      'Tool "acme.probe" handler threw: 42',
+    );
+  });
+
   test("a runtime's refusal (ToolPreconditionError) is precondition-failed, not handler-error", async () => {
     const spec = defineTool({
       id: 'test.keyed' as ToolId,

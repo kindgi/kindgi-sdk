@@ -52,6 +52,7 @@ import {
   publishPackBlocks,
   withPackVersions,
 } from '../deploy-blocks.js';
+import { type PlannedTool, keepPublishedTool, planPackTools } from '../deploy-tools.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import {
   type DeployedAgent,
@@ -160,7 +161,9 @@ import { UUID_RE } from './uuid-param.js';
  *      their `modulePath` is dropped.
  *   5. Upserts — tools + guardrails + agents + flows. Track which were
  *      `ok` (newly registered) vs `already-registered` so rollback only
- *      unwinds our own writes.
+ *      unwinds our own writes. A tool or data block version the registry
+ *      holds is kept only with the pack's definition, checked before the
+ *      first write (`deploy-tools.ts`, `deploy-blocks.ts`).
  *   6. Deployment record via `DeploymentBinding.register`. On failure,
  *      rollback all `ok` upserts and return 500.
  *
@@ -1040,6 +1043,20 @@ export function deploymentsRouter(
       packBlocks = plan.planned;
       blockReads = withPackVersions(bindings.blockRegistry, targetProjectId, packBlocks);
     }
+    // The pack's tools are checked against the registry here too: a
+    // version it holds in this project is kept only with the pack's
+    // definition, and refused with another (`deploy-tools.ts`).
+    let packTools: readonly PlannedTool[] = [];
+    if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
+      const plan = await planPackTools(
+        bindings.toolRegistry,
+        tenantId,
+        targetProjectId,
+        validated.tools,
+      );
+      if (plan.kind === 'refused') return publishRefusedResponse(c, requestId, plan.refusal);
+      packTools = plan.planned;
+    }
     const blockPinsOf =
       bindings.agentRegistry !== undefined &&
       bindings.toolRegistry !== undefined &&
@@ -1085,7 +1102,7 @@ export function deploymentsRouter(
           });
         }
         if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
-          for (const [index, tool] of validated.tools.entries()) {
+          for (const { tool, state } of packTools) {
             const projectIdForTool = targetProjectId;
             // Where each secret it names is read: decided now, as the deployer
             // may read them, and kept with this version (`secret-scope.ts`).
@@ -1126,14 +1143,11 @@ export function deploymentsRouter(
                 },
               });
             } else if (outcome.kind === 'already-registered') {
-              await reinstateRetiredTool({
-                registry: bindings.toolRegistry,
-                providerKeys: bindings.providerKeys,
-                tenantId,
-                tool,
-                index,
-                rolled,
-              });
+              // Compared before the first write where the plan could.
+              if (state === 'new' || state === 'publish-decides') {
+                await keepPublishedTool(bindings.toolRegistry, tenantId, tool);
+              }
+              await reinstateRetiredTool(bindings.toolRegistry, tenantId, tool, rolled);
               await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
             } else {
               throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
@@ -1242,9 +1256,6 @@ export function deploymentsRouter(
       // central error handler (a 500 for this write).
       if (cause instanceof PublishRefused) return publishRefusedResponse(c, requestId, cause);
       if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
-      // An unregistered tool version the deploy can't reinstate: refused as
-      // the same name in the pack's own tools is, before any write.
-      if (cause instanceof RetiredToolKept) return validationFailed(c, [cause.issue]);
       // An unregistered agent or flow version naming what its project doesn't
       // reach: refused as the pack's own references are, before any write.
       if (cause instanceof RetiredVersionOutOfScope) {
@@ -1737,6 +1748,7 @@ function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: Pu
         primitive: cause.primitive,
         id: cause.id,
         ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
+        ...(cause.fields !== undefined && { fields: cause.fields }),
       },
       requestId,
     ),
@@ -1983,40 +1995,23 @@ async function refreshToolCode(
  * Only a version its registry lists as unregistered (`unregisteredAt`) is
  * reinstated, under the rule reinstating it by hand holds
  * (`POST /v1/tools/{toolId}/versions/{version}/reinstate`): the stored
- * version is what comes back, and one naming a model provider's key stays
- * unregistered (`RetiredToolKept`). One of another kind than the tool's
- * active versions stays unregistered too, refused as publishing it is
+ * version is what comes back. It's the pack's tool, as the deploy keeps a
+ * version only with the pack's definition (`deploy-tools.ts`), so one
+ * naming a model provider's key never gets here: the pack's own check
+ * refused it before any write. One of another kind than the tool's
+ * active versions stays unregistered, refused as publishing it is
  * (`tool-kind-mismatch`).
  */
-async function reinstateRetiredTool(input: {
-  readonly registry: ToolRegistryBinding;
-  readonly providerKeys: ProviderKeys | undefined;
-  readonly tenantId: TenantId;
-  readonly tool: import('@kindgi/tools').ToolManifest;
-  /** The tool's index in the pack, for the refusal's issue. */
-  readonly index: number;
-  readonly rolled: RollbackAction[];
-}): Promise<void> {
-  const { registry, tenantId, tool, rolled } = input;
+async function reinstateRetiredTool(
+  registry: ToolRegistryBinding,
+  tenantId: TenantId,
+  tool: import('@kindgi/tools').ToolManifest,
+  rolled: RollbackAction[],
+): Promise<void> {
   const toolId = tool.id;
   const version = tool.version as unknown as Semver;
   const retired = await unregisteredVersion(registry, tenantId, toolId, version);
   if (retired === undefined) return;
-  const refusal = await refuseProviderKeys(
-    input.providerKeys,
-    tenantId,
-    toolSecretNames(retired),
-    'a tool',
-  );
-  if (refusal !== undefined) {
-    throw new RetiredToolKept({
-      primitive: 'tool',
-      index: input.index,
-      id: toolId as unknown as string,
-      path: `/secrets/${refusal.secret}`,
-      message: `version ${tool.version} of this tool is unregistered and can't be reinstated: ${refusal.message}. Publish the tool under a new version`,
-    });
-  }
   const outcome = await registry.reinstateVersion({ tenantId, toolId, version });
   if (outcome.kind === 'not-found') {
     throw new Error(
@@ -2627,13 +2622,6 @@ function unpinnableResponse(
 class UnpinnableDeploy extends Error {
   constructor(readonly issues: readonly UnpinnableRef[]) {
     super('the deployment uses tools or agents that are not published');
-  }
-}
-
-/** A tool version a deploy found unregistered and may not reinstate (`reinstateRetiredTool`). */
-class RetiredToolKept extends Error {
-  constructor(readonly issue: ValidationDetail) {
-    super(issue.message);
   }
 }
 

@@ -334,7 +334,8 @@ describe('writeAgentAccess (a new pack)', () => {
     const out = await writeAgentAccess(dir);
     expect(out.files).toEqual([]);
     expect(out.lines).toHaveLength(1);
-    expect(out.lines[0]).toMatch(/^⚠ .*isn't valid JSON, so it's left as it is/);
+    expect(out.lines[0]?.problem).toBe(true);
+    expect(out.lines[0]?.text).toMatch(/^⚠ .*isn't valid JSON, so it's left as it is/);
   });
 
   test("below a git root: the pack's file in the list, the root's on its own line", async () => {
@@ -344,7 +345,10 @@ describe('writeAgentAccess (a new pack)', () => {
     const out = await writeAgentAccess(pack);
     expect(out.files).toEqual([join(pack, '.claude', 'settings.json')]);
     expect(out.lines).toEqual([
-      `✓ ${join(dir, '.claude', 'settings.json')}: created with 5 deny rules for my-pack/, so an agent started at the repo root can't read this pack's keys`,
+      {
+        text: `✓ ${join(dir, '.claude', 'settings.json')}: created with 5 deny rules for my-pack/, so an agent started at the repo root can't read this pack's keys`,
+        problem: false,
+      },
     ]);
   });
 });
