@@ -68,15 +68,28 @@ Python).
 
 ## Run as a service account
 
-A schedule's runs act as its **owner**: whoever created it, or last changed
-what it runs ([Who owns it after a change](#who-owns-it-after-a-change)).
-To have them act as a service account instead, with the account's grants
-rather than yours, and keep running after you leave, name it with
+A schedule's runs act as its **owner**. A schedule you create is
+**personal**: it runs as you, with your connections, and only you or a
+project admin can change it ([Shared or personal](#shared-or-personal)).
+To make it **shared** instead, so its runs act as a service account, with
+the account's grants rather than yours, and keep running after you leave,
+create a service account, give it the schedule's project, and name it with
 `--run-as`:
 
 ```sh
+pnpm exec kindgi service-accounts create acme-scheduler --description="Runs the morning schedules" --project=<project-id>:editor
+```
+
+`--project=<project-id>:editor` gives the account a role on the schedule's
+project that runs agents and flows there. `create` prints its
+`serviceAccountId`, the `<service-account-id>` below. To give an account
+you already have the project, use `kindgi service-accounts grant
+<service-account-id> --project=<project-id> --role=editor`
+([Service accounts](../../../deploy/people-and-keys/#service-accounts)).
+
+```sh
 pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
-  --input='{"userMessage":"List the orders still open from yesterday."}' --run-as=<service-account-id>
+  --input='{"userMessage":"List the orders still open from yesterday."}' --project=<project-id> --run-as=<service-account-id>
 ```
 
 - **Naming an account needs `act_as` on it,** which tenant admins hold, as
@@ -90,6 +103,14 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   no longer run is `refused`. So is every fire after the account is
   unregistered (runtime 0.1.9 or later): take the schedule over, or
   delete it.
+- **A schedule made with a token the runtime made at startup** is personal
+  to that start's user. Without `KINDGI_API_TOKEN` or
+  `KINDGI_SEED_USER_ID`, each start makes a new token, with a new user, so
+  the schedule stays with a user later starts no longer use. Make such
+  schedules shared with `--run-as`, or set
+  `KINDGI_API_TOKEN` or `KINDGI_SEED_USER_ID`, so the token's user stays
+  the same across restarts
+  ([Point the runtime at it](../../../deploy/authorization/#point-the-runtime-at-it)).
 - **To hand an existing schedule to an account:** `kindgi schedules
   take-ownership <schedule-id> --run-as=<service-account-id>`. It needs
   what taking it over yourself needs, `admin` on the project and `execute`
@@ -98,24 +119,49 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
 - **From your app:** `runAsServiceAccountId` on `schedules.register` and
   `schedules.takeOwnership` (`run_as_service_account_id` in Python).
 - **Each change of owner is recorded** as evidence, `trigger-owner-set`: a
-  schedule created to run as an account, every take-over, and every change
-  that moves it.
+  schedule created to run as an account, and every take-over.
 
-### Who owns it after a change
+### Shared or personal
 
-When someone who isn't its owner changes what the schedule runs, they
-become its owner (runtime 0.2.0 or later), and its next fires act as
-them. So your own access only serves what you set it to run.
+A schedule a person owns is **personal**: its runs act as them, with their
+connections. One a service account owns is **shared**: its runs act as the
+account, with the company's connections only. Its owner is whoever created
+it, or the account named with `--run-as`, and no change moves it (runtime
+0.2.0 or later):
 
-- **These move it:** a new target or version, a new input, or a new list
-  of tools allowed unattended.
-- **These don't:** its label, its cron line or timezone, its catch-up,
-  overlap and deadline policies, and the same value sent again.
-- **A schedule a service account owns keeps its owner,** whoever changes
-  it. A service account that changes a person's schedule becomes its
-  owner.
-
-The answer to the change shows the owner after it.
+- **A personal schedule is its owner's.** Only they or a project admin can
+  change it, pause or resume it, run it now or unregister it. Anyone else
+  with `write` on the project is answered `403 permission-denied`, with its
+  owner's name, such as "This schedule is personal: only Sam Lee or a
+  project admin can change it." The owner still needs `write` on the
+  project, and its tools allowed unattended always take a project admin.
+- **What a shared schedule runs takes a project admin:** its agent or flow
+  and version, its input, and its tools allowed unattended. Anyone else
+  with `write` on the project is answered `403 permission-denied`,
+  "Changing what a shared schedule runs takes a project admin." So a
+  deploy job's key that moves a shared schedule to a new version needs
+  `admin` on the project too. Its label, its cron line and timezone, its
+  catch-up, overlap and deadline policies, and pausing, resuming, running
+  it now or unregistering it take `write` on the project, as before.
+- **A project admin's change to a personal schedule keeps its owner,** so
+  its runs still act as them, with their connections. Each change, pause,
+  resume, run-now or unregister by anyone but the owner is recorded as
+  evidence, `trigger-changed-for-owner`. It names who did it and what: the
+  fields changed, and what the schedule ran before and after, never an
+  input's values. A change to its tools allowed unattended keeps its own
+  record, `trigger-tools-allowed-unattended-set`. The owner isn't told
+  yet: a later runtime emails them. An app built on `@kindgi/api` can tell
+  them itself, with `createApp`'s `triggerOwnerNotices`: its `tell` is
+  called after each such change, and after a take-over from them, with a
+  `TriggerOwnerNotice` that names the fields changed, never their values.
+- **Only a take-over moves the owner.** `kindgi schedules take-ownership`
+  needs `admin` on the project. Anyone else is answered
+  `403 permission-denied`, "Taking a schedule over takes a project admin."
+  A project admin's own take-over makes the schedule personal to them, and
+  one with `--run-as` makes it shared
+  ([Run as a service account](#run-as-a-service-account)).
+- **Without an authorization store,** a project admin here is a tenant
+  admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 
 ## Each time it fires
 
@@ -192,7 +238,8 @@ pnpm exec kindgi schedules list --project=<project-id>
 
 Each schedule's `owner` has the owner's name now, `displayName`: the
 person's, or the service account's. When it can't be read, only its `id` is
-there.
+there. The CLI's `RUNS AS` column shows that name, else the id, and whether
+the schedule is personal or shared, such as "Sam Lee (personal)".
 
 With [authorization](../../../deploy/authorization/) on, the list holds the
 schedules in projects you may read, or all of them for a tenant admin. A
@@ -207,9 +254,8 @@ none.
 - `kindgi schedules pause <schedule-id>` stops it. `resume` starts it again
   from its next time, without running the ones it missed while paused.
 - `kindgi schedules update <schedule-id>` changes when it runs, what it runs,
-  its input or its policies, with the same flags as `create`. A change to
-  what it runs can make you its owner
-  ([Who owns it after a change](#who-owns-it-after-a-change)).
+  its input or its policies, with the same flags as `create`. Its owner
+  stays as it is ([Shared or personal](#shared-or-personal)).
   `--allow-unattended` replaces its tools allowed unattended, and a new
   `--agent` or `--flow` must name them again, or `none`. A new `--improve`
   must name `none`.
