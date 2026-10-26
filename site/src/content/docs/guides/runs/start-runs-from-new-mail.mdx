@@ -328,11 +328,12 @@ person's yes:
 - **`refused`:** the note says why, such as: it's over the hourly limit
   (`over-limit:`), the mailbox's connection was missing
   (`connection-missing:`), the app gave it no thread (`no-thread-id:`),
-  the runtime was busy (`rate-limited:`, `database-busy:`), the owner may
-  no longer run the agent or flow, or the trigger was paused or removed
-  before the run started. **Such a mail never runs,** then or later:
-  staff handle it in the mailbox. A later mail of its thread still brings
-  it to the agent, in that mail's turn.
+  too many of the tenant's runs were waiting (`rate-limited:`), the
+  database was busy (`database-busy:`), the owner may no longer run the
+  agent or flow, or the trigger was paused or removed before the run
+  started. **Such a mail never runs,** then or later: staff handle it in
+  the mailbox. A later mail of its thread still brings it to the agent, in
+  that mail's turn.
 - **`failed`:** its run didn't start, or the app failed it after Kindgi's
   tries. The note says why.
 
