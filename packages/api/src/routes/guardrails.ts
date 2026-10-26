@@ -137,6 +137,7 @@ export function guardrailsRouter(
     });
     // An item more than one project serves is checked on those projects
     // instead (`item-rights.ts`).
+    // '/:guardrailId/*' matches '/:guardrailId' too: this one gate decides both, once.
     r.use(
       '/:guardrailId/*',
       itemMiddleware({
@@ -146,18 +147,6 @@ export function guardrailsRouter(
         id: (c) => c.req.param('guardrailId') ?? '',
         today: (c) => (c.req.method === 'GET' ? 'read' : 'admin'),
         check: itemPathCheck,
-        versionNotFound: guardrailNotFound,
-      }),
-    );
-    r.use(
-      '/:guardrailId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'guardrail',
-        id: (c) => c.req.param('guardrailId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: guardrailNotFound,
       }),
     );

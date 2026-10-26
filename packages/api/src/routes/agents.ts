@@ -190,6 +190,7 @@ export function agentsRouter(
     });
     // An agent more than one project serves is checked on those projects
     // instead (`item-rights.ts`, `agentCheck`).
+    // '/:agentId/*' matches '/:agentId' too: this one gate decides both, once.
     r.use(
       '/:agentId/*',
       itemMiddleware({
@@ -209,18 +210,6 @@ export function agentsRouter(
                 ? 'publish'
                 : 'admin',
         check: (c, projects) => agentCheck(c, projects),
-        versionNotFound: agentVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:agentId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'agent',
-        id: (c) => c.req.param('agentId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: agentVersionNotFound,
       }),
     );

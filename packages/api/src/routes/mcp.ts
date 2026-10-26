@@ -103,13 +103,9 @@ export function mcpRouter(
       });
       return mw(c, next);
     });
+    // '/endpoints/:endpointId/*' matches '/endpoints/:endpointId' too: this
+    // one gate decides both, once.
     r.use('/endpoints/:endpointId/*', async (c, next) => {
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      const endpointId = c.req.param('endpointId') ?? '';
-      const mw = authorizer.authorize(action, () => ref('mcp_endpoint', endpointId));
-      return mw(c, next);
-    });
-    r.use('/endpoints/:endpointId', async (c, next) => {
       const action = c.req.method === 'GET' ? 'read' : 'admin';
       const endpointId = c.req.param('endpointId') ?? '';
       const mw = authorizer.authorize(action, () => ref('mcp_endpoint', endpointId));
