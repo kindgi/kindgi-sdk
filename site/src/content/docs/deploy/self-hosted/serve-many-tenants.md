@@ -626,9 +626,10 @@ tenant f309aaca-024a-4fb9-aff8-ef76c4c40e16 (tenant-a): Default project created;
 ```
 
 The Default project it adds has the slug `default`. With the runtime 0.3.0
-or later, when another project of the tenant has that slug, or had it before
-it was renamed, the Default gets the first free one of `default-2`,
-`default-3` and so on, and the tenant's line says so:
+or later, when a project without an org has that slug, or another project of
+the tenant had it before it was renamed, the Default gets the first free one
+of `default-2`, `default-3` and so on, and the tenant's line starts, after
+its name, with:
 
 ```text
 Default project created with the slug "default-2" ("default" is another project's, now or before it was renamed)
