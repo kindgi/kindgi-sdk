@@ -205,7 +205,7 @@ const messagesListSpec = (
   as: MailboxOwner,
 ): Omit<Tool<OutlookMessagesListInput, OutlookMessagesListOutput>, 'id'> => ({
   description: LIST_SAYS[as],
-  version: '1.0.0',
+  version: '1.1.0',
   input: {
     type: 'object',
     additionalProperties: false,
@@ -240,6 +240,8 @@ const messagesListSpec = (
   },
   effects: READS,
   mutating: false,
+  // A mail is anyone's text: the agent reads it as data, not instructions.
+  resultIsOutsideData: true,
   network: NETWORK,
   needsSpec: {
     connections: { mail: { app: 'microsoft', permissions: ['mail.read'], as } },
@@ -304,6 +306,8 @@ const messageGetSpec = (
   output: MAIL_MESSAGE,
   effects: READS,
   mutating: false,
+  // A mail is anyone's text: the agent reads it as data, not instructions.
+  resultIsOutsideData: true,
   network: NETWORK,
   needsSpec: {
     connections: { mail: { app: 'microsoft', permissions: ['mail.read'], as } },

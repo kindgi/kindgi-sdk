@@ -348,6 +348,11 @@ export interface IndexedTool {
    * wait token and may answer `pause`. Absent means `false`.
    */
   readonly pauses?: boolean;
+  /**
+   * The tool's declared `resultIsOutsideData`: an agent reads each of its
+   * results as data, not instructions. Absent means `false`.
+   */
+  readonly resultIsOutsideData?: boolean;
   readonly modulePath: string;
 }
 
@@ -1609,14 +1614,26 @@ function buildTool(
       network: rec.network as Readonly<Record<string, unknown>>,
     }),
     ...(isObject(rec.spec) && { spec: rec.spec as Readonly<Record<string, unknown>> }),
-    ...(typeof rec.mutating === 'boolean' && { mutating: rec.mutating }),
-    ...(typeof rec.needsApprovalWhenUnattended === 'boolean' && {
-      needsApprovalWhenUnattended: rec.needsApprovalWhenUnattended,
-    }),
+    ...toolFlagsOf(rec),
     ...pauses.value,
     modulePath: normalizeModulePath(relPath),
   };
   return { kind: 'ok', value: tool };
+}
+
+/** The tool's declared boolean flags, each only when the manifest sets it. */
+function toolFlagsOf(
+  rec: Readonly<Record<string, unknown>>,
+): Pick<IndexedTool, 'mutating' | 'needsApprovalWhenUnattended' | 'resultIsOutsideData'> {
+  return {
+    ...(typeof rec.mutating === 'boolean' && { mutating: rec.mutating }),
+    ...(typeof rec.needsApprovalWhenUnattended === 'boolean' && {
+      needsApprovalWhenUnattended: rec.needsApprovalWhenUnattended,
+    }),
+    ...(typeof rec.resultIsOutsideData === 'boolean' && {
+      resultIsOutsideData: rec.resultIsOutsideData,
+    }),
+  };
 }
 
 /**

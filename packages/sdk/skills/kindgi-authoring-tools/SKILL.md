@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.13"
+version: "0.4.14"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -199,7 +199,7 @@ const defined = defineTool({
 - **An HTTP tool** sends the token with no code: `authorization: { kind: 'connection', connection: 'mail' }`.
 - **Ready-made tools:** for Gmail, Outlook, GitHub and LinkedIn, include one from `@kindgi/connections` instead of writing it. Each is a factory, and the pack names its id; there's no default, because a tool id is the tenant's, filed under the first project that publishes it. A tool folder's `index.ts` is one line, `export default gmailSend({ id: 'acme.gmail.send' })` (`@kindgi/connections/google/tools`, with `gmailMessagesList` and `gmailMessageGet`); `githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels` come from `@kindgi/connections/github/tools`, `outlookSend`, `outlookMessagesList` and `outlookMessageGet` from `@kindgi/connections/microsoft/tools`, and `linkedinPost` from `@kindgi/connections/linkedin/tools`. Agents and approval settings use the pack's id. A mail tool acts in the person's own mailbox; `as: 'company'` makes it use the company's. `as` is part of what the tool declares, so an id you've published keeps its `as`: give a company mailbox its own tool id.
 - **Your own calls to an app's API:** `appFetch(ctx, { entry, connection, toolId, url, method, headers, body })` from `@kindgi/connections/app-fetch` sends the connection's token as the only `Authorization`, paces calls by the entry's `rateLimits` (`toolId` is what its `costs` charge; 1 when not listed), tries a busy answer again, and throws a 401 as `ConnectionRejectedError`.
-- **Unattended runs:** in a run no person started, a tool that uses an `as: 'person'` connection waits for that person's yes, unless it's marked `mutating: false` (mark read-only tools so). The agent's `conversationPolicy.hitl` can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
+- **Unattended runs:** in a run no person started, a tool that uses an `as: 'person'` connection waits for that person's yes, reads included: `mutating: false` doesn't lift it. The agent's `conversationPolicy.hitl` can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
 - **In a unit test:** `ctx.connections` is optional in the type; build a context with `toolContextForTest({ connections: { mail: { accessToken: 'test', account: { id: '1', label: 'ana@acme.com' }, … } } })` (`@kindgi/sdk/define`).
 
 Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
@@ -276,6 +276,10 @@ In a run a person started (signed in, or with their own API key), the agent's ru
 Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 A step can run more than once (resumed after an approval, retried after a failure, run again after a crash), so a tool that writes uses `ctx.idempotencyKey`: the same every time this call runs, different for every other call. Pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column) or look for it there first, and a refund never goes out twice. Not `ctx.requestId`: a model's call id is only unique within one of its answers. The key is absent outside a run and from a runtime before 0.1.6. Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+
+## Results that are text from outside: `resultIsOutsideData`
+
+`resultIsOutsideData: true` says the tool's results are text from outside that nobody checked, such as a mail someone sent or a page a search found. An agent reads each result of the tool as data, not instructions, in that turn and in every later turn's history. It changes what the model is told, not what the tool may do: pair it with approvals for anything an agent could do with what it read. Absent means `false`.
 
 ## Tool id convention
 
