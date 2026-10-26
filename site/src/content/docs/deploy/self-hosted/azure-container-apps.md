@@ -206,6 +206,10 @@ The copy keeps the release's digest. A plain `docker pull`, `tag` and `push`
 from an Apple silicon machine pushes only the arm64 image, which Container
 Apps can't run.
 
+The copy goes through the machine you run it on, every layer down and back up,
+and takes both platforms (amd64 and arm64), so on a slow uplink it can take
+most of an hour.
+
 Then build and push your pack's image, signed:
 
 ```sh
