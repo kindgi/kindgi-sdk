@@ -27,13 +27,16 @@ approval.
 For Gmail, Outlook, GitHub and LinkedIn, `@kindgi/connections` has tools a
 pack can include instead of writing its own:
 
-- **`gmailSend`, `gmailMessagesList` and `gmailMessageGet`,** from
-  `@kindgi/connections/google/tools`, send a plain-text mail from the Gmail
-  account of the person the run acts as, list its messages, newest first or
-  by a search, and read one. The two reads need only `gmail.readonly`.
-- **`outlookSend`, `outlookMessagesList` and `outlookMessageGet`,** from
-  `@kindgi/connections/microsoft/tools`, do the same in the Outlook mailbox
-  of the person the run acts as.
+- **`gmailSend`, `gmailMessagesList`, `gmailMessageGet` and `gmailReply`,**
+  from `@kindgi/connections/google/tools`, send a plain-text mail from the
+  Gmail account of the person the run acts as, list its messages, newest
+  first or by a search, read one, and answer one in its thread. The two
+  reads need only `gmail.readonly`, and a reply needs `gmail.send` and
+  `gmail.readonly`.
+- **`outlookSend`, `outlookMessagesList`, `outlookMessageGet` and
+  `outlookReply`,** from `@kindgi/connections/microsoft/tools`, do the same
+  in the Outlook mailbox of the person the run acts as. A reply needs
+  `Mail.Send` and `Mail.Read`.
 - **`githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels`,**
   from `@kindgi/connections/github/tools`, list a repository's issues and
   its labels, and add labels it already has to an issue, through your
@@ -71,10 +74,13 @@ agent lists the tool by that id, as `{ id: 'acme.gmail.send', version:
   A message read (`gmailMessageGet`, `outlookMessageGet`) gives a
   `MailMessage` (`@kindgi/connections/mail`), the same shape for Gmail and
   Outlook.
-- **Sending mail, adding labels and posting change things,** so in a run no
-  person started, each of their calls waits for a person's yes. The others
-  only read, and a read with a person's connection waits there too
-  ([Approvals](#approvals)).
+- **A reply goes only to the address the mail asks for,** its Reply-To,
+  else its From, and the call's `to` must name it
+  ([Answer in the thread](../../runs/start-runs-from-new-mail/#answer-in-the-thread)).
+- **Sending mail, replying, adding labels and posting change things,** so
+  in a run no person started, each of their calls waits for a person's
+  yes. The others only read, and a read with a person's connection waits
+  there too ([Approvals](#approvals)).
 
 To start from a working pack, `kindgi init <pack-name> --template=follow-up`
 makes one whose agent writes a follow-up mail from your notes and sends it

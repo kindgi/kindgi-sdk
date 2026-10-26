@@ -29,7 +29,8 @@ group, aren't supported yet.
 - **A connection to the mailbox:** your own Google or Microsoft account,
   or the company's mailbox, which a tenant admin connects
   ([The company's mailbox](#the-companys-mailbox)). Gmail needs
-  `gmail.readonly` and Outlook `Mail.Read`
+  `gmail.readonly` and Outlook `Mail.Read`, and an agent that answers needs
+  `gmail.send` or `Mail.Send` too
   ([Google](../../connections/google/), [Microsoft](../../connections/microsoft/)).
 - **An agent or a flow to run,** registered on your runtime. This guide
   runs the agent `acme.support-desk`.
@@ -228,6 +229,44 @@ pnpm exec kindgi mail-triggers update <trigger-id> --allow-unattended=acme-shop.
   `none` clears it, and leaving it out keeps it. A new `--agent`, `--flow`
   or mailbox must name it again, or `none`
   ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
+
+## Answer in the thread
+
+An agent answers a mail in its thread with `gmailReply` or
+`outlookReply`, from `@kindgi/connections/google/tools` and
+`@kindgi/connections/microsoft/tools`
+([Ready-made tools](../../connections/use-a-connection/#ready-made-tools)).
+It takes `{ inReplyTo, to, body }`: the mail's id, which the agent's turn
+gives on the new mail's line, the address it answers, and plain text.
+Give a mail-started agent the reply tool, not the send tool: a send goes
+to any address it's given, so never list one to answer mail.
+
+- **A reply goes only where the mail asks:** its Reply-To, else its From,
+  as a mail client does, and `to` must name that address, in any letter
+  case. A Reply-To that names no address, such as an empty group, counts
+  as none. A reply is refused, and nothing is sent, when the header it
+  goes by names more than one address, or the From none, when that
+  address isn't one a mail tool takes, when it's this mailbox's own, or
+  when `to` names another. That last refusal names the address the mail
+  asks for.
+- **The sender chooses both headers.** A From or a Reply-To doesn't show
+  who wrote the mail, so have the agent check who's asking before it gives
+  out an order's details, not by the address alone. A listed reply sends
+  the agent's answer, unasked, to whatever address a stranger's mail names
+  as its Reply-To.
+- **It waits for a person's yes,** as a send does, unless a project admin
+  lists it ([List a tool](#list-a-tool)).
+- **On the company's mailbox,** the reply tool takes `as: 'company'`,
+  under its own id, as in
+  `gmailReply({ id: 'acme.store-mail.reply', as: 'company' })`.
+- **The thread's next mail:** on Gmail, a reply carries its run's mark,
+  so the conversation's next turn leaves it out, since the conversation
+  has it already. An Outlook reply carries no mark, so the next turn gives
+  the agent its own reply again, as mail from this mailbox.
+
+Gmail sends the reply with `Re: ` before the subject, unless it starts
+with that, and answers its id and its thread's. Outlook keeps it in the
+mailbox's Sent Items, and answers `{ accepted: true }`.
 
 ## Shared or personal
 

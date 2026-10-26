@@ -51,8 +51,8 @@ In your organization's project:
    - **Data access:** `openid`, `email`, and the Gmail permissions your
      tools need, such as `https://www.googleapis.com/auth/gmail.send` to
      send mail, and `https://www.googleapis.com/auth/gmail.readonly` to
-     read it, which a mail trigger needs too. Google counts every
-     permission that reads mail as restricted.
+     read it, which a mail trigger needs too. A reply needs both. Google
+     counts every permission that reads mail as restricted.
    - **Clients → Create client → Web application.** Under **Authorized
      redirect URIs**, enter the console's connect page:
 

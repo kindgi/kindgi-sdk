@@ -74,10 +74,10 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
    sign-in on its server.
 3. **API permissions → Add a permission → Microsoft Graph → Delegated
    permissions:** `offline_access`, `User.Read`, and the mail permissions
-   your tools need, `Mail.Send` to send mail and `Mail.Read` to read it.
-   Then choose **Add permissions**. Kindgi asks for `offline_access` to keep
-   access between sign-ins, and for `User.Read` to learn whose account it
-   is.
+   your tools need, `Mail.Send` to send mail and `Mail.Read` to read it,
+   and both to reply. Then choose **Add permissions**. Kindgi asks for
+   `offline_access` to keep access between sign-ins, and for `User.Read` to
+   learn whose account it is.
 4. **Certificates & secrets → Client secrets → New client secret.** Pick
    when it expires, 24 months at most, and choose **Add**. Copy its
    **Value** at once: Microsoft never shows it again
