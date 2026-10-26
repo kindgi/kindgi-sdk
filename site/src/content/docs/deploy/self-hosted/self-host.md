@@ -229,6 +229,11 @@ one, as `env-dropped`, never its value.
 [Declare the environment your code reads](../../../guides/secrets/pack-env/#in-a-deployment)
 says more.
 
+This one service runs the tools' code of every project the runtime serves,
+in one process, with one environment.
+[Your tools' code](../../../concepts/security/#your-tools-code) says what
+that means, and how to keep projects apart.
+
 ## 5. Configure and start the runtime
 
 Make an API token. Your CLI and apps send it as their bearer:

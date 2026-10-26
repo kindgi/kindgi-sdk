@@ -317,6 +317,12 @@ project in production is a **production** run, and a run anywhere else is
 each run with its class for usage counting, so test work is counted apart
 from real work. A run's own read doesn't show it.
 
+On a runtime you run yourself, with neither usage counting nor the
+production gate or limit below, being in production is only a label:
+agents, flows, triggers and approvals work the same in a project in
+production and out of it. The license key doesn't read it either
+([What a key covers](../../../concepts/licensing/#what-a-key-covers)).
+
 To switch it from your app, ask your coding agent: "Put a customer's project
 in production when they go live." For reference, the commands and the code
 look like this:
