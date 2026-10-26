@@ -227,13 +227,17 @@ goes by the id, so the project's pages in the console, its runs, keys and
 triggers, and what's deployed into it keep working, with no redeploy. Only
 the CLI looks a slug up, each time it runs, wherever you name a project by
 its slug: `kindgi deploy --project`, say, or an environment's `project` in
-your pack config (`environments.<name>.project`). Before your next deploy,
-change the old slug to the new one there. Until you do, a deploy that names
-the old slug is refused, since it names no project, unless another project
-in the tenant has it: one in another org may have it already, or take it
-later. Then the deploy goes into that project, without a word. So if you
-change a project's slug, name the project by its id in scripts and pack
-configs, or change them to the new slug before anyone deploys again.
+your pack config (`environments.<name>.project`). Every command that names
+the project that way looks it up: `kindgi deploy`, `kindgi promote`,
+`kindgi environments set`, and `kindgi secrets` and `kindgi env` under a
+pack environment (`--env`). Before you next run one, change the old slug to
+the new one there. Until you do, such a command is refused, since the slug
+names no project, unless another project in the tenant has it: one in
+another org may have it already, or take it later. Then the command acts on
+that project: a deploy goes into it without a word, and a secret or value
+is set on it. So if you change a project's slug, name the project by its id
+in scripts and pack configs, or change them to the new slug before anyone
+runs one of those commands again.
 
 A tenant has one Default project. Asking for a second one answers
 `409 project-default-already-exists`, "The tenant already has a Default
