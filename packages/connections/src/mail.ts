@@ -121,7 +121,7 @@ export interface MailFoundMessage {
   readonly messageId: string;
   readonly threadId?: string;
   readonly found: MailFound;
-  /** When the app received it, where the answer says: Outlook's items and `since`'s, not Gmail's history. */
+  /** When the app received it, where the answer says: Outlook's items and both apps' `since`, not Gmail's history. */
   readonly receivedAt?: string;
 }
 
@@ -137,7 +137,8 @@ export interface MailStartInput extends MailFolder {
 export interface MailStart {
   readonly cursor: MailCursor;
   /**
-   * The first round's mail: Outlook's items from `from` on, none on Gmail.
+   * The first round's mail: Outlook's items from `from` on, oldest first
+   * as `changes` gives them, none on Gmail.
    * The caller fires them or not: a new watch doesn't, a re-seed or a
    * catch-up does.
    */
@@ -151,7 +152,14 @@ export interface MailChangesInput extends MailFolder {
 export type MailChanges =
   | {
       readonly kind: 'ok';
-      /** Each message once, in the app's order. On Gmail, only mail that still has the label and isn't `SENT`, `DRAFT` or `SPAM`. */
+      /**
+       * Each message once, oldest first within this answer. Outlook's by
+       * `receivedAt`, ties by id; one without a time sorts with the one before it. A
+       * later answer can still hold older mail: Microsoft doesn't say in
+       * what order delta pages come. Gmail's in its history's order, the
+       * order the mailbox got them, and only mail that still has the
+       * label and isn't `SENT`, `DRAFT` or `SPAM`.
+       */
       readonly messages: readonly MailFoundMessage[];
       readonly cursor: MailCursor;
     }
@@ -166,6 +174,13 @@ export interface MailSinceInput extends MailFolder {
 }
 
 export interface MailSince {
+  /**
+   * The newest `max` at most, oldest first by `receivedAt`, ties by id.
+   * On Gmail, which mails are taken when there are more than `max`
+   * follows Gmail's list (newest first in practice, not documented), and
+   * their order is by `internalDate`, from one minimal get each. One
+   * without a date sorts with the mail next to it in the list.
+   */
   readonly messages: readonly MailFoundMessage[];
   /** True when more than `max` were there. */
   readonly more: boolean;

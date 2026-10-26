@@ -226,6 +226,29 @@ describe('microsoftMail.changes', () => {
     expect(calls.map((c) => c.url)).toEqual([cursor]);
   });
 
+  it("gives the delta's mail oldest first, ties by id, one without a time at the time before it", async () => {
+    const { call } = graph(() =>
+      Response.json({
+        value: [
+          item('m5', '2026-10-26T02:03:00Z'),
+          item('m2', '2026-10-26T02:01:00Z'),
+          { id: 'm4', receivedDateTime: 'not a time', conversationId: 'conv-m4' },
+          item('m3', '2026-10-26T02:01:00Z'),
+          item('m1', '2026-10-26T02:00:00Z'),
+        ],
+        '@odata.deltaLink': `${INBOX_DELTA}?$deltatoken=Nn5gS1Vb9A`,
+      }),
+    );
+    const changes = await microsoftMail.changes(call, { cursor });
+    expect(changes.kind === 'ok' && changes.messages.map((m) => m.messageId)).toEqual([
+      'm1',
+      'm2',
+      'm3',
+      'm4',
+      'm5',
+    ]);
+  });
+
   it('reads the conversation of an item that came without one, its metadata only, once', async () => {
     const next = `${INBOX_DELTA}?$deltatoken=Nn5gS1Vb9A`;
     const { call, calls } = graph((url) => {
@@ -381,7 +404,7 @@ describe('microsoftMail.changes', () => {
 });
 
 describe('microsoftMail.since', () => {
-  it('lists the folder from the clock margin before `from`, newest first, and says when there were more', async () => {
+  it('lists the folder from the clock margin before `from`, takes the newest `max` oldest first, and says when there were more', async () => {
     const { call, calls } = graph(() =>
       Response.json({
         value: [
@@ -400,16 +423,16 @@ describe('microsoftMail.since', () => {
     ).toEqual({
       messages: [
         {
-          messageId: 'm3',
-          threadId: 'conv-m3',
-          found: 'catch-up',
-          receivedAt: '2026-10-26T01:59:00Z',
-        },
-        {
           messageId: 'm2',
           threadId: 'conv-m2',
           found: 'catch-up',
           receivedAt: '2026-10-26T01:58:00Z',
+        },
+        {
+          messageId: 'm3',
+          threadId: 'conv-m3',
+          found: 'catch-up',
+          receivedAt: '2026-10-26T01:59:00Z',
         },
       ],
       more: true,

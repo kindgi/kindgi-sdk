@@ -323,33 +323,82 @@ describe('googleMail failures', () => {
 });
 
 describe('googleMail.since', () => {
-  it('lists the label from the clock margin before `from`, newest first, and says when there were more', async () => {
+  it('lists the label from the clock margin before `from`, dates the first `max` with a minimal get each, and gives them oldest first', async () => {
     const from = new Date('2026-10-26T02:00:00Z');
-    const { call, calls } = gmail(() =>
-      Response.json({
+    const at: Record<string, string> = {
+      m1: '2026-10-26T01:55:00.000Z',
+      m2: '2026-10-26T01:56:00.000Z',
+      m3: '2026-10-26T01:57:00.000Z',
+    };
+    const { call, calls } = gmail((url) => {
+      const id = /\/messages\/([^/]+)$/.exec(url.pathname)?.[1];
+      if (id !== undefined)
+        return Response.json({ id, internalDate: String(Date.parse(at[id] ?? '')) });
+      // Not newest first: Gmail doesn't say in what order it lists.
+      return Response.json({
         messages: [
-          { id: 'm3', threadId: 't3' },
           { id: 'm2', threadId: 't2' },
+          { id: 'm3', threadId: 't3' },
           { id: 'm1', threadId: 't1' },
+          { id: 'm0', threadId: 't0' },
         ],
         nextPageToken: 'more',
-        resultSizeEstimate: 3,
-      }),
-    );
-    expect(await googleMail.since(call, { from, max: 2 })).toEqual({
+        resultSizeEstimate: 4,
+      });
+    });
+    expect(await googleMail.since(call, { from, max: 3 })).toEqual({
       messages: [
-        { messageId: 'm3', threadId: 't3', found: 'catch-up' },
-        { messageId: 'm2', threadId: 't2', found: 'catch-up' },
+        { messageId: 'm1', threadId: 't1', found: 'catch-up', receivedAt: at.m1 },
+        { messageId: 'm2', threadId: 't2', found: 'catch-up', receivedAt: at.m2 },
+        { messageId: 'm3', threadId: 't3', found: 'catch-up', receivedAt: at.m3 },
       ],
       more: true,
     });
+    // A get for each mail taken, none for the one past `max`.
+    expect(
+      calls.slice(1).map((c) => `${c.url.pathname.split('/').at(-1)}?${c.url.searchParams}`),
+    ).toEqual(['m1?format=minimal', 'm3?format=minimal', 'm2?format=minimal']);
     const reachesBack = (from.getTime() - MAIL_CLOCK_MARGIN_MS) / 1000;
     expect(reachesBack).toBe(Date.parse('2026-10-26T01:50:00Z') / 1000);
     expect(Object.fromEntries(calls[0]?.url.searchParams ?? [])).toEqual({
       labelIds: 'INBOX',
       q: `after:${reachesBack}`,
-      maxResults: '3',
+      maxResults: '4',
     });
+  });
+
+  it('dates a mail gone since the list, or with no date, as the one before it, and breaks a tie by id', async () => {
+    const { call } = gmail((url) => {
+      const id = /\/messages\/([^/]+)$/.exec(url.pathname)?.[1];
+      if (id === 'mx') return Response.json({ error: { code: 404 } }, { status: 404 });
+      if (id === 'my') return Response.json({ id });
+      if (id !== undefined) {
+        return Response.json({ id, internalDate: id === 'mc' ? '1761443000000' : '1761444000000' });
+      }
+      return Response.json({
+        messages: [
+          { id: 'mz' },
+          { id: 'mb' },
+          { id: 'mx' },
+          { id: 'ma' },
+          { id: 'my' },
+          { id: 'mc' },
+        ],
+      });
+    });
+    const since = await googleMail.since(call, { from: new Date(), max: 6 });
+    const [early, late] = [new Date(1761443000000), new Date(1761444000000)].map((d) =>
+      d.toISOString(),
+    );
+    // Listed newest first in practice, so each one's place is after the one listed after it.
+    expect(since.messages.map((m) => [m.messageId, m.receivedAt])).toEqual([
+      ['mc', early],
+      ['my', undefined],
+      ['ma', late],
+      ['mb', late],
+      ['mx', undefined],
+      ['mz', late],
+    ]);
   });
 
   it('gives none, and no more, when nothing matches', async () => {

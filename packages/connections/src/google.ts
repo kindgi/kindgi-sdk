@@ -20,8 +20,8 @@ import { defineApp } from './define.js';
  *   granted the registration, so a disconnect withdraws it at Google only
  *   when no other connection of theirs uses that grant.
  * - **Rate limit:** 6,000 units a minute per connection, in Gmail's quota
- *   units: a send costs 100, reading a message 60 (20 for its headers
- *   only), a thread 120, a message list 5, the mailbox's history 2 and its
+ *   units: a send costs 100, reading a message 60 (20 for its headers or
+ *   its date only), a thread 120, a message list 5, the mailbox's history 2 and its
  *   profile 1.
  */
 export const google = defineApp({

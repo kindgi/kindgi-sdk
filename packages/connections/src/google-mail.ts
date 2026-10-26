@@ -13,8 +13,8 @@
 
 import { type AppSend, mailSend } from './app-request.js';
 import { type GmailMessage, gmailMessage } from './gmail-mime.js';
-import { GMAIL_ID, GmailNotFound, LABEL_ID, gmailJson, query } from './google-api.js';
-import { checkBudget, checkMax, mailCalls, pickThread } from './mail-calls.js';
+import { GMAIL_ID, GmailNotFound, LABEL_ID, gmailJson, query, receivedAt } from './google-api.js';
+import { checkBudget, checkMax, mailCalls, oldestFirst, pickThread } from './mail-calls.js';
 import { ThreadLines } from './mail-text.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
@@ -88,11 +88,17 @@ export const googleMail: MailFunctions = mailCalls({
       'gmail.messages.list',
       `/messages?${query({ labelIds: label, q: `after:${after}`, maxResults: String(input.max + 1) })}`,
     )) as { readonly messages?: unknown } | null;
-    // Newest first, as Gmail lists; left out when nothing matches.
+    // Ids alone, left out when nothing matches, in an order Gmail doesn't
+    // document (newest first in practice): which `max` are taken follows it.
     const listed = (Array.isArray(answer?.messages) ? answer.messages : [])
       .map((m: HistoryMessage | null) => foundMessage(m, 'catch-up'))
       .filter((m): m is MailFoundMessage => m !== undefined);
-    return { messages: listed.slice(0, input.max), more: listed.length > input.max };
+    const send = mailSend(call);
+    const dated: MailFoundMessage[] = [];
+    for (const m of listed.slice(0, input.max).reverse()) {
+      dated.push({ ...m, ...(await receivedOf(send, m.messageId)) });
+    }
+    return { messages: oldestFirst(dated), more: listed.length > input.max };
   },
 
   async read(call, input) {
@@ -286,6 +292,22 @@ async function readInThread(
   const mail = mails[kept.findIndex(({ i }) => i === at)] as MailMessage;
   const { picked, notRead } = pickThread(mails, mail.id, budget.threadMails);
   return { kind: 'ok', mail, thread: picked, notRead };
+}
+
+/** When Gmail received a message, from a minimal get: none when it's gone or has no date. */
+async function receivedOf(send: AppSend, id: string): Promise<{ readonly receivedAt?: string }> {
+  try {
+    const raw = (await gmailJson(
+      send,
+      'gmail.messages.get.metadata',
+      `/messages/${id}?format=minimal`,
+    )) as GmailMessage | null;
+    const at = receivedAt(raw?.internalDate);
+    return at === '' ? {} : { receivedAt: at };
+  } catch (err) {
+    if (err instanceof GmailNotFound) return {};
+    throw err;
+  }
 }
 
 /**

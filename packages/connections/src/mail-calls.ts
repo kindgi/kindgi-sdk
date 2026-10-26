@@ -7,7 +7,12 @@
  */
 
 import { AppRefused } from './app-request.js';
-import { MailCallError, type MailFunctions, type MailTurnBudget } from './mail.js';
+import {
+  MailCallError,
+  type MailFoundMessage,
+  type MailFunctions,
+  type MailTurnBudget,
+} from './mail.js';
 
 /**
  * An app's mail calls with each refusal (`AppRefused`) thrown as a
@@ -57,6 +62,27 @@ export function checkBudget(budget: MailTurnBudget): void {
   ) {
     throw new Error('The budget is whole numbers: at least 1 character, and 1 to 1,000 mails.');
   }
+}
+
+/**
+ * Found mail oldest first by when it was received, ties by id. One with
+ * no time, or one that isn't a time, takes the time of the one before it
+ * in the order given, so it sorts next to it.
+ */
+export function oldestFirst(found: readonly MailFoundMessage[]): MailFoundMessage[] {
+  let last = Number.NEGATIVE_INFINITY;
+  return found
+    .map((m) => {
+      const at = Date.parse(m.receivedAt ?? '');
+      last = Number.isNaN(at) ? last : at;
+      return { m, at: last };
+    })
+    .sort((a, b) => a.at - b.at || byId(a.m.messageId, b.m.messageId))
+    .map(({ m }) => m);
+}
+
+function byId(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /**

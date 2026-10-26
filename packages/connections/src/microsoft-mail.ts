@@ -27,7 +27,7 @@ import {
   outlookMessage,
   query,
 } from './graph-api.js';
-import { checkBudget, checkMax, mailCalls, pickThread } from './mail-calls.js';
+import { checkBudget, checkMax, mailCalls, oldestFirst, pickThread } from './mail-calls.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
   type MailChanges,
@@ -115,8 +115,10 @@ export const microsoftMail: MailFunctions = mailCalls({
     const listed = (answer.value as (DeltaItem | null)[])
       .map((item) => foundMessage(item, 'catch-up'))
       .filter((m): m is MailFoundMessage => m !== undefined);
+    // Newest first, as asked: the newest `max`, then oldest first.
+    const taken = oldestFirst(listed.slice(0, input.max).reverse());
     return {
-      messages: await withThreadIds(mailSend(call), listed.slice(0, input.max)),
+      messages: await withThreadIds(mailSend(call), taken),
       more: listed.length > input.max,
     };
   },
@@ -174,7 +176,7 @@ async function readDelta(send: AppSend, url: string): Promise<MailChanges> {
     if (typeof delta === 'string') {
       return {
         kind: 'ok',
-        messages: await withThreadIds(send, [...found.values()]),
+        messages: await withThreadIds(send, oldestFirst([...found.values()])),
         cursor: graphLink(delta, "Outlook's delta link"),
       };
     }
@@ -185,7 +187,11 @@ async function readDelta(send: AppSend, url: string): Promise<MailChanges> {
     link = graphLink(next, "Outlook's next page link");
   }
   // More pages than one call reads: the next call goes on from the next page.
-  return { kind: 'ok', messages: await withThreadIds(send, [...found.values()]), cursor: link };
+  return {
+    kind: 'ok',
+    messages: await withThreadIds(send, oldestFirst([...found.values()])),
+    cursor: link,
+  };
 }
 
 /**
