@@ -30,7 +30,7 @@ import {
 import { google } from './google.js';
 import { MAIL_MESSAGE, MAIL_PERSON } from './mail-schema.js';
 import { decodeEncodedWords, decodeHtmlEntities, parseAddressList } from './mail-text.js';
-import { MAIL_THREAD_BUDGET, type MailMessage, type MailPerson } from './mail.js';
+import { MAIL_TURN_BUDGET, type MailMessage, type MailPerson } from './mail.js';
 
 export type { AppToolOptions, MailToolOptions, MailboxOwner } from './app-tool.js';
 export type { MailMessage, MailPerson } from './mail.js';
@@ -293,7 +293,7 @@ const gmailMessageGetSpec = (
       'gmail.messages.get',
       `/messages/${input.messageId}?format=full`,
     )) as GmailMessage;
-    return gmailMessage(raw, MAIL_THREAD_BUDGET.messageChars, 'tool');
+    return gmailMessage(raw, MAIL_TURN_BUDGET.mailChars, 'tool');
   },
 });
 

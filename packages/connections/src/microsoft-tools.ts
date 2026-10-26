@@ -31,7 +31,7 @@ import {
   query,
 } from './graph-api.js';
 import { MAIL_MESSAGE, MAIL_PERSON } from './mail-schema.js';
-import { MAIL_THREAD_BUDGET, type MailMessage } from './mail.js';
+import { MAIL_TURN_BUDGET, type MailMessage } from './mail.js';
 import { microsoft } from './microsoft.js';
 
 export type { AppToolOptions, MailToolOptions, MailboxOwner } from './app-tool.js';
@@ -319,7 +319,7 @@ const messageGetSpec = (
       `${GRAPH}/me/messages/${encodeURIComponent(input.messageId)}?${q}`,
       `${AS_TEXT}, ${IMMUTABLE_IDS}`,
     )) as RawMessage;
-    return outlookMessage(raw, MAIL_THREAD_BUDGET.messageChars, 'body', 'tool');
+    return outlookMessage(raw, MAIL_TURN_BUDGET.mailChars, 'body', 'tool');
   },
 });
 

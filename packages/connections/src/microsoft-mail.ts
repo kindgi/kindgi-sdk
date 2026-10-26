@@ -27,7 +27,7 @@ import {
   outlookMessage,
   query,
 } from './graph-api.js';
-import { checkBudget, checkMax, mailCalls } from './mail-calls.js';
+import { checkBudget, checkMax, mailCalls, pickThread } from './mail-calls.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
   type MailChanges,
@@ -35,7 +35,8 @@ import {
   type MailFoundMessage,
   type MailFunctions,
   type MailMessage,
-  type MailThreadBudget,
+  type MailRead,
+  type MailTurnBudget,
 } from './mail.js';
 import { microsoft } from './microsoft.js';
 
@@ -59,8 +60,6 @@ const CURSOR_EXPIRED: ReadonlySet<string> = new Set([
 ]);
 /** A conversation's id, as it goes into a `$filter`'s quoted string: base64. */
 const CONVERSATION_ID = /^[A-Za-z0-9+/=_-]{1,1024}$/;
-/** A time as Graph gives `receivedDateTime`, safe in a `$filter`. */
-const GRAPH_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?Z$/;
 /** The most a `since` lists: one page of `$top` (1,000), less the one that shows there are more. */
 const SINCE_MAX = 999;
 /** The folders a thread's read looks up by their well-known names: deleted and spam (left out), and sent. */
@@ -68,6 +67,10 @@ const THREAD_FOLDERS = ['deleteditems', 'junkemail', 'sentitems'] as const;
 type ThreadFolder = (typeof THREAD_FOLDERS)[number];
 /** How many more messages a conversation's read asks for than the budget, for those left out. */
 const LEFT_OUT_ROOM = 10;
+/** What a thread's message is read with: its fields, what it added, and where it is. */
+const THREAD_FIELDS = `${MESSAGE_FIELDS},uniqueBody,isDraft,parentFolderId`;
+/** A time before any mail, so a conversation's filter can start with `receivedDateTime` to order by it. */
+const ANY_TIME = '1900-01-01T00:00:00Z';
 
 /** Outlook's mail calls. */
 export const microsoftMail: MailFunctions = mailCalls({
@@ -122,30 +125,14 @@ export const microsoftMail: MailFunctions = mailCalls({
     }
     checkBudget(input.budget);
     const send = mailSend(call);
-    let raw: RawMessage;
-    try {
-      raw = (await graphJson(
-        send,
-        'outlook.messages.get',
-        `${GRAPH}/me/messages/${encodeURIComponent(input.messageId)}?${query({
-          $select: `${MESSAGE_FIELDS},body`,
-          $expand: ATTACHMENTS,
-        })}`,
-        `${AS_TEXT}, ${IMMUTABLE_IDS}`,
-      )) as RawMessage;
-    } catch (err) {
-      if (err instanceof GraphNotFound) return { kind: 'not-found' };
-      throw err;
-    }
-    const mail = outlookMessage(raw, input.budget.messageChars, 'body', 'turn');
+    const raw = await messageOf(send, input.messageId);
+    if (raw === undefined) return { kind: 'not-found' };
     // The message's own conversation: it's read anyway, and it's current.
-    const conversation = mail.threadId ?? input.threadId;
-    return {
-      kind: 'ok',
-      mail,
-      thread:
-        conversation === undefined ? [] : await earlier(send, conversation, mail, input.budget),
-    };
+    const conversation =
+      typeof raw.conversationId === 'string' && raw.conversationId !== ''
+        ? raw.conversationId
+        : input.threadId;
+    return readThread(send, raw, conversation, input.budget);
   },
 });
 
@@ -238,30 +225,108 @@ function foundMessage(
   };
 }
 
+/** A message with its thread's fields, else undefined when it's gone. */
+async function messageOf(send: AppSend, id: string): Promise<RawMessage | undefined> {
+  try {
+    return (await graphJson(
+      send,
+      'outlook.messages.get',
+      `${GRAPH}/me/messages/${encodeURIComponent(id)}?${query({
+        $select: THREAD_FIELDS,
+        $expand: ATTACHMENTS,
+      })}`,
+      `${AS_TEXT}, ${IMMUTABLE_IDS}`,
+    )) as RawMessage;
+  } catch (err) {
+    if (err instanceof GraphNotFound) return undefined;
+    throw err;
+  }
+}
+
 /**
- * The messages of the conversation received before `mail`, newest first,
- * each its `uniqueBody` (what it added). Drafts, and messages in Deleted
- * Items or Junk Email, are left out; one in Sent Items is marked `sent`.
- * If Graph refuses the conversation's filter, the run gets the message
- * alone: its body quotes what came before.
+ * The message and its conversation, oldest first, each its `uniqueBody`
+ * (what it added). Drafts, and messages in Deleted Items or Junk Email,
+ * are left out; one in Sent Items is marked `sent`. If Graph refuses the
+ * conversation's filter, the run gets the message alone: its body quotes
+ * what came before.
  */
-async function earlier(
+async function readThread(
+  send: AppSend,
+  raw: RawMessage,
+  conversation: string | undefined,
+  budget: MailTurnBudget,
+): Promise<MailRead> {
+  const page =
+    conversation !== undefined && CONVERSATION_ID.test(conversation)
+      ? await conversationPage(send, conversation, budget)
+      : undefined;
+  const folders = await threadFolders(send);
+  const message = (m: RawMessage): MailMessage => {
+    const read = outlookMessage(m, budget.mailChars, 'uniqueBody', 'turn');
+    const sent = folders.sentitems !== undefined && m.parentFolderId === folders.sentitems;
+    return sent ? { ...read, sent: true } : read;
+  };
+  const mail = message(raw);
+  if (page === undefined || conversation === undefined) {
+    return { kind: 'ok', mail, thread: [mail], notRead: 0 };
+  }
+  const leftOut = new Set([folders.deleteditems, folders.junkemail]);
+  leftOut.delete(undefined);
+  const inThread = (m: RawMessage): boolean =>
+    m.id === raw.id || (m.isDraft !== true && !leftOut.has(m.parentFolderId ?? undefined));
+  const newest = page.items.filter((m) => m.id !== raw.id && inThread(m));
+  if (!page.more) {
+    const { picked, notRead } = pickThread(
+      inOrder([...newest.map(message), mail]),
+      mail.id,
+      budget.threadMails,
+    );
+    return { kind: 'ok', mail, thread: picked, notRead };
+  }
+  // Longer than a page: its first and its newest, and how many it holds.
+  const all = (await conversationIds(send, conversation)).filter(inThread);
+  const taken = newest.slice(0, budget.threadMails - 1);
+  const firstId = all[0]?.id;
+  const first =
+    firstId === undefined || firstId === raw.id || taken.some((m) => m.id === firstId)
+      ? undefined
+      : (newest.find((m) => m.id === firstId) ?? (await messageOf(send, firstId)));
+  const thread = inOrder([
+    ...(first === undefined ? [] : [message(first)]),
+    ...taken.map(message),
+    mail,
+  ]);
+  const held = all.length + (all.some((m) => m.id === raw.id) ? 0 : 1);
+  return { kind: 'ok', mail, thread, notRead: Math.max(0, held - thread.length) };
+}
+
+/** Messages oldest first by when each came; two of the same time keep their order. */
+function inOrder(messages: readonly MailMessage[]): MailMessage[] {
+  return messages
+    .map((m, i) => ({ m, i, at: Date.parse(m.receivedAt) }))
+    .sort((a, b) => a.at - b.at || a.i - b.i)
+    .map(({ m }) => m);
+}
+
+/**
+ * The conversation's newest messages across folders, newest first, a
+ * page of the budget and room for those left out, and whether it holds
+ * more. Undefined when Graph refuses the filter.
+ */
+async function conversationPage(
   send: AppSend,
   conversation: string,
-  mail: MailMessage,
-  budget: MailThreadBudget,
-): Promise<MailMessage[]> {
-  if (budget.earlier === 0 || !GRAPH_TIME.test(mail.receivedAt)) return [];
-  if (!CONVERSATION_ID.test(conversation)) return [];
+  budget: MailTurnBudget,
+): Promise<{ readonly items: RawMessage[]; readonly more: boolean } | undefined> {
   const url = `${GRAPH}/me/messages?${query({
     // Graph orders by a property only when the filter starts with it.
-    $filter: `receivedDateTime lt ${mail.receivedAt} and conversationId eq '${conversation}'`,
+    $filter: `receivedDateTime ge ${ANY_TIME} and conversationId eq '${conversation}'`,
     $orderby: 'receivedDateTime desc',
-    $top: String(Math.min(budget.earlier + LEFT_OUT_ROOM, 1000)),
-    $select: `${MESSAGE_FIELDS},uniqueBody,isDraft,parentFolderId`,
+    $top: String(Math.min(budget.threadMails + LEFT_OUT_ROOM, 1000)),
+    $select: THREAD_FIELDS,
     $expand: ATTACHMENTS,
   })}`;
-  let answer: { readonly value?: unknown } | null;
+  let answer: { readonly value?: unknown; readonly '@odata.nextLink'?: unknown } | null;
   try {
     answer = (await graphJson(
       send,
@@ -270,29 +335,39 @@ async function earlier(
       `${AS_TEXT}, ${IMMUTABLE_IDS}`,
     )) as typeof answer;
   } catch (err) {
-    if (err instanceof AppRefused && err.status === 400) return [];
+    if (err instanceof AppRefused && err.status === 400) return undefined;
     throw err;
   }
-  const items = Array.isArray(answer?.value) ? (answer.value as (RawMessage | null)[]) : [];
-  if (items.length === 0) return [];
-  const folders = await threadFolders(send);
-  const leftOut = new Set([folders.deleteditems, folders.junkemail]);
-  leftOut.delete(undefined);
-  return items
-    .filter(
-      (m): m is RawMessage =>
-        m !== null &&
-        typeof m.id === 'string' &&
-        m.id !== mail.id &&
-        m.isDraft !== true &&
-        !leftOut.has(m.parentFolderId ?? undefined),
-    )
-    .slice(0, budget.earlier)
-    .map((m) => {
-      const message = outlookMessage(m, budget.earlierChars, 'uniqueBody', 'turn');
-      const sent = folders.sentitems !== undefined && m.parentFolderId === folders.sentitems;
-      return sent ? { ...message, sent: true } : message;
-    });
+  return {
+    items: rawMessages(answer?.value),
+    more: typeof answer?.['@odata.nextLink'] === 'string',
+  };
+}
+
+/**
+ * Every message of the conversation, oldest first, by id and where it
+ * is, never its content: one page of 1,000, so a longer one counts the
+ * oldest 1,000.
+ */
+async function conversationIds(send: AppSend, conversation: string): Promise<RawMessage[]> {
+  const answer = (await graphJson(
+    send,
+    'outlook.messages.list',
+    `${GRAPH}/me/messages?${query({
+      $filter: `receivedDateTime ge ${ANY_TIME} and conversationId eq '${conversation}'`,
+      $orderby: 'receivedDateTime asc',
+      $top: '1000',
+      $select: 'id,isDraft,parentFolderId',
+    })}`,
+    IMMUTABLE_IDS,
+  )) as { readonly value?: unknown } | null;
+  return rawMessages(answer?.value);
+}
+
+function rawMessages(value: unknown): RawMessage[] {
+  return (Array.isArray(value) ? (value as (RawMessage | null)[]) : []).filter(
+    (m): m is RawMessage => m !== null && typeof m?.id === 'string',
+  );
 }
 
 /**

@@ -7,7 +7,7 @@
  */
 
 import { AppRefused } from './app-request.js';
-import { MailCallError, type MailFunctions, type MailThreadBudget } from './mail.js';
+import { MailCallError, type MailFunctions, type MailTurnBudget } from './mail.js';
 
 /**
  * An app's mail calls with each refusal (`AppRefused`) thrown as a
@@ -40,21 +40,39 @@ async function failingTyped<T>(result: Promise<T>): Promise<T> {
   }
 }
 
-/** A budget of whole numbers: at least 1 character, and 0 or more earlier messages. */
-export function checkBudget(budget: MailThreadBudget): void {
-  const { messageChars, earlier, earlierChars } = budget;
+/** The most mails a budget lets a read take: one page of Outlook's `$top`. */
+const THREAD_MAILS_MAX = 1000;
+
+/** A budget of whole numbers: at least 1 character, and 1 to 1,000 mails. */
+export function checkBudget(budget: MailTurnBudget): void {
+  const { mailChars, turnChars, threadMails } = budget;
   if (
-    !Number.isInteger(messageChars) ||
-    messageChars < 1 ||
-    !Number.isInteger(earlier) ||
-    earlier < 0 ||
-    !Number.isInteger(earlierChars) ||
-    earlierChars < 1
+    !Number.isInteger(mailChars) ||
+    mailChars < 1 ||
+    !Number.isInteger(turnChars) ||
+    turnChars < 1 ||
+    !Number.isInteger(threadMails) ||
+    threadMails < 1 ||
+    threadMails > THREAD_MAILS_MAX
   ) {
-    throw new Error(
-      'The budget is whole numbers: at least 1 character, and 0 or more earlier messages.',
-    );
+    throw new Error('The budget is whole numbers: at least 1 character, and 1 to 1,000 mails.');
   }
+}
+
+/**
+ * The mails of a thread a read takes, oldest first: all of them when
+ * they're at most `most`, else the first, the newest `most - 1`, and the
+ * mail `mailId` when it isn't one of those. `notRead` counts the rest.
+ */
+export function pickThread<T extends { readonly id: string }>(
+  kept: readonly T[],
+  mailId: string,
+  most: number,
+): { readonly picked: T[]; readonly notRead: number } {
+  if (kept.length <= most) return { picked: [...kept], notRead: 0 };
+  const newest = kept.length - (most - 1);
+  const picked = kept.filter((m, i) => i === 0 || i >= newest || m.id === mailId);
+  return { picked, notRead: kept.length - picked.length };
 }
 
 /** A `since`'s `max`: a whole number from 1 to `most`. */

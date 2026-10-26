@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   MAIL_CLOCK_MARGIN_MS,
-  MAIL_THREAD_BUDGET,
+  MAIL_TURN_BUDGET,
   type MailCall,
   isMailCallError,
   isMailScopeMissing,
@@ -75,6 +75,7 @@ function message(id: string, at: string, extra: Record<string, unknown> = {}) {
     receivedDateTime: at,
     internetMessageHeaders: [{ name: 'Received', value: 'from mail.acme.example' }],
     body: { contentType: 'text', content: 'Where is order 1042?' },
+    uniqueBody: { contentType: 'text', content: 'Where is order 1042?' },
     attachments: [],
     ...extra,
   };
@@ -395,11 +396,15 @@ describe('microsoftMail.since', () => {
 describe('microsoftMail.read', () => {
   const conversation = 'AAQkADAwATM0MDAAMS1hMzE2LTZhZTQtMDACLTAwCgAQAMN8DmETPLdPpPsc2YSiwmQ=';
 
-  it('reads the message, then the earlier messages of its conversation, each what it added', async () => {
+  const FIELDS =
+    'id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,internetMessageHeaders,uniqueBody,isDraft,parentFolderId';
+
+  it('reads the message, then its conversation, oldest first, each what it added', async () => {
     const { call, calls } = graph((url) =>
       url.pathname.endsWith('/me/messages')
         ? Response.json({
             value: [
+              message('m3', '2026-10-26T01:00:00Z'),
               message('m2', '2026-10-25T11:00:00Z', {
                 from: { emailAddress: { address: 'support@acme.example' } },
                 uniqueBody: { contentType: 'text', content: 'It ships today.' },
@@ -413,44 +418,46 @@ describe('microsoftMail.read', () => {
         : Response.json(
             message('m3', '2026-10-26T01:00:00Z', {
               internetMessageHeaders: [{ name: 'auto-submitted', value: 'no' }],
+              body: { contentType: 'text', content: 'Where is order 1042?\n\nFrom: Acme Support' },
             }),
           ),
     );
-    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_THREAD_BUDGET });
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_TURN_BUDGET });
+    const mail = {
+      id: 'm3',
+      threadId: conversation,
+      from: { address: 'bo@acme.example', name: 'Bo Lund' },
+      to: [{ address: 'support@acme.example', name: 'Acme Support' }],
+      cc: [],
+      replyTo: [],
+      subject: 'Order 1042',
+      receivedAt: '2026-10-26T01:00:00Z',
+      body: 'Where is order 1042?',
+      bodyCut: false,
+      attachments: [],
+      autoSubmitted: false,
+    };
     expect(read).toEqual({
       kind: 'ok',
-      mail: {
-        id: 'm3',
-        threadId: conversation,
-        from: { address: 'bo@acme.example', name: 'Bo Lund' },
-        to: [{ address: 'support@acme.example', name: 'Acme Support' }],
-        cc: [],
-        replyTo: [],
-        subject: 'Order 1042',
-        receivedAt: '2026-10-26T01:00:00Z',
-        body: 'Where is order 1042?',
-        bodyCut: false,
-        attachments: [],
-        autoSubmitted: false,
-      },
+      mail,
       thread: [
-        expect.objectContaining({ id: 'm2', body: 'It ships today.' }),
         expect.objectContaining({ id: 'm1', body: 'Order 1042 is late.' }),
+        expect.objectContaining({ id: 'm2', body: 'It ships today.' }),
+        mail,
       ],
+      notRead: 0,
     });
     expect(calls[0]?.url.split('?')[0]).toBe(`${GRAPH}/me/messages/m3`);
     expect(queryOf(calls[0]?.url ?? '')).toEqual({
-      $select:
-        'id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,internetMessageHeaders,body',
+      $select: FIELDS,
       $expand: 'attachments($select=name,contentType,size,isInline)',
     });
     expect(calls[0]?.headers.prefer).toBe('outlook.body-content-type="text", IdType="ImmutableId"');
     expect(queryOf(calls[1]?.url ?? '')).toEqual({
-      $filter: `receivedDateTime lt 2026-10-26T01:00:00Z and conversationId eq '${conversation}'`,
+      $filter: `receivedDateTime ge 1900-01-01T00:00:00Z and conversationId eq '${conversation}'`,
       $orderby: 'receivedDateTime desc',
-      $top: '15',
-      $select:
-        'id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,internetMessageHeaders,uniqueBody,isDraft,parentFolderId',
+      $top: '110',
+      $select: FIELDS,
       $expand: 'attachments($select=name,contentType,size,isInline)',
     });
   });
@@ -494,14 +501,10 @@ describe('microsoftMail.read', () => {
     });
   }
 
-  it('leaves out a draft, and messages in Deleted Items or Junk Email, and keeps to the budget', async () => {
+  it('leaves out a draft, and messages in Deleted Items or Junk Email', async () => {
     const { call, calls } = folders();
-    const read = await microsoftMail.read(call, {
-      messageId: 'm3',
-      budget: { ...MAIL_THREAD_BUDGET, earlier: 2 },
-    });
-    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
-    expect(queryOf(calls[1]?.url ?? '').$top).toBe('12');
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_TURN_BUDGET });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m0', 'm1', 'm2', 'm3']);
     expect(
       calls
         .slice(2)
@@ -514,40 +517,112 @@ describe('microsoftMail.read', () => {
     ]);
   });
 
+  it('takes the first and the newest when the conversation holds more than the budget, and counts the rest', async () => {
+    const { call, calls } = folders();
+    const read = await microsoftMail.read(call, {
+      messageId: 'm3',
+      budget: { ...MAIL_TURN_BUDGET, threadMails: 3 },
+    });
+    expect(read.kind === 'ok' && [read.thread.map((m) => m.id), read.notRead]).toEqual([
+      ['m0', 'm2', 'm3'],
+      1,
+    ]);
+    expect(queryOf(calls[1]?.url ?? '').$top).toBe('13');
+  });
+
   it('still leaves out what it can when the mailbox has no Junk Email', async () => {
     const { call } = folders('junkemail');
-    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_THREAD_BUDGET });
-    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'j1', 'm1', 'm0']);
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_TURN_BUDGET });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual([
+      'm0',
+      'm1',
+      'j1',
+      'm2',
+      'm3',
+    ]);
   });
 
   it('marks a message in Sent Items sent, and gives no reply mark: Outlook replies carry none', async () => {
     const { call } = folders();
-    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_THREAD_BUDGET });
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_TURN_BUDGET });
     expect(read.kind === 'ok' && read.thread.map((m) => [m.id, m.sent, m.replyRef])).toEqual([
-      ['m2', true, undefined],
-      ['m1', undefined, undefined],
       ['m0', undefined, undefined],
+      ['m1', undefined, undefined],
+      ['m2', true, undefined],
+      ['m3', undefined, undefined],
+    ]);
+  });
+
+  /** A conversation of 20 messages, c00 the first and c19 the newest, c01 a draft, over a page of `$top`. */
+  function longConversation() {
+    const ids = Array.from({ length: 20 }, (_, i) => `c${String(i).padStart(2, '0')}`);
+    const at = (id: string) =>
+      `2026-10-${String(Number(id.slice(1)) + 1).padStart(2, '0')}T09:00:00Z`;
+    const raw = (id: string) => message(id, at(id), id === 'c01' ? { isDraft: true } : {});
+    return graph((url) => {
+      if (url.pathname.includes('/mailFolders/')) return Response.json({ id: 'AAMkAGFolder=' });
+      if (!url.pathname.endsWith('/me/messages')) {
+        return Response.json(raw(decodeURIComponent(url.pathname.split('/').pop() ?? '')));
+      }
+      const query = queryOf(url.href);
+      if (query.$select === 'id,isDraft,parentFolderId') {
+        return Response.json({
+          value: ids.map((id) => ({ id, ...(id === 'c01' && { isDraft: true }) })),
+        });
+      }
+      const top = Number(query.$top);
+      return Response.json({
+        value: [...ids].reverse().slice(0, top).map(raw),
+        '@odata.nextLink': `${GRAPH}/me/messages?$skip=${top}`,
+      });
+    }).call;
+  }
+
+  it('takes the first and the newest of a conversation longer than a page, and counts the rest', async () => {
+    const read = await microsoftMail.read(longConversation(), {
+      messageId: 'c19',
+      budget: { ...MAIL_TURN_BUDGET, threadMails: 2 },
+    });
+    expect(read.kind === 'ok' && [read.thread.map((m) => m.id), read.notRead]).toEqual([
+      ['c00', 'c18', 'c19'],
+      16,
+    ]);
+    const old = await microsoftMail.read(longConversation(), {
+      messageId: 'c00',
+      budget: { ...MAIL_TURN_BUDGET, threadMails: 2 },
+    });
+    expect(old.kind === 'ok' && [old.thread.map((m) => m.id), old.notRead]).toEqual([
+      ['c00', 'c19'],
+      17,
     ]);
   });
 
   it("gives a mail's web addresses without their tracking, one over 100 characters cut", async () => {
-    const { call } = graph(() =>
-      Response.json(
-        message('m3', '2026-10-26T01:00:00Z', {
-          body: {
-            contentType: 'text',
-            content: `Your parcel: https://acme.example/track/1042?utm_source=mail&carrier=dhl\nThe invoice: https://share.acme.example/s/${'k'.repeat(80)}?rlkey=z9`,
-          },
-        }),
-      ),
+    const invoice = `The invoice: https://share.acme.example/s/${'k'.repeat(80)}?rlkey=z9`;
+    const { call } = graph((url) =>
+      url.pathname.endsWith('/me/messages')
+        ? Response.json({
+            value: [
+              message('m2', '2026-10-25T11:00:00Z', {
+                uniqueBody: { contentType: 'text', content: invoice },
+              }),
+            ],
+          })
+        : Response.json(
+            message('m3', '2026-10-26T01:00:00Z', {
+              uniqueBody: {
+                contentType: 'text',
+                content: `Your parcel: https://acme.example/track/1042?utm_source=mail&carrier=dhl\n${invoice}`,
+              },
+            }),
+          ),
     );
-    const read = await microsoftMail.read(call, {
-      messageId: 'm3',
-      budget: { ...MAIL_THREAD_BUDGET, earlier: 0 },
-    });
-    expect(read.kind === 'ok' && read.mail.body).toBe(
-      `Your parcel: https://acme.example/track/1042?carrier=dhl\nThe invoice: https://share.acme.example/s/${'k'.repeat(37)}…?…`,
-    );
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_TURN_BUDGET });
+    const cut = `The invoice: https://share.acme.example/s/${'k'.repeat(37)}…?…`;
+    expect(read.kind === 'ok' && read.thread.map((m) => m.body)).toEqual([
+      cut,
+      `Your parcel: https://acme.example/track/1042?carrier=dhl\n${cut}`,
+    ]);
   });
 
   it("gives the message alone when Graph refuses the conversation's filter", async () => {
@@ -560,40 +635,45 @@ describe('microsoftMail.read', () => {
           )
         : Response.json(message('m3', '2026-10-26T01:00:00Z')),
     );
-    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_THREAD_BUDGET });
-    expect(read).toEqual({ kind: 'ok', mail: expect.objectContaining({ id: 'm3' }), thread: [] });
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_TURN_BUDGET });
+    expect(read).toEqual({
+      kind: 'ok',
+      mail: expect.objectContaining({ id: 'm3' }),
+      thread: [expect.objectContaining({ id: 'm3' })],
+      notRead: 0,
+    });
   });
 
-  it('reads no conversation when the budget has no earlier messages', async () => {
-    const { call, calls } = graph(() => Response.json(message('m3', '2026-10-26T01:00:00Z')));
-    await microsoftMail.read(call, {
-      messageId: 'm3',
-      budget: { ...MAIL_THREAD_BUDGET, earlier: 0 },
-    });
-    expect(calls).toHaveLength(1);
+  it('gives the message alone, and lists no conversation, when it has none', async () => {
+    const { call, calls } = graph(() =>
+      Response.json({ ...message('m3', '2026-10-26T01:00:00Z'), conversationId: null }),
+    );
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_TURN_BUDGET });
+    expect(read.kind === 'ok' && [read.thread.map((m) => m.id), read.notRead]).toEqual([['m3'], 0]);
+    expect(calls.filter((c) => c.url.split('?')[0]?.endsWith('/me/messages'))).toHaveLength(0);
   });
 
   it('says not-found for a message deleted before it was read', async () => {
     const { call } = graph(() =>
       graphError(404, 'ErrorItemNotFound', 'The specified object was not found in the store.'),
     );
-    expect(
-      await microsoftMail.read(call, { messageId: 'gone', budget: MAIL_THREAD_BUDGET }),
-    ).toEqual({
-      kind: 'not-found',
-    });
+    expect(await microsoftMail.read(call, { messageId: 'gone', budget: MAIL_TURN_BUDGET })).toEqual(
+      {
+        kind: 'not-found',
+      },
+    );
   });
 
   it('refuses ids it would put in a path or a filter, before any call', async () => {
     const { call, calls } = graph(() => Response.json({}));
     await expect(
-      microsoftMail.read(call, { messageId: '../mailFolders', budget: MAIL_THREAD_BUDGET }),
+      microsoftMail.read(call, { messageId: '../mailFolders', budget: MAIL_TURN_BUDGET }),
     ).rejects.toThrow("isn't an Outlook message id");
     await expect(
       microsoftMail.read(call, {
         messageId: 'm1',
         threadId: "x' or 1 eq 1",
-        budget: MAIL_THREAD_BUDGET,
+        budget: MAIL_TURN_BUDGET,
       }),
     ).rejects.toThrow("isn't an Outlook conversation id");
     expect(calls).toHaveLength(0);

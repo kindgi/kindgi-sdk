@@ -45,8 +45,9 @@ export interface MailMessage {
   readonly receivedAt: string;
   /**
    * Its body as plain text: the `text/plain` part, else the `text/html`
-   * part turned into text. Cut at the reader's budget (50,000 characters
-   * for a read tool's message).
+   * part turned into text, cut at 50,000 characters. In a mail turn's
+   * read, the mail's own text: Outlook's `uniqueBody`, Gmail's with the
+   * earlier mail it quotes cut.
    */
   readonly body: string;
   /** True when the body was longer and was cut. */
@@ -64,8 +65,8 @@ export interface MailMessage {
    */
   readonly replyRef?: string;
   /**
-   * `true` for the mailbox's own sent mail: Gmail's `SENT` label, or
-   * Outlook's Sent Items for a thread's earlier messages. Absent otherwise.
+   * `true` for the mailbox's own sent mail, in a mail turn's read: Gmail's
+   * `SENT` label, or Outlook's Sent Items. Absent otherwise.
    */
   readonly sent?: boolean;
 }
@@ -177,36 +178,42 @@ export interface MailSince {
   readonly more: boolean;
 }
 
-/** How much of a message and its thread a read takes. */
-export interface MailThreadBudget {
-  /** The message's own body, in characters. */
-  readonly messageChars: number;
-  /** Earlier messages of its thread, newest first. */
-  readonly earlier: number;
-  /** Each earlier message's body, in characters: on Outlook its `uniqueBody`, what that message added. */
-  readonly earlierChars: number;
+/** How much a mail-started turn reads and carries. */
+export interface MailTurnBudget {
+  /** Each mail's own text, in characters. */
+  readonly mailChars: number;
+  /** All the turn's mail together, in characters. */
+  readonly turnChars: number;
+  /** The most mails a read takes: the thread's first and the newest rest. */
+  readonly threadMails: number;
 }
 
-/** A mail-started run's budget. */
-export const MAIL_THREAD_BUDGET: MailThreadBudget = {
-  messageChars: 50_000,
-  earlier: 5,
-  earlierChars: 5_000,
+/** A mail-started turn's budget. */
+export const MAIL_TURN_BUDGET: MailTurnBudget = {
+  mailChars: 50_000,
+  turnChars: 60_000,
+  threadMails: 100,
 };
 
 export interface MailReadInput {
   readonly messageId: string;
   /** Read with the message when it's known, to spare a call. */
   readonly threadId?: string;
-  readonly budget: MailThreadBudget;
+  readonly budget: MailTurnBudget;
 }
 
 export type MailRead =
   | {
       readonly kind: 'ok';
       readonly mail: MailMessage;
-      /** Up to `budget.earlier` earlier messages, newest first: never a draft, nor one deleted or in spam. */
+      /**
+       * The thread, oldest first in the app's order, `mail` among them: the
+       * first, the newest `threadMails - 1`, and `mail` when it isn't one of
+       * those. No drafts, trash or spam.
+       */
       readonly thread: readonly MailMessage[];
+      /** How many more mails the thread holds than the read took. */
+      readonly notRead: number;
     }
   /** Gone from the mailbox, or moved out of reach, before it was read. */
   | { readonly kind: 'not-found' };
@@ -300,6 +307,6 @@ export interface MailFunctions {
   changes(call: MailCall, input: MailChangesInput): Promise<MailChanges>;
   /** The folder's mail received from a time: the catch-up's list. */
   since(call: MailCall, input: MailSinceInput): Promise<MailSince>;
-  /** A message and the earlier messages of its thread, within the budget. */
+  /** A message and its thread, within the budget. */
   read(call: MailCall, input: MailReadInput): Promise<MailRead>;
 }

@@ -29,7 +29,7 @@ import { googleMail } from '../src/google-mail.js';
 import { LEFT_OUT } from '../src/mail-text.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
-  MAIL_THREAD_BUDGET,
+  MAIL_TURN_BUDGET,
   type MailCall,
   isMailCallError,
   isMailScopeMissing,
@@ -393,12 +393,12 @@ describe('googleMail.read', () => {
     ],
   };
 
-  it('reads the message and the earlier ones of its thread, newest first, from one thread read', async () => {
+  it('reads the message and its whole thread, oldest first, from one thread read', async () => {
     const { call, calls } = gmail(() => Response.json(thread));
     const read = await googleMail.read(call, {
       messageId: 'm3',
       threadId: 't1',
-      budget: { messageChars: 50, earlier: 5, earlierChars: 10 },
+      budget: { mailChars: 50, turnChars: 60_000, threadMails: 100 },
     });
     expect(calls.map((c) => `${c.url.pathname}?${c.url.searchParams}`)).toEqual([
       '/gmail/v1/users/me/threads/t1?format=full',
@@ -419,34 +419,50 @@ describe('googleMail.read', () => {
         attachments: [{ name: 'photo.jpg', contentType: 'image/jpeg', size: 81_920 }],
         autoSubmitted: false,
       },
-      // The draft and the later message aren't in it.
+      // The draft isn't in it; the later message is.
       thread: [
-        expect.objectContaining({ id: 'm2', body: 'Sorry, it ', bodyCut: true }),
-        expect.objectContaining({ id: 'm1', body: 'First: ord', bodyCut: true }),
+        expect.objectContaining({ id: 'm1', body: 'First: order 1042 is late.', bodyCut: false }),
+        expect.objectContaining({ id: 'm2', body: 'Sorry, it ships today.', sent: true }),
+        expect.objectContaining({ id: 'm3', body: 'Still nothing. '.repeat(10).slice(0, 50) }),
+        expect.objectContaining({ id: 'm4', body: 'Later than the one read.' }),
       ],
+      notRead: 0,
     });
+    expect(read.kind === 'ok' && read.thread[2]).toBe(read.kind === 'ok' && read.mail);
   });
 
-  it('keeps to the budget of earlier messages', async () => {
+  it('takes the first and the newest when the thread holds more than the budget, and counts the rest', async () => {
     const { call } = gmail(() => Response.json(thread));
     const read = await googleMail.read(call, {
-      messageId: 'm3',
+      messageId: 'm2',
       threadId: 't1',
-      budget: { ...MAIL_THREAD_BUDGET, earlier: 1 },
+      budget: { ...MAIL_TURN_BUDGET, threadMails: 2 },
     });
-    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2']);
+    expect(read.kind === 'ok' && [read.thread.map((m) => m.id), read.notRead]).toEqual([
+      ['m1', 'm2', 'm4'],
+      1,
+    ]);
+    const one = await googleMail.read(call, {
+      messageId: 'm4',
+      threadId: 't1',
+      budget: { ...MAIL_TURN_BUDGET, threadMails: 1 },
+    });
+    expect(one.kind === 'ok' && [one.thread.map((m) => m.id), one.notRead]).toEqual([
+      ['m1', 'm4'],
+      2,
+    ]);
   });
 
-  it('picks the earlier messages by when they came, whatever order the thread gives', async () => {
+  it('orders the thread by when each came, whatever order the thread gives', async () => {
     const { call } = gmail(() =>
       Response.json({ ...thread, messages: [...thread.messages].reverse() }),
     );
     const read = await googleMail.read(call, {
       messageId: 'm3',
       threadId: 't1',
-      budget: MAIL_THREAD_BUDGET,
+      budget: MAIL_TURN_BUDGET,
     });
-    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
   });
 
   it("marks sent mail, and gives a reply's one mark, none for a value not in a mark's form", async () => {
@@ -477,12 +493,13 @@ describe('googleMail.read', () => {
     const read = await googleMail.read(call, {
       messageId: 'm3',
       threadId: 't1',
-      budget: MAIL_THREAD_BUDGET,
+      budget: MAIL_TURN_BUDGET,
     });
     expect(read.kind === 'ok' && read.thread.map((m) => [m.id, m.replyRef, m.sent])).toEqual([
-      ['m2', '2118217d737b7ef413cde9791b633d32', true],
-      ['m1', undefined, undefined],
       ['m0', undefined, true],
+      ['m1', undefined, undefined],
+      ['m2', '2118217d737b7ef413cde9791b633d32', true],
+      ['m3', undefined, undefined],
     ]);
     expect(read.kind === 'ok' && Object.keys(read.thread[1] ?? {})).not.toContain('replyRef');
   });
@@ -505,7 +522,7 @@ describe('googleMail.read', () => {
     const read = await googleMail.read(call, {
       messageId: 'm9',
       threadId: 't9',
-      budget: MAIL_THREAD_BUDGET,
+      budget: MAIL_TURN_BUDGET,
     });
     const cut = `https://share.acme.example/s/${'k'.repeat(37)}…?…`;
     expect(read.kind === 'ok' && [read.mail.body, read.thread[0]?.body]).toEqual([
@@ -544,14 +561,14 @@ describe('googleMail.read', () => {
     const read = await googleMail.read(call, {
       messageId: 'm4',
       threadId: 't1',
-      budget: MAIL_THREAD_BUDGET,
+      budget: MAIL_TURN_BUDGET,
     });
     expect(read.kind === 'ok' && read.mail.body).toContain('ANN: 11 would suit me better.');
     expect(read.kind === 'ok' && read.mail.body).not.toContain(LEFT_OUT);
-    expect(read.kind === 'ok' && read.thread.map((m) => [m.id, m.body])).toEqual([
-      ['m3', `At 10, then.\n\n${LEFT_OUT}`],
-      ['m2', `Yes, Thursday works.\n\n${LEFT_OUT}`],
+    expect(read.kind === 'ok' && read.thread.slice(0, 3).map((m) => [m.id, m.body])).toEqual([
       ['m1', 'Can you come on Thursday?\n\nAcme Support'],
+      ['m2', `Yes, Thursday works.\n\n${LEFT_OUT}`],
+      ['m3', `At 10, then.\n\n${LEFT_OUT}`],
     ]);
   });
 
@@ -573,9 +590,15 @@ describe('googleMail.read', () => {
     const read = await googleMail.read(call, {
       messageId: 'm3',
       threadId: 't1',
-      budget: MAIL_THREAD_BUDGET,
+      budget: MAIL_TURN_BUDGET,
     });
-    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['s2', 's1', 'm1']);
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual([
+      'm1',
+      's1',
+      's2',
+      'm3',
+      's3',
+    ]);
   });
 
   it('leaves out a draft, and messages in the trash or spam', async () => {
@@ -592,9 +615,47 @@ describe('googleMail.read', () => {
     const read = await googleMail.read(call, {
       messageId: 'm3',
       threadId: 't1',
-      budget: MAIL_THREAD_BUDGET,
+      budget: MAIL_TURN_BUDGET,
     });
-    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
+  });
+
+  it('keeps the message it reads when that one is in the trash', async () => {
+    const { call } = gmail(() =>
+      Response.json({
+        ...thread,
+        messages: [...thread.messages, fullMessage('x1', 't1', { labelIds: ['TRASH'] })],
+      }),
+    );
+    const read = await googleMail.read(call, {
+      messageId: 'x1',
+      threadId: 't1',
+      budget: MAIL_TURN_BUDGET,
+    });
+    expect(read.kind === 'ok' && [read.mail.id, read.thread.map((m) => m.id)]).toEqual([
+      'x1',
+      ['m1', 'm2', 'm3', 'x1', 'm4'],
+    ]);
+  });
+
+  it('places a message without a date after the one the thread gives before it', async () => {
+    const { call } = gmail(() =>
+      Response.json({
+        id: 't1',
+        historyId: '9876543299',
+        messages: [
+          fullMessage('m3', 't1', { at: '2026-10-25T11:00:00Z' }),
+          fullMessage('m1', 't1', { at: '2026-10-25T10:00:00Z' }),
+          { ...fullMessage('m2', 't1'), internalDate: undefined },
+        ],
+      }),
+    );
+    const read = await googleMail.read(call, {
+      messageId: 'm3',
+      threadId: 't1',
+      budget: MAIL_TURN_BUDGET,
+    });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
   });
 
   it("reads the message first when its thread isn't given", async () => {
@@ -603,12 +664,12 @@ describe('googleMail.read', () => {
         ? Response.json(fullMessage('m3', 't1'))
         : Response.json(thread),
     );
-    const read = await googleMail.read(call, { messageId: 'm3', budget: MAIL_THREAD_BUDGET });
+    const read = await googleMail.read(call, { messageId: 'm3', budget: MAIL_TURN_BUDGET });
     expect(calls.map((c) => c.url.pathname)).toEqual([
       '/gmail/v1/users/me/messages/m3',
       '/gmail/v1/users/me/threads/t1',
     ]);
-    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
   });
 
   it('reads the message alone when the thread it came with is gone', async () => {
@@ -625,7 +686,7 @@ describe('googleMail.read', () => {
     const read = await googleMail.read(call, {
       messageId: 'm3',
       threadId: 't1',
-      budget: MAIL_THREAD_BUDGET,
+      budget: MAIL_TURN_BUDGET,
     });
     expect(read).toEqual({
       kind: 'ok',
@@ -634,13 +695,14 @@ describe('googleMail.read', () => {
         body: `Only HTML here, and the invoice <https://share.acme.example/s/${'k'.repeat(37)}…>.`,
         bodyCut: false,
       }),
-      thread: [],
+      thread: [expect.objectContaining({ id: 'm3' })],
+      notRead: 0,
     });
   });
 
   it('says not-found for a message deleted before it was read', async () => {
     const { call } = gmail(() => googleError(404, 'NOT_FOUND', 'Requested entity was not found.'));
-    expect(await googleMail.read(call, { messageId: 'gone', budget: MAIL_THREAD_BUDGET })).toEqual({
+    expect(await googleMail.read(call, { messageId: 'gone', budget: MAIL_TURN_BUDGET })).toEqual({
       kind: 'not-found',
     });
   });
@@ -657,7 +719,7 @@ describe('googleMail.read', () => {
             }),
           ),
     );
-    const read = await googleMail.read(call, { messageId: 'ooo', budget: MAIL_THREAD_BUDGET });
+    const read = await googleMail.read(call, { messageId: 'ooo', budget: MAIL_TURN_BUDGET });
     // The caller skips both: `from` is the mailbox's own address, and it's automatic.
     expect(read.kind === 'ok' && read.mail).toMatchObject({
       from: { address: 'support@acme.example' },
@@ -668,17 +730,19 @@ describe('googleMail.read', () => {
   it('refuses ids and budgets it would put in a path or misread, before any call', async () => {
     const { call, calls } = gmail(() => Response.json({}));
     await expect(
-      googleMail.read(call, { messageId: '../profile', budget: MAIL_THREAD_BUDGET }),
+      googleMail.read(call, { messageId: '../profile', budget: MAIL_TURN_BUDGET }),
     ).rejects.toThrow("isn't a Gmail message id");
     await expect(
-      googleMail.read(call, { messageId: 'm1', threadId: 't1?x', budget: MAIL_THREAD_BUDGET }),
+      googleMail.read(call, { messageId: 'm1', threadId: 't1?x', budget: MAIL_TURN_BUDGET }),
     ).rejects.toThrow("isn't a Gmail thread id");
-    await expect(
-      googleMail.read(call, {
-        messageId: 'm1',
-        budget: { messageChars: 0, earlier: 5, earlierChars: 5 },
-      }),
-    ).rejects.toThrow('budget');
+    for (const budget of [
+      { ...MAIL_TURN_BUDGET, mailChars: 0 },
+      { ...MAIL_TURN_BUDGET, turnChars: 1.5 },
+      { ...MAIL_TURN_BUDGET, threadMails: 0 },
+      { ...MAIL_TURN_BUDGET, threadMails: 1001 },
+    ]) {
+      await expect(googleMail.read(call, { messageId: 'm1', budget })).rejects.toThrow('budget');
+    }
     expect(calls).toHaveLength(0);
   });
 });

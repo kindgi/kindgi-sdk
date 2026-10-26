@@ -14,7 +14,7 @@
 import { type AppSend, mailSend } from './app-request.js';
 import { type GmailMessage, gmailMessage } from './gmail-mime.js';
 import { GMAIL_ID, GmailNotFound, LABEL_ID, gmailJson, query } from './google-api.js';
-import { checkBudget, checkMax, mailCalls } from './mail-calls.js';
+import { checkBudget, checkMax, mailCalls, pickThread } from './mail-calls.js';
 import { ThreadLines } from './mail-text.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
@@ -22,8 +22,9 @@ import {
   type MailFound,
   type MailFoundMessage,
   type MailFunctions,
+  type MailMessage,
   type MailRead,
-  type MailThreadBudget,
+  type MailTurnBudget,
 } from './mail.js';
 
 /**
@@ -117,7 +118,8 @@ export const googleMail: MailFunctions = mailCalls({
         const read = await readInThread(send, input.messageId, threadId, input.budget);
         if (read !== undefined) return read;
       }
-      return { kind: 'ok', mail: gmailMessage(raw, input.budget.messageChars, 'turn'), thread: [] };
+      const mail = gmailMessage(raw, input.budget.mailChars, 'turn');
+      return { kind: 'ok', mail, thread: [mail], notRead: 0 };
     } catch (err) {
       if (err instanceof GmailNotFound) return { kind: 'not-found' };
       throw err;
@@ -245,15 +247,15 @@ function foundMessage(
 }
 
 /**
- * The message and the earlier messages of its thread, from one
- * `users.threads.get`. `undefined` when the thread is gone or doesn't hold
- * the message, so the caller reads the message by itself.
+ * The message and its thread, from one `users.threads.get`. `undefined`
+ * when the thread is gone or doesn't hold the message, so the caller
+ * reads the message by itself.
  */
 async function readInThread(
   send: AppSend,
   messageId: string,
   threadId: string,
-  budget: MailThreadBudget,
+  budget: MailTurnBudget,
 ): Promise<MailRead | undefined> {
   let thread: { readonly messages?: unknown } | null;
   try {
@@ -269,25 +271,35 @@ async function readInThread(
   const messages = (Array.isArray(thread?.messages) ? thread.messages : []) as GmailMessage[];
   const at = messages.findIndex((m) => m?.id === messageId);
   if (at === -1) return undefined;
-  // Earlier by when each came, not by place: the reference gives no order
+  // Ordered by when each came, not by place: the reference gives no order
   // for a thread's messages. Two that came in the same millisecond keep it.
-  const own = dateOf(messages[at]);
-  const before = messages
-    .map((m, i) => ({ m, i, date: dateOf(m) }))
+  const kept = datesOf(messages)
+    .map((date, i) => ({ m: messages[i] as GmailMessage, i, date }))
     .filter(
-      ({ m, i, date }) =>
-        (date < own || (date === own && i < at)) &&
-        !(m?.labelIds ?? []).some((l) => typeof l === 'string' && NOT_IN_THREAD.has(l)),
+      ({ m, i }) =>
+        i === at || !(m?.labelIds ?? []).some((l) => typeof l === 'string' && NOT_IN_THREAD.has(l)),
     )
     .sort((a, b) => a.date - b.date || a.i - b.i);
   // Oldest first: each mail's quote cut checks the mails before it.
   const lines = new ThreadLines();
-  const earlier = before.map(({ m }) => gmailMessage(m, budget.earlierChars, 'turn', lines));
-  return {
-    kind: 'ok',
-    mail: gmailMessage(messages[at] as GmailMessage, budget.messageChars, 'turn', lines),
-    thread: earlier.reverse().slice(0, budget.earlier),
-  };
+  const mails = kept.map(({ m }) => gmailMessage(m, budget.mailChars, 'turn', lines));
+  const mail = mails[kept.findIndex(({ i }) => i === at)] as MailMessage;
+  const { picked, notRead } = pickThread(mails, mail.id, budget.threadMails);
+  return { kind: 'ok', mail, thread: picked, notRead };
+}
+
+/**
+ * Each message's `internalDate` in milliseconds: when Gmail received it.
+ * One without a date takes the date of the message before it, so it
+ * keeps its place.
+ */
+function datesOf(messages: readonly (GmailMessage | null | undefined)[]): number[] {
+  let last = Number.NEGATIVE_INFINITY;
+  return messages.map((m) => {
+    const date = dateOf(m);
+    last = Number.isNaN(date) ? last : date;
+    return last;
+  });
 }
 
 /**
