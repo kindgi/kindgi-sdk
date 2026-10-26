@@ -36,6 +36,11 @@
       "import": "./dist/google-tools.js",
       "default": "./dist/google-tools.js"
     },
+    "./google/mail": {
+      "types": "./dist/google-mail.d.ts",
+      "import": "./dist/google-mail.js",
+      "default": "./dist/google-mail.js"
+    },
     "./github/tools": {
       "types": "./dist/github-tools.d.ts",
       "import": "./dist/github-tools.js",

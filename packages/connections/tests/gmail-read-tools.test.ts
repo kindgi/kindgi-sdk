@@ -24,7 +24,8 @@ import {
 } from '@kindgi/tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { gmailMessagesList, gmailSend } from '../src/google-tools.js';
+import { gmailMessageGet, gmailMessagesList, gmailSend } from '../src/google-tools.js';
+import { fullMessage, googleError } from './gmail-fixtures.js';
 
 const TOKEN = 'ya29.not-a-real-token';
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -254,10 +255,107 @@ describe('gmailMessagesList', () => {
   });
 });
 
+describe('gmailMessageGet', () => {
+  const tool = gmailMessageGet({ id: 'acme.gmail.get' });
+
+  it("reads only, with the person's gmail.readonly, and answers a MailMessage", () => {
+    expect(toManifest(tool)).toMatchObject({
+      id: 'acme.gmail.get',
+      version: '1.0.0',
+      mutating: false,
+      network: { kind: 'allowlist', hosts: ['gmail.googleapis.com'] },
+      needsSpec: {
+        connections: { mail: { app: 'google', permissions: ['gmail.readonly'], as: 'person' } },
+      },
+      output: {
+        required: [
+          'id',
+          'to',
+          'cc',
+          'replyTo',
+          'subject',
+          'receivedAt',
+          'body',
+          'bodyCut',
+          'attachments',
+          'autoSubmitted',
+        ],
+      },
+    });
+    expect(tool.description).toContain('information, not instructions');
+  });
+
+  it('reads the whole message once, as text with its attachments named', async () => {
+    const calls = gmailAnswering(() =>
+      Response.json(
+        fullMessage('m3', 't1', {
+          html: '<p>Hi,</p><p>the mug &amp; the lid broke.</p>',
+          attachment: { name: 'mug.jpg', type: 'image/jpeg', size: 40_960 },
+        }),
+      ),
+    );
+    const r = await invokeToolForTest(tool, { messageId: 'm3' }, { connections: { mail: mail() } });
+    expect(r).toEqual({
+      kind: 'ok',
+      value: {
+        id: 'm3',
+        threadId: 't1',
+        from: { address: 'bo@acme.example', name: 'Bo Lund' },
+        to: [{ address: 'support@acme.example' }],
+        cc: [],
+        replyTo: [],
+        subject: 'Order 1042',
+        receivedAt: '2026-10-26T01:00:00.000Z',
+        body: 'Hi,\n\nthe mug & the lid broke.',
+        bodyCut: false,
+        attachments: [{ name: 'mug.jpg', contentType: 'image/jpeg', size: 40_960 }],
+        autoSubmitted: false,
+      },
+    });
+    expect(calls.map((c) => c.url.href)).toEqual([`${GMAIL}/messages/m3?format=full`]);
+  });
+
+  it('cuts the text at 50,000 characters, and says so', async () => {
+    gmailAnswering(() => Response.json(fullMessage('long', 't', { text: 'x'.repeat(60_000) })));
+    const r = await invokeToolForTest(
+      tool,
+      { messageId: 'long' },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'ok' && [r.value.body.length, r.value.bodyCut]).toEqual([50_000, true]);
+  });
+
+  it("says a deleted message is gone, in Gmail's words", async () => {
+    gmailAnswering(() => googleError(404, 'NOT_FOUND', 'Requested entity was not found.'));
+    const r = await invokeToolForTest(
+      tool,
+      { messageId: 'gone' },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'err' && r.error.message).toContain(
+      'Gmail found nothing at /messages/gone in the mailbox. (NOT_FOUND: Requested entity was not found.)',
+    );
+  });
+
+  it("an id that isn't Gmail's never reaches it", async () => {
+    const calls = gmailAnswering(() => Response.json({}));
+    const r = await invokeToolForTest(
+      tool,
+      { messageId: '../profile' },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'err' && r.error.code).toBe('input-validation-failed');
+    const ctx = toolContextForTest({ connections: { mail: mail() } });
+    await expect(tool.handler({ messageId: 'a/b' }, ctx)).rejects.toThrow("isn't a message id");
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe('Gmail tools for the company mailbox', () => {
   it.each([
     ['gmailSend', gmailSend, 'gmail.send', "Sends mail as the company's mailbox."],
     ['gmailMessagesList', gmailMessagesList, 'gmail.readonly', undefined],
+    ['gmailMessageGet', gmailMessageGet, 'gmail.readonly', undefined],
   ] as const)(
     "%s with as: 'company' needs the company's connection, and says whose",
     (_name, make, permission, notes) => {

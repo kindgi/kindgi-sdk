@@ -7,7 +7,7 @@ import { type AnyTool, toManifest } from '@kindgi/tools';
 import { describe, expect, it } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
-import { gmailMessagesList, gmailSend } from '../src/google-tools.js';
+import { gmailMessageGet, gmailMessagesList, gmailSend } from '../src/google-tools.js';
 import { linkedinPost } from '../src/linkedin-tools.js';
 import { outlookMessageGet, outlookMessagesList, outlookSend } from '../src/microsoft-tools.js';
 
@@ -17,6 +17,8 @@ const TOOLS = {
   'gmailSend as company': (id: string) => gmailSend({ id, as: 'company' }),
   gmailMessagesList: (id: string) => gmailMessagesList({ id }),
   'gmailMessagesList as company': (id: string) => gmailMessagesList({ id, as: 'company' }),
+  gmailMessageGet: (id: string) => gmailMessageGet({ id }),
+  'gmailMessageGet as company': (id: string) => gmailMessageGet({ id, as: 'company' }),
   githubIssuesList: (id: string) => githubIssuesList({ id }),
   githubLabelsList: (id: string) => githubLabelsList({ id }),
   githubIssuesAddLabels: (id: string) => githubIssuesAddLabels({ id }),
@@ -46,6 +48,12 @@ const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
   },
   'gmailMessagesList as company': {
     '1.0.0': 'f6b6cb415803ac50ea2dc55b8f9c6c3d1ec16bbe112183e83d7f409c3e7e4ee6',
+  },
+  gmailMessageGet: {
+    '1.0.0': '383d7e82728686689cb2b2a957e4e774cdeda7f2453f55e4a7aab0d39e63f400',
+  },
+  'gmailMessageGet as company': {
+    '1.0.0': 'd02fb46d815cf9936f81b6961b3dcfad5bdbc7cd8c641fb1c3d17e4fdc8113fc',
   },
   githubIssuesList: { '1.0.0': '2e9a7f7d01f9aaa777df3cedf8374b5cdc3f7bb8b6d074f2a50ec08595916b98' },
   githubLabelsList: { '1.0.0': 'a9cd9f0fa4fc90fdf99eb42e3045f9544363d60beed12658aaf4c6f99a580fc9' },

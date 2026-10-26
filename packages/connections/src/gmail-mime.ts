@@ -10,7 +10,16 @@
  * Gmail keeps it apart), and `parts` when it's a `multipart/*` container.
  */
 
-import { decodeBytes, decodeEncodedWords, htmlToText } from './mail-text.js';
+import { receivedAt } from './google-api.js';
+import {
+  cutText,
+  decodeBytes,
+  decodeEncodedWords,
+  htmlToText,
+  isAutoSubmitted,
+  parseAddressList,
+} from './mail-text.js';
+import type { MailAttachment, MailMessage } from './mail.js';
 
 /** One MIME part of a Gmail message, as the API gives it. */
 export interface GmailPart {
@@ -31,12 +40,42 @@ export interface GmailHeader {
   readonly value?: string | null;
 }
 
-/** An attachment's name, type and size. Its content isn't read. */
-export interface GmailAttachment {
-  readonly name: string;
-  readonly contentType: string;
-  /** In bytes, as Gmail gives it. */
-  readonly size: number;
+/** A message as `users.messages.get` and `users.threads.get` give it: only the fields read here. */
+export interface GmailMessage {
+  readonly id?: unknown;
+  readonly threadId?: unknown;
+  readonly labelIds?: readonly unknown[] | null;
+  readonly snippet?: unknown;
+  /** When Gmail received it, in milliseconds since the epoch, as a string. */
+  readonly internalDate?: unknown;
+  readonly payload?: GmailPart | null;
+}
+
+/**
+ * A message read with `format=full`, its body cut at `chars`. Header
+ * values are decoded from RFC 2047 encoded words, which leaves one Gmail
+ * has decoded already as it is.
+ */
+export function gmailMessage(raw: GmailMessage, chars: number): MailMessage {
+  const payload = raw.payload ?? {};
+  const header = (name: string): string => gmailHeader(payload, name) ?? '';
+  const from = parseAddressList(header('From'))[0];
+  const { text, attachments } = gmailBody(payload);
+  const body = cutText(text, chars);
+  return {
+    id: typeof raw.id === 'string' ? raw.id : '',
+    ...(typeof raw.threadId === 'string' && raw.threadId !== '' && { threadId: raw.threadId }),
+    ...(from !== undefined && { from }),
+    to: parseAddressList(header('To')),
+    cc: parseAddressList(header('Cc')),
+    replyTo: parseAddressList(header('Reply-To')),
+    subject: decodeEncodedWords(header('Subject')),
+    receivedAt: receivedAt(raw.internalDate),
+    body: body.text,
+    bodyCut: body.cut,
+    attachments,
+    autoSubmitted: isAutoSubmitted(gmailHeader(payload, 'Auto-Submitted')),
+  };
 }
 
 /** What a text part Gmail keeps apart (with an `attachmentId`, no `data`) reads as. */
@@ -56,9 +95,9 @@ export const PART_NOT_READ = '[Part of this message’s text is too long to read
  */
 export function gmailBody(payload: GmailPart): {
   readonly text: string;
-  readonly attachments: readonly GmailAttachment[];
+  readonly attachments: readonly MailAttachment[];
 } {
-  const attachments: GmailAttachment[] = [];
+  const attachments: MailAttachment[] = [];
   collectAttachments(payload, attachments);
   return { text: textOf(payload)?.text ?? '', attachments };
 }
@@ -99,7 +138,7 @@ function textOf(part: GmailPart): PartText | undefined {
   };
 }
 
-function collectAttachments(part: GmailPart, into: GmailAttachment[]): void {
+function collectAttachments(part: GmailPart, into: MailAttachment[]): void {
   if (isAttachment(part)) {
     const type = mimeTypeOf(part);
     const name = decodeEncodedWords(part.filename ?? '').trim();

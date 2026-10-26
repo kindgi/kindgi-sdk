@@ -9,11 +9,7 @@
 
 import { TextDecoder } from 'node:util';
 
-/** A mail address and the name shown with it. */
-export interface MailAddress {
-  readonly address: string;
-  readonly name?: string;
-}
+import type { MailPerson } from './mail.js';
 
 /**
  * The addresses in a header's value (`From`, `To`, `Cc`, `Reply-To`):
@@ -22,8 +18,8 @@ export interface MailAddress {
  * (`bo@acme.example (Bo)`). Names are decoded from RFC 2047 encoded words.
  * Anything that isn't an address is left out.
  */
-export function parseAddressList(value: string): MailAddress[] {
-  const out: MailAddress[] = [];
+export function parseAddressList(value: string): MailPerson[] {
+  const out: MailPerson[] = [];
   for (const item of splitAddresses(value)) {
     const parsed = parseAddress(item);
     if (parsed !== undefined) out.push(parsed);
@@ -87,7 +83,7 @@ function endOfComment(value: string, start: number): number {
   return value.length;
 }
 
-function parseAddress(item: string): MailAddress | undefined {
+function parseAddress(item: string): MailPerson | undefined {
   const open = item.lastIndexOf('<');
   const close = item.lastIndexOf('>');
   if (open !== -1 && close > open) {

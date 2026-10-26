@@ -1,0 +1,405 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * Gmail's mail calls against answers in the shapes its reference gives:
+ * - users.getProfile:
+ *   developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile
+ *   (`emailAddress`, `messagesTotal`, `threadsTotal`, `historyId`);
+ * - users.history.list:
+ *   developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list
+ *   (`history[]` of records with an `id` and `messagesAdded[]` or
+ *   `labelsAdded[]`, `nextPageToken`, `historyId`; a 404 for a history id
+ *   Gmail no longer keeps);
+ * - users.messages.list (`messages[]` of `{id, threadId}`, newest first,
+ *   left out when nothing matches) with `q=after:<epoch seconds>`
+ *   (developers.google.com/workspace/gmail/api/guides/filtering);
+ * - users.threads.get:
+ *   developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/get
+ *   (`id`, `historyId`, `messages[]` oldest first).
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import { ConnectionRejectedError } from '@kindgi/tools';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { googleMail } from '../src/google-mail.js';
+import { MAIL_CLOCK_MARGIN_MS, MAIL_THREAD_BUDGET, type MailCall } from '../src/mail.js';
+import { fullMessage, googleError } from './gmail-fixtures.js';
+
+const TOKEN = 'ya29.not-a-real-token';
+const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
+
+/** Gmail, as the `fetch` a mail call is given: each GET, and the answer `answer` gives it. */
+function gmail(answer: (url: URL) => Response) {
+  const calls: { url: URL; authorization: string }[] = [];
+  const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const parsed = new URL(String(url));
+    calls.push({
+      url: parsed,
+      authorization: (init?.headers as Record<string, string>).authorization ?? '',
+    });
+    return answer(parsed);
+  });
+  const call: MailCall = { token: TOKEN, connectionId: randomUUID(), fetch };
+  return { call, calls };
+}
+
+function record(id: string, change: Record<string, unknown>) {
+  return { id, messages: [], ...change };
+}
+
+function added(id: string, labelIds: string[] = ['UNREAD', 'INBOX']) {
+  return { messagesAdded: [{ message: { id, threadId: `t-${id}`, labelIds } }] };
+}
+
+function labelled(id: string, labelIds: string[], now: string[] = ['INBOX']) {
+  return { labelsAdded: [{ message: { id, threadId: `t-${id}`, labelIds: now }, labelIds }] };
+}
+
+beforeEach(() => {
+  // The calls use the `fetch` they're given, never the global one.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => {
+      throw new Error('the global fetch was called');
+    }),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('googleMail.start', () => {
+  it("starts at the mailbox's latest history, with none of the mail already there", async () => {
+    const { call, calls } = gmail(() =>
+      Response.json({
+        emailAddress: 'support@acme.example',
+        messagesTotal: 1200,
+        threadsTotal: 800,
+        historyId: '9876543210',
+      }),
+    );
+    const start = await googleMail.start(call, { from: new Date('2026-10-26T02:00:00Z') });
+    expect(start).toEqual({ cursor: '9876543210', messages: [] });
+    expect(calls.map((c) => c.url.href)).toEqual([`${GMAIL}/profile`]);
+    expect(calls[0]?.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("refuses a profile without a history id, and a label that isn't an id", async () => {
+    const { call } = gmail(() => Response.json({ emailAddress: 'support@acme.example' }));
+    await expect(googleMail.start(call, { from: new Date() })).rejects.toThrow('no history id');
+    await expect(googleMail.start(call, { from: new Date(), folder: 'INBOX&x=1' })).rejects.toThrow(
+      "isn't a Gmail label id",
+    );
+  });
+});
+
+describe('googleMail.changes', () => {
+  it("reads the label's added and labelled mail since the cursor, each once, and moves the cursor", async () => {
+    const { call, calls } = gmail(() =>
+      Response.json({
+        history: [
+          record('9876543211', added('new-1')),
+          // Rescued from spam, or labelled by a filter later: new to the inbox.
+          record('9876543212', labelled('rescued', ['INBOX'])),
+          // Starred in the inbox: no new mail.
+          record('9876543213', labelled('starred', ['STARRED'])),
+          // Sent from the mailbox, a draft, spam: never new mail.
+          record('9876543214', added('sent', ['SENT', 'INBOX'])),
+          record('9876543215', added('draft', ['DRAFT'])),
+          record('9876543216', added('spam', ['SPAM'])),
+          // Added, then out of the inbox before the poll.
+          record('9876543217', added('archived', ['UNREAD'])),
+          // Added, then labelled: found once, as added.
+          record('9876543218', labelled('new-1', ['IMPORTANT', 'INBOX'])),
+        ],
+        historyId: '9876543230',
+      }),
+    );
+    expect(await googleMail.changes(call, { cursor: '9876543210' })).toEqual({
+      kind: 'ok',
+      messages: [
+        { messageId: 'new-1', threadId: 't-new-1', found: 'added' },
+        { messageId: 'rescued', threadId: 't-rescued', found: 'labelled' },
+      ],
+      cursor: '9876543230',
+    });
+    const url = calls[0]?.url as URL;
+    expect(`${url.origin}${url.pathname}`).toBe(`${GMAIL}/history`);
+    expect([...url.searchParams]).toEqual([
+      ['startHistoryId', '9876543210'],
+      ['historyTypes', 'messageAdded'],
+      ['historyTypes', 'labelAdded'],
+      ['labelId', 'INBOX'],
+      ['maxResults', '500'],
+    ]);
+  });
+
+  it('reads a label of its own, and gives the same cursor back when nothing changed', async () => {
+    const { call, calls } = gmail(() => Response.json({ historyId: '9876543210' }));
+    expect(await googleMail.changes(call, { cursor: '9876543210', folder: 'Label_12' })).toEqual({
+      kind: 'ok',
+      messages: [],
+      cursor: '9876543210',
+    });
+    expect(calls[0]?.url.searchParams.get('labelId')).toBe('Label_12');
+  });
+
+  it("follows the pages from the same start, and keeps the last answer's history id", async () => {
+    const { call, calls } = gmail((url) =>
+      url.searchParams.get('pageToken') === null
+        ? Response.json({
+            history: [record('101', added('a'))],
+            nextPageToken: 'page-2',
+            historyId: '150',
+          })
+        : Response.json({ history: [record('120', added('b'))], historyId: '151' }),
+    );
+    const changes = await googleMail.changes(call, { cursor: '100' });
+    expect(changes).toEqual({
+      kind: 'ok',
+      messages: [
+        { messageId: 'a', threadId: 't-a', found: 'added' },
+        { messageId: 'b', threadId: 't-b', found: 'added' },
+      ],
+      cursor: '151',
+    });
+    expect(calls[1]?.url.searchParams.get('startHistoryId')).toBe('100');
+    expect(calls[1]?.url.searchParams.get('pageToken')).toBe('page-2');
+  });
+
+  it('stops after ten pages, its cursor the last record read, so the next call goes on from there', async () => {
+    let page = 0;
+    const { call, calls } = gmail(() => {
+      page += 1;
+      return Response.json({
+        history: [record(String(1000 + page), added(`m${page}`))],
+        nextPageToken: `page-${page + 1}`,
+        historyId: '2000',
+      });
+    });
+    const changes = await googleMail.changes(call, { cursor: '1000' });
+    expect(calls).toHaveLength(10);
+    expect(changes.kind === 'ok' && changes.cursor).toBe('1010');
+    expect(changes.kind === 'ok' && changes.messages).toHaveLength(10);
+  });
+
+  it("says the cursor expired on Gmail's 404, and calls nothing for a cursor that isn't a history id", async () => {
+    const { call, calls } = gmail(() =>
+      googleError(404, 'NOT_FOUND', 'Requested entity was not found.'),
+    );
+    expect(await googleMail.changes(call, { cursor: '1' })).toEqual({ kind: 'cursor-expired' });
+    await expect(googleMail.changes(call, { cursor: '1&labelId=SENT' })).rejects.toThrow(
+      "isn't a Gmail history id",
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  it("throws a refused token as ConnectionRejectedError, and Google's other refusals in its words without the token", async () => {
+    const refused = gmail(() => new Response('', { status: 401 }));
+    await expect(googleMail.changes(refused.call, { cursor: '1' })).rejects.toBeInstanceOf(
+      ConnectionRejectedError,
+    );
+    const bad = gmail(() => googleError(400, 'FAILED_PRECONDITION', 'Mail service not enabled'));
+    const err = await googleMail.changes(bad.call, { cursor: '1' }).catch((e: Error) => e);
+    expect(String(err)).toContain(
+      'Gmail refused the call (HTTP 400): FAILED_PRECONDITION: Mail service not enabled',
+    );
+    expect(String(err)).not.toContain(TOKEN);
+  });
+});
+
+describe('googleMail.since', () => {
+  it('lists the label from the clock margin before `from`, newest first, and says when there were more', async () => {
+    const from = new Date('2026-10-26T02:00:00Z');
+    const { call, calls } = gmail(() =>
+      Response.json({
+        messages: [
+          { id: 'm3', threadId: 't3' },
+          { id: 'm2', threadId: 't2' },
+          { id: 'm1', threadId: 't1' },
+        ],
+        nextPageToken: 'more',
+        resultSizeEstimate: 3,
+      }),
+    );
+    expect(await googleMail.since(call, { from, max: 2 })).toEqual({
+      messages: [
+        { messageId: 'm3', threadId: 't3', found: 'catch-up' },
+        { messageId: 'm2', threadId: 't2', found: 'catch-up' },
+      ],
+      more: true,
+    });
+    const reachesBack = (from.getTime() - MAIL_CLOCK_MARGIN_MS) / 1000;
+    expect(reachesBack).toBe(Date.parse('2026-10-26T01:50:00Z') / 1000);
+    expect(Object.fromEntries(calls[0]?.url.searchParams ?? [])).toEqual({
+      labelIds: 'INBOX',
+      q: `after:${reachesBack}`,
+      maxResults: '3',
+    });
+  });
+
+  it('gives none, and no more, when nothing matches', async () => {
+    const { call } = gmail(() => Response.json({ resultSizeEstimate: 0 }));
+    expect(await googleMail.since(call, { from: new Date(), max: 100 })).toEqual({
+      messages: [],
+      more: false,
+    });
+  });
+
+  it('refuses a max outside one page', async () => {
+    const { call, calls } = gmail(() => Response.json({}));
+    for (const max of [0, 1.5, 500]) {
+      await expect(googleMail.since(call, { from: new Date(), max })).rejects.toThrow('`max`');
+    }
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('googleMail.read', () => {
+  const thread = {
+    id: 't1',
+    historyId: '9876543299',
+    messages: [
+      fullMessage('m1', 't1', { at: '2026-10-25T10:00:00Z', text: 'First: order 1042 is late.' }),
+      fullMessage('m2', 't1', {
+        at: '2026-10-25T11:00:00Z',
+        from: 'Acme Support <support@acme.example>',
+        text: 'Sorry, it ships today.',
+        labelIds: ['SENT'],
+      }),
+      fullMessage('d1', 't1', { at: '2026-10-25T11:30:00Z', labelIds: ['DRAFT'] }),
+      fullMessage('m3', 't1', {
+        at: '2026-10-26T01:00:00Z',
+        text: 'Still nothing. '.repeat(10),
+        replyTo: 'Bo <bo.lund@acme.example>',
+        cc: '=?UTF-8?Q?J=C3=B6_Ek?= <jo@acme.example>',
+        attachment: { name: 'photo.jpg', type: 'image/jpeg', size: 81_920 },
+      }),
+      fullMessage('m4', 't1', { at: '2026-10-26T01:30:00Z', text: 'Later than the one read.' }),
+    ],
+  };
+
+  it('reads the message and the earlier ones of its thread, newest first, from one thread read', async () => {
+    const { call, calls } = gmail(() => Response.json(thread));
+    const read = await googleMail.read(call, {
+      messageId: 'm3',
+      threadId: 't1',
+      budget: { messageChars: 50, earlier: 5, earlierChars: 10 },
+    });
+    expect(calls.map((c) => `${c.url.pathname}?${c.url.searchParams}`)).toEqual([
+      '/gmail/v1/users/me/threads/t1?format=full',
+    ]);
+    expect(read).toEqual({
+      kind: 'ok',
+      mail: {
+        id: 'm3',
+        threadId: 't1',
+        from: { address: 'bo@acme.example', name: 'Bo Lund' },
+        to: [{ address: 'support@acme.example' }],
+        cc: [{ address: 'jo@acme.example', name: 'Jö Ek' }],
+        replyTo: [{ address: 'bo.lund@acme.example', name: 'Bo' }],
+        subject: 'Order 1042',
+        receivedAt: '2026-10-26T01:00:00.000Z',
+        body: 'Still nothing. '.repeat(10).slice(0, 50),
+        bodyCut: true,
+        attachments: [{ name: 'photo.jpg', contentType: 'image/jpeg', size: 81_920 }],
+        autoSubmitted: false,
+      },
+      // The draft and the later message aren't in it.
+      thread: [
+        expect.objectContaining({ id: 'm2', body: 'Sorry, it ', bodyCut: true }),
+        expect.objectContaining({ id: 'm1', body: 'First: ord', bodyCut: true }),
+      ],
+    });
+  });
+
+  it('keeps to the budget of earlier messages', async () => {
+    const { call } = gmail(() => Response.json(thread));
+    const read = await googleMail.read(call, {
+      messageId: 'm3',
+      threadId: 't1',
+      budget: { ...MAIL_THREAD_BUDGET, earlier: 1 },
+    });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2']);
+  });
+
+  it("reads the message first when its thread isn't given", async () => {
+    const { call, calls } = gmail((url) =>
+      url.pathname.includes('/messages/')
+        ? Response.json(fullMessage('m3', 't1'))
+        : Response.json(thread),
+    );
+    const read = await googleMail.read(call, { messageId: 'm3', budget: MAIL_THREAD_BUDGET });
+    expect(calls.map((c) => c.url.pathname)).toEqual([
+      '/gmail/v1/users/me/messages/m3',
+      '/gmail/v1/users/me/threads/t1',
+    ]);
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
+  });
+
+  it('reads the message alone when the thread it came with is gone', async () => {
+    const { call } = gmail((url) =>
+      url.pathname.includes('/threads/')
+        ? googleError(404, 'NOT_FOUND', 'Requested entity was not found.')
+        : Response.json(fullMessage('m3', 't1', { html: '<p>Only <b>HTML</b> here.</p>' })),
+    );
+    const read = await googleMail.read(call, {
+      messageId: 'm3',
+      threadId: 't1',
+      budget: MAIL_THREAD_BUDGET,
+    });
+    expect(read).toEqual({
+      kind: 'ok',
+      mail: expect.objectContaining({ id: 'm3', body: 'Only HTML here.', bodyCut: false }),
+      thread: [],
+    });
+  });
+
+  it('says not-found for a message deleted before it was read', async () => {
+    const { call } = gmail(() => googleError(404, 'NOT_FOUND', 'Requested entity was not found.'));
+    expect(await googleMail.read(call, { messageId: 'gone', budget: MAIL_THREAD_BUDGET })).toEqual({
+      kind: 'not-found',
+    });
+  });
+
+  it("marks an automatic reply, and gives the mailbox's own mail as it is", async () => {
+    const { call } = gmail((url) =>
+      url.pathname.includes('/threads/')
+        ? googleError(404, 'NOT_FOUND', 'Requested entity was not found.')
+        : Response.json(
+            fullMessage('ooo', 'tooo', {
+              from: 'support@acme.example',
+              autoSubmitted: 'auto-replied',
+              text: 'I am out of the office.',
+            }),
+          ),
+    );
+    const read = await googleMail.read(call, { messageId: 'ooo', budget: MAIL_THREAD_BUDGET });
+    // The caller skips both: `from` is the mailbox's own address, and it's automatic.
+    expect(read.kind === 'ok' && read.mail).toMatchObject({
+      from: { address: 'support@acme.example' },
+      autoSubmitted: true,
+    });
+  });
+
+  it('refuses ids and budgets it would put in a path or misread, before any call', async () => {
+    const { call, calls } = gmail(() => Response.json({}));
+    await expect(
+      googleMail.read(call, { messageId: '../profile', budget: MAIL_THREAD_BUDGET }),
+    ).rejects.toThrow("isn't a Gmail message id");
+    await expect(
+      googleMail.read(call, { messageId: 'm1', threadId: 't1?x', budget: MAIL_THREAD_BUDGET }),
+    ).rejects.toThrow("isn't a Gmail thread id");
+    await expect(
+      googleMail.read(call, {
+        messageId: 'm1',
+        budget: { messageChars: 0, earlier: 5, earlierChars: 5 },
+      }),
+    ).rejects.toThrow('budget');
+    expect(calls).toHaveLength(0);
+  });
+});
