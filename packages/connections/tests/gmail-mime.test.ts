@@ -243,9 +243,9 @@ describe('gmailBody', () => {
     );
   });
 
-  it('takes a part marked attachment without a name as an attachment, and decodes an encoded name', () => {
+  it('takes a text part marked attachment without a name as an attachment, not the body, and decodes an encoded name', () => {
     const unnamed: GmailPart = {
-      mimeType: 'text/csv',
+      mimeType: 'text/plain',
       filename: '',
       headers: [{ name: 'content-disposition', value: 'Attachment' }],
       body: { data: Buffer.from('a,b').toString('base64url'), size: 3 },
@@ -259,7 +259,7 @@ describe('gmailBody', () => {
     expect(gmailBody(payload)).toEqual({
       text: 'Two files.',
       attachments: [
-        { name: 'attachment', contentType: 'text/csv', size: 3 },
+        { name: 'attachment', contentType: 'text/plain', size: 3 },
         { name: 'kvitto för 1042.pdf', contentType: 'application/pdf', size: 7 },
       ],
     });
