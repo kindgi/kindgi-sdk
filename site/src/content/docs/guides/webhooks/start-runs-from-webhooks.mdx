@@ -302,18 +302,29 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
 - **`--project=<id>`** puts the trigger and its runs in a project (by default,
   the tenant's Default project). Registering needs `write` on the project and
   `execute` on the flow.
-- **`--run-as=<service-account-id>`** makes a service account the trigger's
-  owner, so its runs act as the account, with the account's grants rather
-  than yours, and keep running after you leave. Naming it needs `act_as` on
-  it, which tenant admins hold. Anyone else is answered `403
-  permission-denied`, "You can't name that service account as the trigger's
-  owner.", whether or not the account exists. A tenant admin is told when
-  no service account in the tenant has that id (`404
-  service-account-not-found`) or it was unregistered (`409
-  service-account-unregistered`). From your app, it's
+- **`--run-as=project`** makes the trigger shared: its runs act as the
+  project's own service account, made the first time, with the `editor`
+  role on the project, rather than as you, and keep running after you
+  leave (runtime 0.2.0 or later)
+  ([A project's own account](../../../deploy/people-and-keys/#a-projects-own-account)).
+  It takes `admin` on the project. Anyone else with `write` on the project
+  is answered `403 permission-denied`, "Running a trigger as the project
+  takes a project admin." From your app, it's `runAsProject: true` on
+  `webhooks.register` (`run_as_project` in Python).
+- **`--run-as=<service-account-id>`** makes an account of your own the
+  trigger's owner instead, for one used across projects, with other grants,
+  or with keys for an app
+  ([Run as a service account](../../runs/run-on-a-schedule/#run-as-a-service-account)
+  has the steps). Naming it needs `act_as` on it, which tenant admins hold.
+  Anyone else is answered `403 permission-denied`, "You can't name that
+  service account as the trigger's owner.", whether or not the account
+  exists. A tenant admin is told when no service account in the tenant has
+  that id (`404 service-account-not-found`), it was unregistered (`409
+  service-account-unregistered`), or it's a project's own account (`409
+  service-account-project-owned`). From your app, it's
   `runAsServiceAccountId` on `webhooks.register`
-  (`run_as_service_account_id` in Python). It's recorded as evidence,
-  `trigger-owner-set`.
+  (`run_as_service_account_id` in Python). Send one of the two, not both.
+  Either is recorded as evidence, `trigger-owner-set`.
 - **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
   needn't wait for a person's yes, though no person started them, once for
   each tool. It takes `admin` on the project
@@ -553,8 +564,9 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   [limits](#what-kindgi-does-with-each-request). Take the trigger over, then
   `kindgi webhooks resume <trigger-id>`. Its runs act as you from the next
   delivery. This needs `admin` on the project and `execute` on the flow.
-  With `--run-as=<service-account-id>`, the account becomes its owner
-  instead, which needs `act_as` on it too. The trigger keeps its tools
+  With `--run-as=project`, the project's own account becomes its owner
+  instead. With `--run-as=<service-account-id>`, that account does, which
+  needs `act_as` on it too. The trigger keeps its tools
   allowed unattended. Every take-over is recorded as evidence,
   `trigger-owner-set`.
 - **`kindgi webhooks unregister <trigger-id>`:** the sender is answered `410`
@@ -602,14 +614,14 @@ registered it, or the account named with
   The owner isn't told yet: a later runtime emails them.
 - **Only a take-over moves the owner** (`kindgi webhooks take-ownership`,
   above). A project admin's own take-over makes the trigger personal to
-  them, and one with `--run-as` makes it shared.
+  them, and one with `--run-as=project` makes it shared.
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 - **A trigger registered with a token the runtime made at startup** is
   personal to that start's user, which later starts no longer use: without
   `KINDGI_API_TOKEN` or `KINDGI_SEED_USER_ID`, each start makes a new
-  token, with a new user. Make such triggers shared with `--run-as`, or set
-  `KINDGI_API_TOKEN` or
+  token, with a new user. Make such triggers shared with
+  `--run-as=project`, or set `KINDGI_API_TOKEN` or
   `KINDGI_SEED_USER_ID`, so the token's user stays the same across
   restarts
   ([Point the runtime at it](../../../deploy/authorization/#point-the-runtime-at-it)).
