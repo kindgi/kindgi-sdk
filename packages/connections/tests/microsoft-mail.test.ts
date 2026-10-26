@@ -435,11 +435,67 @@ describe('microsoftMail.read', () => {
     expect(queryOf(calls[1]?.url ?? '')).toEqual({
       $filter: `receivedDateTime lt 2026-10-26T01:00:00Z and conversationId eq '${conversation}'`,
       $orderby: 'receivedDateTime desc',
-      $top: '5',
+      $top: '15',
       $select:
-        'id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,internetMessageHeaders,uniqueBody,isDraft',
+        'id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,internetMessageHeaders,uniqueBody,isDraft,parentFolderId',
       $expand: 'attachments($select=name,contentType,size,isInline)',
     });
+  });
+
+  /** A conversation as Graph lists it across folders: a draft, one deleted and one in junk among the rest. */
+  function folders(missing?: 'junkemail') {
+    return graph((url) => {
+      if (url.pathname.endsWith('/me/mailFolders/deleteditems')) {
+        return Response.json({ id: 'AAMkAGDeletedItems=' });
+      }
+      if (url.pathname.endsWith('/me/mailFolders/junkemail')) {
+        return missing === 'junkemail'
+          ? graphError(404, 'ErrorFolderNotFound', 'The specified folder could not be found.')
+          : Response.json({ id: 'AAMkAGJunkEmail=' });
+      }
+      if (url.pathname.endsWith('/me/messages')) {
+        return Response.json({
+          value: [
+            message('d1', '2026-10-25T12:00:00Z', {
+              isDraft: true,
+              parentFolderId: 'AAMkAGDrafts=',
+              uniqueBody: { contentType: 'text', content: "I'll refund the full 500." },
+            }),
+            message('t1', '2026-10-25T11:30:00Z', { parentFolderId: 'AAMkAGDeletedItems=' }),
+            message('m2', '2026-10-25T11:00:00Z', { parentFolderId: 'AAMkAGInbox=' }),
+            message('j1', '2026-10-25T10:30:00Z', { parentFolderId: 'AAMkAGJunkEmail=' }),
+            message('m1', '2026-10-25T10:00:00Z', { parentFolderId: 'AAMkAGInbox=' }),
+            message('m0', '2026-10-25T09:00:00Z', { parentFolderId: 'AAMkAGInbox=' }),
+          ],
+        });
+      }
+      return Response.json(message('m3', '2026-10-26T01:00:00Z'));
+    });
+  }
+
+  it('leaves out a draft, and messages in Deleted Items or Junk Email, and keeps to the budget', async () => {
+    const { call, calls } = folders();
+    const read = await microsoftMail.read(call, {
+      messageId: 'm3',
+      budget: { ...MAIL_THREAD_BUDGET, earlier: 2 },
+    });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
+    expect(queryOf(calls[1]?.url ?? '').$top).toBe('12');
+    expect(
+      calls
+        .slice(2)
+        .map((c) => `${c.url} ${c.headers.prefer}`)
+        .sort(),
+    ).toEqual([
+      `${GRAPH}/me/mailFolders/deleteditems?$select=id IdType="ImmutableId"`,
+      `${GRAPH}/me/mailFolders/junkemail?$select=id IdType="ImmutableId"`,
+    ]);
+  });
+
+  it('still leaves out what it can when the mailbox has no Junk Email', async () => {
+    const { call } = folders('junkemail');
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_THREAD_BUDGET });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'j1', 'm1', 'm0']);
   });
 
   it("gives the message alone when Graph refuses the conversation's filter", async () => {

@@ -171,7 +171,7 @@ export type MailRead =
   | {
       readonly kind: 'ok';
       readonly mail: MailMessage;
-      /** Up to `budget.earlier` earlier messages, newest first. */
+      /** Up to `budget.earlier` earlier messages, newest first: never a draft, nor one deleted or in spam. */
       readonly thread: readonly MailMessage[];
     }
   /** Gone from the mailbox, or moved out of reach, before it was read. */

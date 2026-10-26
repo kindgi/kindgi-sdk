@@ -63,6 +63,10 @@ const CONVERSATION_ID = /^[A-Za-z0-9+/=_-]{1,1024}$/;
 const GRAPH_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?Z$/;
 /** The most a `since` lists: one page of `$top` (1,000), less the one that shows there are more. */
 const SINCE_MAX = 999;
+/** Folders whose messages a thread leaves out, by their well-known names: deleted, and spam. */
+const LEFT_OUT_FOLDERS = ['deleteditems', 'junkemail'] as const;
+/** How many more messages a conversation's read asks for than the budget, for those left out. */
+const LEFT_OUT_ROOM = 10;
 
 /** Outlook's mail calls. */
 export const microsoftMail: MailFunctions = mailCalls({
@@ -235,9 +239,9 @@ function foundMessage(
 
 /**
  * The messages of the conversation received before `mail`, newest first,
- * each its `uniqueBody` (what it added). Drafts are left out. If Graph
- * refuses the conversation's filter, the run gets the message alone: its
- * body quotes what came before.
+ * each its `uniqueBody` (what it added). Drafts, and messages in Deleted
+ * Items or Junk Email, are left out. If Graph refuses the conversation's
+ * filter, the run gets the message alone: its body quotes what came before.
  */
 async function earlier(
   send: AppSend,
@@ -251,8 +255,8 @@ async function earlier(
     // Graph orders by a property only when the filter starts with it.
     $filter: `receivedDateTime lt ${mail.receivedAt} and conversationId eq '${conversation}'`,
     $orderby: 'receivedDateTime desc',
-    $top: String(budget.earlier),
-    $select: `${MESSAGE_FIELDS},uniqueBody,isDraft`,
+    $top: String(Math.min(budget.earlier + LEFT_OUT_ROOM, 1000)),
+    $select: `${MESSAGE_FIELDS},uniqueBody,isDraft,parentFolderId`,
     $expand: ATTACHMENTS,
   })}`;
   let answer: { readonly value?: unknown } | null;
@@ -268,15 +272,43 @@ async function earlier(
     throw err;
   }
   const items = Array.isArray(answer?.value) ? (answer.value as (RawMessage | null)[]) : [];
+  if (items.length === 0) return [];
+  const leftOut = await leftOutFolders(send);
   return items
     .filter(
       (m): m is RawMessage =>
         m !== null &&
         typeof m.id === 'string' &&
         m.id !== mail.id &&
-        (m as { isDraft?: unknown }).isDraft !== true,
+        m.isDraft !== true &&
+        !(typeof m.parentFolderId === 'string' && leftOut.has(m.parentFolderId)),
     )
+    .slice(0, budget.earlier)
     .map((m) => outlookMessage(m, budget.earlierChars, 'uniqueBody'));
+}
+
+/**
+ * The ids of Deleted Items and Junk Email, read with the same id format as
+ * the messages. A mailbox without one has nothing in it to leave out.
+ */
+async function leftOutFolders(send: AppSend): Promise<ReadonlySet<string>> {
+  const ids = await Promise.all(
+    LEFT_OUT_FOLDERS.map(async (name) => {
+      try {
+        const folder = (await graphJson(
+          send,
+          'outlook.folders.get',
+          `${GRAPH}/me/mailFolders/${name}?${query({ $select: 'id' })}`,
+          IMMUTABLE_IDS,
+        )) as { readonly id?: unknown } | null;
+        return typeof folder?.id === 'string' ? folder.id : undefined;
+      } catch (err) {
+        if (err instanceof GraphNotFound) return undefined;
+        throw err;
+      }
+    }),
+  );
+  return new Set(ids.filter((id): id is string => id !== undefined));
 }
 
 /** The folder: a well-known name (`inbox`, the default) or a folder's id. */

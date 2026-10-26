@@ -120,6 +120,8 @@ export interface RawMessage {
   readonly receivedDateTime?: string | null;
   readonly bodyPreview?: string | null;
   readonly isRead?: boolean | null;
+  readonly isDraft?: boolean | null;
+  readonly parentFolderId?: string | null;
   readonly body?: RawBody | null;
   readonly uniqueBody?: RawBody | null;
   readonly conversationId?: string | null;

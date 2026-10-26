@@ -176,6 +176,7 @@ describe('the Microsoft entry', () => {
           'outlook.messages.list': 0,
           'outlook.messages.get': 0,
           'outlook.messages.delta': 0,
+          'outlook.folders.get': 0,
         },
       },
     ]);

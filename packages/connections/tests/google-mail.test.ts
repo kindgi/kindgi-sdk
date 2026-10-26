@@ -448,6 +448,25 @@ describe('googleMail.read', () => {
     expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
   });
 
+  it('leaves out a draft, and messages in the trash or spam', async () => {
+    const { call } = gmail(() =>
+      Response.json({
+        ...thread,
+        messages: [
+          ...thread.messages,
+          fullMessage('x1', 't1', { at: '2026-10-25T12:00:00Z', labelIds: ['TRASH'] }),
+          fullMessage('s1', 't1', { at: '2026-10-25T12:30:00Z', labelIds: ['SPAM'] }),
+        ],
+      }),
+    );
+    const read = await googleMail.read(call, {
+      messageId: 'm3',
+      threadId: 't1',
+      budget: MAIL_THREAD_BUDGET,
+    });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
+  });
+
   it("reads the message first when its thread isn't given", async () => {
     const { call, calls } = gmail((url) =>
       url.pathname.includes('/messages/')
