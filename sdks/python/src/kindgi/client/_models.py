@@ -10499,7 +10499,11 @@ class MailTriggerRecord(BaseModel):
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
 
 
-class Config10(BaseModel):
+class RegisterMailTriggerBodyConfig(BaseModel):
+    """
+    A new mail trigger's mailbox, folder and pace.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -10508,6 +10512,30 @@ class Config10(BaseModel):
     folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
     """
     The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    """
+    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
+    """
+    How often it looks for new mail, in seconds (default 60).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
+    """
+
+
+class PatchMailTriggerBodyConfig(BaseModel):
+    """
+    A mail trigger's mailbox, folder or pace, to change. An absent field keeps its value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mailbox: MailTriggerMailbox | None = None
+    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
+    """
+    The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` moves to the other app; then it watches that app's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.
     """
     poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
     """
@@ -10552,7 +10580,7 @@ class RegisterMailTriggerBody(BaseModel):
     """
     On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
     """
-    config: Config10
+    config: RegisterMailTriggerBodyConfig
     label: str | None = None
     tools_allowed_unattended: Annotated[
         list[ToolsAllowedUnattendedItem] | None,
@@ -10560,26 +10588,6 @@ class RegisterMailTriggerBody(BaseModel):
     ] = None
     """
     The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
-    """
-
-
-class Config11(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    mailbox: MailTriggerMailbox | None = None
-    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
-    """
-    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
-    """
-    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
-    """
-    How often it looks for new mail, in seconds (default 60).
-    """
-    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
-    """
-    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
     """
 
 
@@ -10602,7 +10610,7 @@ class PatchMailTriggerBody(BaseModel):
     Run an agent (instead of a flow): at `agentVersion`, else its live version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    config: Config11 | None = None
+    config: PatchMailTriggerBodyConfig | None = None
     label: str | None = None
     tools_allowed_unattended: Annotated[
         list[ToolsAllowedUnattendedItem] | None,

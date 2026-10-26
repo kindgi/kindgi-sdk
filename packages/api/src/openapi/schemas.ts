@@ -14174,6 +14174,31 @@ export const MailTriggerRecordSchema: JsonSchema = {
   },
 };
 
+/** A new mail trigger's mailbox, folder and pace. */
+export const RegisterMailTriggerBodyConfigSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A new mail trigger's mailbox, folder and pace.",
+  required: ['mailbox'],
+  properties: MAIL_TRIGGER_CONFIG_PROPERTIES,
+};
+
+/** A mail trigger's mailbox, folder or pace, to change; an absent field keeps its value. */
+export const PatchMailTriggerBodyConfigSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "A mail trigger's mailbox, folder or pace, to change. An absent field keeps its value.",
+  properties: {
+    ...MAIL_TRIGGER_CONFIG_PROPERTIES,
+    folder: {
+      ...MAIL_TRIGGER_CONFIG_PROPERTIES.folder,
+      description:
+        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` moves to the other app; then it watches that app's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
+    },
+  },
+};
+
 export const RegisterMailTriggerBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -14198,12 +14223,7 @@ export const RegisterMailTriggerBodySchema: JsonSchema = {
       description:
         "On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
-    config: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['mailbox'],
-      properties: MAIL_TRIGGER_CONFIG_PROPERTIES,
-    },
+    config: { $ref: '#/components/schemas/RegisterMailTriggerBodyConfig' },
     label: { type: 'string' },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project.",
@@ -14218,11 +14238,7 @@ export const PatchMailTriggerBodySchema: JsonSchema = {
     "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its mailbox (replaced whole), folder, pace or label. A personal trigger's change is its owner's or a project admin's; a shared one's, a project admin's; and the company's mailbox, before or after, takes a project admin. The owner stays.",
   properties: {
     ...MAIL_TRIGGER_TARGET_PROPERTIES,
-    config: {
-      type: 'object',
-      additionalProperties: false,
-      properties: MAIL_TRIGGER_CONFIG_PROPERTIES,
-    },
+    config: { $ref: '#/components/schemas/PatchMailTriggerBodyConfig' },
     label: { type: ['string', 'null'] },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`.",
@@ -16001,6 +16017,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookTriggerUnregisterResult', WebhookTriggerUnregisterResultSchema],
   ['MailTriggerMailbox', MailTriggerMailboxSchema],
   ['MailTriggerRecord', MailTriggerRecordSchema],
+  ['RegisterMailTriggerBodyConfig', RegisterMailTriggerBodyConfigSchema],
+  ['PatchMailTriggerBodyConfig', PatchMailTriggerBodyConfigSchema],
   ['RegisterMailTriggerBody', RegisterMailTriggerBodySchema],
   ['PatchMailTriggerBody', PatchMailTriggerBodySchema],
   ['MailFire', MailFireSchema],
