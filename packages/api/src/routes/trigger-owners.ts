@@ -166,6 +166,43 @@ export function triggerOwnerDeps(
   };
 }
 
+/**
+ * Whether the caller is an admin of a trigger's project, for the checks a
+ * mail trigger's routes make: `admin` on the project with an authorization
+ * model. WITHOUT one the model can grant nothing, and a check of the model
+ * would let every caller through; so the decision falls back to the
+ * tenant-admin check, read from the token's scopes, as {@link mayNotActAs}
+ * does. Otherwise any member would count as an admin, and could retarget a
+ * colleague's trigger, which would go on reading that colleague's mail.
+ */
+export async function isTriggerAdmin(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  projectId: string,
+): Promise<boolean> {
+  if (authorizer === undefined) return isTenantAdmin(c, undefined);
+  return authorizer.can(c, 'admin', ref('project', projectId));
+}
+
+/**
+ * Whether the caller may change a personal trigger, one a person owns:
+ * its owner, while they hold `write` on its project, or an admin of the
+ * project ({@link isTriggerAdmin}). Its owner stays either way: only a
+ * take-over moves it.
+ */
+export async function mayChangePersonalTrigger(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  trigger: { readonly projectId: string; readonly owner: TriggerOwner },
+): Promise<boolean> {
+  const caller = ownerOf(c);
+  if (caller.kind === trigger.owner.kind && caller.id === trigger.owner.id) {
+    if (authorizer === undefined) return true;
+    if (await authorizer.can(c, 'write', ref('project', trigger.projectId))) return true;
+  }
+  return isTriggerAdmin(c, authorizer, trigger.projectId);
+}
+
 type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
 
 /**
@@ -220,6 +257,66 @@ export async function recordOwnerSet(args: {
         toolsAllowedUnattended.length > 0 && {
           toolsAllowedUnattended: [...toolsAllowedUnattended],
         }),
+    },
+    ...(log !== undefined && { log }),
+  });
+}
+
+/** What was done to a person's trigger by someone else. */
+export type TriggerOwnerChange =
+  | 'updated'
+  | 'paused'
+  | 'resumed'
+  | 'unregistered'
+  | 'fired'
+  | 'taken-over';
+
+/**
+ * Records a change to a personal trigger by anyone but its owner (a
+ * project admin), as `trigger-changed-for-owner`: what was done, and on an
+ * update the names of the fields changed, the target before and after, a
+ * webhook's signing secret's name before and after, and a mail trigger's
+ * mailbox and folder before and after. Never an input's
+ * value, and never what a run did. The owner stays, so its runs keep
+ * acting as them; the entry is the durable record of who changed it. A
+ * take-over is `trigger-owner-set` instead ({@link recordOwnerSet}).
+ */
+export async function recordChangeForOwner(args: {
+  readonly auditEvents: EmitAuditEventArgs['auditEvents'];
+  readonly tenantId: TenantId;
+  readonly projectId?: ProjectId;
+  readonly triggerId: string;
+  readonly triggerKind: 'webhook' | 'cron' | 'mail';
+  readonly owner: TriggerOwner;
+  readonly by: string | undefined;
+  readonly change: Exclude<TriggerOwnerChange, 'taken-over'>;
+  readonly fields?: readonly string[];
+  readonly target?: { readonly before: unknown; readonly after: unknown };
+  readonly hmacSecretName?: { readonly before: string; readonly after: string };
+  readonly mailbox?: { readonly before: unknown; readonly after: unknown };
+  readonly folder?: { readonly before: unknown; readonly after: unknown };
+  readonly correlationId: string;
+  readonly log: EmitAuditEventArgs['log'];
+}): Promise<void> {
+  const { auditEvents, tenantId, projectId, by, correlationId, log } = args;
+  await emitAuditEvent({
+    auditEvents,
+    tenantId,
+    ...(projectId !== undefined && { projectId }),
+    kind: 'trigger-changed-for-owner',
+    ...(by !== undefined && { actor: by }),
+    correlationId,
+    doc: {
+      triggerId: args.triggerId,
+      triggerKind: args.triggerKind,
+      owner: ownerKey(args.owner),
+      ...(by !== undefined && { by }),
+      change: args.change,
+      ...(args.fields !== undefined && args.fields.length > 0 && { fields: [...args.fields] }),
+      ...(args.target !== undefined && { target: args.target }),
+      ...(args.hmacSecretName !== undefined && { hmacSecretName: args.hmacSecretName }),
+      ...(args.mailbox !== undefined && { mailbox: args.mailbox }),
+      ...(args.folder !== undefined && { folder: args.folder }),
     },
     ...(log !== undefined && { log }),
   });

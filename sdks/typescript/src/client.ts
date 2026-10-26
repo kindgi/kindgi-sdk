@@ -45,6 +45,7 @@ import {
 import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
 import { type JudgmentsClient, makeJudgmentsClient } from './resources/judgments.js';
 import { type LicenseClient, makeLicenseClient } from './resources/license.js';
+import { type MailTriggersClient, makeMailTriggersClient } from './resources/mail-triggers.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
 import { type MemoryClient, makeMemoryClient } from './resources/memory.js';
 import { type ObservationsClient, makeObservationsClient } from './resources/observations.js';
@@ -181,6 +182,8 @@ export interface KindgiClient {
   readonly connections: ConnectionsClient;
   /** Inbound webhook triggers: a signed request starts a flow run. */
   readonly webhooks: WebhooksClient;
+  /** Mail triggers: a mailbox's new mail starts runs of an agent or a flow. */
+  readonly mailTriggers: MailTriggersClient;
   // Packs
   readonly packs: PacksClient;
 }
@@ -260,6 +263,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     connectionApps: makeConnectionAppsClient(transport),
     connections: makeConnectionsClient(transport),
     webhooks: makeWebhooksClient(transport),
+    mailTriggers: makeMailTriggersClient(transport),
     packs: makePacksClient(transport),
   };
 }

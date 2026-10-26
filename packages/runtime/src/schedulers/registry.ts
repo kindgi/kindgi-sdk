@@ -269,8 +269,17 @@ export interface TriggerFire {
    * in a row either. A mail trigger's mail is `skipped` when it's from the
    * mailbox's own address (`own-address`), an automatic reply
    * (`auto-submitted`), received before the trigger began watching
-   * (`before-since`), or found in a mailbox that changed account before it
-   * was read (`mailbox-changed`).
+   * (`before-since`), found in a mailbox that changed account before it
+   * was read (`mailbox-changed`), or gone from the mailbox by the time it
+   * was read (`not-found`). It's `refused` over the trigger's `runsPerHour`
+   * (`detail` starts `over-limit:`) and when the mailbox's connection is
+   * missing, lapsed or lacks a scope (`connection-missing:` and why), and it
+   * doesn't run later. It's `refused` with `no-thread-id` when the app gives
+   * its mail no thread. A thread's mail runs one at a time: a mail fire is
+   * `pending` while an earlier mail of its thread waits or that mail's run
+   * hasn't finished (`detail` starts `thread-busy:`), and starts once its
+   * thread is free. It's `skipped` with `mail-already-given:` when an
+   * earlier run of its thread already had its mail.
    */
   readonly outcome:
     | 'pending'
@@ -284,14 +293,16 @@ export interface TriggerFire {
   readonly runId?: string;
   /** The improvement pass it started, for an `improve` schedule. */
   readonly passId?: string;
-  /** Why it was refused, skipped or failed. */
+  /** Why it was refused, skipped or failed, or why a `pending` mail fire waits (`thread-busy:`). */
   readonly detail?: string;
   /**
    * Whether it counted toward the trigger's auto-pause (5 in a row by
    * default). `false` for a refusal for a limit, such as the tenant's runs
    * pending (`detail` starts `rate-limited:`), or a mail trigger's
    * `runsPerHour` (`over-limit:`): the limit passes, and the
-   * trigger isn't at fault. Absent from a runtime that doesn't say: then
+   * trigger isn't at fault. `false` too for a mail trigger's
+   * `connection-missing:`: the trigger's `statusReason` says so, and
+   * connecting again ends it. Absent from a runtime that doesn't say: then
    * refused and failed fires counted, and the others didn't.
    */
   readonly countsTowardPause?: boolean;

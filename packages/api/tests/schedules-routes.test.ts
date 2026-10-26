@@ -445,12 +445,14 @@ describe('mounting', () => {
     expect((await built.request('/v1/schedules', send('GET'))).status).toBe(200);
     expect((await built.request('/v1/event-triggers', send('GET'))).status).toBe(404);
     expect((await built.request('/v1/webhooks', send('GET'))).status).toBe(404);
+    expect((await built.request('/v1/mail-triggers', send('GET'))).status).toBe(404);
   });
 
-  test('without triggerKinds, all three mount, as before', async () => {
+  test('without triggerKinds, all four mount', async () => {
     const { built } = app();
     expect((await built.request('/v1/event-triggers', send('GET'))).status).toBe(200);
     expect((await built.request('/v1/webhooks', send('GET'))).status).toBe(200);
+    expect((await built.request('/v1/mail-triggers', send('GET'))).status).toBe(200);
   });
 });
 
