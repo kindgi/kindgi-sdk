@@ -2323,6 +2323,25 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       expect(run.fixtures.state.buildCalls).toBe(0);
     });
 
+    test("a renamed project's old slug is refused, naming the new one and where to change it", async () => {
+      const renamed = [
+        {
+          id: PROJECT,
+          name: 'Acme staging 1',
+          slug: 'acme-stg-1',
+          formerSlugs: ['acme-staging-1'],
+        },
+      ];
+      const run = hostedFixtures(pending(), [ready], { servedEnv: REFUSES, projects: renamed });
+      const out = await deployTo(run.fixtures, 'staging-1');
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        `environments.staging-1.project acme-staging-1: "acme-staging-1" was the slug of project ${PROJECT} (Acme staging 1) until it was renamed to "acme-stg-1". Change environments.staging-1.project to "acme-stg-1" or to the project's id.`,
+      );
+      expect(run.fixtures.state.buildCalls).toBe(0);
+      expect(run.fixtures.state.postCalls).toBe(0);
+    });
+
     test('on a runtime that takes any env, the project and the env are as before', async () => {
       await writeAutoEnvelope();
       await writeFile(join(packDir, '.env.staging-1'), 'FOO=bar\n', 'utf8');
