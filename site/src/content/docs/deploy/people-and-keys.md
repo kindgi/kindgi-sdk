@@ -549,10 +549,12 @@ away, and its keys stop working.
 
 ### A project's own account
 
-A project can have one service account of its own, which runs the
-project's shared schedules, webhook triggers and mail triggers on a
-company mailbox (runtime 0.2.0 or later). It's made the first time a
-trigger is set to run as the project, when one is created or taken over
+A project can have one service account of its own (runtime 0.2.0 or
+later). It runs only the triggers set to run as the project: shared
+schedules, webhook triggers and mail triggers on a company mailbox. A
+shared trigger that names a service account runs as that one instead.
+The project's account is made the first time a trigger is set to run as
+the project, when one is created or taken over
 with `--run-as=project` (`runAsProject: true` in the API), which takes
 `admin` on the project
 ([Run as a service account](../../guides/runs/run-on-a-schedule/#run-as-a-service-account)).
