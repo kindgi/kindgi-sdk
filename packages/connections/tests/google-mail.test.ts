@@ -621,6 +621,36 @@ describe('googleMail.read', () => {
     ]);
   });
 
+  it("cuts a block that holds an earlier mail whole, the quote that mail's own text left out included", async () => {
+    const asked =
+      'On Mon, 20 Oct 2026 at 14:03, Bob <bob@acme.example> wrote:\n> Where is order 1042?';
+    const { call } = gmail(() =>
+      Response.json({
+        id: 't1',
+        historyId: '9876543299',
+        messages: [
+          fullMessage('m1', 't1', {
+            at: '2026-10-20T15:00:00Z',
+            text: `It shipped today.\n\n${asked}`,
+          }),
+          fullMessage('m2', 't1', {
+            at: '2026-10-21T08:00:00Z',
+            text: `Thanks.\n\nFrom: Acme Support <support@acme.example>\nSent: Monday, October 20, 2026 3:00 PM\nTo: Bob <bob@acme.example>\nSubject: RE: Order 1042\n\nIt shipped today.\n\n${asked}`,
+          }),
+        ],
+      }),
+    );
+    const read = await googleMail.read(call, {
+      messageId: 'm2',
+      threadId: 't1',
+      budget: MAIL_TURN_BUDGET,
+    });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.body)).toEqual([
+      `It shipped today.\n\n${LEFT_OUT}`,
+      `Thanks.\n\n${LEFT_OUT}`,
+    ]);
+  });
+
   it("keeps the thread's order for messages that came in the same millisecond", async () => {
     const at = '2026-10-25T11:00:00Z';
     const { call } = gmail(() =>

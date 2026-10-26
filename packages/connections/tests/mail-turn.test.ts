@@ -159,6 +159,16 @@ describe('mailTurn', () => {
     expect(t.text).not.toContain('(this mailbox)');
   });
 
+  it("gives no subject on a mail's line when it's the thread's in another case or spacing", () => {
+    const thread = [
+      mail('m1', '2026-10-20T10:00:00Z'),
+      mail('m2', '2026-10-20T11:00:00Z', { subject: 'RE: ORDER  1042 never   arrived' }),
+    ];
+    expect(turn({ read: read(thread, 'm2') }).text.split('\n')[3]).toBe(
+      '--- NEW, id m2: Ann Lee <ann@example.com>, 2026-10-20 11:00 UTC',
+    );
+  });
+
   it('sets in a `---` line after any line break, and keeps a header on one line', () => {
     // Each line after its own kind of break: CR, LS, PS, NEL, VT, FF.
     const body =

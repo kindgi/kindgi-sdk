@@ -401,6 +401,27 @@ describe('microsoftMail.changes', () => {
     expect(changes.kind === 'ok' && changes.cursor).toBe(`${INBOX_DELTA}?$skiptoken=p21`);
     expect(changes.kind === 'ok' && changes.messages).toHaveLength(20);
   });
+
+  it('reads the conversation of an item without one when it stops after twenty pages too', async () => {
+    let page = 0;
+    const { call } = graph((url) => {
+      if (url.pathname.endsWith('/m3'))
+        return Response.json({ id: 'm3', conversationId: 'conv-got' });
+      page += 1;
+      return Response.json({
+        value: [
+          page === 3
+            ? { id: 'm3', receivedDateTime: '2026-10-26T02:00:00Z' }
+            : item(`m${page}`, '2026-10-26T02:00:00Z'),
+        ],
+        '@odata.nextLink': `${INBOX_DELTA}?$skiptoken=p${page + 1}`,
+      });
+    });
+    const changes = await microsoftMail.changes(call, { cursor });
+    expect(
+      changes.kind === 'ok' && changes.messages.find((m) => m.messageId === 'm3')?.threadId,
+    ).toBe('conv-got');
+  });
 });
 
 describe('microsoftMail.since', () => {
@@ -629,7 +650,8 @@ describe('microsoftMail.read', () => {
   });
 
   /** A conversation of 20 messages, c00 the first and c19 the newest, c01 a draft, over a page of `$top`. */
-  function longConversation() {
+  /** A conversation of 20 longer than a page; the ids listing leaves out `unlisted`, as one taken before it came. */
+  function longConversation(unlisted?: string) {
     const ids = Array.from({ length: 20 }, (_, i) => `c${String(i).padStart(2, '0')}`);
     const at = (id: string) =>
       `2026-10-${String(Number(id.slice(1)) + 1).padStart(2, '0')}T09:00:00Z`;
@@ -642,7 +664,9 @@ describe('microsoftMail.read', () => {
       const query = queryOf(url.href);
       if (query.$select === 'id,isDraft,parentFolderId') {
         return Response.json({
-          value: ids.map((id) => ({ id, ...(id === 'c01' && { isDraft: true }) })),
+          value: ids
+            .filter((id) => id !== unlisted)
+            .map((id) => ({ id, ...(id === 'c01' && { isDraft: true }) })),
         });
       }
       const top = Number(query.$top);
@@ -669,6 +693,17 @@ describe('microsoftMail.read', () => {
     expect(old.kind === 'ok' && [old.thread.map((m) => m.id), old.notRead]).toEqual([
       ['c00', 'c19'],
       17,
+    ]);
+  });
+
+  it("counts the new mail as held when the conversation's ids don't list it yet", async () => {
+    const read = await microsoftMail.read(longConversation('c19'), {
+      messageId: 'c19',
+      budget: { ...MAIL_TURN_BUDGET, threadMails: 2 },
+    });
+    expect(read.kind === 'ok' && [read.thread.map((m) => m.id), read.notRead]).toEqual([
+      ['c00', 'c18', 'c19'],
+      16,
     ]);
   });
 

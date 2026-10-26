@@ -156,6 +156,34 @@ describe('gmailBody', () => {
     });
   });
 
+  it('lists a body form that comes as a named part outside an alternative', () => {
+    const payload = multipart(
+      'mixed',
+      text('text/plain', 'Your order shipped.'),
+      file('text/watch-html', 'watch.html', 30),
+      file('text/x-amp-html', 'order.amp.html', 40),
+    );
+    expect(gmailBody(payload).attachments).toEqual([
+      { name: 'watch.html', contentType: 'text/watch-html', size: 30 },
+      { name: 'order.amp.html', contentType: 'text/x-amp-html', size: 40 },
+    ]);
+  });
+
+  it('lists a named calendar choice beside an attached calendar file: only a nameless choice is the invite', () => {
+    const payload = multipart(
+      'mixed',
+      multipart('alternative', text('text/plain', 'Tasting at the roastery, Thursday.'), {
+        ...inviteChoice,
+        filename: 'tasting.ics',
+      }),
+      file('application/ics', 'invite.ics', 1_400),
+    );
+    expect(gmailBody(payload).attachments).toEqual([
+      { name: 'tasting.ics', contentType: 'text/calendar', size: 1_400 },
+      { name: 'invite.ics', contentType: 'application/ics', size: 1_400 },
+    ]);
+  });
+
   it('lists an invite that is only a choice', () => {
     const payload = multipart(
       'alternative',

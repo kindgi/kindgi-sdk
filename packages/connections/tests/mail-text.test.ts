@@ -217,6 +217,12 @@ describe('htmlToText', () => {
     );
   });
 
+  it("quotes a blockquote's last line too when the quote ends on it", () => {
+    expect(htmlToText('<p>Yes.</p><blockquote>Can you come?<br>On Thursday?</blockquote>')).toBe(
+      'Yes.\n\n> Can you come?\n> On Thursday?',
+    );
+  });
+
   it("shows a link's target when its text holds the address only inside other words", () => {
     expect(
       htmlToText('<a href="https://evil.example/">bank.example/login?ref=evil.example</a>'),
@@ -353,6 +359,12 @@ describe('cutQuote', () => {
     expect(cutQuote(`Yes.\n\n-----Original Message-----\n${asked}`, earlier)).toBe(
       `Yes.\n\n${LEFT_OUT}`,
     );
+  });
+
+  it('keeps From: and Date: lines with no Subject: line: a notice the sender pasted, not a block', () => {
+    const notice = 'Your parcel is on its way.\nTracking: 1Z999AA10123456784';
+    const text = `This is what the shop sent me:\n\nFrom: Acme Shipping <ship@acme.example>\nDate: Monday, October 20, 2026 2:03 PM\n\n${notice}`;
+    expect(cutQuote(text, earlierMails(notice))).toBe(text);
   });
 
   it('keeps an Outlook block with answers typed into it, or with no earlier mail to check', () => {
