@@ -84,8 +84,9 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   later), as well as what creating the schedule needs. Anyone else with
   `write` on the project is answered `403 permission-denied`, "Running a
   trigger as the project takes a project admin." Its runs act as the
-  project's own service account, made the first time, with the `editor`
-  role on the project, so they may do what the project's editors may
+  project's own service account, made when a trigger is first set to run
+  as the project, with the `editor` role on the project, so they may do
+  what the project's editors may
   ([A project's own account](../../../deploy/people-and-keys/#a-projects-own-account)).
 
 For an account of your own instead, one used across projects, with other
@@ -173,11 +174,16 @@ it, or the account named with `--run-as`, and no change moves it (runtime
   fields changed, and what the schedule ran before and after, never an
   input's values. A change to its tools allowed unattended keeps its own
   record, `trigger-tools-allowed-unattended-set`. The owner isn't told
-  yet: a later runtime emails them.
+  yet: a later runtime emails them. An app built on `@kindgi/api` can tell
+  them itself, with `createApp`'s `triggerOwnerNotices`: its `tell` is
+  called after each such change, and after a take-over from them, with a
+  `TriggerOwnerNotice` that names the fields changed, never their values.
 - **Only a take-over moves the owner.** `kindgi schedules take-ownership`
-  needs `admin` on the project. A project admin's own take-over makes the
-  schedule personal to them, and one with `--run-as=project` makes it
-  shared ([Run as a service account](#run-as-a-service-account)).
+  needs `admin` on the project. Anyone else is answered
+  `403 permission-denied`, "Taking a schedule over takes a project admin."
+  A project admin's own take-over makes the schedule personal to them, and
+  one with `--run-as=project` makes it shared
+  ([Run as a service account](#run-as-a-service-account)).
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 
@@ -256,9 +262,10 @@ pnpm exec kindgi schedules list --project=<project-id>
 
 Each schedule's `owner` has the owner's name now, `displayName`: the
 person's, or the service account's. When it can't be read, only its `id` is
-there. A schedule that runs as its project's own account has
-`isProjectAccount: true` in its `owner`, and the CLI's `RUNS AS` column
-says "this project (shared)".
+there. The CLI's `RUNS AS` column shows that name, else the id, and whether
+the schedule is personal or shared, such as "Sam Lee (personal)". A schedule
+that runs as its project's own account has `isProjectAccount: true` in its
+`owner`, and its `RUNS AS` says "this project (shared)".
 
 With [authorization](../../../deploy/authorization/) on, the list holds the
 schedules in projects you may read, or all of them for a tenant admin. A

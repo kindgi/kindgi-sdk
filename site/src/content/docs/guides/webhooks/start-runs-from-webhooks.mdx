@@ -303,8 +303,9 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   the tenant's Default project). Registering needs `write` on the project and
   `execute` on the flow.
 - **`--run-as=project`** makes the trigger shared: its runs act as the
-  project's own service account, made the first time, with the `editor`
-  role on the project, rather than as you, and keep running after you
+  project's own service account, made when a trigger is first set to run
+  as the project, with the `editor` role on the project, rather than as
+  you, and keep running after you
   leave (runtime 0.2.0 or later)
   ([A project's own account](../../../deploy/people-and-keys/#a-projects-own-account)).
   It takes `admin` on the project. Anyone else with `write` on the project
@@ -324,7 +325,8 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   service-account-project-owned`). From your app, it's
   `runAsServiceAccountId` on `webhooks.register`
   (`run_as_service_account_id` in Python). Send one of the two, not both.
-  Either is recorded as evidence, `trigger-owner-set`.
+  Either is recorded as evidence, `trigger-owner-set`, which says
+  `projectAccount: true` when the account is the project's own.
 - **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
   needn't wait for a person's yes, though no person started them, once for
   each tool. It takes `admin` on the project
@@ -611,10 +613,21 @@ registered it, or the account named with
   changed, the flow version before and after, and the signing secret's
   name before and after, never a value. A change to its tools allowed
   unattended keeps its own record, `trigger-tools-allowed-unattended-set`.
-  The owner isn't told yet: a later runtime emails them.
+  The owner isn't told yet: a later runtime emails them. An app built on
+  `@kindgi/api` can tell them itself, with `createApp`'s
+  `triggerOwnerNotices`: its `tell` is called after each such change, and
+  after a take-over from them, with a `TriggerOwnerNotice` that names the
+  fields changed, never their values.
 - **Only a take-over moves the owner** (`kindgi webhooks take-ownership`,
-  above). A project admin's own take-over makes the trigger personal to
+  above), and it takes a project admin. Anyone else is answered
+  `403 permission-denied`, "Taking a webhook trigger over takes a project
+  admin." A project admin's own take-over makes the trigger personal to
   them, and one with `--run-as=project` makes it shared.
+- **`kindgi webhooks list` says which:** its `RUNS AS` column shows the
+  owner's name, else its id, and whether the trigger is personal or
+  shared, such as "Sam Lee (personal)". One that runs as its project's own
+  account says "this project (shared)", and has `isProjectAccount: true`
+  in its `owner`.
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 - **A trigger registered with a token the runtime made at startup** is

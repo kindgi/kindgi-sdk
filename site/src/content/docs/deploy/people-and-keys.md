@@ -552,8 +552,9 @@ away, and its keys stop working.
 A project can have one service account of its own, which runs the
 project's shared schedules, webhook triggers and mail triggers on a
 company mailbox (runtime 0.2.0 or later). It's made the first time a
-trigger runs as the project, with `--run-as=project` (`runAsProject: true`
-in the API), which takes `admin` on the project
+trigger is set to run as the project, when one is created or taken over
+with `--run-as=project` (`runAsProject: true` in the API), which takes
+`admin` on the project
 ([Run as a service account](../../guides/runs/run-on-a-schedule/#run-as-a-service-account)).
 A project that never does that has none.
 
@@ -792,7 +793,9 @@ Each change is kept as evidence: `person-added`, `person-granted`,
 `person-capabilities-revoked`, `api-key-minted`,
 `api-key-revoked`, `service-account-created`, `service-account-granted`,
 `service-account-ungranted` and `service-account-unregistered`. A key's
-secret is never in one.
+secret is never in one. A project's own account is made with one
+`service-account-created`, which has its `projectId` and
+`projectAccount: true`, and no separate `service-account-granted`.
 
 ## Next
 
