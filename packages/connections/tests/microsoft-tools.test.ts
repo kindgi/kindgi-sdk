@@ -428,6 +428,45 @@ describe('outlook.messages.get', () => {
     ]);
   });
 
+  it('lists the first 20 attachments, each name and type cut at 200 characters, and counts the rest', async () => {
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        attachments: Array.from({ length: 25 }, (_, i) => ({
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          name: i === 0 ? 'n'.repeat(300) : `file-${i}.pdf`,
+          contentType: i === 0 ? `application/${'x'.repeat(300)}` : 'application/pdf',
+          size: 1_000,
+          isInline: false,
+        })),
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    const value = r.kind === 'ok' ? r.value : undefined;
+    expect(value?.attachments).toHaveLength(20);
+    expect(value?.attachments[0]).toEqual({
+      name: `${'n'.repeat(199)}…`,
+      contentType: `application/${'x'.repeat(187)}…`,
+      size: 1_000,
+    });
+    expect(value?.attachments[19]?.name).toBe('file-19.pdf');
+    expect(value?.attachmentsLeftOut).toBe(5);
+  });
+
+  it('gives no count of attachments left out when there are 20 or fewer', async () => {
+    graphAnswering(() => Response.json(RAW_MESSAGE));
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'ok' && 'attachmentsLeftOut' in r.value).toBe(false);
+  });
+
   it('turns a body Graph gives as HTML into text', async () => {
     graphAnswering(() =>
       Response.json({

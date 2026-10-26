@@ -315,6 +315,36 @@ describe('gmailMessageGet', () => {
     expect(calls.map((c) => c.url.href)).toEqual([`${GMAIL}/messages/m3?format=full`]);
   });
 
+  it('lists the first 20 attachments, each name and type cut at 200 characters, and counts the rest', async () => {
+    const raw = fullMessage('m3', 't1', {
+      attachment: { name: 'a.pdf', type: 'application/pdf', size: 1 },
+    });
+    const payload = raw.payload as { parts: Record<string, unknown>[] };
+    const [content, file] = payload.parts;
+    const name = (i: number) => (i === 0 ? 'n'.repeat(300) : `file-${i}.pdf`);
+    payload.parts = [
+      content as Record<string, unknown>,
+      ...Array.from({ length: 25 }, (_, i) => ({
+        ...file,
+        partId: String(i + 1),
+        mimeType: i === 0 ? `application/${'x'.repeat(300)}` : 'application/pdf',
+        filename: name(i),
+        headers: [{ name: 'Content-Disposition', value: `attachment; filename="${name(i)}"` }],
+      })),
+    ];
+    gmailAnswering(() => Response.json(raw));
+    const r = await invokeToolForTest(tool, { messageId: 'm3' }, { connections: { mail: mail() } });
+    const value = r.kind === 'ok' ? r.value : undefined;
+    expect(value?.attachments).toHaveLength(20);
+    expect(value?.attachments[0]).toEqual({
+      name: `${'n'.repeat(199)}…`,
+      contentType: `application/${'x'.repeat(187)}…`,
+      size: 1,
+    });
+    expect(value?.attachments[19]?.name).toBe('file-19.pdf');
+    expect(value?.attachmentsLeftOut).toBe(5);
+  });
+
   it('keeps the earlier mail a reply quotes', async () => {
     const text =
       'Yes, Thursday works.\n\nOn Mon, 20 Oct 2026 at 14:03, Acme Support <support@acme.example> wrote:\n> Can you come on Thursday?';

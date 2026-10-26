@@ -50,7 +50,10 @@ export interface MailMessage {
   readonly body: string;
   /** True when the body was longer and was cut. */
   readonly bodyCut: boolean;
+  /** Its first 20 attachments, in the app's order, each name and type cut at 200 characters. */
   readonly attachments: readonly MailAttachment[];
+  /** How many attachments it has past those 20. Absent when none. */
+  readonly attachmentsLeftOut?: number;
   /** An `Auto-Submitted` header other than `no` (RFC 3834): an out-of-office or other automatic reply. */
   readonly autoSubmitted: boolean;
   /**

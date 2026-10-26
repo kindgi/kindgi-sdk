@@ -8,7 +8,14 @@
  */
 
 import { AppRefused, type AppSend } from './app-request.js';
-import { type MailTextUse, cutText, htmlToText, isAutoSubmitted, trimLinks } from './mail-text.js';
+import {
+  type MailTextUse,
+  cutText,
+  htmlToText,
+  isAutoSubmitted,
+  listedAttachments,
+  trimLinks,
+} from './mail-text.js';
 import type { MailAttachment, MailMessage, MailPerson } from './mail.js';
 import { microsoft } from './microsoft.js';
 
@@ -175,6 +182,7 @@ export function outlookMessage(
       ? htmlToText(content.content ?? '')
       : (content?.content ?? '');
   const body = cutText(trimLinks(text, use), chars);
+  const listed = listedAttachments(attachmentsOf(raw));
   return {
     id: raw.id,
     ...(typeof raw.conversationId === 'string' &&
@@ -187,7 +195,8 @@ export function outlookMessage(
     receivedAt: raw.receivedDateTime ?? '',
     body: body.text,
     bodyCut: body.cut,
-    attachments: attachmentsOf(raw),
+    attachments: listed.attachments,
+    ...(listed.leftOut > 0 && { attachmentsLeftOut: listed.leftOut }),
     autoSubmitted: isAutoSubmitted(headerOf(raw, 'auto-submitted')),
   };
 }

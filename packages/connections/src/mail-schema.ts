@@ -52,6 +52,7 @@ export const MAIL_MESSAGE = {
         },
       },
     },
+    attachmentsLeftOut: { type: 'integer', minimum: 1 },
     autoSubmitted: { type: 'boolean' },
     replyRef: { type: 'string', pattern: '^[0-9a-f]{32}$' },
     sent: { type: 'boolean' },

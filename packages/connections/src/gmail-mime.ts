@@ -20,6 +20,7 @@ import {
   decodeEncodedWords,
   htmlToText,
   isAutoSubmitted,
+  listedAttachments,
   parseAddressList,
   trimLinks,
 } from './mail-text.js';
@@ -73,6 +74,7 @@ export function gmailMessage(
   const header = (name: string): string => gmailHeader(payload, name) ?? '';
   const from = parseAddressList(header('From'))[0];
   const { text, attachments } = gmailBody(payload);
+  const listed = listedAttachments(attachments);
   const own = use === 'turn' ? cutQuote(text, earlier) : text;
   if (use === 'turn') earlier.add(text);
   const body = cutText(trimLinks(own, use), chars);
@@ -89,7 +91,8 @@ export function gmailMessage(
     receivedAt: receivedAt(raw.internalDate),
     body: body.text,
     bodyCut: body.cut,
-    attachments,
+    attachments: listed.attachments,
+    ...(listed.leftOut > 0 && { attachmentsLeftOut: listed.leftOut }),
     autoSubmitted: isAutoSubmitted(gmailHeader(payload, 'Auto-Submitted')),
     ...(replyRef !== undefined && { replyRef }),
     ...(sent && { sent: true }),

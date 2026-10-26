@@ -9,7 +9,7 @@
 
 import { TextDecoder } from 'node:util';
 
-import type { MailPerson } from './mail.js';
+import type { MailAttachment, MailPerson } from './mail.js';
 
 /**
  * The addresses in a header's value (`From`, `To`, `Cc`, `Reply-To`):
@@ -190,6 +190,34 @@ export function cutText(
   if (text.length <= max) return { text, cut: false };
   const end = /[\uD800-\uDBFF]/.test(text.charAt(max - 1)) ? max - 1 : max;
   return { text: text.slice(0, end), cut: true };
+}
+
+/** The most attachments a mail lists. A mail turn lists as many people in each of To, Cc and Reply-To. */
+export const LIST_MAX = 20;
+/** An attachment's name or type, a subject or a person's name in a mail turn: longer is cut. */
+export const NAME_MAX = 200;
+
+/** `text` cut to `max` characters, the last of them `…`, when it's longer. */
+export function clipText(text: string, max: number): string {
+  return text.length <= max ? text : `${cutText(text, max - 1).text}…`;
+}
+
+/**
+ * A mail's attachments as a message gives them: the first 20, each name
+ * and type cut at 200 characters, and how many it has past those.
+ */
+export function listedAttachments(all: readonly MailAttachment[]): {
+  readonly attachments: readonly MailAttachment[];
+  readonly leftOut: number;
+} {
+  return {
+    attachments: all.slice(0, LIST_MAX).map((a) => ({
+      ...a,
+      name: clipText(a.name, NAME_MAX),
+      contentType: clipText(a.contentType, NAME_MAX),
+    })),
+    leftOut: Math.max(all.length - LIST_MAX, 0),
+  };
 }
 
 /**
