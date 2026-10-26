@@ -286,8 +286,9 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   has an unregistered tool version reinstates it, as `kindgi tools
   reinstate` does, so the same image deploys again after a deploy that
   failed and rolled back. A tool version that names a model provider's key
-  stays unregistered, and the deploy is refused with `400
-  deployment-validation-failed`: publish the tool under a new version
+  stays unregistered: the pack's tool names it too, and the deploy is
+  refused with `400 deployment-validation-failed`, as for any tool that
+  names one
   ([A model provider's key isn't a tool's](../../tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools)).
 - **One with every version unregistered is retired:** fetching it answers
   `410`, such as `agent-gone`. Its list leaves it out unless you ask with
