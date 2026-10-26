@@ -14189,7 +14189,14 @@ export const PatchMailTriggerBodyConfigSchema: JsonSchema = {
   additionalProperties: false,
   description:
     "A mail trigger's mailbox, folder or pace, to change. An absent field keeps its value.",
-  properties: MAIL_TRIGGER_CONFIG_PROPERTIES,
+  properties: {
+    ...MAIL_TRIGGER_CONFIG_PROPERTIES,
+    folder: {
+      ...MAIL_TRIGGER_CONFIG_PROPERTIES.folder,
+      description:
+        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` moves to the other app; then it watches that app's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
+    },
+  },
 };
 
 export const RegisterMailTriggerBodySchema: JsonSchema = {

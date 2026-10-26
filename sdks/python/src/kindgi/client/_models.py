@@ -10535,7 +10535,7 @@ class PatchMailTriggerBodyConfig(BaseModel):
     mailbox: MailTriggerMailbox | None = None
     folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
     """
-    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` moves to the other app; then it watches that app's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.
     """
     poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
     """
