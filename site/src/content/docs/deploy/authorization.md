@@ -333,6 +333,12 @@ calls are `projects.memberships.add`, `updateRole` and `remove`, with
 `update_role` in Python. Changing members takes `admin` on the project: a
 tenant admin, or the project's own admins.
 
+A project's admins also decide which of its triggers run as the project:
+`--run-as=project` on a schedule, webhook trigger or mail trigger runs it
+as the project's own service account, which has the `editor` role on the
+project ([A project's own account](../people-and-keys/#a-projects-own-account)).
+Without an authorization store, a tenant-admin key does that.
+
 Adding someone who's a member already keeps their role. The same role answers
 `201` with the existing membership; another one is `409 membership-exists`,
 with the role they hold in `details.role`. Use `PATCH` to change it.
