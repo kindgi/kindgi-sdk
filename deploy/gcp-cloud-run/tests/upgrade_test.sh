@@ -1230,16 +1230,53 @@ assert_rc 0 "it writes the fixture"
 if grep -q -e "shop.acme.example" -e "acme-shop-key" -e "kindgi-pack-token" -e "acme-secret" -e "acme-state" -e "pack@sha256" "$FIXTURE"; then
   fail "a value is in the fixture"; else pass; fi
 if [[ "$(ls -l "$FIXTURE" | cut -c1-10)" == "-rw-------" ]]; then pass; else fail "the fixture is readable by others: $(ls -l "$FIXTURE")"; fi
-assert_file_has "$FIXTURE" '"SHOP_API_KEY"' "an env var keeps its name"
+if grep -q "SHOP_" "$FIXTURE"; then fail "the deployment's env names are in the fixture"; else pass; fi
+assert_file_has "$FIXTURE" '"KINDGI_PACK_SERVICE_TOKEN"' "a runtime env var keeps its name"
 export STUB_PLAN_CHANGES; STUB_PLAN_CHANGES="$(jq -c .resource_changes "$FIXTURE")"
 run "yes"
 assert_rc 1 "the check stops at the fixture as at the plan"
-assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.SHOP_URL" "SHOP_URL named"
-assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.SHOP_API_KEY" "SHOP_API_KEY named"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.ENV_1" "SHOP_API_KEY named by its placeholder"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.ENV_2" "SHOP_URL named by its placeholder"
 if grep -q "KINDGI_PACK_SERVICE_TOKEN" "$OUT"; then fail "a var the plan keeps was named"; else pass; fi
 ( cd "$CASE_DIR" && "$HERE/scrub_plan.sh" "$SAVED" "$FIXTURE" ) >"$OUT" 2>&1; rc=$?
 assert_rc 1 "it won't write over the fixture"
 assert_out "fixture.json exists"
+
+# 69. tests/scrub_plan.sh: a for_each key is the deployment's, so the fixture
+# gives it a placeholder, the same in the index and the address, and the plan
+# check names the resource by it. A plan whose resources sit in a module call
+# isn't this module's: nothing is written.
+case_start "a plan's for_each keys scrubbed"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+SAVED="$CASE_DIR/saved.tfplan"; FIXTURE="$CASE_DIR/fixture.json"
+jq -n --argjson rc "$PACK_ENV_DROPPED" '
+  {format_version: "1.2", resource_changes: ($rc + [
+    {address: "google_secret_manager_secret_iam_member.pack_reads_its_secrets[\"SHOP_API_KEY\"]", mode: "managed",
+     type: "google_secret_manager_secret_iam_member", name: "pack_reads_its_secrets", index: "SHOP_API_KEY",
+     change: {actions: ["delete"], before: {secret_id: "acme-shop-key", member: "serviceAccount:pack@acme-project.iam.gserviceaccount.com"},
+              after: null, after_unknown: {}}},
+    {address: "google_storage_bucket_iam_member.pack_reads[\"acme-orders\"]", mode: "managed",
+     type: "google_storage_bucket_iam_member", name: "pack_reads", index: "acme-orders",
+     change: {actions: ["no-op"], before: {bucket: "acme-orders"}, after: {bucket: "acme-orders"}, after_unknown: {}}}])}' >"$SAVED"
+( cd "$CASE_DIR" && "$HERE/scrub_plan.sh" "$SAVED" "$FIXTURE" ) >"$OUT" 2>&1; rc=$?
+assert_rc 0 "it writes the fixture"
+if grep -q -e "SHOP_" -e "acme" "$FIXTURE"; then fail "a for_each key or a value is in the fixture"; else pass; fi
+want='google_cloud_run_v2_service.pack[0] 0
+google_secret_manager_secret_iam_member.pack_reads_its_secrets["k1"] k1
+google_storage_bucket_iam_member.pack_reads["k2"] k2'
+got="$(jq -r '.resource_changes[] | "\(.address) \(.index)"' "$FIXTURE")"
+if [[ "$got" == "$want" ]]; then pass; else fail "the addresses and indexes: $got"; fi
+export STUB_PLAN_CHANGES; STUB_PLAN_CHANGES="$(jq -c .resource_changes "$FIXTURE")"
+run "yes"
+assert_rc 1 "the check stops at the fixture"
+assert_file_has "$OUT" "    google_secret_manager_secret_iam_member.pack_reads_its_secrets[\"k1\"]: deleted" "the resource named by its placeholder"
+if grep -q "pack_reads\[" "$OUT"; then fail "a no-op was named"; else pass; fi
+MODULE_SAVED="$CASE_DIR/module.tfplan"; MODULE_FIXTURE="$CASE_DIR/module-fixture.json"
+jq '.resource_changes[0].module_address = "module.kindgi"' "$SAVED" >"$MODULE_SAVED"
+( cd "$CASE_DIR" && "$HERE/scrub_plan.sh" "$MODULE_SAVED" "$MODULE_FIXTURE" ) >"$OUT" 2>&1; rc=$?
+assert_rc 1 "a plan with a module call is refused"
+assert_out "make it from this module directory"
+if ls "$MODULE_FIXTURE"* >/dev/null 2>&1; then fail "a refused plan left a file"; else pass; fi
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
