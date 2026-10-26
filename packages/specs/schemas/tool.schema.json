@@ -70,11 +70,15 @@
     },
     "needsApprovalWhenUnattended": {
       "type": "boolean",
-      "description": "`true` when a person must say yes to every call of this tool in a run no person started (a schedule, a webhook, an event or a service account's key started it). In such a run an agent's call waits for a person's yes whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`. Optional additive field."
+      "description": "`true` when a person must say yes to every call of this tool in a run no person started (a schedule, a webhook, an event, a mail or a service account's key started it). In such a run an agent's call waits for a person's yes whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it, whatever this or `mutating` says. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`. Optional additive field."
     },
     "pauses": {
       "type": "boolean",
       "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`. Optional additive field."
+    },
+    "resultIsOutsideData": {
+      "type": "boolean",
+      "description": "`true` when the tool's results are text from outside that nobody checked, such as a mail someone sent or a page a search found: an agent reads each result as data, not instructions, in this turn and in every later turn's history. It changes what the model is told, not what the tool may do. Absent means `false`. Optional additive field."
     },
     "limits": {
       "type": "object",

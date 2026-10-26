@@ -238,12 +238,12 @@ describe('kindgi schedules', () => {
     expect(out.stdout).toMatch(/agent acme\.digest\s+0 7 \* \* 1-5\s+America\/Toronto\s+active/);
   });
 
-  test("list --project: one project's schedules; the table names each owner", async () => {
+  test("list --project: one project's schedules; the table names whom each runs as, personal or shared", async () => {
     const { out, calls } = await schedules(['list', `--project=${ID}`, '--table']);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['list', { projectId: ID }]]);
-    expect(out.stdout).toMatch(/OWNER/);
-    expect(out.stdout).toMatch(/Ada Lovelace/);
+    expect(out.stdout).toMatch(/RUNS AS/);
+    expect(out.stdout).toMatch(/Ada Lovelace \(personal\)/);
   });
 
   test('get with upcoming; update; the lifecycle verbs by id', async () => {

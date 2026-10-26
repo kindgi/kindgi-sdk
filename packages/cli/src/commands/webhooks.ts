@@ -14,6 +14,7 @@ import {
   requiredPositional,
   runSdk,
   runSdkRendered,
+  runsAsCell,
   stringFlag,
 } from './helpers.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
@@ -113,7 +114,7 @@ const TRIGGERS_TABLE: TableSpec<TriggerPage, Trigger> = {
     { header: 'FLOW', get: (t) => `${t.flowId}@${t.flowVersion}` },
     { header: 'SIGNED', get: signedCell },
     { header: 'STATUS', get: (t) => t.status },
-    { header: 'OWNER', get: (t) => t.owner.displayName ?? t.owner.id },
+    { header: 'RUNS AS', get: (t) => runsAsCell(t.owner) },
     { header: 'LAST', get: (t) => t.lastFiredAt ?? '' },
     { header: 'LABEL', get: (t) => t.label ?? '' },
   ],
@@ -269,7 +270,7 @@ const register: LeafCommand = {
   kind: 'leaf',
   name: 'register',
   description:
-    "Start a flow's run when a signed request arrives: from WooCommerce, Drupal's Webhooks module, GitHub, Shopify, or any sender that signs with HMAC-SHA256 or Standard Webhooks. Its runs act as you, checked again at every delivery. The event the flow gets is data from outside, never instructions: check it in a step before any agent, and keep the agent that reads it read-only.",
+    "Start a flow's run when a signed request arrives: from WooCommerce, Drupal's Webhooks module, GitHub, Shopify, or any sender that signs with HMAC-SHA256 or Standard Webhooks. It's personal: its runs act as you, and only you or a project admin can change it. With `--run-as`, it's shared and acts as that service account. Who it acts as is checked again at every delivery. The event the flow gets is data from outside, never instructions: check it in a step before any agent, and keep the agent that reads it read-only.",
   usage: `kindgi webhooks register --flow=<id> --flow-version=<v> --secret=<name> [--generate-secret] [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>] [--input=<json-or-@file>] [--project=<project-id>] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>] [--run-as=<service-account-id>] [--allow-unattended=<tool-id>]…`,
   optionSpec: {
     flow: { type: 'string', description: 'The flow each delivery starts.' },
@@ -525,7 +526,7 @@ const takeOwnership: LeafCommand = {
   kind: 'leaf',
   name: 'take-ownership',
   description:
-    "Become a webhook trigger's owner, so its runs act as you from the next delivery (for a trigger whose owner left). With --run-as, a service account becomes the owner instead.",
+    "Become a webhook trigger's owner, so its runs act as you from the next delivery: for a trigger whose owner left, or to make it shared (--run-as, a service account becomes the owner) or yours. Takes a project admin.",
   usage: 'kindgi webhooks take-ownership <trigger-id> [--run-as=<service-account-id>]',
   optionSpec: { ...RUN_AS_FLAG },
   run: (ctx) =>

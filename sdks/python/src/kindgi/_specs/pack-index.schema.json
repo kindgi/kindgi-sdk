@@ -171,6 +171,10 @@
           "type": "boolean",
           "description": "Whether the tool may answer `pause` (`tool.schema.json` `pauses`, schema-version 1.6.0+): the runtime then sends each call a `waitToken`, and the run waits for another system's answer. Absent means `false`."
         },
+        "resultIsOutsideData": {
+          "type": "boolean",
+          "description": "Whether the tool's results are outside data an agent reads as data, not instructions (`tool.schema.json` `resultIsOutsideData`). Absent means `false`."
+        },
         "spec": {
           "$ref": "#/$defs/openObject",
           "description": "A declarative tool's spec (`tool.schema.json` `spec`, e.g. `kind: 'http'`). A runtime runs a tool that has one itself, resolving its `secretRef`s, rather than calling the pack service."

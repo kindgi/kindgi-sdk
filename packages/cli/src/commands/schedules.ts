@@ -14,6 +14,7 @@ import {
   requiredPositional,
   runSdk,
   runSdkRendered,
+  runsAsCell,
   segmentsFlag,
   stringFlag,
 } from './helpers.js';
@@ -61,7 +62,7 @@ const SCHEDULES_TABLE: TableSpec<SchedulePage, Schedule> = {
     { header: 'CRON', get: (s) => s.cronExpression },
     { header: 'TIMEZONE', get: (s) => s.timezone ?? 'UTC' },
     { header: 'STATUS', get: (s) => s.status },
-    { header: 'OWNER', get: (s) => s.owner?.displayName ?? s.owner?.id ?? '' },
+    { header: 'RUNS AS', get: (s) => runsAsCell(s.owner) },
     { header: 'NEXT', get: (s) => s.nextFireAt ?? '' },
     { header: 'LABEL', get: (s) => s.label ?? '' },
   ],
@@ -307,7 +308,7 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Run an agent or a flow on a schedule, or start Improve runs on an agent (--improve). Its runs act as you, checked again at every run; they're in your project's runs, naming the schedule.",
+    "Run an agent or a flow on a schedule, or start Improve runs on an agent (--improve). It's personal: its runs act as you, and only you or a project admin can change it. With `--run-as`, it's shared and acts as that service account. Who it acts as is checked again at every run; its runs are in your project's runs, naming the schedule.",
   usage:
     'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>] [--allow-unattended=<tool-id>]…',
   optionSpec: {
@@ -387,7 +388,7 @@ const takeOwnership: LeafCommand = {
   kind: 'leaf',
   name: 'take-ownership',
   description:
-    "Become a schedule's owner, so its runs act as you from the next fire (for a schedule whose owner left). With --run-as, a service account becomes the owner instead.",
+    "Become a schedule's owner, so its runs act as you from the next fire: for a schedule whose owner left, or to make it shared (--run-as, a service account becomes the owner) or yours. Takes a project admin.",
   usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>]',
   optionSpec: { ...RUN_AS_FLAG },
   run: (ctx) =>

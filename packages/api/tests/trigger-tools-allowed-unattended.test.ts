@@ -28,6 +28,7 @@ import type {
   AgentRegistryBinding,
   FlowRegistryBinding,
   RunHandlerBinding,
+  ServiceAccountBinding,
   TokenResolver,
 } from '../src/index.js';
 import { toolsTargetCanCall } from '../src/routes/trigger-tools.js';
@@ -38,6 +39,8 @@ const WRITER = randomUUID() as UserId;
 const PROJECT = randomUUID() as ProjectId;
 const ADMIN_TOKEN = 'tools-admin';
 const WRITER_TOKEN = 'tools-writer';
+// A shared schedule runs as it; a writer may change anything but what it runs.
+const BOT = 'sa-orders';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === ADMIN_TOKEN) return { tenantId, userId: ADA, scopes: ['tenant-admin'] };
@@ -118,6 +121,13 @@ const flowRegistry = {
   },
 } as unknown as FlowRegistryBinding;
 
+const serviceAccountBinding = {
+  get: async ({ serviceAccountId }: { serviceAccountId: string }) =>
+    serviceAccountId === BOT
+      ? { serviceAccountId, tenantId, name: 'acme-orders-bot', grants: [], createdAt: '' }
+      : null,
+} as unknown as ServiceAccountBinding;
+
 function harness(opts: { registries?: boolean } = {}) {
   // Every event, in the order written (a query orders same-millisecond
   // events by their random ids).
@@ -137,6 +147,7 @@ function harness(opts: { registries?: boolean } = {}) {
     triggerRegistry: createInMemoryTriggerRegistry({ defaultProjectId: PROJECT }),
     ...(opts.registries !== false && { agentRegistry, flowRegistry }),
     auditEvents,
+    serviceAccountBinding,
     authz: {
       fgaApiUrl: 'http://fga.invalid',
       authzCheckBinding: {
@@ -371,10 +382,11 @@ describe('a schedule', () => {
 
   test('update: absent keeps it; a change is admin-only, checked and audited from → to; the same list is not audited', async () => {
     const h = harness();
+    // Shared, so a writer may change its label.
     const made = await h.call(
       'POST',
       '/v1/schedules',
-      flowSchedule({ toolsAllowedUnattended: ['acme.refund'] }),
+      flowSchedule({ toolsAllowedUnattended: ['acme.refund'], runAsServiceAccountId: BOT }),
     );
     const id = made.body.scheduleId as string;
 

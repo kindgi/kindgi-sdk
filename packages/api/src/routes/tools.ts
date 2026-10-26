@@ -724,6 +724,7 @@ function serializeTool(t: ToolRecord): Record<string, unknown> {
       needsApprovalWhenUnattended: t.needsApprovalWhenUnattended,
     }),
     ...(t.pauses !== undefined && { pauses: t.pauses }),
+    ...(t.resultIsOutsideData !== undefined && { resultIsOutsideData: t.resultIsOutsideData }),
     ...(t.sandbox !== undefined && { sandbox: t.sandbox }),
     ...(t.limits !== undefined && { limits: t.limits }),
     ...(t.network !== undefined && { network: t.network }),
