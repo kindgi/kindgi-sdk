@@ -15,7 +15,8 @@
  * connection, which a project admin registers.
  *
  * A trigger is shared when a service account owns it (the company's
- * mailbox, with `runAsServiceAccountId`), and personal when a person does.
+ * mailbox, with `runAsServiceAccountId`, or `runAsProject` for the
+ * project's own account), and personal when a person does.
  * No edit moves the owner; only `takeOwnership` does. A personal
  * trigger's update, pause, resume and unregister are its owner's or a
  * project admin's, but only its owner points it at another of their
@@ -102,7 +103,9 @@ export interface MailTriggersClient {
    * The caller becomes the trigger's owner: its runs act as the caller,
    * with the caller's connections, from the next poll. On the company's
    * mailbox, pass `{ runAsServiceAccountId }` to make a service account
-   * the owner instead (needs `act_as` on the account).
+   * the owner instead (needs `act_as` on the account), or
+   * `{ runAsProject: true }` to make the project's own account the owner
+   * (made the first time).
    *
    * @wire POST /v1/mail-triggers/:triggerId/owner
    */

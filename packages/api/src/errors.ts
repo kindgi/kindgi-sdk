@@ -370,6 +370,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'service-account-unregistered': 409,
   /** A trigger's owner can't run what it starts: a service account it's named to run as, or the owner a new target keeps. */
   'trigger-owner-cannot-run-target': 409,
+  /**
+   * A project's own account, used where it can't be: a grant or ungrant
+   * (its grant is fixed), a key (it has none), or naming it by id as a
+   * trigger's owner (`runAsProject` names it).
+   */
+  'service-account-project-owned': 409,
   /** Adding a person with an email another person of the tenant has. */
   'identity-user-email-taken': 409,
   /** Removing tenant admin from the only person who holds it: the tenant would have none. */

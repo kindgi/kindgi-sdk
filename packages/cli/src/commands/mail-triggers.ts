@@ -11,6 +11,7 @@ import {
   allowUnattendedField,
   integerFlag,
   requiredPositional,
+  runAsFields,
   runSdk,
   runSdkRendered,
   runsAsCell,
@@ -192,15 +193,15 @@ const list: LeafCommand = {
 };
 
 /**
- * `--run-as`: the trigger's owner is this service account, not you, so it's
- * shared. The company's mailbox only. Shared by `create` and
- * `take-ownership`.
+ * `--run-as`: the trigger's owner is this service account, or the
+ * project's own (`project`), not you, so it's shared. The company's mailbox
+ * only. Shared by `create` and `take-ownership`.
  */
 const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   'run-as': {
     type: 'string',
     description:
-      "On the company's mailbox only: a service account, by id, that owns the trigger, so its runs act as that account (not as you). Needs `act_as` on the account, and the account needs a role that runs what the trigger runs (editor on the target's project); omit it to own the trigger yourself.",
+      "On the company's mailbox only: a service account, by id, or `project`: the trigger's owner, so its runs act as that account (not as you). `project` runs it as the project's own account, made the first time. A named account takes `act_as`, and needs a role that runs what the trigger runs (editor on the target's project). Omit it to own the trigger yourself.",
   },
 };
 
@@ -217,9 +218,9 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Start a run of an agent or a flow for each new mail in a mailbox, with the mail as its input. Its runs act as you (or, with --run-as, a service account), with your connections; in them, every call that changes something, or uses the run's own mailbox, waits for a person's yes.",
+    "Start a run of an agent or a flow for each new mail in a mailbox, with the mail as its input. Its runs act as you (or, with --run-as, a service account or the project's own), with your connections; in them, every call that changes something, or uses the run's own mailbox, waits for a person's yes.",
   usage:
-    'kindgi mail-triggers create (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>) --mailbox=google|microsoft [--as=person|company] [--folder=<label-or-folder>] [--poll=<seconds>] [--runs-per-hour=<n>] [--label=<text>] [--project=<project-id>] [--run-as=<service-account-id>] [--allow-unattended=<tool-id>]…',
+    'kindgi mail-triggers create (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>) --mailbox=google|microsoft [--as=person|company] [--folder=<label-or-folder>] [--poll=<seconds>] [--runs-per-hour=<n>] [--label=<text>] [--project=<project-id>] [--run-as=<service-account-id>|project] [--allow-unattended=<tool-id>]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...mailFlags('register'),
@@ -244,7 +245,7 @@ const create: LeafCommand = {
         config: { mailbox, ...paceFields(ctx) },
         ...(project !== undefined && { projectId: project }),
         ...(label !== undefined && { label }),
-        ...(runAs !== undefined && { runAsServiceAccountId: runAs }),
+        ...runAsFields(runAs),
         ...allowUnattendedField(ctx, 'register'),
       });
     }),
@@ -308,8 +309,8 @@ const takeOwnership: LeafCommand = {
   kind: 'leaf',
   name: 'take-ownership',
   description:
-    "Become a mail trigger's owner, so its runs act as you, with your connections, from the next poll (for a trigger whose owner left). On a person's mailbox, the mailbox becomes your own. With --run-as, on the company's mailbox, a service account becomes the owner instead.",
-  usage: 'kindgi mail-triggers take-ownership <trigger-id> [--run-as=<service-account-id>]',
+    "Become a mail trigger's owner, so its runs act as you, with your connections, from the next poll (for a trigger whose owner left). On a person's mailbox, the mailbox becomes your own. With --run-as, on the company's mailbox, a service account, or with --run-as=project the project's own account, becomes the owner instead.",
+  usage: 'kindgi mail-triggers take-ownership <trigger-id> [--run-as=<service-account-id>|project]',
   optionSpec: { ...RUN_AS_FLAG },
   run: (ctx) =>
     runSdkRendered(ctx, 'mail-triggers take-ownership', async (): Promise<Rendered> => {
@@ -317,7 +318,7 @@ const takeOwnership: LeafCommand = {
       const runAs = stringFlag(ctx, 'run-as');
       const client = ctx.client().mailTriggers;
       const trigger = await (runAs !== undefined
-        ? client.takeOwnership(id, { runAsServiceAccountId: runAs })
+        ? client.takeOwnership(id, runAsFields(runAs))
         : client.takeOwnership(id));
       const rendered = renderJson(trigger, ctx.globals.format);
       const kept = trigger.toolsAllowedUnattended ?? [];
