@@ -7,20 +7,24 @@ import { type AnyTool, toManifest } from '@kindgi/tools';
 import { describe, expect, it } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
-import { gmailSend } from '../src/google-tools.js';
+import { gmailMessagesList, gmailSend } from '../src/google-tools.js';
 import { linkedinPost } from '../src/linkedin-tools.js';
 import { outlookMessageGet, outlookMessagesList, outlookSend } from '../src/microsoft-tools.js';
 
+/** Each tool as a pack includes it, and each mail tool for the company's mailbox too: `as` changes what it declares. */
 const TOOLS = {
-  gmailSend,
-  githubIssuesList,
-  githubLabelsList,
-  githubIssuesAddLabels,
-  outlookSend,
-  outlookMessagesList,
-  outlookMessageGet,
-  linkedinPost,
-};
+  gmailSend: (id: string) => gmailSend({ id }),
+  'gmailSend as company': (id: string) => gmailSend({ id, as: 'company' }),
+  gmailMessagesList: (id: string) => gmailMessagesList({ id }),
+  'gmailMessagesList as company': (id: string) => gmailMessagesList({ id, as: 'company' }),
+  githubIssuesList: (id: string) => githubIssuesList({ id }),
+  githubLabelsList: (id: string) => githubLabelsList({ id }),
+  githubIssuesAddLabels: (id: string) => githubIssuesAddLabels({ id }),
+  outlookSend: (id: string) => outlookSend({ id }),
+  outlookMessagesList: (id: string) => outlookMessagesList({ id }),
+  outlookMessageGet: (id: string) => outlookMessageGet({ id }),
+  linkedinPost: (id: string) => linkedinPost({ id }),
+} satisfies Record<string, (id: string) => AnyTool>;
 
 /**
  * Each tool's versions, each with a hash of what it declares (its manifest,
@@ -31,6 +35,15 @@ const TOOLS = {
  */
 const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
   gmailSend: { '1.0.0': '553a5e83ef39c6e25c1c8d95640e7ba6f2814318884181eeb3b1a4d634e2ada1' },
+  'gmailSend as company': {
+    '1.0.0': '88eb1707a0b132c0b6eb54d4e1f770b6e30f9624efa137c02007e601932b0022',
+  },
+  gmailMessagesList: {
+    '1.0.0': 'bd8b3e5886fecac4af9a6f1c98598acdf7cd687c98070b00890f211371f9fe58',
+  },
+  'gmailMessagesList as company': {
+    '1.0.0': 'f6b6cb415803ac50ea2dc55b8f9c6c3d1ec16bbe112183e83d7f409c3e7e4ee6',
+  },
   githubIssuesList: { '1.0.0': '2e9a7f7d01f9aaa777df3cedf8374b5cdc3f7bb8b6d074f2a50ec08595916b98' },
   githubLabelsList: { '1.0.0': 'a9cd9f0fa4fc90fdf99eb42e3045f9544363d60beed12658aaf4c6f99a580fc9' },
   githubIssuesAddLabels: {
@@ -66,7 +79,7 @@ function declared(tool: AnyTool): string {
 
 describe("each tool's version moves with what it declares", () => {
   it.each(Object.keys(TOOLS) as (keyof typeof TOOLS)[])('%s', (name) => {
-    const tool = TOOLS[name]({ id: `acme.${name.toLowerCase()}` });
+    const tool = TOOLS[name](`acme.${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
     expect(
       declared(tool),
       `${name} declares something new under ${tool.version}: bump its version, then add the new version and hash to PINS`,

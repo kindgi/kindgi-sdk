@@ -275,7 +275,7 @@ export function htmlToText(html: string): string {
   for (const name of DROPPED) text = withoutElement(text, name);
   // Whitespace in HTML is one space, wherever it is.
   text = tagsAsText(text.replace(/[ \t\r\n\f]+/g, ' '));
-  return decodeEntities(text)
+  return decodeHtmlEntities(text)
     .split('\n')
     .map((line) => line.replace(/ {2,}/g, ' ').trim())
     .join('\n')
@@ -353,7 +353,8 @@ function openingTag(lower: string, name: string, from: number): number {
   return -1;
 }
 
-function decodeEntities(text: string): string {
+/** Text with its HTML character references decoded (`&amp;`, `&#39;`, `&#x2713;`); one it doesn't know stays as written. */
+export function decodeHtmlEntities(text: string): string {
   return text.replace(
     /&(#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6}|[A-Za-z]{2,8});/g,
     (ref, body: string) => {

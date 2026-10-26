@@ -15,6 +15,21 @@ export interface AppToolOptions {
   readonly id: string;
 }
 
+/** What a pack gives one of the mail tools: its id, and whose mailbox it uses. */
+export interface MailToolOptions extends AppToolOptions {
+  /**
+   * Whose mailbox: `'person'` (the default), the run's person's own, the
+   * one they connected; `'company'`, the company's, which a tenant admin
+   * connected by signing in as it. It's part of what the tool declares,
+   * so an id you've published keeps its `as`: give a company mailbox its
+   * own tool id (`acme.store-mail.get`).
+   */
+  readonly as?: MailboxOwner;
+}
+
+/** Whose mailbox a mail tool uses. */
+export type MailboxOwner = 'person' | 'company';
+
 /** The tool `spec` describes, under the pack's id. A spec or id that doesn't compile throws, naming the id. */
 export function appTool<TInput, TOutput>(
   spec: Omit<Tool<TInput, TOutput>, 'id'>,
