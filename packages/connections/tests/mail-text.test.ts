@@ -257,6 +257,25 @@ describe('htmlToText', () => {
     );
   });
 
+  it("drops what shows as nothing from a link's text before it looks for the address", () => {
+    for (const [html, shown] of [
+      ['evil.example&#xFEFF;.bank.example', 'evil.example\ufeff.bank.example'],
+      ['evil.example\ufeff.bank.example', 'evil.example\ufeff.bank.example'],
+      ['evil.example.\ufeffbank.example', 'evil.example.\ufeffbank.example'],
+      ['evil.example\u200b.bank.example', 'evil.example\u200b.bank.example'],
+    ]) {
+      expect(htmlToText(`<a href="https://evil.example/">${html}</a>`)).toBe(
+        `${shown} <https://evil.example/>`,
+      );
+    }
+    // A space that shows as one still parts the address from the next word.
+    for (const space of ['\u00a0', '\u200a']) {
+      expect(htmlToText(`<a href="https://evil.example/">Visit${space}evil.example</a>`)).toBe(
+        `Visit${space}evil.example`,
+      );
+    }
+  });
+
   it("keeps a link's text only when it shows the address, has none, or isn't a web link", () => {
     expect(
       htmlToText('<a href="https://acme.example/faq/?utm_campaign=fall">acme.example/faq</a>'),

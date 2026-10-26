@@ -253,8 +253,13 @@ function sameSubject(a: string, b: string): boolean {
  */
 const LINE_BREAK = /\r\n|[\n\v\f\r\u0085\u2028\u2029]/;
 
-/** A line that would read as one of this message's own: `---` after nothing but invisible format characters (Unicode's Cf: U+200B, U+FEFF, U+00AD, …). */
-const FORGED_LINE = /^\p{Cf}*---/u;
+/**
+ * A line that would read as one of this message's own: `---` after
+ * nothing but characters that show as nothing (Unicode's format
+ * characters, Cf: U+200B, U+FEFF, U+00AD, …; and its default ignorables,
+ * which add fillers such as U+3164 and U+115F, and the variation selectors).
+ */
+const FORGED_LINE = /^[\p{Cf}\p{Default_Ignorable_Code_Point}]*---/u;
 
 /** A header's value on one line, cut at `max` characters: a value can hold line breaks. */
 function headerText(text: string, max: number): string {

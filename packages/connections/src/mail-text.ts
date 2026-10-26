@@ -674,10 +674,15 @@ function hrefOf(inner: string): string | undefined {
 
 /**
  * ` <url>` after a link's text (still HTML, its references not decoded),
- * unless the text is empty or shows the address already.
+ * unless the text is empty or shows the address already. Characters that
+ * show as nothing are dropped first, so none of them (U+FEFF is one, and
+ * also counts as a space) can split or join the address as shown.
  */
 function linkTarget(text: string, url: string): string {
-  const shown = decodeHtmlEntities(text).replace(/\s+/g, ' ').trim();
+  const shown = decodeHtmlEntities(text)
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (shown === '') return '';
   if (showsAddress(shown, url)) return '';
   // Encoded, as the text around it still is: decoding gives the address back.

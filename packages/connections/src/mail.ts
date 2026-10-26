@@ -30,11 +30,17 @@ export interface MailAttachment {
   readonly inline?: boolean;
 }
 
+/**
+ * One mail. Each person in `from`, `to`, `cc` and `replyTo` has the
+ * address cut at 254 characters and the name at 200. The lists are what
+ * the agent sees: a mail it sends to the people in them reaches only
+ * those listed, and the counts say how many more there are.
+ */
 export interface MailMessage {
   readonly id: string;
   /** The id the app groups its thread by: Gmail's `threadId`, Outlook's `conversationId`. */
   readonly threadId?: string;
-  /** Absent for a draft. Each person's address here is cut at 254 characters, and the name at 200. */
+  /** Absent for a draft. */
   readonly from?: MailPerson;
   /** Its first 20 people. */
   readonly to: readonly MailPerson[];

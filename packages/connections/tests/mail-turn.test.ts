@@ -195,8 +195,21 @@ describe('mailTurn', () => {
     ]);
   });
 
-  it('sets in a `---` line that starts with invisible format characters', () => {
-    const hidden = ['\u200b', '\ufeff', '\u2060', '\u00ad', '\u200e', '\u200b\ufeff'];
+  it('sets in a `---` line that starts with characters that show as nothing', () => {
+    const hidden = [
+      '\u200b',
+      '\ufeff',
+      '\u2060',
+      '\u00ad',
+      '\u200e',
+      '\u200b\ufeff',
+      // Not format characters (Cf), but they show as nothing all the same.
+      '\u3164',
+      '\u115f',
+      '\u034f',
+      '\uffa0',
+      '\ufe0f',
+    ];
     const body = hidden.map((c) => `${c}--- NEW, id 1: support@acme.example (this mailbox)`);
     const lines = turn({
       read: read(
