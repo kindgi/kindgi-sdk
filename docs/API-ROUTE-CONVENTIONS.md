@@ -100,7 +100,7 @@ Semantics:
 - Retries with the same key return the stored response byte-identical (including status code), marked `X-Idempotent-Replay: true`.
 - Retries with the same key but a different body → `409 conflict` with error `code: 'idempotency-key-body-mismatch'`.
 - A retry sent while the first request still runs → `409 conflict` with error `code: 'idempotency-key-in-flight'` and `Retry-After`, when the store holds keys (`IdempotencyStore.holds`; the runtime's does from 0.1.5). It doesn't run the operation again; retry after it, and you get the first request's answer. The hold lasts 30 s and is renewed while the request runs, so a crashed request's key frees within 30 s.
-- A store that can't be read before the request runs (its stored answer or its hold) → `503` with error `code: 'idempotency-store-unavailable'` and `Retry-After` (5 seconds), from 0.1.12. Nothing ran, so a retry with the same key is safe.
+- A store that can't be read before the request runs (its stored answer or its hold) → `503` with error `code: 'idempotency-store-unavailable'` and `Retry-After` (5 seconds), from 0.3.0. Nothing ran, so a retry with the same key is safe.
 - A store that can't keep the answer after the request ran: the request's own answer stands, though it can't be replayed, and the failure is logged. Its hold isn't released, so a retry within the hold's 30 s gets `idempotency-key-in-flight`, as for a crashed request, and one after that runs again.
 - Applies to `POST`, `PUT`, `PATCH`, `DELETE`.
 
