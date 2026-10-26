@@ -28,7 +28,6 @@ import {
   type MailTriggerTarget,
   type RegisterMailTriggerInput,
   type TriggerFire,
-  type TriggerOwner,
   type TriggerRegistryBinding,
   type UpdateMailTriggerInput,
 } from '../trigger-binding.js';
@@ -36,16 +35,20 @@ import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import {
-  type TriggerOwnerChange,
+  type OwnedTrigger,
   type TriggerOwnerNames,
+  type TriggerOwnerNotices,
+  callerOwns,
   isTriggerAdmin,
   mayChangePersonalTrigger,
+  noteChangeForOwner,
   ownerJson,
   ownerNamesOf,
   ownerOf,
-  recordChangeForOwner,
+  ownerRuleRefused,
   recordOwnerSet,
   resolveTriggerOwner,
+  tellTakenOver,
   triggerOwnerDeps,
 } from './trigger-owners.js';
 import {
@@ -72,6 +75,8 @@ export interface MailTriggersRouterOptions {
   readonly itemRights?: ItemRights;
   /** Where a target's agents and flows are read, to check `toolsAllowedUnattended`; absent → a list is refused. */
   readonly targetTools?: TargetToolsDeps;
+  /** Tells a person what a project admin did to their trigger; absent → only audited. */
+  readonly ownerNotices?: TriggerOwnerNotices;
 }
 
 /**
@@ -98,7 +103,9 @@ export interface MailTriggersRouterOptions {
  * and unregister are its owner's or a project admin's; a shared trigger's
  * PATCH is an admin's, and its pause, resume and unregister need `write`.
  * Every admin check here is `isTriggerAdmin`, so without an authorization
- * model it's the token's tenant-admin scope, never everyone.
+ * model it's the token's tenant-admin scope, never everyone. An admin's
+ * change to a person's trigger is audited, and its owner told
+ * (`ownerNotices`), as for schedules and webhooks.
  * `toolsAllowedUnattended` (`trigger-tools.ts`) is an admin's to set, and
  * a new target or mailbox while it lists any must name it again.
  */
@@ -106,9 +113,26 @@ export function mailTriggersRouter(
   binding: TriggerRegistryBinding,
   options: MailTriggersRouterOptions = {},
 ): Hono<AppEnv> {
-  const { authorizer, projects, names, auditEvents, referenceScope, itemRights, targetTools } =
-    options;
+  const {
+    authorizer,
+    projects,
+    names,
+    auditEvents,
+    referenceScope,
+    itemRights,
+    targetTools,
+    ownerNotices,
+  } = options;
   const r = new Hono<AppEnv>();
+
+  /** A mail trigger as the owner rule reads it. */
+  const owned = (row: MailTriggerRecord): OwnedTrigger => ({
+    tenantId: row.tenantId,
+    triggerId: row.triggerId as unknown as string,
+    projectId: row.projectId as unknown as string,
+    label: row.label ?? null,
+    owner: row.owner,
+  });
 
   /** A mail trigger as the wire carries it, its owner named. */
   async function mailTriggerJson(c: Context<AppEnv>, row: MailTriggerRecord): Promise<Response> {
@@ -133,12 +157,12 @@ export function mailTriggersRouter(
   /**
    * Nothing, when the caller is an admin of `project` (`isTriggerAdmin`),
    * or of the tenant when the trigger has no project yet; else a 403 that
-   * says what took it.
+   * says what `doing` takes.
    */
   async function notAdmin(
     c: Context<AppEnv>,
     project: string | undefined,
-    what: string,
+    doing: string,
   ): Promise<Response | undefined> {
     const tenantId = c.get('tenantId') as unknown as string;
     const admin =
@@ -149,37 +173,31 @@ export function mailTriggersRouter(
     return refused(c, authorizer, {
       action: 'admin',
       resource: project === undefined ? ref('tenant', tenantId) : ref('project', project),
-      message: `Only an admin of the ${project === undefined ? 'tenant' : 'project'} may ${what}.`,
+      message: `${doing} takes ${project === undefined ? 'a tenant admin' : 'a project admin'}.`,
       failing: 'actor',
     });
   }
 
   /**
-   * Nothing, when the caller may change `rec` this way: a personal
-   * trigger's owner (a project writer) or a project admin; on a shared
-   * trigger, `shared` says what it takes. Else a 403.
+   * Nothing, when the caller may change `rec`: a personal trigger's owner
+   * (a project writer) or a project admin; on a shared trigger, `shared`
+   * says what it takes. Else a 403, which names a personal trigger's owner.
    */
   async function changeRefused(
     c: Context<AppEnv>,
     rec: MailTriggerRecord,
-    what: string,
     shared: 'admin' | 'write',
   ): Promise<Response | undefined> {
     const project = rec.projectId as unknown as string;
     if (rec.owner.kind === 'service') {
       return shared === 'admin'
-        ? notAdmin(c, project, `${what} a shared mail trigger`)
+        ? notAdmin(c, project, 'Changing a shared mail trigger')
         : denied(c, 'write', ref('project', project));
     }
     if (await mayChangePersonalTrigger(c, authorizer, { projectId: project, owner: rec.owner })) {
       return undefined;
     }
-    return refused(c, authorizer, {
-      action: 'admin',
-      resource: ref('project', project),
-      message: `Only the trigger's owner or an admin of its project may ${what} a person's mail trigger.`,
-      failing: 'actor',
-    });
+    return ownerRuleRefused(c, authorizer, names, owned(rec), 'mail trigger');
   }
 
   /**
@@ -206,34 +224,6 @@ export function mailTriggersRouter(
       return runIn(c, itemRights, item, projectId);
     }
     return denied(c, 'execute', ref(item.kind, item.id));
-  }
-
-  /**
-   * A change to a person's trigger by anyone but its owner (a project
-   * admin), audited as `trigger-changed-for-owner`: it keeps its owner, so
-   * its runs go on acting as that person, with that person's connections.
-   * The owner's own changes, and a shared trigger's, aren't.
-   */
-  async function auditChangeForOwner(
-    c: Context<AppEnv>,
-    rec: MailTriggerRecord,
-    change: Exclude<TriggerOwnerChange, 'taken-over' | 'fired'>,
-    changed: Partial<MailTriggerChange> = {},
-  ): Promise<void> {
-    if (rec.owner.kind !== 'user' || isCaller(c, rec.owner)) return;
-    await recordChangeForOwner({
-      auditEvents,
-      tenantId: rec.tenantId,
-      projectId: rec.projectId,
-      triggerId: rec.triggerId,
-      triggerKind: 'mail',
-      owner: rec.owner,
-      by: callerRef(c),
-      change,
-      ...changed,
-      correlationId: c.get('requestId'),
-      log: c.get('log'),
-    });
   }
 
   /** The mail trigger, if it is one (another kind's id is not found here), and the caller may `action` its project. */
@@ -288,7 +278,7 @@ export function mailTriggersRouter(
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
     const refusedRole =
       mailbox.as === 'company'
-        ? await notAdmin(c, project, "register a trigger on the company's mailbox")
+        ? await notAdmin(c, project, "Watching the company's mailbox")
         : project === undefined
           ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
           : await denied(c, 'write', ref('project', project));
@@ -308,7 +298,7 @@ export function mailTriggersRouter(
     // What its runs may call without a person's yes: a project admin's to
     // set, and only tools its target calls.
     if (tools.kind === 'ok') {
-      const refusedList = await notAdmin(c, project, 'set `toolsAllowedUnattended`');
+      const refusedList = await notAdmin(c, project, 'Setting `toolsAllowedUnattended`');
       if (refusedList !== undefined) return refusedList;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
@@ -466,13 +456,13 @@ export function mailTriggersRouter(
 
     // Who may change it: a personal trigger's owner or an admin; a shared
     // one's admin. The company's mailbox, before or after, takes the admin.
-    const refusedChange = await changeRefused(c, rec, 'change', 'admin');
+    const refusedChange = await changeRefused(c, rec, 'admin');
     if (refusedChange !== undefined) return refusedChange;
     if (mailboxBefore.as === 'company' || mailboxAfter.as === 'company') {
       const refusedCompany = await notAdmin(
         c,
         project,
-        "change a trigger on the company's mailbox",
+        "Changing a trigger on the company's mailbox",
       );
       if (refusedCompany !== undefined) return refusedCompany;
     }
@@ -485,7 +475,7 @@ export function mailTriggersRouter(
     // alone to choose: the mailbox, and the folder or label in it. Nobody
     // else, an admin included, points it at mail its owner didn't offer.
     // An admin may still move it to the company's mailbox, or take it over.
-    if (rec.owner.kind === 'user' && mailboxAfter.as === 'person' && !isCaller(c, rec.owner)) {
+    if (rec.owner.kind === 'user' && mailboxAfter.as === 'person' && !callerOwns(c, rec.owner)) {
       const folderChanged =
         config.value.folder !== undefined && config.value.folder !== rec.config.folder;
       if (readsElsewhere || folderChanged) {
@@ -527,9 +517,9 @@ export function mailTriggersRouter(
       tools.value.length === 0 &&
       (retargeted || readsElsewhere) &&
       rec.owner.kind === 'user' &&
-      isCaller(c, rec.owner);
+      callerOwns(c, rec.owner);
     if (tools.kind === 'ok' && !ownerClears) {
-      const refusedList = await notAdmin(c, project, 'set `toolsAllowedUnattended`');
+      const refusedList = await notAdmin(c, project, 'Setting `toolsAllowedUnattended`');
       if (refusedList !== undefined) return refusedList;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
@@ -555,7 +545,15 @@ export function mailTriggersRouter(
 
     const updated = result.value as MailTriggerRecord;
     const changed = whatChanged(rec, updated);
-    if (changed.fields.length > 0) await auditChangeForOwner(c, rec, 'updated', changed);
+    // An admin's change to a person's trigger: audited, and its owner told.
+    await noteChangeForOwner(c, {
+      auditEvents,
+      notices: ownerNotices,
+      trigger: owned(rec),
+      triggerKind: 'mail',
+      change: 'updated',
+      ...changed,
+    });
     // A change of the list is audited; so is a new target or mailbox it names again.
     if (
       tools.kind === 'ok' &&
@@ -587,12 +585,18 @@ export function mailTriggersRouter(
       const requestId = c.get('requestId');
       const found = await mailTriggerFor(c, 'read');
       if (found.kind === 'err') return found.response;
-      const refusedChange = await changeRefused(c, found.value, verb, 'write');
+      const refusedChange = await changeRefused(c, found.value, 'write');
       if (refusedChange !== undefined) return refusedChange;
       const { tenantId, triggerId } = found.value;
       const result = await binding[verb]({ tenantId, triggerId });
       if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
-      await auditChangeForOwner(c, found.value, verb === 'pause' ? 'paused' : 'resumed');
+      await noteChangeForOwner(c, {
+        auditEvents,
+        notices: ownerNotices,
+        trigger: owned(found.value),
+        triggerKind: 'mail',
+        change: verb === 'pause' ? 'paused' : 'resumed',
+      });
       return mailTriggerJson(c, result.value as MailTriggerRecord);
     });
   }
@@ -601,11 +605,19 @@ export function mailTriggersRouter(
   r.post('/:triggerId/unregister', async (c) => {
     const found = await mailTriggerFor(c, 'read');
     if (found.kind === 'err') return found.response;
-    const refusedChange = await changeRefused(c, found.value, 'unregister', 'write');
+    const refusedChange = await changeRefused(c, found.value, 'write');
     if (refusedChange !== undefined) return refusedChange;
     const { tenantId, triggerId } = found.value;
     const outcome = await binding.unregister({ tenantId, triggerId });
-    if (outcome.unregistered) await auditChangeForOwner(c, found.value, 'unregistered');
+    if (outcome.unregistered) {
+      await noteChangeForOwner(c, {
+        auditEvents,
+        notices: ownerNotices,
+        trigger: owned(found.value),
+        triggerKind: 'mail',
+        change: 'unregistered',
+      });
+    }
     return c.json({
       triggerId: triggerId as unknown as string,
       unregistered: outcome.unregistered,
@@ -641,7 +653,7 @@ export function mailTriggersRouter(
     const refusedAdmin = await notAdmin(
       c,
       rec.projectId as unknown as string,
-      'take a mail trigger over',
+      'Taking a mail trigger over',
     );
     if (refusedAdmin !== undefined) return refusedAdmin;
     if (binding.setOwner === undefined) return unsupported(c, requestId, 'changing the owner');
@@ -689,6 +701,7 @@ export function mailTriggersRouter(
         toolsAllowedUnattended: rec.toolsAllowedUnattended,
       }),
     });
+    tellTakenOver(c, ownerNotices, owned(rec), 'mail');
     return mailTriggerJson(c, result.value as MailTriggerRecord);
   });
 
@@ -722,12 +735,6 @@ function personMailboxOwnerProblem(
     return PERSON_MAILBOX_IS_A_PERSONS;
   }
   return undefined;
-}
-
-/** Whether the caller is `owner`. */
-function isCaller(c: Context<AppEnv>, owner: TriggerOwner): boolean {
-  const caller = ownerOf(c);
-  return caller.kind === owner.kind && caller.id === owner.id;
 }
 
 type BeforeAfter = { readonly before: unknown; readonly after: unknown };

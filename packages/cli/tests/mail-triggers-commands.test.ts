@@ -241,7 +241,7 @@ describe('kindgi mail-triggers', () => {
     expect(none.out.stderr).not.toContain('allowed unattended');
   });
 
-  test('list filters, and the table: what it runs, the mailbox, its account and status', async () => {
+  test('list filters, and the table: what it runs, the mailbox, its account, status, and whom it runs as', async () => {
     const { out, calls } = await mailTriggers([
       'list',
       '--project=p-1',
@@ -254,6 +254,8 @@ describe('kindgi mail-triggers', () => {
     expect(out.stdout).toContain('agent acme.support');
     expect(out.stdout).toContain('google person');
     expect(out.stdout).toContain('support@acme.example');
+    expect(out.stdout).toMatch(/RUNS AS/);
+    expect(out.stdout).toContain('Ada Lovelace (personal)');
     const bad = await mailTriggers(['list', '--status=stopped']);
     expect(bad.out.exitCode).not.toBe(0);
     expect(bad.calls).toEqual([]);

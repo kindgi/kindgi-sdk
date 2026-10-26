@@ -868,8 +868,8 @@ export interface CreateAppInput {
   readonly triggerKinds?: readonly TriggerKind[];
   /**
    * Optional. Tells a person when a project admin changes, pauses,
-   * resumes, fires, deletes or takes over a schedule or webhook trigger
-   * they own (the runtime emails them). Called once the change is made,
+   * resumes, fires, deletes or takes over a schedule, webhook or mail
+   * trigger they own (the runtime emails them). Called once the change is made,
    * never awaited; a failure is logged. Absent: the change is only
    * audited (`trigger-changed-for-owner`).
    */
@@ -2171,6 +2171,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
           ...(itemRights !== undefined && { itemRights }),
           targetTools,
+          ...(input.triggerOwnerNotices !== undefined && {
+            ownerNotices: input.triggerOwnerNotices,
+          }),
         }),
       );
     }

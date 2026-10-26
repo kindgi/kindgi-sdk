@@ -13,6 +13,7 @@ import {
   requiredPositional,
   runSdk,
   runSdkRendered,
+  runsAsCell,
   stringFlag,
 } from './helpers.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
@@ -61,7 +62,7 @@ const TRIGGERS_TABLE: TableSpec<MailTriggerPage, MailTrigger> = {
       header: 'STATUS',
       get: (t) => (t.statusReason !== undefined ? `${t.status} (${t.statusReason})` : t.status),
     },
-    { header: 'OWNER', get: (t) => t.owner.displayName ?? t.owner.id },
+    { header: 'RUNS AS', get: (t) => runsAsCell(t.owner) },
     { header: 'LABEL', get: (t) => t.label ?? '' },
   ],
 };

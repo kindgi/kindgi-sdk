@@ -32,6 +32,7 @@ import type {
   RunHandlerBinding,
   ServiceAccountBinding,
   TokenResolver,
+  TriggerOwnerNotice,
 } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -109,6 +110,7 @@ function harness(opts: { store?: boolean } = {}) {
     },
   };
   const triggerRegistry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
+  const told: TriggerOwnerNotice[] = [];
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -118,6 +120,7 @@ function harness(opts: { store?: boolean } = {}) {
     flowRegistry,
     serviceAccountBinding,
     auditEvents,
+    triggerOwnerNotices: { tell: (notice) => void told.push(notice) },
     ...(opts.store !== false && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -142,7 +145,7 @@ function harness(opts: { store?: boolean } = {}) {
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
   const events = (kind: string): AuditEvent[] => written.filter((e) => e.kind === kind);
-  return { call, events, triggerRegistry };
+  return { call, events, told, triggerRegistry };
 }
 
 const docOf = (e: AuditEvent | undefined) =>
@@ -372,6 +375,62 @@ describe('who may change a personal trigger', () => {
       by: expect.any(String),
       change: 'paused',
     });
+  });
+
+  test("an admin's change, pause, resume, unregister and take-over tell the owner; the owner's own don't", async () => {
+    const h = harness();
+    const id = await wrensTrigger(h, { label: 'Orders' });
+    await h.call('PATCH', `${BASE}/${id}`, { config: { pollSeconds: 120 } }, 'wren');
+    await h.call('POST', `${BASE}/${id}/pause`, undefined, 'wren');
+    await h.call('POST', `${BASE}/${id}/resume`, undefined, 'wren');
+    expect(h.told).toEqual([]);
+    await h.call('PATCH', `${BASE}/${id}`, { config: { pollSeconds: 300 }, label: 'Orders' });
+    for (const verb of ['pause', 'resume', 'unregister']) {
+      expect((await h.call('POST', `${BASE}/${id}/${verb}`)).status).toBe(200);
+    }
+    expect(h.told.map((n) => n.change)).toEqual(['updated', 'paused', 'resumed', 'unregistered']);
+    expect(h.told[0]).toEqual({
+      tenantId,
+      projectId: PROJECT,
+      triggerId: id,
+      triggerKind: 'mail',
+      label: 'Orders',
+      owner: { kind: 'user', id: WREN },
+      by: expect.any(String),
+      at: expect.any(String),
+      change: 'updated',
+      fields: ['pollSeconds'],
+    });
+    // A take-over tells the former owner.
+    const other = await wrensTrigger(h);
+    expect((await h.call('POST', `${BASE}/${other}/owner`)).status).toBe(200);
+    expect(h.told.at(-1)).toMatchObject({
+      triggerId: other,
+      triggerKind: 'mail',
+      owner: { kind: 'user', id: WREN },
+      change: 'taken-over',
+    });
+    expect(h.told).toHaveLength(5);
+  });
+
+  test('a refused change says who may make it', async () => {
+    const h = harness();
+    const id = await wrensTrigger(h);
+    const milos = await h.call('PATCH', `${BASE}/${id}`, { label: 'x' }, 'milo');
+    expect(milos.status).toBe(403);
+    expect(milos.body.error.message).toBe(
+      `This mail trigger is personal: only ${WREN} or a project admin can change it.`,
+    );
+    const takeOver = await h.call('POST', `${BASE}/${id}/owner`, undefined, 'wren');
+    expect(takeOver.status).toBe(403);
+    expect(takeOver.body.error.message).toBe('Taking a mail trigger over takes a project admin.');
+    const made = await h.call('POST', BASE, company({ runAsServiceAccountId: BOT }));
+    const shared = await h.call('PATCH', `${BASE}/${made.body.triggerId}`, { label: 'x' }, 'wren');
+    expect(shared.body.error.message).toBe('Changing a shared mail trigger takes a project admin.');
+    const companys = await h.call('POST', BASE, company(), 'wren');
+    expect(companys.body.error.message).toBe(
+      "Watching the company's mailbox takes a project admin.",
+    );
   });
 
   test('a PATCH that names an owner is a 400: the owner moves only by a take-over', async () => {

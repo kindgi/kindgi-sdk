@@ -160,9 +160,9 @@ export function triggerOwnerDeps(
 }
 
 /**
- * Whether the caller is an admin of a trigger's project, for the checks a
- * mail trigger's routes make: `admin` on the project with an authorization
- * model. WITHOUT one the model can grant nothing, and a check of the model
+ * Whether the caller is an admin of a trigger's project, for the checks
+ * every trigger kind's routes make: `admin` on the project with an
+ * authorization model. WITHOUT one the model can grant nothing, and a check of the model
  * would let every caller through; so the decision falls back to the
  * tenant-admin check, read from the token's scopes, as {@link mayNotActAs}
  * does. Otherwise any member would count as an admin, and could retarget a
@@ -346,7 +346,8 @@ export interface TriggerOwnerNotice {
    * `toolsAllowedUnattended`, a webhook's `hmacSecretName`; else `label`, a
    * schedule's `cronExpression`, `timezone`, `catchUp`, `overlap` and
    * `startingDeadlineSeconds`, a webhook's `signature`, `deliveryIdHeader`,
-   * `bodyLimitBytes` and `rateLimitPerMinute`. Never their values.
+   * `bodyLimitBytes` and `rateLimitPerMinute`, a mail trigger's `mailbox`,
+   * `folder`, `pollSeconds` and `runsPerHour`. Never their values.
    */
   readonly fields?: readonly string[];
 }
@@ -396,7 +397,7 @@ export async function ownerRuleRefused(
   authorizer: Authorizer | undefined,
   names: TriggerOwnerNames | undefined,
   trigger: { readonly projectId: string; readonly owner: TriggerOwner },
-  word: 'schedule' | 'webhook trigger',
+  word: TriggerWord,
 ): Promise<Response> {
   const { projectId, owner } = trigger;
   let message = `Changing what a shared ${word} runs takes a project admin.`;
@@ -413,7 +414,10 @@ export async function ownerRuleRefused(
   });
 }
 
-/** A schedule or webhook trigger, as the owner rule reads it. */
+/** How a 403 names a trigger's kind. */
+type TriggerWord = 'schedule' | 'webhook trigger' | 'mail trigger';
+
+/** A schedule, webhook or mail trigger, as the owner rule reads it. */
 export interface OwnedTrigger {
   readonly tenantId: TenantId;
   readonly triggerId: string;
@@ -436,7 +440,7 @@ export async function personalTriggerRefusal(
   authorizer: Authorizer | undefined,
   names: TriggerOwnerNames | undefined,
   trigger: OwnedTrigger,
-  word: 'schedule' | 'webhook trigger',
+  word: TriggerWord,
 ): Promise<Response | undefined> {
   if (trigger.owner.kind !== 'user') return undefined;
   if (await mayChangePersonalTrigger(c, authorizer, trigger)) return undefined;
@@ -478,11 +482,13 @@ export async function noteChangeForOwner(
     readonly auditEvents: EmitAuditEventArgs['auditEvents'];
     readonly notices: TriggerOwnerNotices | undefined;
     readonly trigger: OwnedTrigger;
-    readonly triggerKind: 'webhook' | 'cron';
+    readonly triggerKind: 'webhook' | 'cron' | 'mail';
     readonly change: Exclude<TriggerOwnerChange, 'taken-over'>;
     readonly fields?: readonly string[];
     readonly target?: { readonly before: unknown; readonly after: unknown };
     readonly hmacSecretName?: { readonly before: string; readonly after: string };
+    readonly mailbox?: { readonly before: unknown; readonly after: unknown };
+    readonly folder?: { readonly before: unknown; readonly after: unknown };
   },
 ): Promise<void> {
   const { auditEvents, notices, trigger, triggerKind, change, fields } = args;
@@ -502,6 +508,8 @@ export async function noteChangeForOwner(
     ...(fields !== undefined && { fields }),
     ...(args.target !== undefined && { target: args.target }),
     ...(args.hmacSecretName !== undefined && { hmacSecretName: args.hmacSecretName }),
+    ...(args.mailbox !== undefined && { mailbox: args.mailbox }),
+    ...(args.folder !== undefined && { folder: args.folder }),
     correlationId: c.get('requestId'),
     log: c.get('log'),
   });
@@ -528,7 +536,7 @@ export function tellTakenOver(
   c: Context<AppEnv>,
   notices: TriggerOwnerNotices | undefined,
   trigger: OwnedTrigger,
-  triggerKind: 'webhook' | 'cron',
+  triggerKind: 'webhook' | 'cron' | 'mail',
 ): void {
   if (trigger.owner.kind !== 'user' || callerOwns(c, trigger.owner)) return;
   tellOwner(c, notices, {
