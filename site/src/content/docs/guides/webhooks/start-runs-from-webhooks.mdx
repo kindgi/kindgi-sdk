@@ -311,7 +311,7 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   service-account-not-found`) or it was unregistered (`409
   service-account-unregistered`). With an authorization store, the account
   must also be able to run the flow: one that can't is refused (`409
-  service-account-cannot-run-target`); give it the editor role on the
+  trigger-owner-cannot-run-target`); give it the editor role on the
   flow's project. From your app, it's `runAsServiceAccountId` on
   `webhooks.register` (`run_as_service_account_id` in Python). It's
   recorded as evidence, `trigger-owner-set`.

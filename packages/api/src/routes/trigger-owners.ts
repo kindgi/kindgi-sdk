@@ -141,7 +141,7 @@ export async function resolveTriggerOwner(
       response: ownerError(
         c,
         requestId,
-        'service-account-cannot-run-target',
+        'trigger-owner-cannot-run-target',
         cannotRunMessage(account.name, target),
       ),
     };

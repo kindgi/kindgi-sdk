@@ -13,7 +13,7 @@
  * - A non-reader gets one 403 for every reason, byte-identical, so they
  *   can't probe the tenant's accounts by naming ids.
  * - Past the gate, an account that can't run the target is a 409
- *   (`service-account-cannot-run-target`), naming the account.
+ *   (`trigger-owner-cannot-run-target`), naming the account.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -228,7 +228,7 @@ describe('resolveTriggerOwner: past the gate, the account must be able to run th
     });
     if (r.kind !== 'refused') throw new Error('expected refusal');
     const { status, code, text } = await parse(r.response);
-    expect([status, code]).toEqual([409, 'service-account-cannot-run-target']);
+    expect([status, code]).toEqual([409, 'trigger-owner-cannot-run-target']);
     expect(JSON.parse(text).error.message).toBe(
       'Service account "acme-nightly-bot" can\'t run agent "acme.agent", so the trigger can\'t run as it. Give the account the editor role on the target\'s project, or name another account.',
     );

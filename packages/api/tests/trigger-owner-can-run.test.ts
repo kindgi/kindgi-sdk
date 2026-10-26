@@ -9,7 +9,7 @@
  *
  * - With an authorization model: register and take-over, for schedules and
  *   webhooks, refuse an account that can't with a 409
- *   `service-account-cannot-run-target`, after the `act_as` gate, so no
+ *   `trigger-owner-cannot-run-target`, after the `act_as` gate, so no
  *   one past whom the gate stops learns anything.
  * - The account's check is `targetAccess`: `execute` on the flow or agent,
  *   `publish` on the agent for an improvement pass.
@@ -197,7 +197,7 @@ describe('register: an account that cannot run the target is a 409', () => {
     const res = await h.call('POST', '/v1/schedules', schedule({ runAsServiceAccountId: BOT }));
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({
-      code: 'service-account-cannot-run-target',
+      code: 'trigger-owner-cannot-run-target',
       message: AGENT_MESSAGE,
     });
     expect(h.botAsked()).toEqual([`bot execute agent:${AGENT}`]);
@@ -224,7 +224,7 @@ describe('register: an account that cannot run the target is a 409', () => {
     });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({
-      code: 'service-account-cannot-run-target',
+      code: 'trigger-owner-cannot-run-target',
       message: IMPROVE_MESSAGE,
     });
     expect(h.botAsked()).toEqual([`bot publish agent:${AGENT}`]);
@@ -235,7 +235,7 @@ describe('register: an account that cannot run the target is a 409', () => {
     const res = await h.call('POST', '/v1/webhooks', webhook({ runAsServiceAccountId: BOT }));
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({
-      code: 'service-account-cannot-run-target',
+      code: 'trigger-owner-cannot-run-target',
       message: FLOW_MESSAGE,
     });
     expect(h.botAsked()).toEqual([`bot execute flow:${FLOW}`]);
@@ -273,7 +273,7 @@ describe('take-over: naming an account that cannot run the target is a 409', () 
     });
     expect(refused.status).toBe(409);
     expect(refused.body.error).toMatchObject({
-      code: 'service-account-cannot-run-target',
+      code: 'trigger-owner-cannot-run-target',
       message: AGENT_MESSAGE,
     });
     // The owner is unchanged.
@@ -293,7 +293,7 @@ describe('take-over: naming an account that cannot run the target is a 409', () 
     });
     expect(refused.status).toBe(409);
     expect(refused.body.error).toMatchObject({
-      code: 'service-account-cannot-run-target',
+      code: 'trigger-owner-cannot-run-target',
       message: FLOW_MESSAGE,
     });
   });

@@ -89,7 +89,7 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
 - **The account must be able to run it,** as any owner must. With an
   authorization store, that's checked when you name it: an account that
   can't run what the schedule runs is refused (`409
-  service-account-cannot-run-target`). Give it the editor role on the
+  trigger-owner-cannot-run-target`). Give it the editor role on the
   target's project, or name another account. Without a store, grants limit
   nothing, so there's nothing to check.
 - **A fire it may no longer run is `refused`:** after a grant is taken

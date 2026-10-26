@@ -2353,7 +2353,7 @@ export const ERROR_ENTRIES = {
     description: "The service account has been unregistered, so it can't be granted anything.",
     details: [],
   },
-  'service-account-cannot-run-target': {
+  'trigger-owner-cannot-run-target': {
     description:
       "A schedule or webhook trigger named a service account to run as (`runAsServiceAccountId`), and the account can't run what the trigger starts: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule. The message names the account and the target. Give the account the editor role on the target's project, or name another account. Checked only with an authorization store.",
     details: [],

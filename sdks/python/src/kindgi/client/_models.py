@@ -10378,7 +10378,7 @@ class TakeTriggerOwnerBody(BaseModel):
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
     ] = None
     """
-    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 service-account-cannot-run-target`).
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`).
     """
 
 
@@ -15558,7 +15558,7 @@ class RegisterWebhookTriggerBody(BaseModel):
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
     ] = None
     """
-    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 service-account-cannot-run-target`). Absent: the caller owns it.
+    A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Absent: the caller owns it.
     """
     tools_allowed_unattended: Annotated[
         list[ToolsAllowedUnattendedItem] | None,
@@ -16607,7 +16607,7 @@ class RegisterScheduleBody(BaseModel):
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
     ] = None
     """
-    A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 service-account-cannot-run-target`). Absent: the caller owns it.
+    A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Absent: the caller owns it.
     """
     config: Config6
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
