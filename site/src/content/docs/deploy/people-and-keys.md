@@ -556,7 +556,9 @@ trigger is set to run as the project, when one is created or taken over
 with `--run-as=project` (`runAsProject: true` in the API), which takes
 `admin` on the project
 ([Run as a service account](../../guides/runs/run-on-a-schedule/#run-as-a-service-account)).
-A project that never does that has none.
+A project that never does that has none. A runtime that can't make one
+answers `--run-as=project` with `501 trigger-operation-unsupported`: "This
+runtime can't make a project's own account."
 
 - **Its grant is fixed:** `editor` on its project, and nothing else, so its
   runs may do what the project's editors may. `grant` and `ungrant` on it
@@ -567,8 +569,8 @@ A project that never does that has none.
   its id is refused: a tenant admin is answered `409
   service-account-project-owned`, and anyone else gets the usual `403`.
 - **Its name is `project-<project-id>`.** `kindgi service-accounts list`
-  and `get` show it with "project's own: <project-id>", and the API with
-  `projectId`. A trigger that runs as it has `isProjectAccount: true` in its
+  shows it with "project's own: <project-id>" in its grants, and
+  `kindgi service-accounts get` and the API with its `projectId`. A trigger that runs as it has `isProjectAccount: true` in its
   `owner`. If a tenant admin already made an account of that name,
   `--run-as=project` is answered `409 service-account-name-taken`: "An
   account named `project-<project-id>` is already registered. A tenant admin
