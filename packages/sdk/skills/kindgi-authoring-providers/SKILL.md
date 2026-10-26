@@ -151,7 +151,7 @@ kindgi deploy --hosted --env=prod
   presets` for `azure-openai`'s settings.
 
 The whole flow, from signing the CLI in to going live:
-https://docs.kindgi.com/v0.1/hosted/deploy-your-agent/#your-model-key-and-its-provider
+https://docs.kindgi.com/v0.2/hosted/deploy-your-agent/#your-model-key-and-its-provider
 
 ## Path A — Hosted, native Anthropic
 
@@ -705,7 +705,7 @@ moved to `isolated` that signs in as the runtime isn't used there: a turn
 that needs it fails with `422 capability-routing-failed`. Unregister it, and
 register it again with a key.
 
-Docs: https://docs.kindgi.com/v0.1/guides/models/#with-a-bedrock-api-key
+Docs: https://docs.kindgi.com/v0.2/guides/models/#with-a-bedrock-api-key
 
 ## How the router picks between multiple providers + models
 

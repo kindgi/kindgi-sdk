@@ -156,7 +156,7 @@ object Citator {
   it writes to (`Option(ctx.idempotencyKey).foreach(k => request.header("Idempotency-Key", k))`)
   or looks for it there first: a refund never goes out twice. A UUID; `null`
   outside a run and from a runtime before 0.1.6. Docs:
-  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.projectId`, `ctx.orgId`: the run's project, and its org (`null` when
   it has none). The runtime sets them from the run, never from the input.
   To check an id the input names, compare it with these.
@@ -229,7 +229,7 @@ val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.send-mail")
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, unless it's marked `.readOnly` (mark read-only tools so). The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
 - **In a unit test:** `com.kindgi.pack.ToolContext.forTest(java.util.Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null)))`; the last argument, when the token expires, can be `null`. `ctx.connections` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -318,7 +318,7 @@ In a run a person started (signed in, or with their own API key), the agent's ru
     .needsApprovalWhenUnattended(true)
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.2/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Testing
 
@@ -412,7 +412,7 @@ changes (a removed field, a narrower type), not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `kindgi.config.json`: `"dev": {"sandbox": {"allowRead": ["~/.aws"]}}`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.2/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

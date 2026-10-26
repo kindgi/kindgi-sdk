@@ -258,7 +258,7 @@ month = client.cost.aggregate(
 # month.total_usd; month.groups[i].key ({"month": "2026-10"}), .total_usd, .tokens
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/observability/cost-per-run/
+Docs: https://docs.kindgi.com/v0.2/guides/observability/cost-per-run/
 
 Show it in the app's own UI. **Never:**
 
@@ -270,7 +270,7 @@ Show it in the app's own UI. **Never:**
 - **link users to Kindgi's console** or any Kindgi UI for this data.
 
 To keep a copy (reporting, search), pull it through the API into the app's
-own tables. Docs: https://docs.kindgi.com/v0.1/guides/runs/show-runs-in-your-app/
+own tables. Docs: https://docs.kindgi.com/v0.2/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -321,10 +321,10 @@ running the older version on it.
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment, or one on Azure Container Apps:** the
   "Operate it" section of its page,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/cloud-run/#operate-it or
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it.
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/cloud-run/#operate-it or
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/azure-container-apps/#operate-it.
 - **Otherwise:** the operate page's upgrade steps,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime.
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/operate/#upgrade-the-runtime.
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

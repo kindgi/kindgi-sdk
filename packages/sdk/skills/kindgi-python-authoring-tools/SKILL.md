@@ -114,7 +114,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   system it writes to (an `Idempotency-Key` header, a client reference, a
   unique column) or looks for it there first: a refund never goes out
   twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
-  Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  Docs: https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
   org (`None` when it has none). The runtime sets them from the run, never
   from the input: to check an org or project id the input names, compare
@@ -138,7 +138,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   amounts and outcomes, never what a person typed (a refund's reason, a
   message, an address): the log is read by whoever operates the runtime.
   `ToolContext.for_test(…)` logs nothing unless you pass it `log=`. Docs:
-  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#log-from-a-tool
+  https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#log-from-a-tool
 
 ## Configuration and secrets
 
@@ -239,7 +239,7 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, unless it's marked `mutating=False` (mark read-only tools so). The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below).
 - **In a unit test:** `ToolContext.for_test(connections={"mail": ToolConnection(connection_id="c-1", app="google", app_name="Google", access_token="test", account=ConnectionAccount(id="1", label="ana@acme.com"))})`, all from `kindgi`. `ctx.connections` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -297,7 +297,7 @@ def refund(request: RefundRequest) -> Refunded:
     """Refunds an order."""
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.2/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## HTTP tools — one request, no code
 
@@ -429,7 +429,7 @@ removed field, a narrower type — not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `pyproject.toml`: `[tool.kindgi.dev.sandbox]` `allowRead = ["~/.aws"]`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.2/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 
