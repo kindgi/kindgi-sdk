@@ -238,6 +238,25 @@ describe('htmlToText', () => {
     );
   });
 
+  it("shows a link's target when its text runs on past the address into a host of its own", () => {
+    for (const shown of [
+      'evil.example.bank.example',
+      'evil.example.bank.example/login',
+      'https://evil.example.bank.example',
+      'evil.example:8443',
+    ]) {
+      expect(htmlToText(`<a href="https://evil.example/">${shown}</a>`)).toBe(
+        `${shown} <https://evil.example/>`,
+      );
+    }
+    expect(htmlToText('<a href="https://evil.example/">Visit evil.example.</a>')).toBe(
+      'Visit evil.example.',
+    );
+    expect(htmlToText('<a href="https://evil.example/">evil.example?! Yes.</a>')).toBe(
+      'evil.example?! Yes.',
+    );
+  });
+
   it("keeps a link's text only when it shows the address, has none, or isn't a web link", () => {
     expect(
       htmlToText('<a href="https://acme.example/faq/?utm_campaign=fall">acme.example/faq</a>'),

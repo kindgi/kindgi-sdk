@@ -687,16 +687,19 @@ function linkTarget(text: string, url: string): string {
 /**
  * Whether a link's text shows its address as a word of its own, with or
  * without the scheme and the closing `/`: at the text's start or after a
- * space, and at its end or before a space or `.,;:!?)`. Text that only
- * holds the address inside another (`bank.example/login?ref=evil.example`)
- * doesn't show it.
+ * space, and at its end, before a space, or before a run of `.,;:!?)`
+ * that ends the text or comes before a space. Text that only holds the
+ * address inside another (`bank.example/login?ref=evil.example`, or
+ * `evil.example.bank.example`) doesn't show it.
  */
 function showsAddress(shown: string, url: string): boolean {
   const bare = url
     .replace(/^https?:\/\//, '')
     .replace(/\/$/, '')
     .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:^|\\s)(?:https?://)?${bare}/?(?=$|[\\s.,;:!?)])`, 'i').test(shown);
+  return new RegExp(`(?:^|\\s)(?:https?://)?${bare}/?(?=$|\\s|[.,;:!?)]+(?:\\s|$))`, 'i').test(
+    shown,
+  );
 }
 
 function tagAsText(inner: string): string {

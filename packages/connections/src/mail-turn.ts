@@ -194,12 +194,13 @@ function recipients(mail: MailMessage): string {
 
 /**
  * A mail's own text, its lines that would read as this message's own
- * `---` lines set in by a space, then its attachments.
+ * `---` lines set in by a space (invisible format characters before the
+ * `---` count for nothing), then its attachments.
  */
 function mailText(m: MailMessage): string[] {
   const empty = m.body.trim() === '';
   const body = empty ? (m.bodyCut ? [] : ['(no text)']) : m.body.split(LINE_BREAK);
-  const lines = body.map((line) => (line.startsWith('---') ? ` ${line}` : line));
+  const lines = body.map((line) => (FORGED_LINE.test(line) ? ` ${line}` : line));
   if (m.bodyCut) lines.push('[the rest of this mail is cut]');
   const more = Math.max(m.attachments.length - LIST_MAX, 0) + (m.attachmentsLeftOut ?? 0);
   if (m.attachments.length > 0 || more > 0) {
@@ -251,6 +252,9 @@ function sameSubject(a: string, b: string): boolean {
  * a form feed, NEL, and Unicode's line and paragraph separators.
  */
 const LINE_BREAK = /\r\n|[\n\v\f\r\u0085\u2028\u2029]/;
+
+/** A line that would read as one of this message's own: `---` after nothing but invisible format characters (Unicode's Cf: U+200B, U+FEFF, U+00AD, …). */
+const FORGED_LINE = /^\p{Cf}*---/u;
 
 /** A header's value on one line, cut at `max` characters: a value can hold line breaks. */
 function headerText(text: string, max: number): string {
