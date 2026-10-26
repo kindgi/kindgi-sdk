@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-import { type AnyTool, toManifest } from '@kindgi/tools';
+import {
+  type AnyTool,
+  type ToolManifest,
+  changedToolFields,
+  toManifest,
+  toolDefinition,
+} from '@kindgi/tools';
 import { describe, expect, it } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
@@ -32,78 +39,42 @@ const TOOLS = {
 } satisfies Record<string, (id: string) => AnyTool>;
 
 /**
- * Each tool's versions, each with a hash of what it declares (its manifest,
- * less the id its pack names). A server keeps the first manifest it's given
- * for a version, so a change published under the same version never reaches
- * a project that has that version already. Change a tool, bump its version,
- * then add a line here: never change one.
+ * Each tool's version and its definition at that version (`toolDefinition`,
+ * what it declares), as JSON. A server keeps the first manifest it's given
+ * for a version, and a deploy refuses the same version with another
+ * definition, so a pack using a tool here could never redeploy after an
+ * upgrade that changed the tool under the same version. Change a tool,
+ * bump its version, then write its new version and definition here
+ * (`KINDGI_WRITE_TOOL_PINS=1`, below). The write mode records only a
+ * tool whose version moved.
  */
-const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
-  gmailSend: { '1.0.0': '553a5e83ef39c6e25c1c8d95640e7ba6f2814318884181eeb3b1a4d634e2ada1' },
-  'gmailSend as company': {
-    '1.0.0': '1ada941c76049cba0d64e5f391a28f81848b441bb5e27e262f1b6be4db1a0d3a',
-  },
-  gmailMessagesList: {
-    '1.0.0': 'bd8b3e5886fecac4af9a6f1c98598acdf7cd687c98070b00890f211371f9fe58',
-  },
-  'gmailMessagesList as company': {
-    '1.0.0': 'f6b6cb415803ac50ea2dc55b8f9c6c3d1ec16bbe112183e83d7f409c3e7e4ee6',
-  },
-  gmailMessageGet: {
-    '1.0.0': '543f5e0f2ad16b4866bd426ccd5e1a2e5882b94916436207441846944e66c511',
-  },
-  'gmailMessageGet as company': {
-    '1.0.0': '0226c677756ec9cd74d7e69aaaa6281e9bc14ae6a31024f7da669a054f833da9',
-  },
-  githubIssuesList: { '1.0.0': '2e9a7f7d01f9aaa777df3cedf8374b5cdc3f7bb8b6d074f2a50ec08595916b98' },
-  githubLabelsList: { '1.0.0': 'a9cd9f0fa4fc90fdf99eb42e3045f9544363d60beed12658aaf4c6f99a580fc9' },
-  githubIssuesAddLabels: {
-    '1.0.0': '16695bc00bd696e50c72fe9724c5ff2b790838d58056f80f4c58ee28a60f254c',
-  },
-  outlookSend: { '1.0.0': '880f0c0c96a56415630451dabcef11c7063172c62f3b607fd282f551b47cba7b' },
-  'outlookSend as company': {
-    '1.0.0': '19cf1fb8f398284be781d9e5b1a5e8456ae736433c3887fa11f614f9121805d3',
-  },
-  outlookMessagesList: {
-    '1.0.0': '60b02b54dbc3bd8b533b0208e8fad9f3dbe5b74e994da0b18d2a54ef77973861',
-  },
-  'outlookMessagesList as company': {
-    '1.0.0': '617d175890f74d86b04038ddac9c5fde82eb440fa143c69bd2600587c6dce09f',
-  },
-  outlookMessageGet: {
-    '1.0.0': '8f108ce8482dad5c396bb98a5fd31cb4fae748b5844440025e81716c9feee7ce',
-    '2.0.0': 'b7251347212da8d5385cf460266bbd7df150d024a14ba76f859a46a3c6062b10',
-  },
-  'outlookMessageGet as company': {
-    '2.0.0': '3554517ace10cd6fbd568ea5a5d2b06ff5ad80876edcdeff2add3a10a4627201',
-  },
-  linkedinPost: { '1.0.0': '67bff01e1b26f3bff67d26d4fb568285c797518bbe5dd762691479a389f2e2ca' },
-};
+const PINS_FILE = fileURLToPath(new URL('./tool-definitions.json', import.meta.url));
+type Pin = { readonly version: string; readonly definition: Readonly<Record<string, unknown>> };
+const PINS = JSON.parse(readFileSync(PINS_FILE, 'utf8')) as Partial<
+  Record<keyof typeof TOOLS, Pin>
+>;
+const WRITE = process.env.KINDGI_WRITE_TOOL_PINS === '1';
 
-/** JSON with each object's keys in order: the hash is of what's declared, not of the order it's written in. */
-function canonical(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
-  if (v !== null && typeof v === 'object') {
-    const o = v as Record<string, unknown>;
-    const keys = Object.keys(o)
-      .filter((k) => o[k] !== undefined)
-      .sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(v);
-}
-
-function declared(tool: AnyTool): string {
-  const { id: _id, ...manifest } = toManifest(tool);
-  return createHash('sha256').update(canonical(manifest)).digest('hex');
-}
+const BUMP =
+  'A change a caller still works with (an optional input field, another effect or approval, a reworded description) is a minor bump (1.0.0 to 1.1.0), which an agent\'s "^1.0.0" takes. A change that breaks a caller (a required input field, an output field removed or retyped) is a major bump (2.0.0), and each agent that uses the tool needs a new pin.';
 
 describe("each tool's version moves with what it declares", () => {
   it.each(Object.keys(TOOLS) as (keyof typeof TOOLS)[])('%s', (name) => {
-    const tool = TOOLS[name](`acme.${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
+    const tool = toManifest(TOOLS[name](`acme.${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`));
+    const pin = PINS[name];
+    if (pin?.version !== tool.version && WRITE) {
+      PINS[name] = { version: tool.version, definition: toolDefinition(tool) };
+      writeFileSync(PINS_FILE, `${JSON.stringify(PINS, null, 2)}\n`);
+      return;
+    }
     expect(
-      declared(tool),
-      `${name} declares something new under ${tool.version}: bump its version, then add the new version and hash to PINS`,
-    ).toBe(PINS[name][tool.version]);
+      pin?.version,
+      `${name} is at version ${tool.version}, and tool-definitions.json pins ${pin?.version ?? 'none'}: write its new version and definition (KINDGI_WRITE_TOOL_PINS=1 pnpm --filter @kindgi/connections exec vitest run tests/tool-pins.test.ts)`,
+    ).toBe(tool.version);
+    const fields = changedToolFields(pin?.definition as unknown as ToolManifest, tool);
+    expect(
+      fields,
+      `${name} declares something new under ${tool.version} (${fields.join(', ')}): give it a new version. ${BUMP}`,
+    ).toEqual([]);
   });
 });
