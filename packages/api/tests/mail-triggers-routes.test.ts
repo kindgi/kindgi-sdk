@@ -330,18 +330,21 @@ describe('who may change a personal trigger', () => {
       mailbox: { app: 'microsoft', as: 'person' },
       folder: 'inbox',
     });
-    // An admin's move to the company's mailbox is OK, and audited.
+    // An admin's move to the company's mailbox is OK, and audited. The
+    // folder was the person's mailbox's, so it goes: the company's inbox.
     const toCompany = await h.call('PATCH', `${BASE}/${id}`, {
       config: { mailbox: { app: 'microsoft', as: 'company' } },
     });
     expect(toCompany.status).toBe(200);
+    expect(toCompany.body).not.toHaveProperty('folder');
     expect(docOf(h.events('trigger-changed-for-owner')[0])).toMatchObject({
       change: 'updated',
-      fields: ['mailbox'],
+      fields: ['mailbox', 'folder'],
       mailbox: {
         before: { app: 'microsoft', as: 'person' },
         after: { app: 'microsoft', as: 'company' },
       },
+      folder: { before: 'inbox', after: null },
     });
     // On the company's mailbox, its folder is an admin's as before.
     const companyFolder = { config: { folder: 'AAMkAD-orders' } };
@@ -460,6 +463,58 @@ describe('who may change a personal trigger', () => {
     const body = { config: { mailbox: { app: 'google', as: 'company' } } };
     expect((await h.call('PATCH', `${BASE}/${id}`, body, 'wren')).status).toBe(403);
     expect((await h.call('PATCH', `${BASE}/${id}`, body)).status).toBe(200);
+  });
+});
+
+describe('a move to another mailbox', () => {
+  test('that names no folder watches its inbox: the folder goes, and the audit says so', async () => {
+    const h = harness();
+    const id = await wrensTrigger(h, {
+      config: { mailbox: { app: 'google', as: 'person' }, folder: 'Label_9' },
+    });
+    const moved = await h.call(
+      'PATCH',
+      `${BASE}/${id}`,
+      { config: { mailbox: { app: 'microsoft', as: 'person' } } },
+      'wren',
+    );
+    expect(moved.status).toBe(200);
+    expect(moved.body.mailbox).toEqual({ app: 'microsoft', as: 'person' });
+    expect(moved.body).not.toHaveProperty('folder');
+    expect(validateAgainst('MailTriggerRecord', moved.body)).toEqual([]);
+    expect((await h.call('GET', `${BASE}/${id}`, undefined, 'wren')).body).not.toHaveProperty(
+      'folder',
+    );
+    // The same app's company mailbox is another mailbox too.
+    const adas = await h.call(
+      'POST',
+      BASE,
+      personal({ config: { mailbox: { app: 'google', as: 'person' }, folder: 'Label_9' } }),
+    );
+    const toCompany = await h.call('PATCH', `${BASE}/${adas.body.triggerId}`, {
+      config: { mailbox: { app: 'google', as: 'company' } },
+    });
+    expect(toCompany.body).toMatchObject({ mailbox: { app: 'google', as: 'company' } });
+    expect(toCompany.body).not.toHaveProperty('folder');
+  });
+
+  test('a folder named with it is the one; the same mailbox again, or a pace edit, keeps the folder', async () => {
+    const h = harness();
+    const made = await h.call('POST', BASE, {
+      ...company(),
+      config: { mailbox: { app: 'microsoft', as: 'company' }, folder: 'archive' },
+    });
+    const id = made.body.triggerId as string;
+    const named = await h.call('PATCH', `${BASE}/${id}`, {
+      config: { mailbox: { app: 'google', as: 'company' }, folder: 'SENT' },
+    });
+    expect(named.body).toMatchObject({ mailbox: { app: 'google', as: 'company' }, folder: 'SENT' });
+    const again = await h.call('PATCH', `${BASE}/${id}`, {
+      config: { mailbox: { app: 'google', as: 'company' } },
+    });
+    expect(again.body.folder).toBe('SENT');
+    const paced = await h.call('PATCH', `${BASE}/${id}`, { config: { pollSeconds: 300 } });
+    expect(paced.body).toMatchObject({ folder: 'SENT', pollSeconds: 300 });
   });
 });
 
