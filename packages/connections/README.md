@@ -65,8 +65,11 @@ export default gmailSend({ id: 'acme.gmail.send' });
 ```
 
 The id is the pack's because a tool id is the tenant's, filed under the
-first project that publishes it. Sending, labelling and posting are
-`mutating`, and wait for a person's yes in a run no person started.
+first project that publishes it. Sending, replying, labelling and
+posting are `mutating`, and wait for a person's yes in a run no person
+started. So does a read with a person's connection, such as a mail read
+without `as: 'company'`, and in a run a mail started, so does a read with
+that mailbox's own connection.
 
 A reply goes to the one address the mail asks for, its Reply-To, else
 its From, and the call's `to` must name it. A Reply-To that names no

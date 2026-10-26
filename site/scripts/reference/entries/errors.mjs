@@ -2355,7 +2355,7 @@ export const ERROR_ENTRIES = {
   },
   'service-account-project-owned': {
     description:
-      "The service account is a project's own account, the one the project's shared triggers run as. It has no keys, so none can be minted `for` it. Its grant is fixed, so it can't be granted or ungranted anything. A trigger can't name it in `runAsServiceAccountId`: name it with `runAsProject: true` instead. An app that needs keys needs a service account of its own.",
+      "The service account is a project's own account, the account a trigger with `runAsProject` runs as. It has no keys, so none can be minted `for` it. Its grant is fixed, so it can't be granted or ungranted anything. A trigger can't name it in `runAsServiceAccountId`: name it with `runAsProject: true` instead. An app that needs keys needs a service account of its own.",
     details: [],
   },
   'identity-user-email-taken': {
