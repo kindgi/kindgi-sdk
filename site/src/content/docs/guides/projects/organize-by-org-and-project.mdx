@@ -207,8 +207,8 @@ In the console, a tenant admin makes one with **New project** on the tenant
 dashboard's **Projects** card: a name, a slug made from the name until you
 edit it, an org if the tenant has any, and what it's for. The new project then
 opens. A project's admins (an admin of its org, or a tenant admin, is one)
-rename it with **Rename** in its **Dashboard**'s header. Its id stays; a new
-slug changes what `kindgi deploy --project` takes.
+rename it with **Rename** in its **Dashboard**'s header. Its id stays; what
+a new slug changes is under **Changing a project's slug**, below.
 
 **Slugs.** An org's slug is unique in the tenant. A project's slug is unique
 in its org, so every customer can have a `support` project. A project with
@@ -219,6 +219,21 @@ refused with `409 slug-conflict`:
 Another org in the tenant has the slug "acme-customer-one"
 Another project in its org has the slug "support" (for a project without an org: another project without one)
 ```
+
+**Changing a project's slug.** A rename is one change: a taken slug is
+refused, as above, and nothing changes. Once it's renamed, its old slug is
+free for another project to take. The project's id stays, and the runtime
+goes by the id, so the project's pages in the console, its runs, keys and
+triggers, and what's deployed into it keep working, with no redeploy. Only
+the CLI looks a slug up, each time it runs, wherever you name a project by
+its slug: `kindgi deploy --project`, say, or an environment's `project` in
+your pack config (`environments.<name>.project`). Before your next deploy,
+change the old slug to the new one there. Until you do, a deploy that names
+the old slug is refused, since it names no project, unless another project
+in the tenant has it: one in another org may have it already, or take it
+later. Then the deploy goes into that project, without a word. So if you
+change a project's slug, name the project by its id in scripts and pack
+configs, or change them to the new slug before anyone deploys again.
 
 A tenant has one Default project. Asking for a second one answers
 `409 project-default-already-exists`, "The tenant already has a Default
