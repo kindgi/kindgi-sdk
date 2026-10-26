@@ -25,10 +25,13 @@
 # The plan: before it asks for "yes", it checks the plan itself (terraform
 # show -json). It stops if the plan creates, deletes or replaces anything, or
 # changes anything but the new image(s) and the in-place changes that the
-# releases crossed name in their steps to confirm by hand; it says what each
-# one is. So a var file left off the command, whose variables the plan would
-# empty (a pack's env in pack_env and pack_secret_env, say), stops it before
-# anything is applied. "yes" applies exactly the plan shown.
+# releases after the current one name in their steps to confirm by hand; it
+# says what each one is. The plan is of the module in this directory, as of
+# the newest release this copy knows, so with a --to below that release it
+# also has the module's changes up to it, which it lists and allows. So a var
+# file left off the command, whose variables the plan would empty (a pack's
+# env in pack_env and pack_secret_env, say), stops it before anything is
+# applied. "yes" applies exactly the plan shown.
 #
 # Run it from this module directory, after `terraform init`, as the identity
 # that deploys the module (it reads the running service and the module's state,
@@ -89,6 +92,9 @@
 #                      script knows the steps up to 0.3.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag).
+#                      Below 0.3.0, the plan still makes this module's
+#                      changes up to 0.3.0, with the older runtime; that
+#                      release's tag keeps the module at its own.
 #   --from             Assert the current version (0.1.10, say, or 0.2.0.1)
 #                      when it can't be read from the deployment (no version
 #                      tag on the running image).
@@ -221,7 +227,7 @@ varfile_sets() {
 # Every --var-file, as terraform takes them, for a command printed to run.
 var_file_flags() {
   local f
-  for f in "${VAR_FILES[@]}"; do printf ' -var-file=%s' "$f"; done
+  for f in "${VAR_FILES[@]}"; do printf ' -var-file=%q' "$f"; done
 }
 
 # The go-back path, printed (never run) when the apply fails or the new revision
@@ -281,7 +287,7 @@ To go back:
 
  5. Put the old image(s) back and apply. The new revision reads the new
     secret version when it starts:
-      cp ${VARFILE_BACKUP} ${VAR_FILE}
+      cp $(printf '%q' "$VARFILE_BACKUP") $(printf '%q' "$VAR_FILE")
       terraform apply$(var_file_flags)
 
  6. Before anyone uses it, replay the erasures:
@@ -530,6 +536,18 @@ done
 for f in terraform.tfvars terraform.tfvars.json *.auto.tfvars *.auto.tfvars.json; do
   if [[ -f $f ]]; then info "also loaded    $f (Terraform loads it from this directory on its own)"; fi
 done
+# One of them that sets the image this run writes, other than the var-file it
+# writes it into, would put the old image back at a later apply without that
+# --var-file.
+for f in terraform.tfvars terraform.tfvars.json *.auto.tfvars *.auto.tfvars.json; do
+  [[ -f $f && ! $f -ef $VAR_FILE ]] || continue
+  if varfile_sets "$f" server_image; then
+    die "$f sets server_image, and Terraform loads it from this directory on its own: a later apply without -var-file=$VAR_FILE would put its image back. Keep server_image in $VAR_FILE only, then run again. Nothing was changed."
+  fi
+  if [[ $REBUILD_PACK == true ]] && varfile_sets "$f" pack_image; then
+    die "$f sets pack_image, and Terraform loads it from this directory on its own: a later apply without -var-file=$VAR_FILE would put its image back. Keep pack_image in $VAR_FILE only, then run again. Nothing was changed."
+  fi
+done
 for v in $(compgen -e | grep '^TF_VAR_' || true); do
   info "also set       $v (in the environment)"
 done
@@ -608,6 +626,16 @@ elif is_server_fix "$TARGET" && [[ "$(ver_num "$CURRENT")" -ge "$(ver_num "$TARG
 else
   die "no known upgrade steps between $CURRENT and $TARGET; this script knows ${KNOWN_RELEASES[*]}."
 fi
+# The plan is of the module in this directory, this copy's, as of the newest
+# release it knows. So it makes that module's changes for every release after
+# the current one up to that one, past the target's release too.
+MODULE_CROSSED=()
+for r in "${KNOWN_RELEASES[@]}"; do
+  if [[ "$(ver_num "$r")" -gt "$(ver_num "$CURRENT")" ]]; then MODULE_CROSSED+=("$r"); fi
+done
+if [[ "$(ver_num "$TARGET_RELEASE")" -lt "$(ver_num "$NEWEST_KNOWN")" ]]; then
+  warn "the module here is this copy's, as of $NEWEST_KNOWN: the plan also makes its changes for the releases after $TARGET_RELEASE (its steps to confirm by hand list them), with the $TARGET runtime. To keep the module at $TARGET_RELEASE, use this script as of the @kindgi/sdk@$TARGET_RELEASE tag."
+fi
 
 NEW_SERVER_IMAGE="${IMAGE_REPOSITORY}/runtime@${RUNTIME_DIGEST}"
 NEW_PACK_IMAGE="$OLD_PACK_IMAGE"
@@ -678,18 +706,11 @@ if [[ $CHECK_FAILED == true ]]; then
   die "a precondition failed (above). Nothing was mirrored, backed up or changed. Fix it and run again."
 fi
 
-# 2d. Steps that need an operator's eye or the app's source, printed, not
-# run; then what doesn't apply here. A dry run prints them too.
-print_by_hand_steps() {
-  local r
-  step "Steps to confirm by hand (per release crossed)"
-  # Empty for a server fix; expanded this way so bash 3.2's set -u allows that.
-  if [[ ${#CROSSED[@]} -eq 0 ]]; then info "none: $TARGET is a server fix for $TARGET_RELEASE."; fi
-  for r in ${CROSSED[@]+"${CROSSED[@]}"}; do
-    case "$r" in
-      0.1.9)
-        cat <<'EOT'
-  0.1.9:
+# A release's steps to confirm by hand, for the runtime it brings.
+release_steps() {
+  case "$1" in
+    0.1.9)
+      cat <<'EOT'
    - A tool id registered with both an active draft and an active published
      version: unregister one kind first.
    - If your CLI reaches the server by a different name, re-authenticate:
@@ -703,24 +724,18 @@ print_by_hand_steps() {
      (end it with pg_terminate_backend, or let it finish). The old revision
      keeps serving meanwhile.
 EOT
-        ;;
-      0.1.10)
-        cat <<'EOT'
-  0.1.10:
+      ;;
+    0.1.10)
+      cat <<'EOT'
    - If any agent sets conversationPolicy.autoCloseAfterInactiveSeconds, remove
      it before you rebuild the pack. In the pack source:
        grep -rn "autoCloseAfterInactiveSeconds" src/
    - Before re-registering a tool or MCP endpoint, drop "secretScopes" from any
      definition you read back from the server.
-   - The plan also changes, in place: the database instance, one flag
-     (idle_in_transaction_session_timeout, which needs no restart); in
-     direct mode, the Cloud NAT's port settings; and in none mode, the pack
-     service's VPC access setting, which it didn't use, goes.
 EOT
-        ;;
-      0.2.0)
-        cat <<'EOT'
-  0.2.0:
+      ;;
+    0.2.0)
+      cat <<'EOT'
    - The runtime image now comes from registry.kindgi.com, with your license
      key as the password; this script copies it from there.
    - If public_url is empty, set it to the URL people open the console at:
@@ -751,6 +766,25 @@ EOT
      pins to 0.2.0 first: --pack-dir builds what they say. A Python pack made
      by a 0.1 CLI pins kindgi>=0.1,<0.2 and kindgi-cli>=0.1,<0.2:
        uv add "kindgi==0.2.0" && uv add --dev "kindgi-cli==0.2.0"
+EOT
+      ;;
+  esac
+}
+
+# What a release's module changes in place, which the plan makes: the plan
+# check allows these (plan_allowed_changes) and nothing else.
+module_changes() {
+  case "$1" in
+    0.1.10)
+      cat <<'EOT'
+   - The plan also changes, in place: the database instance, one flag
+     (idle_in_transaction_session_timeout, which needs no restart); in
+     direct mode, the Cloud NAT's port settings; and in none mode, the pack
+     service's VPC access setting, which it didn't use, goes.
+EOT
+      ;;
+    0.2.0)
+      cat <<'EOT'
    - With a pack service, the plan also changes it in place, with or without
      --pack-dir: CPU only while a call runs, a start boost, and quicker
      readiness checks.
@@ -758,10 +792,9 @@ EOT
      gives the server KINDGI_DATABASE_SERVER_CA, in place: the instance's
      CAs, which the server checks the database's certificate against.
 EOT
-        ;;
-      0.3.0)
-        cat <<'EOT'
-  0.3.0:
+      ;;
+    0.3.0)
+      cat <<'EOT'
    - With the module's own database instance, the plan changes it in place:
      it turns on Google's deletion protection (deletion_protection_enabled)
      beside Terraform's, while database_deletion_protection is on (the
@@ -769,8 +802,27 @@ EOT
      replace deletes the database. (This script's plan check stops on a
      replace before it asks.)
 EOT
-        ;;
-    esac
+      ;;
+  esac
+}
+
+# 2d. Steps that need an operator's eye or the app's source, printed, not
+# run; then what doesn't apply here. A dry run prints them too.
+print_by_hand_steps() {
+  local r
+  step "Steps to confirm by hand (per release crossed)"
+  # Empty for a server fix; expanded this way so bash 3.2's set -u allows that.
+  if [[ ${#CROSSED[@]} -eq 0 ]]; then info "none: $TARGET is a server fix for $TARGET_RELEASE."; fi
+  # A release up to the target's has its steps and its module changes; one
+  # past it, only the module's changes, which the plan makes all the same.
+  for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do
+    if [[ "$(ver_num "$r")" -le "$(ver_num "$TARGET_RELEASE")" ]]; then
+      printf '  %s:\n' "$r"
+      release_steps "$r"
+    else
+      printf "  %s (this module's changes only; the runtime goes to %s):\n" "$r" "$TARGET"
+    fi
+    module_changes "$r"
   done
 
   # Not applicable on this module — said plainly so nobody goes looking.
@@ -780,7 +832,8 @@ EOT
 }
 
 # 5. The plan's check. Besides the new image(s), a plan may change only what
-# the releases crossed change in place, as their steps to confirm by hand say:
+# the module's releases after the current one (MODULE_CROSSED) change in
+# place, as their steps to confirm by hand say (module_changes):
 # "<resource type>.<name> <attribute path>", the path without list indices,
 # an env var or a database flag by its name. The module's own changes in that
 # release (services.tf, data.tf, foundation.tf), each made in place.
@@ -788,7 +841,7 @@ plan_allowed_changes() {
   local r
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
   if [[ $REBUILD_PACK == true ]]; then printf '%s\n' "google_cloud_run_v2_service.pack template.containers.image"; fi
-  for r in ${CROSSED[@]+"${CROSSED[@]}"}; do
+  for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do
     case "$r" in
       0.1.10)
         printf '%s\n' \
@@ -797,8 +850,9 @@ plan_allowed_changes() {
           "google_compute_router_nat.nat enable_endpoint_independent_mapping" \
           "google_compute_router_nat.nat min_ports_per_vm" \
           "google_compute_router_nat.nat max_ports_per_vm" \
-          "google_compute_router_nat.nat tcp_time_wait_timeout_sec" \
-          "google_cloud_run_v2_service.pack template.vpc_access"
+          "google_compute_router_nat.nat tcp_time_wait_timeout_sec"
+        # The pack's VPC access goes in none mode only, where it had no use.
+        if [[ $NETWORK_MODE == none ]]; then printf '%s\n' "google_cloud_run_v2_service.pack template.vpc_access"; fi
         ;;
       0.2.0)
         printf '%s\n' \
@@ -821,7 +875,8 @@ plan_allowed_changes() {
 # update by each attribute it changes, a value it knows or one known only
 # after the apply. Never a value: a plan holds the variables' values, secret
 # ones too. An env var or a database flag is keyed by its name, so one added
-# or dropped from a list says which, and moves no other.
+# or dropped from a list says which, and moves no other; one known only after
+# the apply is named from the plan's after.
 readonly PLAN_CHANGES_JQ='
   def leaves(p):
     if type == "object" then to_entries[] | .key as $k | .value | leaves(p + [$k])
@@ -832,6 +887,15 @@ readonly PLAN_CHANGES_JQ='
       else to_entries[] | .key as $i | .value | leaves(p + [$i]) end
     else [p, .] end;
   def flat: [leaves([])] | map({key: (.[0] | tojson), value: .[1]}) | from_entries;
+  def named($doc):
+    . as $p
+    | reduce range(1; $p | length) as $i ($p;
+        if ($p[$i] | type) == "number" and ($p[$i - 1] == "env" or $p[$i - 1] == "database_flags")
+        then ((try ($doc | getpath($p[0:$i])) catch null)
+              | if type == "array" and all(.[]; type == "object" and (.name | type) == "string")
+                then .[$p[$i]].name else null end) as $n
+          | if $n != null then .[$i] = $n else . end
+        else . end);
   def said:
     fromjson | map(select(type == "string")) as $s
     | ([range(0; $s | length) | select($s[.] == "env" or $s[.] == "database_flags")] | first) as $i
@@ -849,7 +913,7 @@ readonly PLAN_CHANGES_JQ='
     else
       ($c.before // {} | flat) as $b | ($c.after // {} | flat) as $a
       | ([$b, $a] | map(keys) | add | unique | map(. as $k | select($b[$k] != $a[$k])))
-        + [$c.after_unknown // {} | paths(. == true) | tojson]
+        + [$c.after_unknown // {} | paths(. == true) | named($c.after // {}) | tojson]
       | map(said) | unique | .[]
       | select(. as $w | $allowed | any(.[]; .key == $key and (.path as $p | $w == $p or ($w | startswith($p + ".")))) | not)
       | "\($addr): changes \(.)"

@@ -918,14 +918,38 @@ assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.co
 assert_out "plan check: it changes the image(s)"
 assert_out "0.2.0 -> 0.3.0 applied"
 
-# 49. The same change on a server fix, which crosses no release: the plan
-# check names it and stops before it asks, and nothing is applied.
-case_start "a change no release crossed names"
+# 49. The same change on a server fix for 0.2.0 crosses no release, but the
+# module here is 0.3.0's, and the plan makes its change all the same: it's
+# allowed, listed as the module's, and the run says the module goes ahead of
+# the runtime.
+case_start "0.3.0's module change, on a server fix for 0.2.0"
 reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED"
 run "yes" --to 0.2.0.1
+assert_rc 0 "the module's own change passes"
+assert_out "the module here is this copy's, as of 0.3.0: the plan also makes its changes for the releases after 0.2.0"
+assert_out "To keep the module at 0.2.0, use this script as of the @kindgi/sdk@0.2.0 tag."
+assert_out "none: 0.2.0.1 is a server fix for 0.2.0."
+assert_out "0.3.0 (this module's changes only; the runtime goes to 0.2.0.1):"
+assert_out "turns on Google's deletion protection (deletion_protection_enabled)"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 49b. A change no release names (the instance's tier, a variable changed by
+# hand): the plan check names it and stops before it asks, and nothing is
+# applied.
+INSTANCE_TIER="$(jq -cn '[{address: "google_sql_database_instance.kindgi[0]", mode: "managed",
+  type: "google_sql_database_instance", name: "kindgi", index: 0,
+  change: {actions: ["update"],
+    before: {name: "kindgi", settings: [{tier: "db-custom-1-3840", deletion_protection_enabled: true}]},
+    after: {name: "kindgi", settings: [{tier: "db-custom-2-7680", deletion_protection_enabled: true}]},
+    after_unknown: {}}}]')"
+case_start "a change no release names"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_TIER"
+run "yes" --to 0.3.0
 assert_rc 1 "an unnamed change stops it"
 assert_out "PLAN CHECK: the plan changes more than this upgrade does"
-assert_file_has "$OUT" "    google_sql_database_instance.kindgi[0]: changes settings.deletion_protection_enabled" "the change, by its path"
+assert_file_has "$OUT" "    google_sql_database_instance.kindgi[0]: changes settings.tier" "the change, by its path"
+if grep -q "db-custom" "$OUT"; then fail "a value was printed"; else pass; fi
 assert_out "the plan check failed (above), so nothing was applied"
 if grep -q "Apply this plan" "$OUT"; then fail "it asked for yes after the check stopped it"; else pass; fi
 assert_present "$STUB_MARKER_EXPORT" "backup"
@@ -1115,6 +1139,107 @@ assert_rc 1 "a plan without the new image stops it"
 assert_file_has "$OUT" "PLAN CHECK: the plan doesn't point the server at $NEW_IMAGE (it has $RUNNING_IMAGE)." "the image named"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
+
+# 63. A file Terraform loads on its own that sets server_image, beside the
+# var-file: a later apply without that --var-file would put its image back,
+# so it stops before anything is mirrored.
+case_start "an auto-loaded file sets server_image"
+reset_env; export STUB_TAGS="0.1.10"
+printf 'server_image = "%s"\n' "$RUNNING_IMAGE" >"$CASE_DIR/terraform.tfvars"
+run "yes"
+assert_rc 1 "an auto-loaded server_image stops it"
+assert_out "terraform.tfvars sets server_image, and Terraform loads it from this directory on its own"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 64. The same for pack_image, with a pack rebuild; without one, the pack's
+# image isn't written, so the file may set it.
+case_start "an auto-loaded file sets pack_image, with a pack rebuild"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+PACK_DIR="$CASE_DIR/pack"; mkdir -p "$PACK_DIR"
+printf '{"pack_image": "%s"}\n' "$OLD_PACK" >"$CASE_DIR/dev.pack.auto.tfvars.json"
+run "yes" --pack-dir "$PACK_DIR"
+assert_rc 1 "an auto-loaded pack_image stops a rebuild"
+assert_out "dev.pack.auto.tfvars.json sets pack_image, and Terraform loads it from this directory on its own"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+
+case_start "an auto-loaded file sets pack_image, no rebuild"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+printf '{"pack_image": "%s"}\n' "$OLD_PACK" >"$CASE_DIR/dev.pack.auto.tfvars.json"
+run "yes"
+assert_rc 0 "without a rebuild it runs"
+assert_out "also loaded    dev.pack.auto.tfvars.json"
+
+# 65. An env var known only after the apply is named by its name, as a
+# changed one is, never by the attribute that's unknown.
+PACK_ENV_UNKNOWN="$(jq -cn --arg img "$OLD_PACK" '
+  [{address: "google_cloud_run_v2_service.pack[0]", mode: "managed", type: "google_cloud_run_v2_service", name: "pack", index: 0,
+    change: {actions: ["update"],
+      before: {template: [{containers: [{image: $img, env: [{name: "KINDGI_ENV", value: "dev"}, {name: "SHOP_URL", value: null}]}]}]},
+      after: {template: [{containers: [{image: $img, env: [{name: "KINDGI_ENV", value: "dev"}, {name: "SHOP_URL", value: null}]}]}]},
+      after_unknown: {template: [{containers: [{env: [{}, {value: true}]}]}]}}}]')"
+case_start "an env var known only after the apply"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10" STUB_PLAN_CHANGES="$PACK_ENV_UNKNOWN"; V_PACK="$OLD_PACK"
+run "yes"
+assert_rc 1 "an unknown env value stops it"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.SHOP_URL" "the env var named"
+if grep -q "env.value" "$OUT"; then fail "the unknown attribute stood for the name"; else pass; fi
+
+# 66. 0.1.10's change to the pack's VPC access was in none mode only: there it
+# passes, and in direct mode it stops.
+PACK_VPC="$(jq -cn --arg img "$OLD_PACK" '
+  [{address: "google_cloud_run_v2_service.pack[0]", mode: "managed", type: "google_cloud_run_v2_service", name: "pack", index: 0,
+    change: {actions: ["update"],
+      before: {template: [{containers: [{image: $img}], vpc_access: [{egress: "PRIVATE_RANGES_ONLY", network_interfaces: [{network: "kindgi", subnetwork: "kindgi-run"}]}]}]},
+      after: {template: [{containers: [{image: $img}], vpc_access: []}]},
+      after_unknown: {}}}]')"
+case_start "0.1.10's pack VPC access change, in none mode"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.9" STUB_PLAN_CHANGES="$PACK_VPC"; V_PACK="$OLD_PACK"
+run "yes"
+assert_rc 0 "it passes in none mode"
+assert_out "plan check: it changes the image(s)"
+
+case_start "0.1.10's pack VPC access change, in direct mode"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.9" STUB_PLAN_CHANGES="$PACK_VPC"; V_PACK="$OLD_PACK"; V_NET="direct"
+run "yes"
+assert_rc 1 "it stops in direct mode"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.vpc_access.egress" "the VPC access named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 67. A var file whose path has a space: the go-back's command quotes it, so
+# it pastes as one argument.
+case_start "a var file whose path has a space"
+reset_env; export STUB_TAGS="0.1.10" STUB_APPLY_RC=1
+SPACED="$CASE_DIR/pack env.tfvars.json"; printf '{}\n' >"$SPACED"
+run "yes" --var-file "$SPACED"
+assert_rc 1 "the apply fails"
+if grep -qxF "      terraform apply -var-file=$VAR_FILE -var-file=$CASE_DIR/pack\\ env.tfvars.json" "$OUT"; then pass
+else fail "the go-back doesn't quote the path: $(grep -F "terraform apply -var-file" "$OUT")"; fi
+
+# 68. tests/scrub_plan.sh: the fixture it makes from a saved plan holds no
+# values and is private, the plan check reads it as it reads the plan, and it
+# won't write over a file.
+case_start "a plan scrubbed into a fixture"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+SAVED="$CASE_DIR/saved.tfplan"; FIXTURE="$CASE_DIR/fixture.json"
+jq -n --argjson rc "$PACK_ENV_DROPPED" \
+  '{format_version: "1.2", variables: {pack_secret_env: {value: {SHOP_API_KEY: "acme-secret"}}}, prior_state: {values: "acme-state"}, resource_changes: $rc}' >"$SAVED"
+( cd "$CASE_DIR" && "$HERE/scrub_plan.sh" "$SAVED" "$FIXTURE" ) >"$OUT" 2>&1; rc=$?
+assert_rc 0 "it writes the fixture"
+if grep -q -e "shop.acme.example" -e "acme-shop-key" -e "kindgi-pack-token" -e "acme-secret" -e "acme-state" -e "pack@sha256" "$FIXTURE"; then
+  fail "a value is in the fixture"; else pass; fi
+if [[ "$(ls -l "$FIXTURE" | cut -c1-10)" == "-rw-------" ]]; then pass; else fail "the fixture is readable by others: $(ls -l "$FIXTURE")"; fi
+assert_file_has "$FIXTURE" '"SHOP_API_KEY"' "an env var keeps its name"
+export STUB_PLAN_CHANGES; STUB_PLAN_CHANGES="$(jq -c .resource_changes "$FIXTURE")"
+run "yes"
+assert_rc 1 "the check stops at the fixture as at the plan"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.SHOP_URL" "SHOP_URL named"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.SHOP_API_KEY" "SHOP_API_KEY named"
+if grep -q "KINDGI_PACK_SERVICE_TOKEN" "$OUT"; then fail "a var the plan keeps was named"; else pass; fi
+( cd "$CASE_DIR" && "$HERE/scrub_plan.sh" "$SAVED" "$FIXTURE" ) >"$OUT" 2>&1; rc=$?
+assert_rc 1 "it won't write over the fixture"
+assert_out "fixture.json exists"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
