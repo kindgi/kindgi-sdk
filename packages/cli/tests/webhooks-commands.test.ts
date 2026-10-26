@@ -308,6 +308,18 @@ describe('kindgi webhooks: the rest of the group', () => {
     expect(out.stdout).toContain('Ada Lovelace (personal)');
   });
 
+  test('list: a shared trigger names its service account; one with no owner says an admin can take it over', async () => {
+    const shared = await webhooks(['list', '--table'], {
+      trigger: { ...TRIGGER, owner: { kind: 'service', id: 'sa-1', displayName: 'acme-bot' } },
+    });
+    expect(shared.out.stdout).toContain('acme-bot (shared)');
+    const none = await webhooks(['list', '--table'], {
+      trigger: { ...TRIGGER, owner: { kind: 'service', id: 'unknown' } },
+    });
+    expect(none.out.stdout).toContain('no owner (an admin can take it over)');
+    expect(none.out.stdout).not.toContain('(shared)');
+  });
+
   test('pause says the events of a paused trigger are dropped', async () => {
     const { out, calls } = await webhooks(['pause', ID]);
     expect(calls).toEqual([['pause', ID]]);

@@ -96,9 +96,10 @@ const resolveToken: TokenResolver = async (token) => TOKENS[token] ?? null;
 
 const flowRegistry = {
   get: async ({ flowId }: { flowId: string }) =>
-    flowId === 'acme.orders' ? { id: flowId, nodes: [] } : null,
+    flowId === 'acme.orders' || flowId === 'acme.refunds' ? { id: flowId, nodes: [] } : null,
   getVersion: async ({ flowId, version }: { flowId: string; version: string }) =>
-    flowId === 'acme.orders' && (version === '1.0.0' || version === '2.0.0')
+    (flowId === 'acme.orders' && (version === '1.0.0' || version === '2.0.0')) ||
+    (flowId === 'acme.refunds' && version === '1.0.0')
       ? { id: flowId, version, nodes: [{ id: 'refund', kind: 'tool', ref: 'acme.refund' }] }
       : null,
 } as unknown as FlowRegistryBinding;
@@ -243,6 +244,7 @@ const RUNS: Record<Kind, [string, Record<string, unknown>][]> = {
   schedule: [
     ['its input', { config: { input: { region: 'us' } } }],
     ['its flow version', { flowId: 'acme.orders', flowVersion: '2.0.0' }],
+    ['its flow', { flowId: 'acme.refunds', flowVersion: '1.0.0' }],
   ],
   webhook: [
     ['its input', { config: { input: { region: 'us' } } }],
