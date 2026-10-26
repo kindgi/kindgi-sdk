@@ -181,7 +181,7 @@ export async function recordOwnerSet(args: {
   readonly tenantId: TenantId;
   readonly projectId?: ProjectId;
   readonly triggerId: string;
-  readonly triggerKind: 'webhook' | 'cron';
+  readonly triggerKind: 'webhook' | 'cron' | 'mail';
   readonly from?: TriggerOwner;
   readonly to: TriggerOwner;
   readonly by: string | undefined;
@@ -279,7 +279,7 @@ export async function editMovingOwner(
   const moved = await binding.setOwner({ tenantId, triggerId, owner: to });
   if (moved.kind === 'err') return moved;
   const audit = (record: TriggerRecord) => {
-    const tools = record.kind === 'event' ? undefined : record.toolsAllowedUnattended;
+    const tools = 'toolsAllowedUnattended' in record ? record.toolsAllowedUnattended : undefined;
     return recordOwnerSet({
       auditEvents,
       tenantId,
