@@ -622,7 +622,8 @@ registered it, or the account named with
   above), and it takes a project admin. Anyone else is answered
   `403 permission-denied`, "Taking a webhook trigger over takes a project
   admin." A project admin's own take-over makes the trigger personal to
-  them, and one with `--run-as=project` makes it shared.
+  them, and one with `--run-as` (`project`, or a service account's id)
+  makes it shared.
 - **`kindgi webhooks list` says which:** its `RUNS AS` column shows the
   owner's name, else its id, and whether the trigger is personal or
   shared, such as "Sam Lee (personal)". One that runs as its project's own

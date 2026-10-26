@@ -182,8 +182,8 @@ it, or the account named with `--run-as`, and no change moves it (runtime
   needs `admin` on the project. Anyone else is answered
   `403 permission-denied`, "Taking a schedule over takes a project admin."
   A project admin's own take-over makes the schedule personal to them, and
-  one with `--run-as=project` makes it shared
-  ([Run as a service account](#run-as-a-service-account)).
+  one with `--run-as` (`project`, or a service account's id) makes it
+  shared ([Run as a service account](#run-as-a-service-account)).
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 
