@@ -184,7 +184,7 @@ kindgi env plan --env=dev > pack-env.json      # exits 1 if a required name has 
 jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env.auto.tfvars.json
 ```
 
-Keep the file here, and keep its name's ending: Terraform reads every `*.auto.tfvars` and `*.auto.tfvars.json` in this folder by itself, for every plan and apply, `upgrade.sh`'s included. A file named otherwise is read only with `-var-file`, so a plan without it sets `pack_env` and `pack_secret_env` to `{}`, and applying it takes the pack's env away. Since every such file here is read, keep one deployment's.
+Keep the file here, and keep its name's ending: Terraform reads `terraform.tfvars` and every `*.auto.tfvars` in this folder by itself, `.json` forms included, for every plan and apply, `upgrade.sh`'s included. A file named otherwise is read only with `-var-file`, so a plan without it sets `pack_env` and `pack_secret_env` to `{}`, and applying it takes the pack's env away. Since every such file here is read, keep one deployment's.
 
 **A Cloud Run service the pack's code calls (`pack_run_invokers`).** When a tool calls one of your app's IAM-protected Cloud Run services, list it as `{ project, location, service }`, with the service's name, not its URL. The pack's service account gets `roles/run.invoker` on it. The grant is added beside the service's other members, and nothing else of the service changes.
 - **The token:** the pack's code fetches a Google ID token for the service's URL from the metadata server and sends it as `Authorization: Bearer`. In Node that's google-auth-library's `getIdTokenClient(url)`; in Python, `google.oauth2.id_token.fetch_id_token`.

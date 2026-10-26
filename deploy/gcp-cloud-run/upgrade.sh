@@ -44,10 +44,10 @@
 #   --var-file         The tfvars the deployment already uses (.tfvars or
 #                      .tfvars.json), with server_image on one line. Read for
 #                      its variables and passed to `terraform plan`. Terraform
-#                      also reads every *.auto.tfvars and *.auto.tfvars.json
-#                      in this folder by itself: keep the pack's env in one
-#                      (<env>.pack-env.auto.tfvars.json), since a file named
-#                      otherwise is left out of the plan.
+#                      also reads terraform.tfvars and every *.auto.tfvars in
+#                      this folder by itself, .json forms included: keep the
+#                      pack's env in <env>.pack-env.auto.tfvars.json, since a
+#                      file named otherwise is left out of the plan.
 #   --runtime-digest   The release digest of the runtime being upgraded to,
 #                      from its release notes (sha256:…). Checked against the
 #                      release's tag, then mirrored into the deployment's

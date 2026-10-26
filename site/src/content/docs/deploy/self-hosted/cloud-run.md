@@ -283,10 +283,11 @@ jq '{pack_env: .env, pack_secret_env: .secret_env}' /tmp/pack-env.json > prod.pa
 ```
 
 Keep that file in the module's folder, and keep its name's ending,
-`.auto.tfvars.json`. Terraform reads every `*.auto.tfvars` and
-`*.auto.tfvars.json` file in the folder it runs in by itself, for every
-`plan` and `apply` there, so the pack's env goes into each without a
-`-var-file`. A file named otherwise, `prod.pack-env.tfvars.json` say, is
+`.auto.tfvars.json`. Terraform reads `terraform.tfvars` and every
+`*.auto.tfvars` file in the folder it runs in by itself, `.json` forms
+included, for every `plan` and `apply` there, so the pack's env goes into
+each without a `-var-file`. A file named otherwise,
+`prod.pack-env.tfvars.json` say, is
 read only by a command that names it with `-var-file`. A plan made without
 it sets `pack_env` and `pack_secret_env` to nothing, and applying that plan
 takes the pack's env away: while a name the pack requires has no value, its
