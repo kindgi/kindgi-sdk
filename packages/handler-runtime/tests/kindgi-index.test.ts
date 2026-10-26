@@ -992,6 +992,33 @@ describe('runIndexer — error variants', () => {
     expect(outcome.value.fileErrors[0]?.filePath).toBe('tools/boom.mjs');
   });
 
+  test("a file's import failure says its cause", async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/boom.mjs': toolModule(),
+      },
+    });
+    const boomUrl = pathToFileURL(path.join(fixture.packDir, 'tools', 'boom.mjs')).href;
+    const throwing = async (url: string): Promise<unknown> => {
+      if (url === boomUrl) {
+        const missing = Object.assign(new Error('no such file: ./data.json'), { code: 'ENOENT' });
+        throw new Error('kaboom', { cause: missing });
+      }
+      return fixture.importModule(url);
+    };
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: throwing,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+    expect(outcome.value.fileErrors[0]?.message).toBe(
+      'Failed to import tools/boom.mjs: Error: kaboom; caused by Error [ENOENT]: no such file: ./data.json',
+    );
+  });
+
   test('file under tools/ with no default export → no-default-export', async () => {
     const fixture = await makeFixture({
       files: {

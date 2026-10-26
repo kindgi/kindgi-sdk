@@ -63,6 +63,7 @@ import type { Result } from '@kindgi/types';
 import { parse as parseToml } from 'smol-toml';
 
 import { TEST_FILE_REGEX, globStaticPrefix, globToRegex } from './discovery.js';
+import { serializeCause, stringifyError } from './error-text.js';
 import { compileSchema } from './handler-runner.js';
 import { type IndexedBlock, readPackBlocks } from './pack-blocks.js';
 import { type PackEnvConfig, type PackEnvDeclaration, resolvePackEnv } from './pack-env.js';
@@ -2101,32 +2102,6 @@ function isObject(v: unknown): v is Readonly<Record<string, unknown>> {
 
 function sortById<T extends { readonly id: string }>(items: readonly T[]): readonly T[] {
   return [...items].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-}
-
-function stringifyError(err: unknown): string {
-  if (err instanceof Error) return `${err.name}: ${err.message}`;
-  return String(err);
-}
-
-function serializeCause(err: unknown): unknown {
-  if (err instanceof Error) {
-    return { name: err.name, message: err.message, stack: err.stack };
-  }
-  if (err === undefined) return null;
-  if (
-    err === null ||
-    typeof err === 'string' ||
-    typeof err === 'number' ||
-    typeof err === 'boolean'
-  ) {
-    return err;
-  }
-  try {
-    JSON.stringify(err);
-    return err;
-  } catch {
-    return String(err);
-  }
 }
 
 function normalizeModulePath(relPath: string): string {
