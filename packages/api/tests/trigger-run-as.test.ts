@@ -375,6 +375,60 @@ describe('resolveTriggerOwner: runAsProject', () => {
     expect(text).toContain("This runtime can't make a project's own account.");
   });
 
+  test("its account can't run the target: the 409 with the project's words, asked of the account once it's made", async () => {
+    const accounts = projectAccounts();
+    const asked: unknown[] = [];
+    const r = await resolveTriggerOwner(
+      ctx({ kind: 'user', id: ADA }),
+      { runAsProject: true, projectId: PROJECT },
+      TARGET,
+      deps({
+        projectAccounts: accounts,
+        cannotRun: async (id, target) => {
+          asked.push([id, target]);
+          return true;
+        },
+      }),
+    );
+    if (r.kind !== 'refused') throw new Error('expected refusal');
+    const { status, code, text } = await parse(r.response);
+    expect([status, code]).toEqual([409, 'trigger-owner-cannot-run-target']);
+    expect(JSON.parse(text).error.message).toBe(
+      "The trigger can't run agent \"acme.agent\" as the project. The project's own account runs only what the project's editors can: run the trigger as a service account that can, or own it yourself.",
+    );
+    expect(accounts.calls).toHaveLength(1);
+    expect(asked).toEqual([[PA, TARGET]]);
+  });
+
+  test('refused before the account is made: the account is never asked', async () => {
+    let asked = 0;
+    const cannotRun = async () => {
+      asked += 1;
+      return true;
+    };
+    const request = { runAsProject: true, projectId: PROJECT } as const;
+    const notAdminR = await resolveTriggerOwner(
+      ctx({ kind: 'user', id: ADA }),
+      request,
+      TARGET,
+      deps({ isProjectAdmin: notAdmin, projectAccounts: projectAccounts(), cannotRun }),
+    );
+    const takenR = await resolveTriggerOwner(
+      ctx({ kind: 'user', id: ADA }),
+      request,
+      TARGET,
+      deps({
+        projectAccounts: projectAccounts({
+          kind: 'err',
+          error: { code: 'service-account-name-taken', message: 'taken' },
+        }),
+        cannotRun,
+      }),
+    );
+    expect([notAdminR.kind, takenR.kind]).toEqual(['refused', 'refused']);
+    expect(asked).toBe(0);
+  });
+
   test("its name taken by someone's account: the 409 says who can clear it", async () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),

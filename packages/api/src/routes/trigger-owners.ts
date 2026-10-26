@@ -121,9 +121,10 @@ export interface ResolveTriggerOwnerDeps {
  * `runAsProject` names the trigger's project's own account: it takes an
  * admin of the project ({@link isTriggerAdmin}; without an authorization
  * store, a tenant-admin key), and no `act_as`. The account is made the
- * first time, and last: after every other check, so a refused request
- * makes none. A trigger's insert that fails after it leaves the account,
- * which has no keys, and the next `runAsProject` reuses it.
+ * first time, after every other check but one: whether it can run `target`,
+ * which needs the account, so it's asked once the account is made. A
+ * refusal there, or a trigger's insert that fails after, leaves the
+ * account, which has no keys, and the next `runAsProject` reuses it.
  *
  * `runAsServiceAccountId` names a service account, after three checks:
  *   1. A **reader-ordered** existence check. Only a caller who may read
@@ -150,12 +151,7 @@ export async function resolveTriggerOwner(
   const requestId = c.get('requestId');
   const tenantId = c.get('tenantId') as TenantId;
   const { runAsServiceAccountId, runAsProject } = request;
-  if (runAsProject === true) {
-    if (runAsServiceAccountId !== undefined) {
-      return refusedWith(c, 'bad-input', 'Name one: `runAsProject` or `runAsServiceAccountId`.');
-    }
-    return projectAccountOwner(c, request.projectId, deps);
-  }
+  if (runAsProject === true) return projectAccountOwner(c, request, target, deps);
   if (runAsServiceAccountId === undefined) return { kind: 'owner', owner: ownerOf(c) };
 
   const serviceAccountId = runAsServiceAccountId;
@@ -243,13 +239,19 @@ function targetWords(target: TriggerTargetRef): string {
 
 /**
  * The trigger's project's own account as its owner (`runAsProject`): the
- * project's admin's to name, made the first time.
+ * project's admin's to name, made the first time. Its grant is fixed, so
+ * one that can't run `target` is refused with its own words.
  */
 async function projectAccountOwner(
   c: Context<AppEnv>,
-  projectId: string | undefined,
+  request: TriggerOwnerRequest,
+  target: TriggerTargetRef,
   deps: ResolveTriggerOwnerDeps,
 ): Promise<TriggerOwnerResolution> {
+  if (request.runAsServiceAccountId !== undefined) {
+    return refusedWith(c, 'bad-input', 'Name one: `runAsProject` or `runAsServiceAccountId`.');
+  }
+  const { projectId } = request;
   if (projectId === undefined) {
     return refusedWith(c, 'bad-input', "`runAsProject` needs the trigger's project.");
   }
@@ -283,12 +285,26 @@ async function projectAccountOwner(
         : message,
     );
   }
+  if (await deps.cannotRun(ensured.value.serviceAccountId, target)) {
+    return refusedWith(c, 'trigger-owner-cannot-run-target', projectCannotRunMessage(target));
+  }
   return {
     kind: 'owner',
     owner: { kind: 'service', id: ensured.value.serviceAccountId },
     projectAccount: true,
   };
 }
+
+/**
+ * Why the project's own account can't own the trigger. Its grant is fixed
+ * (`editor` on the project), so the fix is another owner, never a role.
+ */
+function projectCannotRunMessage(target: TriggerTargetRef): string {
+  return `The trigger can't ${targetWords(target)} as the project. ${PROJECT_ACCOUNT_RUNS}: run the trigger as a service account that can, or own it yourself.`;
+}
+
+/** What a project's own account may run, for the words that refuse it. */
+const PROJECT_ACCOUNT_RUNS = "The project's own account runs only what the project's editors can";
 
 /** A refused owner, answered with `code` and `message`. */
 function refusedWith(c: Context<AppEnv>, code: string, message: string): TriggerOwnerResolution {
@@ -435,7 +451,7 @@ export async function ownerCannotRunRefusal(
     c,
     c.get('requestId'),
     'trigger-owner-cannot-run-target',
-    retargetMessage(owner, read.name ?? owner.id, target),
+    retargetMessage(owner, read, target),
   );
 }
 
@@ -444,25 +460,45 @@ async function readOwner(
   names: TriggerOwnerNames | undefined,
   tenantId: TenantId,
   owner: TriggerOwner,
-): Promise<{ readonly gone: boolean; readonly name?: string | undefined }> {
+): Promise<{
+  readonly gone: boolean;
+  readonly name?: string | undefined;
+  readonly projectAccount?: boolean;
+}> {
   try {
     if (owner.kind === 'user') {
       const person = await names?.directory?.getUser({ tenantId, userId: owner.id as UserId });
       return { gone: person?.unregisteredAt !== undefined, name: person?.displayName };
     }
     const account = await names?.serviceAccounts?.get({ tenantId, serviceAccountId: owner.id });
-    return { gone: account?.unregisteredAt !== undefined, name: account?.name };
+    return {
+      gone: account?.unregisteredAt !== undefined,
+      name: account?.name,
+      projectAccount: account?.projectId !== undefined,
+    };
   } catch {
     // A read that fails isn't a gone owner: the check still runs, so it fails closed.
     return { gone: false };
   }
 }
 
-/** Why the trigger's owner can't run its new target, and who can fix it. */
-function retargetMessage(owner: TriggerOwner, name: string, target: TriggerTargetRef): string {
-  return owner.kind === 'user'
-    ? `${name} can't ${targetWords(target)}, so the trigger can't run it as them. A project admin can take the trigger over first.`
-    : `Service account "${name}" can't ${targetWords(target)}, so the trigger can't run it as that account. A tenant admin can give the account the editor role on the target's project, or a project admin can take the trigger over first.`;
+/**
+ * Why the trigger's owner can't run its new target, and who can fix it. A
+ * project's own account has a fixed grant, so for it the fix is a take-over.
+ */
+function retargetMessage(
+  owner: TriggerOwner,
+  read: { readonly name?: string | undefined; readonly projectAccount?: boolean },
+  target: TriggerTargetRef,
+): string {
+  const name = read.name ?? owner.id;
+  if (owner.kind === 'user') {
+    return `${name} can't ${targetWords(target)}, so the trigger can't run it as them. A project admin can take the trigger over first.`;
+  }
+  if (read.projectAccount === true) {
+    return `The trigger can't ${targetWords(target)} as the project. ${PROJECT_ACCOUNT_RUNS}: a project admin can take the trigger over first, to own it or to run it as a service account that can.`;
+  }
+  return `Service account "${name}" can't ${targetWords(target)}, so the trigger can't run it as that account. A tenant admin can give the account the editor role on the target's project, or a project admin can take the trigger over first.`;
 }
 
 type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
