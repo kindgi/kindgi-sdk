@@ -837,7 +837,9 @@ A new grant can take a minute or two to apply.
   the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
   you're upgrading to, or, before that release is out, its newest
   `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
-  and refuses a later `--to`. A server-only release, such as 0.2.0.1, is a
+  and refuses a later `--to`. With an earlier `--to` it still plans its own
+  module, whose changes past the target's release it lists and allows, and
+  it says so. A server-only release, such as 0.2.0.1, is a
   server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
   `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. The
   module's README has the rest, under

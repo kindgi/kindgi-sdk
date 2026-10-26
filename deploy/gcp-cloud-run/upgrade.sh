@@ -75,7 +75,10 @@
 #                      not named *.auto.tfvars.json) needs its own --var-file.
 #                      Exactly one of them sets server_image, on one line:
 #                      that's the one rewritten, and pack_image goes on a line
-#                      of the same file to rebuild the pack.
+#                      of the same file to rebuild the pack. No file
+#                      Terraform loads on its own, and no TF_VAR_ in the
+#                      environment, may set the image it writes, or a later
+#                      apply without that --var-file would put it back.
 #   --runtime-digest   The release digest of the runtime being upgraded to,
 #                      from its release notes (sha256:…). Checked against the
 #                      release's tag, then mirrored into the deployment's
@@ -91,7 +94,9 @@
 #                      this script as of the @kindgi/sdk@0.1.10 tag. This
 #                      script knows the steps up to 0.3.0; for a later
 #                      release, use this script as of that release's
-#                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag).
+#                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
+#                      or, before that release is out, its newest
+#                      @kindgi/sdk@<version>-rc.N tag.
 #                      Below 0.3.0, the plan still makes this module's
 #                      changes up to 0.3.0, with the older runtime; that
 #                      release's tag keeps the module at its own.
@@ -176,6 +181,9 @@ is_server_fix() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]]; }
 # The release a version belongs to, whose @kindgi/sdk@ tag has the upgrade.sh
 # for it: X.Y.Z for X.Y.Z, X.Y.Z-rc.N and X.Y.Z.N.
 release_of() { [[ $1 =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"; }
+# The tags whose upgrade.sh is a release's own ($1, X.Y.Z), as the docs name
+# them: an rc's tag stands for the release until it's out.
+sdk_tag() { printf 'the @kindgi/sdk@%s tag or, before that release is out, its newest @kindgi/sdk@%s-rc.N tag' "$1" "$1"; }
 # The release line a version belongs to, X.Y: the CLI of a final is
 # @kindgi/cli@X.Y, as the CLI names itself (publishedCliSpec, in
 # packages/cli/src/package-manager.ts).
@@ -367,9 +375,9 @@ TARGET_RELEASE="$(release_of "$TARGET")"
 NEWEST_KNOWN="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 if [[ "$(ver_num "$TARGET_RELEASE")" -gt "$(ver_num "$NEWEST_KNOWN")" ]]; then
   if is_server_fix "$TARGET"; then
-    die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. $TARGET is a server fix for $TARGET_RELEASE: use this script as of the @kindgi/sdk@$TARGET_RELEASE tag."
+    die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. $TARGET is a server fix for $TARGET_RELEASE: use this script as of $(sdk_tag "$TARGET_RELEASE")."
   fi
-  die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of the @kindgi/sdk@$TARGET_RELEASE tag (before it's out, that release's newest @kindgi/sdk@$TARGET_RELEASE-rc.N tag)."
+  die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of $(sdk_tag "$TARGET_RELEASE")."
 fi
 if is_server_fix "$TARGET" && [[ " ${KNOWN_RELEASES[*]} " != *" $TARGET_RELEASE "* ]]; then
   die "--to $TARGET: a server fix for $TARGET_RELEASE, which isn't a release this script knows (${KNOWN_RELEASES[*]})."
@@ -548,6 +556,13 @@ for f in terraform.tfvars terraform.tfvars.json *.auto.tfvars *.auto.tfvars.json
     die "$f sets pack_image, and Terraform loads it from this directory on its own: a later apply without -var-file=$VAR_FILE would put its image back. Keep pack_image in $VAR_FILE only, then run again. Nothing was changed."
   fi
 done
+# The same for one set in the environment, which a later apply reads too.
+if [[ -n ${TF_VAR_server_image+set} ]]; then
+  die "TF_VAR_server_image is set in the environment: a later apply without -var-file=$VAR_FILE would put its image back. Unset it and keep server_image in $VAR_FILE only, then run again. Nothing was changed."
+fi
+if [[ $REBUILD_PACK == true && -n ${TF_VAR_pack_image+set} ]]; then
+  die "TF_VAR_pack_image is set in the environment: a later apply without -var-file=$VAR_FILE would put its image back. Unset it and keep pack_image in $VAR_FILE only, then run again. Nothing was changed."
+fi
 for v in $(compgen -e | grep '^TF_VAR_' || true); do
   info "also set       $v (in the environment)"
 done
@@ -634,7 +649,7 @@ for r in "${KNOWN_RELEASES[@]}"; do
   if [[ "$(ver_num "$r")" -gt "$(ver_num "$CURRENT")" ]]; then MODULE_CROSSED+=("$r"); fi
 done
 if [[ "$(ver_num "$TARGET_RELEASE")" -lt "$(ver_num "$NEWEST_KNOWN")" ]]; then
-  warn "the module here is this copy's, as of $NEWEST_KNOWN: the plan also makes its changes for the releases after $TARGET_RELEASE (its steps to confirm by hand list them), with the $TARGET runtime. To keep the module at $TARGET_RELEASE, use this script as of the @kindgi/sdk@$TARGET_RELEASE tag."
+  warn "the module here is this copy's, as of $NEWEST_KNOWN: the plan also makes its changes for the releases after $TARGET_RELEASE (its steps to confirm by hand list them), with the $TARGET runtime. To keep the module at $TARGET_RELEASE, use this script as of $(sdk_tag "$TARGET_RELEASE")."
 fi
 
 NEW_SERVER_IMAGE="${IMAGE_REPOSITORY}/runtime@${RUNTIME_DIGEST}"
@@ -772,7 +787,11 @@ EOT
 }
 
 # What a release's module changes in place, which the plan makes: the plan
-# check allows these (plan_allowed_changes) and nothing else.
+# check allows these (plan_allowed_changes) and nothing else. A run to an
+# earlier release makes them too, with that release's runtime, so each one
+# here works with the runtimes before its release. One that needs its own
+# release's runtime has to make a --to below that release refuse, as a --to
+# past this copy's releases does.
 module_changes() {
   case "$1" in
     0.1.10)
