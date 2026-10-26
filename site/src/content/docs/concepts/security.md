@@ -7,8 +7,9 @@ sidebar:
 
 This page explains what keeps each tenant's data and secrets safe in Kindgi,
 so you know what to check before you deploy it. It covers what keeps one
-tenant's data from another's, who may call the API, what a tenant can't make
-the server do, and where secrets live.
+tenant's data from another's and one project's tool code from another's,
+who may call the API, what a tenant can't make the server do, and where
+secrets live.
 
 ## Tenants and isolation
 
@@ -23,6 +24,36 @@ A runtime serves the tenant it's started with, `KINDGI_TENANT_ID`. Without
 one, it creates a new tenant at every start and prints its id. So set it for
 anything that should keep its data across restarts. For hard separation
 between customers or environments, give each its own runtime and database.
+
+## Your tools' code
+
+Your tools' code runs outside the runtime, in your pack's service, where
+row-level security doesn't reach. What keeps one project's tool code from
+another's is how that service runs:
+
+- **On a runtime you run yourself,** every project's tool calls go to the
+  one pack service the runtime names (`KINDGI_PACK_SERVICE_URL`), by
+  default. One pack's code handles them all, as one identity: whatever the
+  service runs as. Each call is given only the secrets and values its tool
+  declares, for its run (`ctx.secrets`, `ctx.env`). But calls from every
+  project share the service's processes, so code that keeps a value, in a
+  module-level variable say, can hand it to another project's call. And the
+  service's own environment is the same for every call
+  ([Run your pack's service](../../deploy/self-hosted/self-host/#4-run-your-packs-service)).
+  So trust that code with every project the runtime serves. To keep
+  projects apart, give each its own installation, with its own runtime,
+  database and pack service: a testing installation apart from
+  production, say, or one for each customer. A runtime that serves many
+  tenants can give each deployment its own pack service instead, to run
+  under an identity of its own (`KINDGI_PACK_ROUTING=per-deployment`,
+  which needs `KINDGI_TENANCY=multi`;
+  [Serve many tenants](../../deploy/self-hosted/serve-many-tenants/)).
+- **On Kindgi Cloud,** each deployment's tools' code runs in a pack service
+  of its own, apart from every other workspace's. Up to 3 of a workspace's
+  projects run their tools' code under an identity of their own, so other
+  projects' code can't read their secrets. Past that, projects share one
+  identity within the workspace
+  ([Limits](../../hosted/limits/#projects-with-their-own-tool-identity)).
 
 ## Calling the API
 

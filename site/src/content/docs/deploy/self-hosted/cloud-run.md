@@ -28,9 +28,11 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
   own service account and one instance. It has public ingress on port 4000,
   which Cloud Run passes as `PORT`. Its CPU is always allocated, so a run
   started in the background keeps running after its answer.
-- **Your pack's service** (`kindgi-pack`): your tools' code. Internal ingress,
-  and IAM-protected: only the runtime's service account may call it, with a
-  Google ID token on every call. Its CPU is allocated only while a call runs,
+- **Your pack's service** (`kindgi-pack`): your tools' code, for every
+  project the runtime serves
+  ([Your tools' code](../../../concepts/security/#your-tools-code)).
+  Internal ingress, and IAM-protected: only the runtime's service account
+  may call it, with a Google ID token on every call. Its CPU is allocated only while a call runs,
   so the instance `pack_min_instances` keeps up bills at Cloud Run's lower
   idle rate between calls, and any others aren't billed then.
 - **Cloud SQL** (Postgres 16) for the runtime's data, reached through the
