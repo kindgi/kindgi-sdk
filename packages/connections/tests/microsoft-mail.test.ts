@@ -530,6 +530,26 @@ describe('microsoftMail.read', () => {
     ]);
   });
 
+  it("gives a mail's web addresses without their tracking", async () => {
+    const { call } = graph(() =>
+      Response.json(
+        message('m3', '2026-10-26T01:00:00Z', {
+          body: {
+            contentType: 'text',
+            content: 'Your parcel: https://acme.example/track/1042?utm_source=mail&carrier=dhl',
+          },
+        }),
+      ),
+    );
+    const read = await microsoftMail.read(call, {
+      messageId: 'm3',
+      budget: { ...MAIL_THREAD_BUDGET, earlier: 0 },
+    });
+    expect(read.kind === 'ok' && read.mail.body).toBe(
+      'Your parcel: https://acme.example/track/1042?carrier=dhl',
+    );
+  });
+
   it("gives the message alone when Graph refuses the conversation's filter", async () => {
     const { call } = graph((url) =>
       url.pathname.endsWith('/me/messages')

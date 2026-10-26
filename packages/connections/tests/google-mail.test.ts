@@ -486,6 +486,20 @@ describe('googleMail.read', () => {
     expect(read.kind === 'ok' && Object.keys(read.thread[1] ?? {})).not.toContain('replyRef');
   });
 
+  it("gives a mail's web addresses without their tracking", async () => {
+    const { call } = gmail(() =>
+      Response.json(
+        fullMessage('m9', 't9', {
+          text: 'Your parcel: https://acme.example/track/1042?utm_source=mail&utm_medium=email&carrier=dhl',
+        }),
+      ),
+    );
+    const read = await googleMail.read(call, { messageId: 'm9', budget: MAIL_THREAD_BUDGET });
+    expect(read.kind === 'ok' && read.mail.body).toBe(
+      'Your parcel: https://acme.example/track/1042?carrier=dhl',
+    );
+  });
+
   it("keeps the thread's order for messages that came in the same millisecond", async () => {
     const at = '2026-10-25T11:00:00Z';
     const { call } = gmail(() =>

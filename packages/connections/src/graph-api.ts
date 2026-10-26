@@ -8,7 +8,7 @@
  */
 
 import { AppRefused, type AppSend } from './app-request.js';
-import { cutText, htmlToText, isAutoSubmitted } from './mail-text.js';
+import { cutText, htmlToText, isAutoSubmitted, trimLinks } from './mail-text.js';
 import type { MailAttachment, MailMessage, MailPerson } from './mail.js';
 import { microsoft } from './microsoft.js';
 
@@ -172,7 +172,7 @@ export function outlookMessage(
     content?.contentType?.toLowerCase() === 'html'
       ? htmlToText(content.content ?? '')
       : (content?.content ?? '');
-  const body = cutText(text, chars);
+  const body = cutText(trimLinks(text), chars);
   return {
     id: raw.id,
     ...(typeof raw.conversationId === 'string' &&

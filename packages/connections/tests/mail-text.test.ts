@@ -10,6 +10,7 @@ import {
   htmlToText,
   isAutoSubmitted,
   parseAddressList,
+  trimLinks,
 } from '../src/mail-text.js';
 
 describe('parseAddressList', () => {
@@ -107,6 +108,38 @@ describe('cutText', () => {
   it('cuts longer text, never splitting a character', () => {
     expect(cutText('abcdef', 4)).toEqual({ text: 'abcd', cut: true });
     expect(cutText('abc😀def', 4)).toEqual({ text: 'abc', cut: true });
+  });
+});
+
+describe('trimLinks', () => {
+  it("cleans each web address in plain text, a sentence's punctuation left after it", () => {
+    expect(
+      trimLinks(
+        'Track it at https://acme.example/t/1042?utm_source=mail&id=9. Or see (https://acme.example/faq?fbclid=Zx1)!',
+      ),
+    ).toBe('Track it at https://acme.example/t/1042?id=9. Or see (https://acme.example/faq)!');
+    const redirect = `https://click.mail.acme.example/ls/click?upn=${'u001.Xk9'.repeat(20)}`;
+    expect(trimLinks(`Unsubscribe: ${redirect}`)).toBe(
+      'Unsubscribe: https://click.mail.acme.example/ls/click?…',
+    );
+  });
+
+  it('leaves other text, and an address already shortened, as they are', () => {
+    expect(trimLinks('http is a protocol; mailto:support@acme.example')).toBe(
+      'http is a protocol; mailto:support@acme.example',
+    );
+    expect(trimLinks('See <https://click.mail.acme.example/ls/click?…>')).toBe(
+      'See <https://click.mail.acme.example/ls/click?…>',
+    );
+  });
+
+  it('stays linear on an address that is mostly punctuation', () => {
+    expect(trimLinks(`https://acme.example/${'.'.repeat(200_000)}x`)).toBe(
+      `https://acme.example/${'.'.repeat(39)}…`,
+    );
+    expect(trimLinks(`https://acme.example/x${'.'.repeat(200_000)}`)).toBe(
+      `https://acme.example/x${'.'.repeat(200_000)}`,
+    );
   });
 });
 

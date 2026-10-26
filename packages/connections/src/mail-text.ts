@@ -226,6 +226,24 @@ export function cleanUrl(href: string): string | undefined {
   return `${url.protocol}//${url.host}${path}${url.search !== '' ? '?…' : ''}`;
 }
 
+/**
+ * Each web address in plain text as {@link cleanUrl} gives it. A
+ * sentence's closing punctuation after one stays outside it, and one
+ * already shortened (`…`) stays as it is.
+ */
+export function trimLinks(text: string): string {
+  return text.replace(/\bhttps?:\/\/[^\s<>"]+/gi, (match) => {
+    let end = match.length;
+    while (end > 0 && TRAILING.has(match.charAt(end - 1))) end--;
+    const url = match.slice(0, end);
+    if (url.includes('…')) return match;
+    return (cleanUrl(url) ?? url) + match.slice(end);
+  });
+}
+
+/** Punctuation that ends a sentence or closes a bracket after an address, not part of it. */
+const TRAILING = new Set(['.', ',', ';', ':', '!', '?', ')', ']', "'"]);
+
 /** Elements whose content is never text to read. */
 const DROPPED = ['head', 'script', 'style', 'title', 'template', 'noscript'] as const;
 /** Elements that start or end a line. */

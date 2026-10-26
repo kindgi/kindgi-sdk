@@ -18,6 +18,7 @@ import {
   htmlToText,
   isAutoSubmitted,
   parseAddressList,
+  trimLinks,
 } from './mail-text.js';
 import { type MailAttachment, type MailMessage, REPLY_REF_HEADER, isReplyRef } from './mail.js';
 
@@ -61,7 +62,7 @@ export function gmailMessage(raw: GmailMessage, chars: number): MailMessage {
   const header = (name: string): string => gmailHeader(payload, name) ?? '';
   const from = parseAddressList(header('From'))[0];
   const { text, attachments } = gmailBody(payload);
-  const body = cutText(text, chars);
+  const body = cutText(trimLinks(text), chars);
   const replyRef = replyRefOf(payload);
   const sent = (Array.isArray(raw.labelIds) ? raw.labelIds : []).includes('SENT');
   return {
