@@ -256,6 +256,19 @@ describe('microsoftMail.changes', () => {
     expect(String(err)).not.toContain('Check credentials');
   });
 
+  it.each([
+    ['words', 'Access is denied for bo@acme.example', undefined],
+    ['over 100 characters', 'E'.repeat(101), undefined],
+    ['100 characters', 'E'.repeat(100), 'E'.repeat(100)],
+  ])("takes Graph's code as the reason only in a code's form: %s", async (_, code, reason) => {
+    const { call } = graph(() => graphError(403, code, 'Access is denied.'));
+    const err = await microsoftMail.changes(call, { cursor }).catch((e: unknown) => e);
+    expect(isMailCallError(err)).toBe(true);
+    expect(err).toMatchObject({ status: 403, reason });
+    if (reason === undefined)
+      expect(String(err)).toBe('MailCallError: the mail call failed with 403');
+  });
+
   it('throws a 503 the tries did not get past as a MailCallError, after 3 tries', async () => {
     const { call, calls } = graph(() =>
       Response.json(

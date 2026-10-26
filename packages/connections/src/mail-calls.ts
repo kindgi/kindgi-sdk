@@ -11,7 +11,8 @@ import { MailCallError, type MailFunctions, type MailThreadBudget } from './mail
 
 /**
  * An app's mail calls with each refusal (`AppRefused`) thrown as a
- * `MailCallError`: its status and reason, never the app's words. Anything
+ * `MailCallError`: its status and reason (when it has a code's form),
+ * never the app's words. Anything
  * else goes through as thrown: a 401's `ConnectionRejectedError`, an
  * abort's reason, a bad input or answer.
  */
@@ -24,11 +25,17 @@ export function mailCalls(calls: MailFunctions): MailFunctions {
   };
 }
 
+/** A reason as the apps give one: a code, never words. */
+const REASON = /^[A-Za-z0-9_.-]{1,100}$/;
+
 async function failingTyped<T>(result: Promise<T>): Promise<T> {
   try {
     return await result;
   } catch (err) {
-    if (err instanceof AppRefused) throw new MailCallError(err.status, err.reason);
+    if (err instanceof AppRefused) {
+      const reason = err.reason !== undefined && REASON.test(err.reason) ? err.reason : undefined;
+      throw new MailCallError(err.status, reason);
+    }
     throw err;
   }
 }
