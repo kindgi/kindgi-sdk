@@ -13,6 +13,8 @@
 import { receivedAt } from './google-api.js';
 import {
   type MailTextUse,
+  ThreadLines,
+  cutQuote,
   cutText,
   decodeBytes,
   decodeEncodedWords,
@@ -55,15 +57,25 @@ export interface GmailMessage {
 
 /**
  * A message read with `format=full`, its body cut at `chars`, its links
- * as `use` gives them. Header values are decoded from RFC 2047 encoded
+ * as `use` gives them. A mail turn's body is the mail's own text, its
+ * quote of `earlier` mail cut ({@link cutQuote}), and its text before
+ * the cut is added to `earlier` for the next: the read passes a thread's
+ * mails oldest first. Header values are decoded from RFC 2047 encoded
  * words, which leaves one Gmail has decoded already as it is.
  */
-export function gmailMessage(raw: GmailMessage, chars: number, use: MailTextUse): MailMessage {
+export function gmailMessage(
+  raw: GmailMessage,
+  chars: number,
+  use: MailTextUse,
+  earlier: ThreadLines = new ThreadLines(),
+): MailMessage {
   const payload = raw.payload ?? {};
   const header = (name: string): string => gmailHeader(payload, name) ?? '';
   const from = parseAddressList(header('From'))[0];
   const { text, attachments } = gmailBody(payload);
-  const body = cutText(trimLinks(text, use), chars);
+  const own = use === 'turn' ? cutQuote(text, earlier) : text;
+  if (use === 'turn') earlier.add(text);
+  const body = cutText(trimLinks(own, use), chars);
   const replyRef = replyRefOf(payload);
   const sent = (Array.isArray(raw.labelIds) ? raw.labelIds : []).includes('SENT');
   return {

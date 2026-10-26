@@ -315,6 +315,14 @@ describe('gmailMessageGet', () => {
     expect(calls.map((c) => c.url.href)).toEqual([`${GMAIL}/messages/m3?format=full`]);
   });
 
+  it('keeps the earlier mail a reply quotes', async () => {
+    const text =
+      'Yes, Thursday works.\n\nOn Mon, 20 Oct 2026 at 14:03, Acme Support <support@acme.example> wrote:\n> Can you come on Thursday?';
+    gmailAnswering(() => Response.json(fullMessage('m5', 't1', { text })));
+    const r = await invokeToolForTest(tool, { messageId: 'm5' }, { connections: { mail: mail() } });
+    expect(r.kind === 'ok' && r.value.body).toBe(text);
+  });
+
   it('keeps a long web address whole, without its tracking', async () => {
     const share = `https://share.acme.example/s/${'k'.repeat(80)}/invoice.pdf?rlkey=z9`;
     gmailAnswering(() =>

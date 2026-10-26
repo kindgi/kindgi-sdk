@@ -26,6 +26,7 @@ import { ConnectionRejectedError } from '@kindgi/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { googleMail } from '../src/google-mail.js';
+import { LEFT_OUT } from '../src/mail-text.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
   MAIL_THREAD_BUDGET,
@@ -510,6 +511,47 @@ describe('googleMail.read', () => {
     expect(read.kind === 'ok' && [read.mail.body, read.thread[0]?.body]).toEqual([
       `Your parcel: https://acme.example/track/1042?carrier=dhl\nThe invoice: ${cut}`,
       `The invoice: ${cut}`,
+    ]);
+  });
+
+  it("gives each mail's own text, its quote of earlier mail cut, and keeps answers typed into one", async () => {
+    const block = (from: string, subject: string) =>
+      `From: ${from}\nSent: Monday, October 20, 2026 2:03 PM\nTo: Ann Lee <ann@example.com>\nSubject: ${subject}`;
+    const { call } = gmail(() =>
+      Response.json({
+        id: 't1',
+        historyId: '9876543299',
+        messages: [
+          fullMessage('m4', 't1', {
+            at: '2026-10-22T08:00:00Z',
+            text: `See my answer below.\n\n${block('Acme Support <support@acme.example>', 'RE: Your visit')}\n\nAt 10, then.\nANN: 11 would suit me better.`,
+          }),
+          fullMessage('m1', 't1', {
+            at: '2026-10-20T14:03:00Z',
+            text: 'Can you come on Thursday?\n\nAcme Support',
+          }),
+          fullMessage('m2', 't1', {
+            at: '2026-10-21T08:00:00Z',
+            text: `Yes, Thursday works.\n\n________________________________\n${block('Acme Support <support@acme.example>', 'Your visit')}\n\nCan you come on Thursday?\n\nAcme Support`,
+          }),
+          fullMessage('m3', 't1', {
+            at: '2026-10-21T09:10:00Z',
+            html: '<div dir="ltr">At 10, then.</div><br><div class="gmail_quote"><div class="gmail_attr">On Tue, 21 Oct 2026 at 08:00, Ann Lee &lt;ann@example.com&gt; wrote:<br></div><blockquote class="gmail_quote"><div>Yes, Thursday works.</div></blockquote></div>',
+          }),
+        ],
+      }),
+    );
+    const read = await googleMail.read(call, {
+      messageId: 'm4',
+      threadId: 't1',
+      budget: MAIL_THREAD_BUDGET,
+    });
+    expect(read.kind === 'ok' && read.mail.body).toContain('ANN: 11 would suit me better.');
+    expect(read.kind === 'ok' && read.mail.body).not.toContain(LEFT_OUT);
+    expect(read.kind === 'ok' && read.thread.map((m) => [m.id, m.body])).toEqual([
+      ['m3', `At 10, then.\n\n${LEFT_OUT}`],
+      ['m2', `Yes, Thursday works.\n\n${LEFT_OUT}`],
+      ['m1', 'Can you come on Thursday?\n\nAcme Support'],
     ]);
   });
 

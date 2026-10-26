@@ -4,6 +4,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  LEFT_OUT,
+  ThreadLines,
+  cutQuote,
   cutText,
   decodeBytes,
   decodeEncodedWords,
@@ -265,5 +268,119 @@ describe('htmlToText', () => {
     const html = '<a'.repeat(100_000);
     expect(htmlToText(html)).toBe('');
     expect(htmlToText(`${'<!--'.repeat(50_000)}x`)).toBe('');
+  });
+});
+
+describe('cutQuote', () => {
+  const asked = 'Can you come on Thursday?\n\nAcme Support';
+  const block = [
+    'From: Acme Support <support@acme.example>',
+    'Sent: Monday, October 20, 2026 2:03 PM',
+    'To: Ann Lee <ann@example.com>',
+    'Subject: Your visit',
+  ].join('\n');
+
+  function earlierMails(...mails: string[]): ThreadLines {
+    const lines = new ThreadLines();
+    for (const mail of mails) lines.add(mail);
+    return lines;
+  }
+
+  it.each([
+    [
+      "Gmail's",
+      'Yes, Thursday works.\n\nOn Mon, 20 Oct 2026 at 14:03, Acme Support <support@acme.example> wrote:\n\n> Can you come on Thursday?\n>\n> Acme Support\n',
+      'Yes, Thursday works.',
+    ],
+    [
+      "Gmail's, wrapped in two lines",
+      'Yes, Thursday works.\n\nOn Mon, 20 Oct 2026 at 14:03, Acme Support <\nsupport@acme.example> wrote:\n> Can you come on Thursday?',
+      'Yes, Thursday works.',
+    ],
+    [
+      "Apple's",
+      'Sounds good.\n\nSent from my phone\n\nOn Oct 20, 2026, at 14:03, Acme Support <support@acme.example> wrote:\n\n> Can you come on Thursday?',
+      'Sounds good.\n\nSent from my phone',
+    ],
+    ['a run of `>` lines', 'See below.\n> Can you come on Thursday?\n> Acme Support', 'See below.'],
+  ])('cuts %s quote, and says so', (_, text, own) => {
+    expect(cutQuote(text, new ThreadLines())).toBe(`${own}\n\n${LEFT_OUT}`);
+  });
+
+  it("cuts Outlook's blocks when each line under one is in an earlier mail", () => {
+    const earlier = earlierMails(asked);
+    expect(
+      cutQuote(
+        `Yes.\n\n________________________________\n${block}\n\nCan you come  on Thursday?\n\n  Acme Support`,
+        earlier,
+      ),
+    ).toBe(`Yes.\n\n${LEFT_OUT}`);
+    expect(cutQuote(`Yes.\n\n-----Original Message-----\n${block}\n\n${asked}`, earlier)).toBe(
+      `Yes.\n\n${LEFT_OUT}`,
+    );
+    expect(cutQuote(`Yes.\n\n${block.replace('Sent:', 'Date:')}\n\n${asked}`, earlier)).toBe(
+      `Yes.\n\n${LEFT_OUT}`,
+    );
+    expect(cutQuote(`Yes.\n\n-----Original Message-----\n${asked}`, earlier)).toBe(
+      `Yes.\n\n${LEFT_OUT}`,
+    );
+  });
+
+  it('keeps an Outlook block with answers typed into it, or with no earlier mail to check', () => {
+    const typed = `See my answers.\n\n${block}\n\nCan you come on Thursday? YES, after 10\n\nAcme Support`;
+    expect(cutQuote(typed, earlierMails(asked))).toBe(typed);
+    for (const quoted of [
+      `Yes.\n\n${block}\n\n${asked}`,
+      `Yes.\n\n${block}`,
+      `Yes.\n\n${block}\n\n`,
+    ]) {
+      expect(cutQuote(quoted, new ThreadLines())).toBe(quoted);
+    }
+    const headless = `Yes.\n\nFrom: Acme Support <support@acme.example>\nTo: Ann Lee <ann@example.com>\n\n${asked}`;
+    expect(cutQuote(headless, earlierMails(asked))).toBe(headless);
+  });
+
+  it('keeps an inline reply, and cuts only the quote after its last answer', () => {
+    const inline =
+      'On Mon, 20 Oct 2026 at 14:03, Acme Support <support@acme.example> wrote:\n> Can you come on Thursday?\nYes.\n> Which size?\nLarge.';
+    expect(cutQuote(inline, new ThreadLines())).toBe(inline);
+    expect(cutQuote(`${inline}\n>\n> Acme Support`, new ThreadLines())).toBe(
+      `${inline}\n\n${LEFT_OUT}`,
+    );
+  });
+
+  it("keeps a forwarded mail, a quote it doesn't know, and a mail the cut would leave empty", () => {
+    for (const text of [
+      'FYI\n\n---------- Forwarded message ---------\nFrom: Ann Lee <ann@example.com>\nDate: Mon, 20 Oct 2026\nSubject: Order 1042\nTo: support@acme.example\n\nWhere is it?\n> Shipped on Friday.',
+      'FYI\n\nBegin forwarded message:\n\n> Shipped on Friday.',
+      'Ja.\n\nAm 20.10.2026 um 14:03 schrieb Acme Support:\nKönnen Sie am Donnerstag kommen?',
+      'On Mon, 20 Oct 2026 at 14:03, Acme Support <support@acme.example> wrote:\n> Can you come on Thursday?',
+      '\n> Can you come on Thursday?\n',
+    ]) {
+      expect(cutQuote(text, earlierMails(asked))).toBe(text);
+    }
+  });
+
+  it("cuts an HTML-only mail's quote once it is text, and keeps Gmail's inline answers", () => {
+    const attr =
+      '<div class="gmail_attr">On Mon, 20 Oct 2026 at 14:03, Acme Support &lt;support@acme.example&gt; wrote:<br></div>';
+    const reply = `<div dir="ltr">Yes, Thursday works.</div><br><div class="gmail_quote">${attr}<blockquote class="gmail_quote"><p>Can you come on Thursday?</p><p>Acme Support</p></blockquote></div>`;
+    expect(cutQuote(htmlToText(reply), new ThreadLines())).toBe(
+      `Yes, Thursday works.\n\n${LEFT_OUT}`,
+    );
+    const inline = `<div dir="ltr">Answers below.</div><div class="gmail_quote">${attr}<blockquote class="gmail_quote"><p>Can you come on Thursday?</p></blockquote><div>Yes, after 10.</div><blockquote class="gmail_quote"><p>Which size?</p></blockquote><div>Large.</div></div>`;
+    const text = htmlToText(inline);
+    expect(text).toContain('> Which size?\n\nLarge.');
+    expect(cutQuote(text, new ThreadLines())).toBe(text);
+  });
+
+  it('stays linear on many lines that each start a quote', () => {
+    for (const text of [
+      `${'On a wrote:\n'.repeat(100_000)}end`,
+      `${'From: a\nSent: b\nTo: c\n'.repeat(100_000)}end`,
+      `x${'\n'.repeat(200_000)}${'> a\n'.repeat(100_000)}`,
+    ]) {
+      expect(cutQuote(text, earlierMails(asked)).length).toBeGreaterThan(0);
+    }
   });
 });

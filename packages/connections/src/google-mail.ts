@@ -15,6 +15,7 @@ import { type AppSend, mailSend } from './app-request.js';
 import { type GmailMessage, gmailMessage } from './gmail-mime.js';
 import { GMAIL_ID, GmailNotFound, LABEL_ID, gmailJson, query } from './google-api.js';
 import { checkBudget, checkMax, mailCalls } from './mail-calls.js';
+import { ThreadLines } from './mail-text.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
   type MailFolder,
@@ -271,19 +272,21 @@ async function readInThread(
   // Earlier by when each came, not by place: the reference gives no order
   // for a thread's messages. Two that came in the same millisecond keep it.
   const own = dateOf(messages[at]);
-  const earlier = messages
+  const before = messages
     .map((m, i) => ({ m, i, date: dateOf(m) }))
     .filter(
       ({ m, i, date }) =>
         (date < own || (date === own && i < at)) &&
         !(m?.labelIds ?? []).some((l) => typeof l === 'string' && NOT_IN_THREAD.has(l)),
     )
-    .sort((a, b) => b.date - a.date || b.i - a.i)
-    .slice(0, budget.earlier);
+    .sort((a, b) => a.date - b.date || a.i - b.i);
+  // Oldest first: each mail's quote cut checks the mails before it.
+  const lines = new ThreadLines();
+  const earlier = before.map(({ m }) => gmailMessage(m, budget.earlierChars, 'turn', lines));
   return {
     kind: 'ok',
-    mail: gmailMessage(messages[at] as GmailMessage, budget.messageChars, 'turn'),
-    thread: earlier.map(({ m }) => gmailMessage(m, budget.earlierChars, 'turn')),
+    mail: gmailMessage(messages[at] as GmailMessage, budget.messageChars, 'turn', lines),
+    thread: earlier.reverse().slice(0, budget.earlier),
   };
 }
 

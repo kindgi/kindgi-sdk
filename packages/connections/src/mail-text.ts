@@ -261,6 +261,156 @@ export function trimLinks(text: string, use: MailTextUse): string {
 /** Punctuation that ends a sentence or closes a bracket after an address, not part of it. */
 const TRAILING = new Set(['.', ',', ';', ':', '!', '?', ')', ']', "'"]);
 
+/** What a mail turn's text says in place of the earlier mail a quote cut took out. */
+export const LEFT_OUT = '[earlier mail left out]';
+
+/**
+ * The lines of a thread's mails so far, as the read fetched them, before
+ * their own cut: what the quote cut checks an Outlook block against.
+ */
+export class ThreadLines {
+  readonly #lines = new Set<string>();
+  #mails = 0;
+
+  /** A mail's text, before its own cut. */
+  add(text: string): void {
+    this.#mails++;
+    for (const line of text.split('\n')) {
+      const same = sameLine(line);
+      if (same !== '') this.#lines.add(same);
+    }
+  }
+
+  /** Whether an earlier mail holds the line, trimmed, with its runs of spaces as one. */
+  has(line: string): boolean {
+    return this.#lines.has(sameLine(line));
+  }
+
+  /** How many mails it holds. */
+  get mails(): number {
+    return this.#mails;
+  }
+}
+
+function sameLine(line: string): string {
+  return line.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * A mail's own text, without the earlier mail it quotes below it, and
+ * {@link LEFT_OUT} where that was. It cuts at the first line that starts
+ * a quote running to the end:
+ * - an English `On … wrote:` line (Gmail's, Apple's; Gmail may wrap it in
+ *   two) with `>` lines after it;
+ * - an Outlook block, `-----Original Message-----` or `From:` with `Sent:`
+ *   or `Date:` and `Subject:` (and the underscores above it), when every
+ *   line under it is in an earlier mail of `earlier`: else a customer may
+ *   have typed answers into it;
+ * - a run of `>` lines.
+ * A `>` line with the sender's own words after it is an inline reply,
+ * and stays. A mail that forwards one, or that the cut would leave
+ * empty, stays whole. Linear in the text's length.
+ */
+export function cutQuote(text: string, earlier: ThreadLines): string {
+  const lines = text.split('\n');
+  if (lines.some((line) => FORWARDED.test(line.trim()))) return text;
+  const at = quoteStart(lines, earlier);
+  if (at === undefined) return text;
+  const kept = lines.slice(0, at).join('\n').trimEnd();
+  return kept.trim() === '' ? text : `${kept}\n\n${LEFT_OUT}`;
+}
+
+/** Gmail's and Apple's line above a forwarded mail. */
+const FORWARDED = /^(?:-{3,} ?Forwarded message ?-{3,}|Begin forwarded message:)$/i;
+/** Outlook's line above an older mail's headers. */
+const ORIGINAL = /^-{3,} ?Original Message ?-{3,}$/i;
+/** An Outlook block's header line, and its name. */
+const BLOCK_HEADER = /^(From|Sent|Date|To|Cc|Subject):/;
+/** The most header lines an Outlook block has. */
+const BLOCK_LINES = 8;
+/** The longest `On … wrote:` line taken. */
+const ATTRIBUTION_MAX = 500;
+
+/** Where the quote to cut starts, if a line starts one. */
+function quoteStart(lines: readonly string[], earlier: ThreadLines): number | undefined {
+  const tail = tails(lines, earlier);
+  for (let i = 0; i < lines.length; i++) {
+    const at = quoteAt(lines, i, tail);
+    if (at !== undefined) return at;
+  }
+  return undefined;
+}
+
+interface Tails {
+  /** From each line to the end, `>` lines and blank ones, a `>` among them. */
+  readonly quoted: readonly boolean[];
+  /** From each line to the end, each non-blank line in an earlier mail, with one to check. */
+  readonly known: readonly boolean[];
+}
+
+function tails(lines: readonly string[], earlier: ThreadLines): Tails {
+  const quoted = new Array<boolean>(lines.length + 1).fill(false);
+  const known = new Array<boolean>(lines.length + 1).fill(earlier.mails > 0);
+  let blank = true;
+  let q = false;
+  let k = earlier.mails > 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = (lines[i] ?? '').trim();
+    if (line !== '') q = line.startsWith('>') && (blank || q);
+    blank &&= line === '';
+    k &&= line === '' || earlier.has(line);
+    quoted[i] = q;
+    known[i] = k;
+  }
+  return { quoted, known };
+}
+
+/** Where the quote to cut starts, if one starts at line `i`. */
+function quoteAt(lines: readonly string[], i: number, tail: Tails): number | undefined {
+  if ((lines[i] ?? '').trim().startsWith('>')) return tail.quoted[i] === true ? i : undefined;
+  const after = attributionEnd(lines, i);
+  if (after !== undefined && tail.quoted[after] === true) return i;
+  const under = outlookBlockEnd(lines, i);
+  return under !== undefined && tail.known[under] === true ? withUnderscores(lines, i) : undefined;
+}
+
+/** The line after an `On … wrote:` line at `i`, or after the two Gmail wraps it into. */
+function attributionEnd(lines: readonly string[], i: number): number | undefined {
+  const line = (lines[i] ?? '').trim();
+  if (!line.startsWith('On ') || line.length > ATTRIBUTION_MAX) return undefined;
+  if (isAttribution(line)) return i + 1;
+  const next = lines[i + 1]?.trim();
+  return next !== undefined && isAttribution(`${line} ${next}`) ? i + 2 : undefined;
+}
+
+function isAttribution(line: string): boolean {
+  return line.length <= ATTRIBUTION_MAX && line.startsWith('On ') && line.endsWith(' wrote:');
+}
+
+/** The line after an Outlook block's headers at `i`, if one starts there. */
+function outlookBlockEnd(lines: readonly string[], i: number): number | undefined {
+  const line = (lines[i] ?? '').trim();
+  const original = ORIGINAL.test(line);
+  if (!original && !line.startsWith('From:')) return undefined;
+  const names = new Set<string>();
+  let end = original ? i + 1 : i;
+  for (; end < lines.length && end <= i + BLOCK_LINES; end++) {
+    const name = BLOCK_HEADER.exec((lines[end] ?? '').trim())?.[1];
+    if (name === undefined) break;
+    names.add(name);
+  }
+  const headers =
+    names.has('From') && (names.has('Sent') || names.has('Date')) && names.has('Subject');
+  return original || headers ? end : undefined;
+}
+
+/** The block's start, with Outlook's line of underscores above it when there is one. */
+function withUnderscores(lines: readonly string[], i: number): number {
+  let above = i - 1;
+  while (above >= 0 && (lines[above] ?? '').trim() === '') above--;
+  return above >= 0 && /^_{10,}$/.test((lines[above] ?? '').trim()) ? above : i;
+}
+
 /** Elements whose content is never text to read. */
 const DROPPED = ['head', 'script', 'style', 'title', 'template', 'noscript'] as const;
 /** Elements that start or end a line. */
