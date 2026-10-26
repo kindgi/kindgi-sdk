@@ -429,7 +429,9 @@ rest in the mailbox. A `cursor-reset:` row in its fires says so.
   mailbox, folder, pace or label, with `create`'s flags but `--project`
   and `--run-as`.
   `--mailbox` and `--as` go together, since the mailbox is replaced whole.
-  A new mailbox or folder starts afresh too. Its owner stays as it is
+  A new mailbox or folder starts afresh too. Without `--folder`, it keeps
+  its folder, unless the mailbox changes: then it watches the new
+  mailbox's inbox. Its owner stays as it is
   ([Shared or personal](#shared-or-personal)).
 - `kindgi mail-triggers unregister <trigger-id>` removes it.
 

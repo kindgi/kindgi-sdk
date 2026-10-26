@@ -14194,7 +14194,7 @@ export const PatchMailTriggerBodyConfigSchema: JsonSchema = {
     folder: {
       ...MAIL_TRIGGER_CONFIG_PROPERTIES.folder,
       description:
-        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` moves to the other app; then it watches that app's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
+        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes; then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
     },
   },
 };
