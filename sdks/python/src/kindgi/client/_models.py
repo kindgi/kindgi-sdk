@@ -10469,7 +10469,7 @@ class MailTriggerRecord(BaseModel):
     """
     status_reason: Annotated[str | None, Field(alias="statusReason")] = None
     """
-    Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), or why the runtime paused it.
+    Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.
     """
     account: Account | None = None
     """

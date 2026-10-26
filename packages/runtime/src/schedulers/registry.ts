@@ -579,7 +579,9 @@ export interface MailTriggerRecord extends TriggerRecordBase {
   /**
    * Why it isn't polling as it should: `connection-missing` (the mailbox's
    * connection is gone or lapsed; polls go on, and work again once it's
-   * back), or why the runtime paused it.
+   * back), `owner-refused` (its owner was removed or may no longer run the
+   * target; polls go on and read nothing until that changes or an admin
+   * takes it over), or why the runtime paused it.
    */
   readonly statusReason?: string;
   /** The mailbox's account at its last poll. Absent before its first. */
