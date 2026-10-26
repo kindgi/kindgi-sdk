@@ -92,6 +92,11 @@ with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
 - **Roles aren't checked.** A project role you record, and a service
   account's grants, give nothing more here. Making a person a tenant admin
   answers `501 person-grants-unsupported`.
+- **Schedules and webhook triggers keep to their owners** (runtime 0.2.0 or
+  later). Only a tenant admin changes, pauses, fires or unregisters someone
+  else's personal one, changes what a shared one runs, sets one's tools
+  allowed unattended, or takes one over
+  ([Shared or personal](../../guides/runs/run-on-a-schedule/#shared-or-personal)).
 
 [Run with authorization](../authorization/) when people need different
 access, or more than one person needs to be a tenant admin.

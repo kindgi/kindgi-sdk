@@ -247,12 +247,12 @@ export function allowUnattendedField(
 }
 
 /**
- * A schedule's or a webhook trigger's `RUNS AS` cell: its owner's name (else
- * id), and whether that makes it personal (a person) or shared (a service
- * account). One run as its project's own account says "this project". A
- * trigger with no owner (the server's `{service, 'unknown'}`) is neither: it
- * starts nothing until an admin takes it over. Empty when the server names
- * no owner at all.
+ * A schedule's, a webhook trigger's or a mail trigger's `RUNS AS` cell: its
+ * owner's name (else id), and whether that makes it personal (a person) or
+ * shared (a service account). One run as its project's own account says
+ * "this project". A trigger with no owner (the server's
+ * `{service, 'unknown'}`) is neither: it starts nothing until an admin takes
+ * it over. Empty when the server names no owner at all.
  */
 export function runsAsCell(
   owner:

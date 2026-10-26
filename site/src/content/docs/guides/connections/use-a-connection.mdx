@@ -366,7 +366,8 @@ input:
   - in a run you start, from the console, the CLI, or your own API key:
     yours;
   - in a run of a schedule or a webhook: its owner's. A schedule or webhook
-    is owned by whoever created it, or last changed what it runs.
+    is owned by the person who created it, unless a service account owns
+    it, and only a take-over changes that.
   - in a run a service account started, an event's run, or a run of a
     schedule or webhook a service account owns: none. The call fails with
     `connection-needs-a-person`.

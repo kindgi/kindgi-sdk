@@ -15,8 +15,9 @@ was created" from WooCommerce, into a run of one of your flows. The sender
 posts to the trigger's **receive URL**. Kindgi checks the request's signature
 with a secret only the two of you know, and starts the flow, with the request
 body as its event. The run acts as the trigger's **owner**, checked again
-at every delivery, in the trigger's project. That's whoever registered it
-or last changed what it runs, or a service account named for it.
+at every delivery, in the trigger's project. That's whoever registered it,
+for a personal trigger, or a service account named for it, for a shared one
+([Shared or personal](#shared-or-personal)).
 
 This guide is about Kindgi **receiving** webhooks. For Kindgi sending your
 app a request when a run ends, see
@@ -537,17 +538,12 @@ A run an event trigger starts reads the same, with `startedBy: "event"`.
   for up to 10 seconds: the old secret stops verifying at once on the
   instance that took the rotation, and within 10 seconds on the others.
 
-  When you aren't its owner, a new flow version, input, secret or list of
-  tools allowed unattended makes you its owner (runtime 0.2.0 or later),
-  and its runs act as you from the next delivery. So your own access only
-  serves what you set it to run. The label, scheme, delivery-id header and
-  limits leave its owner as it is. A trigger a service account owns keeps
-  its owner, whoever changes it, and a service account that changes a
-  person's trigger becomes its owner. Each change that moves the owner is
-  recorded as evidence, `trigger-owner-set`.
+  Its owner stays as it is ([Shared or personal](#shared-or-personal)).
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
-  left. Once they're removed from the tenant, or the service account it runs
-  as is unregistered, its deliveries are refused (runtime 0.1.9 or later).
+  left, or to make a trigger shared or yours
+  ([Shared or personal](#shared-or-personal)). Once its owner is removed
+  from the tenant, or the service account it runs as is unregistered, its
+  deliveries are refused (runtime 0.1.9 or later).
   After 5 deliveries in a row whose run was refused or failed to start, a
   trigger pauses itself, with the reason in its `statusReason`. A run refused
   for a limit, such as `rate-limited`, or one the database was too busy to
@@ -570,6 +566,63 @@ From your app, the clients have the same calls on `webhooks`: `register`,
 `list`, `get`, `update`, `pause`, `resume`, `fires`, `takeOwnership` and
 `unregister`. The receive URL itself is the sender's: no Kindgi client calls
 it.
+
+## Shared or personal
+
+A trigger a person owns is **personal**: its runs act as them, with their
+connections. One a service account owns is **shared**: its runs act as the
+account, with the company's connections only. Its owner is whoever
+registered it, or the account named with
+[`--run-as`](#2-register-the-trigger), and no change moves it (runtime
+0.2.0 or later):
+
+- **A personal trigger is its owner's.** Only they or a project admin can
+  change, pause, resume or unregister it. Anyone else with `write` on the
+  project is answered `403 permission-denied`, with its owner's name, such
+  as "This webhook trigger is personal: only Sam Lee or a project admin
+  can change it." The owner still needs `write` on the project, and its
+  tools allowed unattended always take a project admin.
+- **What a shared trigger runs takes a project admin:** its flow version,
+  its input, its signing secret and its tools allowed unattended. Anyone
+  else with `write` on the project is answered `403 permission-denied`,
+  "Changing what a shared webhook trigger runs takes a project admin." So
+  a deploy job's key that moves a shared trigger to a new flow version
+  needs `admin` on the project too. Its label, scheme, delivery-id header
+  and limits, and pausing, resuming or unregistering it take `write` on
+  the project, as before. A trigger with no owner, from before triggers
+  had one, is treated the same way, and starts nothing until a project
+  admin takes it over.
+- **A project admin's change to a personal trigger keeps its owner,** so
+  its runs still act as them, with their connections. Each change, pause,
+  resume or unregister by anyone but the owner is recorded as evidence,
+  `trigger-changed-for-owner`. It names who did it and what: the fields
+  changed, the flow version before and after, and the signing secret's
+  name before and after, never a value. A change to its tools allowed
+  unattended keeps its own record, `trigger-tools-allowed-unattended-set`.
+  The owner isn't told yet: a later runtime emails them. An app built on
+  `@kindgi/api` can tell them itself, with `createApp`'s
+  `triggerOwnerNotices`: its `tell` is called after each such change, and
+  after a take-over from them, with a `TriggerOwnerNotice` that names the
+  fields changed, never their values.
+- **Only a take-over moves the owner** (`kindgi webhooks take-ownership`,
+  above), and it takes a project admin. Anyone else is answered
+  `403 permission-denied`, "Taking a webhook trigger over takes a project
+  admin." A project admin's own take-over makes the trigger personal to
+  them, and one with `--run-as` makes it shared.
+- **`kindgi webhooks list` says which:** its `RUNS AS` column shows the
+  owner's name, else its id, and whether the trigger is personal or
+  shared, such as "Sam Lee (personal)". A trigger with no owner says
+  "no owner (an admin can take it over)".
+- **Without an authorization store,** a project admin here is a tenant
+  admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
+- **A trigger registered with a token the runtime made at startup** is
+  personal to that start's user, which later starts no longer use: without
+  `KINDGI_API_TOKEN` or `KINDGI_SEED_USER_ID`, each start makes a new
+  token, with a new user. Make such triggers shared with `--run-as`, or set
+  `KINDGI_API_TOKEN` or
+  `KINDGI_SEED_USER_ID`, so the token's user stays the same across
+  restarts
+  ([Point the runtime at it](../../../deploy/authorization/#point-the-runtime-at-it)).
 
 ## Change who it runs as, in the console
 

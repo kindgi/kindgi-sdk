@@ -394,6 +394,18 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     parent: { kind: 'webhooks', params: { triggerId: 'triggerId' } },
   },
   {
+    name: 'mail-triggers',
+    route: '/v1/mail-triggers',
+    paging: cursor,
+    covers: ['/v1/mail-triggers/{triggerId}'],
+  },
+  {
+    name: 'mail-trigger-fires',
+    route: '/v1/mail-triggers/{triggerId}/fires',
+    paging: cursor,
+    parent: { kind: 'mail-triggers', params: { triggerId: 'triggerId' } },
+  },
+  {
     name: 'webhook-endpoints',
     route: '/v1/webhook-endpoints',
     paging: cursor,

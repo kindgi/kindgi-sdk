@@ -1080,6 +1080,31 @@ OPERATIONS: dict[str, Operation] = {
     "webhooks.takeOwnership": Operation(
         "webhooks.takeOwnership", "POST", "/v1/webhooks/{triggerId}/owner", "json", True
     ),
+    "mailTriggers.list": Operation("mailTriggers.list", "GET", "/v1/mail-triggers", "json", False),
+    "mailTriggers.register": Operation(
+        "mailTriggers.register", "POST", "/v1/mail-triggers", "json", True
+    ),
+    "mailTriggers.get": Operation(
+        "mailTriggers.get", "GET", "/v1/mail-triggers/{triggerId}", "json", False
+    ),
+    "mailTriggers.update": Operation(
+        "mailTriggers.update", "PATCH", "/v1/mail-triggers/{triggerId}", "json", True
+    ),
+    "mailTriggers.pause": Operation(
+        "mailTriggers.pause", "POST", "/v1/mail-triggers/{triggerId}/pause", "json", True
+    ),
+    "mailTriggers.resume": Operation(
+        "mailTriggers.resume", "POST", "/v1/mail-triggers/{triggerId}/resume", "json", True
+    ),
+    "mailTriggers.unregister": Operation(
+        "mailTriggers.unregister", "POST", "/v1/mail-triggers/{triggerId}/unregister", "json", True
+    ),
+    "mailTriggers.fires": Operation(
+        "mailTriggers.fires", "GET", "/v1/mail-triggers/{triggerId}/fires", "json", False
+    ),
+    "mailTriggers.takeOwnership": Operation(
+        "mailTriggers.takeOwnership", "POST", "/v1/mail-triggers/{triggerId}/owner", "json", True
+    ),
     "webhookEndpoints.list": Operation(
         "webhookEndpoints.list", "GET", "/v1/webhook-endpoints", "json", False
     ),
@@ -9877,6 +9902,205 @@ class WebhooksResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+
+class MailTriggersResource:
+    """`client.mail_triggers` — the `mailTriggers` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerCollectionPage:
+        """List mail triggers. `GET /v1/mail-triggers`
+
+        The tenant's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.MailTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    def register(
+        self,
+        body: _models.RegisterMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Register a mail trigger. `POST /v1/mail-triggers`
+
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerRecord:
+        """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
+        return self._client._request(
+            _OPERATIONS["mailTriggers.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
+
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Pause a mail trigger. `POST /v1/mail-triggers/{triggerId}/pause`
+
+        A paused trigger doesn't poll. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Resume a mail trigger. `POST /v1/mail-triggers/{triggerId}/resume`
+
+        It starts afresh: mail that came while it was paused doesn't start runs. Who may resume it is as for a pause.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
+
+        Who may unregister it is as for a pause.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailFirePage:
+        """A mail trigger's mail. `GET /v1/mail-triggers/{triggerId}/fires`
+
+        Newest first: each mail the trigger found and what came of it (`MailFire`): the run it started, why it waits (`thread-busy:`), or why it was skipped, refused or failed.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
+
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
+            response=_models.MailTriggerRecord,
             timeout=timeout,
         )
 
@@ -19039,6 +19263,205 @@ class AsyncWebhooksResource:
         )
 
 
+class AsyncMailTriggersResource:
+    """`client.mail_triggers` — the `mailTriggers` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerCollectionPage:
+        """List mail triggers. `GET /v1/mail-triggers`
+
+        The tenant's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.MailTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    async def register(
+        self,
+        body: _models.RegisterMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Register a mail trigger. `POST /v1/mail-triggers`
+
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerRecord:
+        """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
+
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Pause a mail trigger. `POST /v1/mail-triggers/{triggerId}/pause`
+
+        A paused trigger doesn't poll. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Resume a mail trigger. `POST /v1/mail-triggers/{triggerId}/resume`
+
+        It starts afresh: mail that came while it was paused doesn't start runs. Who may resume it is as for a pause.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
+
+        Who may unregister it is as for a pause.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    async def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailFirePage:
+        """A mail trigger's mail. `GET /v1/mail-triggers/{triggerId}/fires`
+
+        Newest first: each mail the trigger found and what came of it (`MailFire`): the run it started, why it waits (`thread-busy:`), or why it was skipped, refused or failed.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    async def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
+
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+
 class AsyncWebhookEndpointsResource:
     """`client.webhook_endpoints` — the `webhookEndpoints` operations."""
 
@@ -19588,6 +20011,7 @@ class Resources:
     secrets: SecretsResource
     schedules: SchedulesResource
     webhooks: WebhooksResource
+    mail_triggers: MailTriggersResource
     webhook_endpoints: WebhookEndpointsResource
     connection_entries: ConnectionEntriesResource
     connection_apps: ConnectionAppsResource
@@ -19647,6 +20071,7 @@ class Resources:
         self.secrets = SecretsResource(client)
         self.schedules = SchedulesResource(client)
         self.webhooks = WebhooksResource(client)
+        self.mail_triggers = MailTriggersResource(client)
         self.webhook_endpoints = WebhookEndpointsResource(client)
         self.connection_entries = ConnectionEntriesResource(client)
         self.connection_apps = ConnectionAppsResource(client)
@@ -19708,6 +20133,7 @@ class AsyncResources:
     secrets: AsyncSecretsResource
     schedules: AsyncSchedulesResource
     webhooks: AsyncWebhooksResource
+    mail_triggers: AsyncMailTriggersResource
     webhook_endpoints: AsyncWebhookEndpointsResource
     connection_entries: AsyncConnectionEntriesResource
     connection_apps: AsyncConnectionAppsResource
@@ -19767,6 +20193,7 @@ class AsyncResources:
         self.secrets = AsyncSecretsResource(client)
         self.schedules = AsyncSchedulesResource(client)
         self.webhooks = AsyncWebhooksResource(client)
+        self.mail_triggers = AsyncMailTriggersResource(client)
         self.webhook_endpoints = AsyncWebhookEndpointsResource(client)
         self.connection_entries = AsyncConnectionEntriesResource(client)
         self.connection_apps = AsyncConnectionAppsResource(client)

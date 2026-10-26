@@ -666,6 +666,48 @@ export const CLI_DEFAULTS = {
   'webhooks take-ownership': {
     'run-as': 'none (you own the trigger)',
   },
+  'mail-triggers list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: 'none',
+    status: 'none (both active and paused)',
+  },
+  'mail-triggers create': {
+    agent: 'none',
+    'agent-version': 'none (its live version, else the latest)',
+    'allow-unattended': 'none (a tool that waits for a person still waits)',
+    as: '`person` (your own mailbox)',
+    flow: 'none',
+    'flow-version': 'required with `--flow`',
+    folder: 'none (the inbox)',
+    label: 'none',
+    mailbox: 'required',
+    poll: '`60` (seconds)',
+    project: "the tenant's Default project",
+    'run-as': 'none (you own the trigger)',
+    'runs-per-hour': '`60`',
+  },
+  'mail-triggers update': {
+    agent: 'unchanged',
+    'agent-version': 'unchanged',
+    'allow-unattended':
+      'unchanged; a trigger that has a list and moves to another flow, agent or mailbox must name it again, or `none`',
+    as: 'unchanged (given with `--mailbox`)',
+    flow: 'unchanged',
+    'flow-version': 'unchanged',
+    folder: 'unchanged',
+    label: 'unchanged',
+    mailbox: 'unchanged (given with `--as`)',
+    poll: 'unchanged',
+    'runs-per-hour': 'unchanged',
+  },
+  'mail-triggers fires': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'mail-triggers take-ownership': {
+    'run-as': 'none (you own the trigger)',
+  },
   'sites register': {
     'allowed-role': '`administrator` and `shop_manager`',
     'approvals-url': 'required',
@@ -1721,6 +1763,74 @@ export const CLI_EXAMPLES = {
       line: 'kindgi webhooks unregister <trigger-id>',
     },
   ],
+  'mail-triggers list': [
+    {
+      purpose: 'List the mail triggers in a project.',
+      line: 'kindgi mail-triggers list --project=<project-id>',
+    },
+    {
+      purpose: 'List only the paused ones, as a table, with why each is paused.',
+      line: 'kindgi mail-triggers list --status=paused --table',
+    },
+  ],
+  'mail-triggers get': [
+    {
+      purpose: 'Fetch a mail trigger: what it runs, its mailbox and folder, and its status.',
+      line: 'kindgi mail-triggers get <trigger-id>',
+    },
+  ],
+  'mail-triggers create': [
+    {
+      purpose: 'Run an agent for each new mail in your own Gmail inbox.',
+      line: 'kindgi mail-triggers create --agent=acme.order-desk --mailbox=google',
+    },
+    {
+      purpose:
+        "Run a flow for each new mail in a folder of the company's Outlook mailbox, looking every two minutes.",
+      line: 'kindgi mail-triggers create --flow=acme.triage --flow-version=1.0.0 --mailbox=microsoft --as=company --folder=<folder-id> --poll=120',
+    },
+  ],
+  'mail-triggers update': [
+    {
+      purpose: 'Look for new mail every five minutes, and start at most 30 runs an hour.',
+      line: 'kindgi mail-triggers update <trigger-id> --poll=300 --runs-per-hour=30',
+    },
+    {
+      purpose: 'Watch the inbox again, on a trigger of your own Gmail.',
+      line: 'kindgi mail-triggers update <trigger-id> --folder=INBOX',
+    },
+  ],
+  'mail-triggers pause': [
+    {
+      purpose: 'Pause a mail trigger: it stops looking for new mail.',
+      line: 'kindgi mail-triggers pause <trigger-id>',
+    },
+  ],
+  'mail-triggers resume': [
+    {
+      purpose:
+        "Resume a paused mail trigger; mail that came while it was paused doesn't start runs.",
+      line: 'kindgi mail-triggers resume <trigger-id>',
+    },
+  ],
+  'mail-triggers fires': [
+    {
+      purpose: 'See the run each new mail started, or why it waits or was skipped, as a table.',
+      line: 'kindgi mail-triggers fires <trigger-id> --table',
+    },
+  ],
+  'mail-triggers take-ownership': [
+    {
+      purpose: 'Take over a trigger whose owner left, so its runs act as you.',
+      line: 'kindgi mail-triggers take-ownership <trigger-id>',
+    },
+  ],
+  'mail-triggers unregister': [
+    {
+      purpose: 'Remove a mail trigger: it stops looking for new mail.',
+      line: 'kindgi mail-triggers unregister <trigger-id>',
+    },
+  ],
   'sites register': [
     {
       purpose:
@@ -2378,6 +2488,7 @@ export const CLI_GROUP_SEE_ALSO = {
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
   connections: ['deploy/people-and-keys'],
+  'mail-triggers': ['guides/connections/google', 'guides/connections/microsoft'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],
