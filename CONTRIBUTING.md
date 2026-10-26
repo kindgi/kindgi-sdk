@@ -116,6 +116,15 @@ branch whose poms lag main runs the script without `--release`: that
 moves the versions and stamps nothing. CI fails when they differ
 (`pnpm run check:jvm-version`).
 
+A skill links its release line's docs (`docs.kindgi.com/v<major>.<minor>/`),
+and so does what a package ships from its `src/`. When a release changes
+the minor, `pnpm run version-packages` runs `scripts/sync-docs-line.mjs`,
+which moves every link on a line in those files to the new one, and
+nothing else. A branch whose version moves when it merges a release branch
+runs it too. CI fails when a link isn't on the line (`pnpm run
+check:refs`), and a link on no line, or on a patch version's, is moved by
+hand.
+
 1. Every user-visible change adds a changeset: `pnpm changeset`. Before
    1.0, and while release candidates are out, it's a `patch`: one
    `minor` moves every package to the next minor, which no installed
