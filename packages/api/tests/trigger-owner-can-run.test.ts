@@ -13,9 +13,9 @@
  *   one past whom the gate stops learns anything.
  * - The account's check is `targetAccess`: `execute` on the flow or agent,
  *   `publish` on the agent for an improvement pass.
- * - A retarget (`PATCH` with a new target) asks the same of the trigger's
- *   owner, of any kind, since the owner stays: unless the caller is the
- *   owner, or the owner is gone.
+ * - A retarget (`PATCH` with a new target) of a schedule or mail trigger
+ *   asks the same of its owner, of any kind, since the owner stays: unless
+ *   the caller is the owner, or the owner is gone.
  * - Without a model, nothing changes: a grant limits nothing there.
  */
 
@@ -597,8 +597,14 @@ const companyMail = (over: Record<string, unknown> = {}) => ({
   config: { mailbox: { app: 'microsoft', as: 'company' } },
   ...over,
 });
+/** A trigger on Pat's own mailbox, so Pat owns it. */
+const patMail = () => ({
+  agentId: AGENT,
+  projectId: PROJECT,
+  config: { mailbox: { app: 'google', as: 'person' } },
+});
 
-describe('mail triggers: an account named to run as must be able to run the target', () => {
+describe('mail triggers: the owner must be able to run the target, too', () => {
   test('register naming an account that cannot run it: a 409, and nothing is made', async () => {
     const h = harness([]);
     const res = await h.call('POST', MAIL, companyMail({ runAsServiceAccountId: BOT }));
@@ -632,6 +638,44 @@ describe('mail triggers: an account named to run as must be able to run the targ
     const made = await h.call('POST', MAIL, companyMail({ runAsServiceAccountId: BOT }));
     expect(made.status, JSON.stringify(made.body)).toBe(201);
     expect(made.body.owner).toMatchObject({ kind: 'service', id: BOT });
+  });
+
+  test('retarget of one the account owns to an agent it cannot run: a 409, and the target is kept', async () => {
+    const h = harness([`bot execute agent:${AGENT}`]);
+    const made = await h.call('POST', MAIL, companyMail({ runAsServiceAccountId: BOT }));
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const id = made.body.triggerId as string;
+    const res = await h.call('PATCH', `${MAIL}/${id}`, { agentId: AGENT2 });
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: BOT_RETARGET,
+    });
+    expect(JSON.stringify((await h.call('GET', `${MAIL}/${id}`)).body)).not.toContain(AGENT2);
+  });
+
+  test("a project admin moves Pat's to an agent Pat can't run: the 409 names Pat", async () => {
+    const h = harness([]);
+    const made = await h.call('POST', MAIL, patMail(), PAT_TOKEN);
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const id = made.body.triggerId as string;
+    const res = await h.call('PATCH', `${MAIL}/${id}`, { agentId: AGENT2 }, PADMIN_TOKEN);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: patRetarget('Pat Acme'),
+    });
+  });
+
+  test('an account that can run both: register and retarget succeed, and it owns the trigger', async () => {
+    const h = harness([`bot execute agent:${AGENT}`, `bot execute agent:${AGENT2}`]);
+    const made = await h.call('POST', MAIL, companyMail({ runAsServiceAccountId: BOT }));
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const res = await h.call('PATCH', `${MAIL}/${made.body.triggerId as string}`, {
+      agentId: AGENT2,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.owner).toMatchObject({ kind: 'service', id: BOT });
   });
 });
 

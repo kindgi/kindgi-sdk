@@ -10538,7 +10538,7 @@ class RegisterMailTriggerBody(BaseModel):
         str | None, Field(alias="runAsServiceAccountId", min_length=1)
     ] = None
     """
-    On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Absent: the caller owns it.
+    On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Absent: the caller owns it.
     """
     config: Config10
     label: str | None = None

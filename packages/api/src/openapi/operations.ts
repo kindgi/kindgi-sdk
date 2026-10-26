@@ -10642,7 +10642,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.update',
     summary: 'Update a mail trigger',
     description:
-      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
+      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. So with an authorization store, a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10654,6 +10654,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "A body that fails validation (`bad-input`): `runAsServiceAccountId` (the owner changes only by `POST …/owner`), a person's mailbox for a shared trigger, or a new target or mailbox without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
       ),
       '404': ErrorResponse('No mail trigger with that id.'),
+      '409': ErrorResponse(
+        "A new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
+      ),
     },
   },
   {
