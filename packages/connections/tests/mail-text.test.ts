@@ -133,8 +133,47 @@ describe('htmlToText', () => {
     expect(htmlToText('kept <a href="x')).toBe('kept');
   });
 
-  it('keeps link text only', () => {
-    expect(htmlToText('<a href="https://acme.example/x">the order</a>')).toBe('the order');
+  it("keeps a web link's address after its text, without its tracking parameters", () => {
+    expect(
+      htmlToText(
+        '<p>See <a class="btn" href="https://acme.example/orders/1042?utm_source=mail&amp;utm_medium=email&amp;id=7&amp;mc_cid=ab12">your order</a>.</p>',
+      ),
+    ).toBe('See your order <https://acme.example/orders/1042?id=7>.');
+    expect(htmlToText("<a href='https://photos.acme.example/album/ZpQ3'>our photos</a>")).toBe(
+      'our photos <https://photos.acme.example/album/ZpQ3>',
+    );
+    expect(htmlToText('<a href=https://acme.example/faq>FAQ</a>')).toBe(
+      'FAQ <https://acme.example/faq>',
+    );
+  });
+
+  it("keeps a link's text only when it shows the address, has none, or isn't a web link", () => {
+    expect(
+      htmlToText('<a href="https://acme.example/faq/?utm_campaign=fall">acme.example/faq</a>'),
+    ).toBe('acme.example/faq');
+    expect(htmlToText('<a href="https://acme.example/">https://acme.example</a>')).toBe(
+      'https://acme.example',
+    );
+    expect(htmlToText('<a href="https://acme.example/p"><img src="cid:logo"></a>')).toBe('');
+    expect(htmlToText('<a href="mailto:support@acme.example">write to us</a>')).toBe('write to us');
+    expect(htmlToText('<a href="tel:+4640123456">call us</a>')).toBe('call us');
+    expect(htmlToText('<a href="javascript:void(0)">open</a>')).toBe('open');
+    expect(htmlToText('<a name="top">Top</a>')).toBe('Top');
+  });
+
+  it('shortens a link still over 100 characters to its host and the start of its path', () => {
+    const redirect = `https://click.mail.acme.example/ls/click?upn=${'u001.Xk9'.repeat(20)}`;
+    expect(htmlToText(`<a href="${redirect}">Track the parcel</a>`)).toBe(
+      'Track the parcel <https://click.mail.acme.example/ls/click?…>',
+    );
+    const deep = `https://acme.example/${'account/'.repeat(10)}orders`;
+    expect(htmlToText(`<a href="${deep}?ref=7">Your account</a>`)).toBe(
+      `Your account <https://acme.example/${'account/'.repeat(5).slice(0, 39)}…?…>`,
+    );
+  });
+
+  it("keeps a link's text and no address when the link is left open", () => {
+    expect(htmlToText('<a href="https://acme.example/x">the order')).toBe('the order');
   });
 
   it('drops a script with no end tag to the end', () => {

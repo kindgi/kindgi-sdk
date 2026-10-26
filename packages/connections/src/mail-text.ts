@@ -192,6 +192,40 @@ export function cutText(
   return { text: text.slice(0, end), cut: true };
 }
 
+/**
+ * Query parameters that only track a click: `utm_*`, and the ones mail
+ * and ad platforms add (Mailchimp's `mc_cid`, HubSpot's `_hsenc`, …).
+ */
+const TRACKING_PARAM =
+  /^(?:utm_[a-z_]+|_hsenc|_hsmi|mc_cid|mc_eid|fbclid|gclid|dclid|msclkid|mkt_tok|igshid|yclid|_ga|_gl|vero_id|oly_enc_id|oly_anon_id|sc_cid|trk)$/i;
+/** A link longer than this, without its tracking, is shortened: an opaque redirect, say. */
+const LINK_MAX = 100;
+/** How much of a shortened link's path is kept. */
+const PATH_KEPT = 40;
+
+/**
+ * A web link as a run reads it: without its tracking parameters, and when
+ * still over 100 characters, its scheme, host and the start of its path,
+ * `…` for the rest and `?…` for a query. Undefined for anything but an
+ * `http:` or `https:` URL.
+ */
+export function cleanUrl(href: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+  const tracking = [...url.searchParams.keys()].filter((name) => TRACKING_PARAM.test(name));
+  for (const name of tracking) url.searchParams.delete(name);
+  const text = url.toString();
+  if (text.length <= LINK_MAX) return text;
+  const path =
+    url.pathname.length > PATH_KEPT ? `${url.pathname.slice(0, PATH_KEPT)}…` : url.pathname;
+  return `${url.protocol}//${url.host}${path}${url.search !== '' ? '?…' : ''}`;
+}
+
 /** Elements whose content is never text to read. */
 const DROPPED = ['head', 'script', 'style', 'title', 'template', 'noscript'] as const;
 /** Elements that start or end a line. */
@@ -263,7 +297,9 @@ const ENTITIES: ReadonlyMap<string, string> = new Map(
 /**
  * HTML as plain text: what a reader sees, one line per paragraph, list
  * item or table row, with `head`, `script` and `style` content, comments
- * and tags left out, and character references decoded. Links keep their
+ * and tags left out, and character references decoded. A link to a web
+ * page keeps its address after its text, `<…>`, as {@link cleanUrl}
+ * gives it, unless the text shows it already; any other link keeps its
  * text only. Linear in the input's length.
  */
 export function htmlToText(html: string): string {
@@ -283,6 +319,7 @@ export function htmlToText(html: string): string {
 function tagsAsText(html: string): string {
   let out = '';
   let from = 0;
+  let link: OpenLink;
   for (;;) {
     const open = html.indexOf('<', from);
     if (open === -1) return out + html.slice(from);
@@ -295,9 +332,61 @@ function tagsAsText(html: string): string {
     const close = html.indexOf('>', open + 1);
     // A tag left open runs to the end.
     if (close === -1) return out;
-    out += tagAsText(html.slice(open + 1, close));
+    const inner = html.slice(open + 1, close);
+    const step = linkTag(inner, out, link);
+    if (step === undefined) {
+      out += tagAsText(inner);
+    } else {
+      out += step.add;
+      link = step.link;
+    }
     from = close + 1;
   }
+}
+
+/** An open link: its address, and where its text began in the text so far. */
+type OpenLink = { readonly url: string; readonly at: number } | undefined;
+
+/**
+ * A link's start or end tag: what it adds to the text so far (`out`), and
+ * the link open after it. Undefined for any other tag.
+ */
+function linkTag(
+  inner: string,
+  out: string,
+  link: OpenLink,
+): { readonly add: string; readonly link: OpenLink } | undefined {
+  if (/^a(?:\s|$)/i.test(inner)) {
+    const url = hrefOf(inner);
+    return { add: '', link: url === undefined ? undefined : { url, at: out.length } };
+  }
+  if (/^\/\s*a\s*$/i.test(inner)) {
+    return {
+      add: link === undefined ? '' : linkTarget(out.slice(link.at), link.url),
+      link: undefined,
+    };
+  }
+  return undefined;
+}
+
+/** A link tag's web address, cleaned, else undefined. */
+function hrefOf(inner: string): string | undefined {
+  const m = /\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(inner);
+  const href = m?.[1] ?? m?.[2] ?? m?.[3];
+  return href === undefined ? undefined : cleanUrl(decodeHtmlEntities(href).trim());
+}
+
+/**
+ * ` <url>` after a link's text (still HTML, its references not decoded),
+ * unless the text is empty or shows the address already.
+ */
+function linkTarget(text: string, url: string): string {
+  const shown = decodeHtmlEntities(text).replace(/\s+/g, ' ').trim();
+  if (shown === '') return '';
+  const bare = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  if (shown.includes(bare)) return '';
+  // Encoded, as the text around it still is: decoding gives the address back.
+  return ` &lt;${url.replaceAll('&', '&amp;')}&gt;`;
 }
 
 function tagAsText(inner: string): string {
