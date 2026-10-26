@@ -828,8 +828,9 @@ or an upgrade reaches staging first. Each has its own:
   `staging` environment
   ([Per-environment values](../../../guides/secrets/per-environment-values/)),
   and its output goes into `staging.pack-env.auto.tfvars.json` in staging's
-  folder. Each environment in the pack config also names its deployment's
-  address, so `kindgi deploy --env staging` deploys there.
+  folder. Each environment in the pack config can also name its
+  deployment's address (`endpoint`), so `kindgi deploy --env staging`
+  deploys there.
 - **License key:** a non-production key covers staging, as long as it
   serves no end users and processes no live business data
   ([Two licenses](../../../concepts/licensing/#two-licenses)).
@@ -838,7 +839,10 @@ The two can go in two Google Cloud projects, or in one:
 
 - **Two projects** keep them apart: each project's resources, roles and
   quotas are its own, and both deployments can keep the default
-  `name_prefix`.
+  `name_prefix`. Terraform takes the project from the var-file, but
+  `gcloud` acts on the one it's set to, so set it to the deployment's
+  before any `gcloud` command for it
+  (`gcloud config set project <project_id>`).
 - **One project** works with a `name_prefix` for each (`kindgi-staging`
   and `kindgi`, say): every resource the module makes is named with it. The
   module turns the project's APIs on and never off, so tearing one down
@@ -983,18 +987,36 @@ The two can go in two Google Cloud projects, or in one:
 `upgrade.sh` covers the small dev shape only. With `network_mode`
 `direct` or `connector`, upgrade by hand, staging first
 ([Staging and production](#staging-and-production)). Run the steps in the
-module's folder, as the identity that deploys the module. `N` is your
-`name_prefix`, and `REPO` the repository from
+module's folder, as the identity that deploys the module, with `gcloud` set
+to this deployment's project, the `project_id` in its var-file:
+
+```sh
+gcloud config set project <project_id>
+```
+
+Terraform acts on the var-file's project, and `gcloud` on the one it's set
+to. Set to another deployment's project with the same `name_prefix`, the
+backup in step 4 would back that one up, and the apply would then upgrade
+this one with no backup. `N` is your `name_prefix`, and `REPO` the
+repository from
 [2. The images into Artifact Registry](#2-the-images-into-artifact-registry).
 
 1. **Read the upgrade steps** of each release you're upgrading across, in
    its release notes, and take the new release's digest from its notes.
-2. **Copy the new runtime image** into Artifact Registry by digest, as in
-   [2. The images into Artifact Registry](#2-the-images-into-artifact-registry),
-   with the new version and its digest.
+2. **Copy the new runtime image** into Artifact Registry by digest, every
+   platform included, as in
+   [2. The images into Artifact Registry](#2-the-images-into-artifact-registry).
+   From 0.2.0 on, releases are on `registry.kindgi.com`:
+
+   ```sh
+   docker buildx imagetools create --tag "$REPO/runtime:<version>" \
+     registry.kindgi.com/kindgi/runtime:<version>@sha256:<digest>
+   ```
+
 3. **Run the new version's read-only checks** against the database
    ([Checks you can run before upgrading](../operate/#checks-you-can-run-before-upgrading)),
-   as a Cloud Run job that reaches it the way the server does:
+   as a Cloud Run job that reaches it the way the server does. With
+   `direct` and a private-IP database:
 
    ```sh
    SA=$(terraform output -json service_accounts | jq -r .server)
@@ -1006,26 +1028,45 @@ module's folder, as the identity that deploys the module. `N` is your
    gcloud run jobs execute $N-upgrade-check --region=<region> --wait
    ```
 
-   - With `connector`, use `--vpc-connector=<your connector>
-     --vpc-egress=private-ranges-only` in place of the three network flags.
-     With a database on a public IP, use
-     `--set-cloudsql-instances=<its connection name>`.
-   - For each other check the release notes name, change the job's
+   - **Other shapes:** with `connector` and a private-IP database, use
+     `--vpc-connector=<your connector> --vpc-egress=private-ranges-only`
+     in place of the three network flags. With a database on a public IP,
+     add `--set-cloudsql-instances=<its connection name>`; with
+     `connector`, the job then needs no network flags at all.
+   - **Serving from a restored instance** (`database_instance` set): the
+     server's URL is in that setting's `url_secret`, not
+     `$N-database-url`. Name that secret in `--set-secrets`, and that
+     instance's connection name in `--set-cloudsql-instances`.
+   - **For each other check** the release notes name, change the job's
      `--args` with `gcloud run jobs update`, and run it again.
-   - A check that lists something exits `1`, so its run fails, and its logs
-     list what it found. Delete the job when you're done
-     (`gcloud run jobs delete`).
-4. **Back up the database,** just before you apply. An on-demand backup of
-   the instance the server serves from (`$N`, or `database_instance`'s
-   name after a restore):
+   - A check that finds something exits `1`, and one that can't run exits
+     `2`: either way its run fails, and its logs say why. Delete the job
+     when you're done (`gcloud run jobs delete`).
+   - In private-IP mode the server also checks that the database's
+     certificate chains to the instance's CAs
+     (`KINDGI_DATABASE_SERVER_CA`). The job doesn't: with the URL's
+     `sslmode=require` alone, it encrypts the connection and checks no
+     certificate. It only reads, over the private network.
+4. **Back up the database,** just before you apply:
+   - **The module's own instance** (`$N`), which holds only Kindgi's
+     database, or the one `database_instance` names: an on-demand backup.
 
-   ```sh
-   gcloud sql backups create --instance=$N --description="before <version>"
-   ```
+     ```sh
+     gcloud sql backups create --instance=$N --description="before <version>"
+     ```
 
-   With `database_host_instance`, the instance's backups are the app's:
-   export Kindgi's database instead, as `upgrade.sh` does
-   (`gcloud sql export sql <instance> gs://<bucket>/<file>.sql.gz --database=<database_name>`).
+   - **With `database_host_instance`,** the instance's backups are the
+     app's: export Kindgi's database instead, as `upgrade.sh` does. The
+     instance's own service account writes the export, so give it write on
+     the bucket first:
+
+     ```sh
+     SQL_SA=$(gcloud sql instances describe <instance> --format='value(serviceAccountEmailAddress)')
+     gcloud storage buckets add-iam-policy-binding gs://<bucket> \
+       --member="serviceAccount:$SQL_SA" --role=roles/storage.objectAdmin
+     gcloud sql export sql <instance> gs://<bucket>/<file>.sql.gz --database=<database_name>
+     ```
+
    Writes made after the backup aren't in it.
 5. **Set the new image:** `server_image` in `prod.tfvars`, to
    `$REPO/runtime@sha256:<new digest>`. If the release notes say to rebuild
@@ -1057,14 +1098,46 @@ module's folder, as the identity that deploys the module. `N` is your
 migrations only go forward, so never point the old version at the migrated
 database:
 
-- Restore the backup into a new instance, and move the server onto it, as
-  **Restore Cloud SQL** under [Operate it](#operate-it) says, with the
-  erasure replay before it serves. From an export, make a fresh database in
-  the instance (`gcloud sql databases create`), import the export into it
-  (`gcloud sql import sql`), and add a version of the server's database URL
-  secret that names it.
-- Put the old `server_image`, and `pack_image`, back in `prod.tfvars`.
-- Plan and apply, as in steps 6 and 7.
+1. **First, export the erasure ledger** from the server serving now
+   ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
+   It holds every erasure so far, those made after the backup too. If no
+   server answers, the backup's own ledger is all there is.
+2. **Bring the database back:**
+   - **From a backup:** restore it into the instance it came from. That
+     overwrites everything on the instance, which is what going back
+     needs:
+
+     ```sh
+     gcloud sql backups list --instance=$N
+     gcloud sql backups restore <backup id> --restore-instance=$N
+     ```
+
+     With a database on a public IP, you can restore into a new instance
+     instead, and move the server onto it, as **Restore Cloud SQL** under
+     [Operate it](#operate-it) says. Private-IP mode can't serve from
+     another instance.
+   - **From an export:** make a fresh database on the instance, import the
+     export into it as `kindgi`, and add a version of the server's database
+     URL secret that names the fresh database, with the password set as in
+     [3. The secrets](#3-the-secrets), never in a command's arguments.
+     Don't change `database_name` instead: the module would drop the
+     migrated database, then fail to create the fresh one.
+
+     ```sh
+     gcloud sql databases create <fresh> --instance=<instance>
+     gcloud sql import sql <instance> gs://<bucket>/<file>.sql.gz \
+       --database=<fresh> --user=kindgi
+     ```
+
+3. **Put the old images back:** `server_image`, and `pack_image`, from the
+   copy of `prod.tfvars` you kept. Plan and apply, as in steps 6 and 7.
+4. **Replay the erasures before anyone uses it**
+   ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
+   A replay matches only when the server has its ledger key
+   (**Erasures, after a restore** under [Operate it](#operate-it)). With
+   `secrets_backend = "postgres"`, also run the old version's
+   `check stored-secrets`, as a job like step 3's, with the server's
+   secrets settings as well as its database URL.
 
 ## Tear it down
 
