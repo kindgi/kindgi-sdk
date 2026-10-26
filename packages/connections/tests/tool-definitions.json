@@ -8,11 +8,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "to",
-          "subject",
-          "body"
-        ],
+        "required": ["to", "subject", "body"],
         "properties": {
           "to": {
             "type": "array",
@@ -51,9 +47,7 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messageId"
-        ],
+        "required": ["messageId"],
         "properties": {
           "messageId": {
             "type": "string"
@@ -75,17 +69,13 @@
       "needsApprovalWhenUnattended": true,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "gmail.googleapis.com"
-        ]
+        "hosts": ["gmail.googleapis.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "google",
-            "permissions": [
-              "gmail.send"
-            ],
+            "permissions": ["gmail.send"],
             "as": "person"
           }
         }
@@ -101,10 +91,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "owner",
-          "repo"
-        ],
+        "required": ["owner", "repo"],
         "properties": {
           "owner": {
             "type": "string",
@@ -115,20 +102,13 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9._-]{1,100}$",
             "not": {
-              "enum": [
-                ".",
-                ".."
-              ]
+              "enum": [".", ".."]
             },
             "description": "The repository's name: \"widgets\"."
           },
           "state": {
             "type": "string",
-            "enum": [
-              "open",
-              "closed",
-              "all"
-            ]
+            "enum": ["open", "closed", "all"]
           },
           "labels": {
             "type": "array",
@@ -154,23 +134,14 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "issues"
-        ],
+        "required": ["issues"],
         "properties": {
           "issues": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "number",
-                "title",
-                "body",
-                "labels",
-                "createdAt",
-                "url"
-              ],
+              "required": ["number", "title", "body", "labels", "createdAt", "url"],
               "properties": {
                 "number": {
                   "type": "integer"
@@ -214,17 +185,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "api.github.com"
-        ]
+        "hosts": ["api.github.com"]
       },
       "needsSpec": {
         "connections": {
           "github": {
             "app": "github",
-            "permissions": [
-              "issues.read"
-            ],
+            "permissions": ["issues.read"],
             "as": "company"
           }
         }
@@ -240,10 +207,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "owner",
-          "repo"
-        ],
+        "required": ["owner", "repo"],
         "properties": {
           "owner": {
             "type": "string",
@@ -254,10 +218,7 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9._-]{1,100}$",
             "not": {
-              "enum": [
-                ".",
-                ".."
-              ]
+              "enum": [".", ".."]
             },
             "description": "The repository's name: \"widgets\"."
           }
@@ -266,18 +227,14 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "labels"
-        ],
+        "required": ["labels"],
         "properties": {
           "labels": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "name"
-              ],
+              "required": ["name"],
               "properties": {
                 "name": {
                   "type": "string"
@@ -303,17 +260,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "api.github.com"
-        ]
+        "hosts": ["api.github.com"]
       },
       "needsSpec": {
         "connections": {
           "github": {
             "app": "github",
-            "permissions": [
-              "issues.read"
-            ],
+            "permissions": ["issues.read"],
             "as": "company"
           }
         }
@@ -329,12 +282,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "owner",
-          "repo",
-          "issueNumber",
-          "labels"
-        ],
+        "required": ["owner", "repo", "issueNumber", "labels"],
         "properties": {
           "owner": {
             "type": "string",
@@ -345,10 +293,7 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9._-]{1,100}$",
             "not": {
-              "enum": [
-                ".",
-                ".."
-              ]
+              "enum": [".", ".."]
             },
             "description": "The repository's name: \"widgets\"."
           },
@@ -372,9 +317,7 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "labels"
-        ],
+        "required": ["labels"],
         "properties": {
           "labels": {
             "type": "array",
@@ -399,17 +342,13 @@
       "needsApprovalWhenUnattended": true,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "api.github.com"
-        ]
+        "hosts": ["api.github.com"]
       },
       "needsSpec": {
         "connections": {
           "github": {
             "app": "github",
-            "permissions": [
-              "issues.write"
-            ],
+            "permissions": ["issues.write"],
             "as": "company"
           }
         }
@@ -425,11 +364,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "to",
-          "subject",
-          "body"
-        ],
+        "required": ["to", "subject", "body"],
         "properties": {
           "to": {
             "type": "array",
@@ -468,9 +403,7 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "accepted"
-        ],
+        "required": ["accepted"],
         "properties": {
           "accepted": {
             "const": true
@@ -492,17 +425,13 @@
       "needsApprovalWhenUnattended": true,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "graph.microsoft.com"
-        ]
+        "hosts": ["graph.microsoft.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "microsoft",
-            "permissions": [
-              "mail.send"
-            ],
+            "permissions": ["mail.send"],
             "as": "person"
           }
         }
@@ -527,12 +456,7 @@
           },
           "folder": {
             "type": "string",
-            "enum": [
-              "inbox",
-              "sentitems",
-              "drafts",
-              "archive"
-            ]
+            "enum": ["inbox", "sentitems", "drafts", "archive"]
           },
           "top": {
             "type": "integer",
@@ -544,22 +468,14 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messages"
-        ],
+        "required": ["messages"],
         "properties": {
           "messages": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "id",
-                "subject",
-                "receivedAt",
-                "preview",
-                "isRead"
-              ],
+              "required": ["id", "subject", "receivedAt", "preview", "isRead"],
               "properties": {
                 "id": {
                   "type": "string"
@@ -570,9 +486,7 @@
                 "from": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "address"
-                  ],
+                  "required": ["address"],
                   "properties": {
                     "address": {
                       "type": "string"
@@ -609,17 +523,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "graph.microsoft.com"
-        ]
+        "hosts": ["graph.microsoft.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "microsoft",
-            "permissions": [
-              "mail.read"
-            ],
+            "permissions": ["mail.read"],
             "as": "person"
           }
         }
@@ -635,9 +545,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messageId"
-        ],
+        "required": ["messageId"],
         "properties": {
           "messageId": {
             "type": "string",
@@ -671,9 +579,7 @@
           "from": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "address"
-            ],
+            "required": ["address"],
             "properties": {
               "address": {
                 "type": "string"
@@ -688,9 +594,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -706,9 +610,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -724,9 +626,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -754,11 +654,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "name",
-                "contentType",
-                "size"
-              ],
+              "required": ["name", "contentType", "size"],
               "properties": {
                 "name": {
                   "type": "string"
@@ -801,17 +697,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "graph.microsoft.com"
-        ]
+        "hosts": ["graph.microsoft.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "microsoft",
-            "permissions": [
-              "mail.read"
-            ],
+            "permissions": ["mail.read"],
             "as": "person"
           }
         }
@@ -827,9 +719,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "text"
-        ],
+        "required": ["text"],
         "properties": {
           "text": {
             "type": "string",
@@ -839,20 +729,14 @@
           },
           "visibility": {
             "type": "string",
-            "enum": [
-              "public",
-              "connections"
-            ]
+            "enum": ["public", "connections"]
           }
         }
       },
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "postId",
-          "url"
-        ],
+        "required": ["postId", "url"],
         "properties": {
           "postId": {
             "type": "string"
@@ -877,17 +761,13 @@
       "needsApprovalWhenUnattended": true,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "api.linkedin.com"
-        ]
+        "hosts": ["api.linkedin.com"]
       },
       "needsSpec": {
         "connections": {
           "linkedin": {
             "app": "linkedin",
-            "permissions": [
-              "posts.write"
-            ],
+            "permissions": ["posts.write"],
             "as": "person"
           }
         }
@@ -903,11 +783,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "to",
-          "subject",
-          "body"
-        ],
+        "required": ["to", "subject", "body"],
         "properties": {
           "to": {
             "type": "array",
@@ -946,9 +822,7 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messageId"
-        ],
+        "required": ["messageId"],
         "properties": {
           "messageId": {
             "type": "string"
@@ -970,17 +844,13 @@
       "needsApprovalWhenUnattended": true,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "gmail.googleapis.com"
-        ]
+        "hosts": ["gmail.googleapis.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "google",
-            "permissions": [
-              "gmail.send"
-            ],
+            "permissions": ["gmail.send"],
             "as": "company"
           }
         }
@@ -1017,23 +887,14 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messages"
-        ],
+        "required": ["messages"],
         "properties": {
           "messages": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "id",
-                "threadId",
-                "subject",
-                "receivedAt",
-                "snippet",
-                "unread"
-              ],
+              "required": ["id", "threadId", "subject", "receivedAt", "snippet", "unread"],
               "properties": {
                 "id": {
                   "type": "string"
@@ -1047,9 +908,7 @@
                 "from": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "address"
-                  ],
+                  "required": ["address"],
                   "properties": {
                     "address": {
                       "type": "string"
@@ -1086,17 +945,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "gmail.googleapis.com"
-        ]
+        "hosts": ["gmail.googleapis.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "google",
-            "permissions": [
-              "gmail.readonly"
-            ],
+            "permissions": ["gmail.readonly"],
             "as": "person"
           }
         }
@@ -1133,23 +988,14 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messages"
-        ],
+        "required": ["messages"],
         "properties": {
           "messages": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "id",
-                "threadId",
-                "subject",
-                "receivedAt",
-                "snippet",
-                "unread"
-              ],
+              "required": ["id", "threadId", "subject", "receivedAt", "snippet", "unread"],
               "properties": {
                 "id": {
                   "type": "string"
@@ -1163,9 +1009,7 @@
                 "from": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "address"
-                  ],
+                  "required": ["address"],
                   "properties": {
                     "address": {
                       "type": "string"
@@ -1202,17 +1046,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "gmail.googleapis.com"
-        ]
+        "hosts": ["gmail.googleapis.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "google",
-            "permissions": [
-              "gmail.readonly"
-            ],
+            "permissions": ["gmail.readonly"],
             "as": "company"
           }
         }
@@ -1228,9 +1068,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messageId"
-        ],
+        "required": ["messageId"],
         "properties": {
           "messageId": {
             "type": "string",
@@ -1264,9 +1102,7 @@
           "from": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "address"
-            ],
+            "required": ["address"],
             "properties": {
               "address": {
                 "type": "string"
@@ -1281,9 +1117,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -1299,9 +1133,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -1317,9 +1149,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -1347,11 +1177,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "name",
-                "contentType",
-                "size"
-              ],
+              "required": ["name", "contentType", "size"],
               "properties": {
                 "name": {
                   "type": "string"
@@ -1394,17 +1220,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "gmail.googleapis.com"
-        ]
+        "hosts": ["gmail.googleapis.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "google",
-            "permissions": [
-              "gmail.readonly"
-            ],
+            "permissions": ["gmail.readonly"],
             "as": "person"
           }
         }
@@ -1420,9 +1242,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messageId"
-        ],
+        "required": ["messageId"],
         "properties": {
           "messageId": {
             "type": "string",
@@ -1456,9 +1276,7 @@
           "from": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "address"
-            ],
+            "required": ["address"],
             "properties": {
               "address": {
                 "type": "string"
@@ -1473,9 +1291,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -1491,9 +1307,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -1509,9 +1323,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -1539,11 +1351,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "name",
-                "contentType",
-                "size"
-              ],
+              "required": ["name", "contentType", "size"],
               "properties": {
                 "name": {
                   "type": "string"
@@ -1586,17 +1394,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "gmail.googleapis.com"
-        ]
+        "hosts": ["gmail.googleapis.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "google",
-            "permissions": [
-              "gmail.readonly"
-            ],
+            "permissions": ["gmail.readonly"],
             "as": "company"
           }
         }
@@ -1612,11 +1416,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "to",
-          "subject",
-          "body"
-        ],
+        "required": ["to", "subject", "body"],
         "properties": {
           "to": {
             "type": "array",
@@ -1655,9 +1455,7 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "accepted"
-        ],
+        "required": ["accepted"],
         "properties": {
           "accepted": {
             "const": true
@@ -1679,17 +1477,13 @@
       "needsApprovalWhenUnattended": true,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "graph.microsoft.com"
-        ]
+        "hosts": ["graph.microsoft.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "microsoft",
-            "permissions": [
-              "mail.send"
-            ],
+            "permissions": ["mail.send"],
             "as": "company"
           }
         }
@@ -1714,12 +1508,7 @@
           },
           "folder": {
             "type": "string",
-            "enum": [
-              "inbox",
-              "sentitems",
-              "drafts",
-              "archive"
-            ]
+            "enum": ["inbox", "sentitems", "drafts", "archive"]
           },
           "top": {
             "type": "integer",
@@ -1731,22 +1520,14 @@
       "output": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messages"
-        ],
+        "required": ["messages"],
         "properties": {
           "messages": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "id",
-                "subject",
-                "receivedAt",
-                "preview",
-                "isRead"
-              ],
+              "required": ["id", "subject", "receivedAt", "preview", "isRead"],
               "properties": {
                 "id": {
                   "type": "string"
@@ -1757,9 +1538,7 @@
                 "from": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "address"
-                  ],
+                  "required": ["address"],
                   "properties": {
                     "address": {
                       "type": "string"
@@ -1796,17 +1575,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "graph.microsoft.com"
-        ]
+        "hosts": ["graph.microsoft.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "microsoft",
-            "permissions": [
-              "mail.read"
-            ],
+            "permissions": ["mail.read"],
             "as": "company"
           }
         }
@@ -1822,9 +1597,7 @@
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "messageId"
-        ],
+        "required": ["messageId"],
         "properties": {
           "messageId": {
             "type": "string",
@@ -1858,9 +1631,7 @@
           "from": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "address"
-            ],
+            "required": ["address"],
             "properties": {
               "address": {
                 "type": "string"
@@ -1875,9 +1646,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -1893,9 +1662,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -1911,9 +1678,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "address"
-              ],
+              "required": ["address"],
               "properties": {
                 "address": {
                   "type": "string"
@@ -1941,11 +1706,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "name",
-                "contentType",
-                "size"
-              ],
+              "required": ["name", "contentType", "size"],
               "properties": {
                 "name": {
                   "type": "string"
@@ -1988,17 +1749,13 @@
       "mutating": false,
       "network": {
         "kind": "allowlist",
-        "hosts": [
-          "graph.microsoft.com"
-        ]
+        "hosts": ["graph.microsoft.com"]
       },
       "needsSpec": {
         "connections": {
           "mail": {
             "app": "microsoft",
-            "permissions": [
-              "mail.read"
-            ],
+            "permissions": ["mail.read"],
             "as": "company"
           }
         }
