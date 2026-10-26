@@ -176,7 +176,7 @@ links to the same page.
 Your workspace's tools' code runs apart from every other workspace's. Up to
 3 of its projects run their tools' code under an identity of their own, so
 other projects' code can't read their secrets. Past that, projects share
-one identity within your workspace: their code is apart from those 3
+one identity within your workspace: their secrets are apart from those 3
 projects', not from one another's. Nothing is refused past the limit, and
 `GET /v1/tenant` doesn't list it
 ([Your tools' code](../../concepts/security/#your-tools-code)).

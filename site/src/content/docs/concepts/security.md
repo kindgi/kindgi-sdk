@@ -33,13 +33,12 @@ another's is how that service runs:
 
 - **On a runtime you run yourself,** every project's tool calls go to the
   one pack service the runtime names (`KINDGI_PACK_SERVICE_URL`), by
-  default. One pack's code handles them all, in one process, as one
-  identity: whatever the service runs as. Each call is given only the
-  secrets and values its tool declares, for its run (`ctx.secrets`,
-  `ctx.env`). But every call passes through the same process, so code that
-  keeps a value, in a module-level variable say, can hand it to another
-  project's call. And the service's own environment is the same for every
-  call
+  default. One pack's code handles them all, as one identity: whatever the
+  service runs as. Each call is given only the secrets and values its tool
+  declares, for its run (`ctx.secrets`, `ctx.env`). But calls from every
+  project share the service's processes, so code that keeps a value, in a
+  module-level variable say, can hand it to another project's call. And the
+  service's own environment is the same for every call
   ([Run your pack's service](../../deploy/self-hosted/self-host/#4-run-your-packs-service)).
   So trust that code with every project the runtime serves. To keep
   projects apart, give each its own installation, with its own runtime,

@@ -230,7 +230,7 @@ one, as `env-dropped`, never its value.
 says more.
 
 This one service runs the tools' code of every project the runtime serves,
-in one process, with one environment.
+in the same processes, with one environment.
 [Your tools' code](../../../concepts/security/#your-tools-code) says what
 that means, and how to keep projects apart.
 
