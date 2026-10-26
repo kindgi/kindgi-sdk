@@ -220,7 +220,10 @@ export interface MailTurnInput {
   readonly given: ReadonlySet<string>;
   /** The ids of this conversation's runs, whose marked replies are dropped. Empty for a new one. */
   readonly runIds: readonly string[];
-  /** The mailbox's own address: its mail is shown as "(this mailbox)". */
+  /**
+   * The mailbox's own address. Its sent mail is shown as "(this mailbox)",
+   * and other mail from it as "(this mailbox's address, not its sent mail)".
+   */
   readonly mailbox: string;
   readonly budget: MailTurnBudget;
 }
