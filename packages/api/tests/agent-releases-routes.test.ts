@@ -532,6 +532,9 @@ describe('authorization: changing what is live needs promote; reading needs read
         return next();
       },
       can: async () => false,
+      canFor: async () => {
+        throw new Error('unused');
+      },
       check: async () => {
         throw new Error('unused');
       },

@@ -178,7 +178,7 @@ const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   'run-as': {
     type: 'string',
     description:
-      "A service account, by id, or `project`: the trigger's owner, so its runs act as that account from the next delivery (not as you). `project` runs it as the project's own account, made the first time, and takes `admin` on the project. A named account takes `act_as`. Omit it to own the trigger yourself.",
+      "A service account, by id, or `project`: the trigger's owner, so its runs act as that account from the next delivery (not as you). `project` runs it as the project's own account, made the first time, and takes `admin` on the project. The project's own account runs only what the project's editors can. A named account takes `act_as`, and needs a role that runs the flow (editor on its project). Omit it to own the trigger yourself.",
   },
 };
 

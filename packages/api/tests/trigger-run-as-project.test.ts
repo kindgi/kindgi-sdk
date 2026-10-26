@@ -51,15 +51,25 @@ const ROLES = new Map<string, Role>([
   [ROOT, 'admin'],
 ]);
 
+/**
+ * A flow another project serves to this one: the people here hold
+ * `execute` on it, the project's own account doesn't.
+ */
+const SERVED = 'acme.refunds';
+
 function decide(principal: unknown, action: Action, resource: ResourceRef): Decision {
-  const actor = (principal as { actor?: { id?: string } }).actor?.id;
-  const role = actor === undefined ? undefined : ROLES.get(actor);
+  const { id: actor, kind } = (principal as { actor?: { id?: string; kind?: string } }).actor ?? {};
+  // A service account here is the project's own: `editor` on the project, a writer's rank.
+  const account = kind === 'service_account';
+  const role =
+    actor === undefined ? undefined : (ROLES.get(actor) ?? (account ? 'write' : undefined));
   // Only Root administers the tenant; Grace administers the project.
   const needs = action === 'read' ? 1 : action === 'admin' || action === 'act_as' ? 3 : 2;
   const allowed =
     role !== undefined &&
     RANK[role] >= needs &&
-    (resource.type !== 'tenant' || action === 'read' || actor === ROOT);
+    (resource.type !== 'tenant' || action === 'read' || actor === ROOT) &&
+    !(account && resource.type === 'flow' && resource.id === SERVED);
   return {
     allowed,
     reason: allowed ? 'test: granted' : `test: ${action} not granted`,
@@ -304,6 +314,35 @@ describe.each(BOTH)('a %s run as its project', (kind) => {
     });
   });
 
+  test("a target its account can't run: the 409, nothing registered, and the account it made is the next one's", async () => {
+    const h = harness();
+    const res = await register(h, kind, { runAsProject: true, flowId: SERVED });
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: `The trigger can't run flow "${SERVED}" as the project. The project's own account runs only what the project's editors can: run the trigger as a service account that can, or own it yourself.`,
+    });
+    expect((await h.call('GET', KINDS[kind].path)).body.data).toEqual([]);
+    // Made before the check, it stays, with no keys, and the next `runAsProject` reuses it.
+    const made = h.accounts.projectAccountsMade();
+    expect(made).toHaveLength(1);
+    const next = await runAsProject(h, kind);
+    expect(next.owner.id).toBe(made[0]?.serviceAccountId);
+    expect(h.accounts.projectAccountsMade()).toHaveLength(1);
+  });
+
+  test("a take-over to the project's account when it can't run the target: the 409, and the owner stays", async () => {
+    const h = harness();
+    const made = await register(h, kind, { flowId: SERVED }, 'ada');
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const id = KINDS[kind].idOf(made.body);
+    const res = await h.call('POST', `${KINDS[kind].path}/${id}/owner`, { runAsProject: true });
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('trigger-owner-cannot-run-target');
+    const read = await h.call('GET', `${KINDS[kind].path}/${id}`);
+    expect(read.body.owner).toMatchObject({ kind: 'user', id: ADA });
+  });
+
   test("a writer who isn't an admin gets the 403, and no account is made", async () => {
     const h = harness();
     const res = await register(h, kind, { runAsProject: true }, 'ada');
@@ -415,6 +454,24 @@ const mail = (as: 'company' | 'person', over: Record<string, unknown> = {}) => (
   ...over,
 });
 
+describe("a schedule run as its project, moved to a target its account can't run", () => {
+  test('the 409 says a take-over is the fix, and the schedule keeps its target', async () => {
+    const h = harness();
+    const { id } = await runAsProject(h, 'schedule');
+    const res = await h.call('PATCH', `/v1/schedules/${id}`, {
+      flowId: SERVED,
+      flowVersion: '1.0.0',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: `The trigger can't run flow "${SERVED}" as the project. The project's own account runs only what the project's editors can: a project admin can take the trigger over first, to own it or to run it as a service account that can.`,
+    });
+    const read = await h.call('GET', `/v1/schedules/${id}`);
+    expect(JSON.stringify(read.body)).not.toContain(SERVED);
+  });
+});
+
 describe('a mail trigger run as its project', () => {
   test("on the company's mailbox, a project admin's: the project's own account owns it, and a second reuses it", async () => {
     const h = harness();
@@ -454,6 +511,27 @@ describe('a mail trigger run as its project', () => {
       id: ADA,
     });
     expect(h.accounts.ensured()).toBe(0);
+  });
+
+  test("a target its account can't run: the 409 at register and at a take-over, nothing registered, and the owner stays", async () => {
+    const h = harness();
+    const res = await h.call('POST', MAIL, mail('company', { runAsProject: true, flowId: SERVED }));
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: `The trigger can't run flow "${SERVED}" as the project. The project's own account runs only what the project's editors can: run the trigger as a service account that can, or own it yourself.`,
+    });
+    expect((await h.call('GET', MAIL)).body.data).toEqual([]);
+    const mine = await h.call('POST', MAIL, mail('company', { flowId: SERVED }));
+    expect(mine.status, JSON.stringify(mine.body)).toBe(201);
+    const id = mine.body.triggerId as string;
+    const takeOver = await h.call('POST', `${MAIL}/${id}/owner`, { runAsProject: true });
+    expect(takeOver.status, JSON.stringify(takeOver.body)).toBe(409);
+    expect(takeOver.body.error.code).toBe('trigger-owner-cannot-run-target');
+    expect((await h.call('GET', `${MAIL}/${id}`)).body.owner).toMatchObject({
+      kind: 'user',
+      id: GRACE,
+    });
   });
 
   test("a take-over with `runAsProject` moves a company-mailbox trigger to the project's account", async () => {

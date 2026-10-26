@@ -4,7 +4,8 @@
 /**
  * Naming the service account a trigger's runs act as (`runAsServiceAccountId`
  * on register and take-over): `resolveTriggerOwner` turns the id into the
- * owner, after a reader-ordered existence check and the `act_as` gate.
+ * owner, after a reader-ordered existence check, the `act_as` gate and a
+ * check that the account can run the trigger's target.
  *
  * - No id: the owner is the caller, unchanged.
  * - A reader (tenant admin) learns why a name is refused — 404 (no such
@@ -12,6 +13,8 @@
  *   but not `act_as`-able).
  * - A non-reader gets one 403 for every reason, byte-identical, so they
  *   can't probe the tenant's accounts by naming ids.
+ * - Past the gate, an account that can't run the target is a 409
+ *   (`trigger-owner-cannot-run-target`), naming the account.
  * - `runAsProject` names the project's own account: a project admin's to
  *   name, made last, after the request's other checks.
  */
@@ -76,6 +79,10 @@ const binding = (value: ServiceAccount | null): Pick<ServiceAccountBinding, 'get
 // `actAsDenied` is a boolean: `false` → allowed, `true` → refused.
 const allow = async () => false;
 const deny = async () => true;
+// `cannotRun` likewise: `false` → the account can run the target.
+const runs = async () => false;
+
+const TARGET = { kind: 'agent', agentId: 'acme.agent' } as const;
 // `isProjectAdmin`: `true` → an admin of the project.
 const admin = async () => true;
 const notAdmin = async () => false;
@@ -93,30 +100,24 @@ async function parse(res: Response): Promise<{ status: number; code?: string; te
 
 describe('resolveTriggerOwner: no id names the caller', () => {
   test('a user caller owns the trigger', async () => {
-    const r = await resolveTriggerOwner(
-      ctx({ kind: 'user', id: ADA }),
-      {},
-      {
-        serviceAccounts: binding(account()),
-        canReadServiceAccounts: async () => true,
-        actAsDenied: deny,
-        isProjectAdmin: notAdmin,
-      },
-    );
+    const r = await resolveTriggerOwner(ctx({ kind: 'user', id: ADA }), {}, TARGET, {
+      serviceAccounts: binding(account()),
+      canReadServiceAccounts: async () => true,
+      actAsDenied: deny,
+      isProjectAdmin: notAdmin,
+      cannotRun: runs,
+    });
     expect(r).toEqual({ kind: 'owner', owner: { kind: 'user', id: ADA } });
   });
 
   test('a service-account caller owns it', async () => {
-    const r = await resolveTriggerOwner(
-      ctx({ kind: 'service_account', id: BOT }),
-      {},
-      {
-        serviceAccounts: undefined,
-        canReadServiceAccounts: async () => false,
-        actAsDenied: deny,
-        isProjectAdmin: notAdmin,
-      },
-    );
+    const r = await resolveTriggerOwner(ctx({ kind: 'service_account', id: BOT }), {}, TARGET, {
+      serviceAccounts: undefined,
+      canReadServiceAccounts: async () => false,
+      actAsDenied: deny,
+      isProjectAdmin: notAdmin,
+      cannotRun: runs,
+    });
     expect(r).toEqual({ kind: 'owner', owner: { kind: 'service', id: BOT } });
   });
 });
@@ -126,11 +127,13 @@ describe('resolveTriggerOwner: act_as, both ways', () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsServiceAccountId: BOT },
+      TARGET,
       {
         serviceAccounts: binding(account()),
         canReadServiceAccounts: async () => true,
         actAsDenied: allow,
         isProjectAdmin: notAdmin,
+        cannotRun: runs,
       },
     );
     expect(r).toEqual({ kind: 'owner', owner: { kind: 'service', id: BOT } });
@@ -140,11 +143,13 @@ describe('resolveTriggerOwner: act_as, both ways', () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsServiceAccountId: BOT },
+      TARGET,
       {
         serviceAccounts: binding(account()),
         canReadServiceAccounts: async () => true,
         actAsDenied: deny,
         isProjectAdmin: notAdmin,
+        cannotRun: runs,
       },
     );
     expect(r.kind).toBe('refused');
@@ -156,47 +161,38 @@ describe('resolveTriggerOwner: act_as, both ways', () => {
 
 describe('resolveTriggerOwner: a reader learns why, by status', () => {
   test('no such account → 404', async () => {
-    const r = await resolveTriggerOwner(
-      ctx(),
-      { runAsServiceAccountId: BOT },
-      {
-        serviceAccounts: binding(null),
-        canReadServiceAccounts: async () => true,
-        actAsDenied: allow,
-        isProjectAdmin: notAdmin,
-      },
-    );
+    const r = await resolveTriggerOwner(ctx(), { runAsServiceAccountId: BOT }, TARGET, {
+      serviceAccounts: binding(null),
+      canReadServiceAccounts: async () => true,
+      actAsDenied: allow,
+      isProjectAdmin: notAdmin,
+      cannotRun: runs,
+    });
     if (r.kind !== 'refused') throw new Error('expected refusal');
     const { status, code } = await parse(r.response);
     expect([status, code]).toEqual([404, 'service-account-not-found']);
   });
 
   test('no binding at all → 404 (there is no such account)', async () => {
-    const r = await resolveTriggerOwner(
-      ctx(),
-      { runAsServiceAccountId: BOT },
-      {
-        serviceAccounts: undefined,
-        canReadServiceAccounts: async () => true,
-        actAsDenied: allow,
-        isProjectAdmin: notAdmin,
-      },
-    );
+    const r = await resolveTriggerOwner(ctx(), { runAsServiceAccountId: BOT }, TARGET, {
+      serviceAccounts: undefined,
+      canReadServiceAccounts: async () => true,
+      actAsDenied: allow,
+      isProjectAdmin: notAdmin,
+      cannotRun: runs,
+    });
     if (r.kind !== 'refused') throw new Error('expected refusal');
     expect((await parse(r.response)).status).toBe(404);
   });
 
   test('unregistered account → 409', async () => {
-    const r = await resolveTriggerOwner(
-      ctx(),
-      { runAsServiceAccountId: BOT },
-      {
-        serviceAccounts: binding(account({ unregisteredAt: '2026-02-02T00:00:00.000Z' as never })),
-        canReadServiceAccounts: async () => true,
-        actAsDenied: allow,
-        isProjectAdmin: notAdmin,
-      },
-    );
+    const r = await resolveTriggerOwner(ctx(), { runAsServiceAccountId: BOT }, TARGET, {
+      serviceAccounts: binding(account({ unregisteredAt: '2026-02-02T00:00:00.000Z' as never })),
+      canReadServiceAccounts: async () => true,
+      actAsDenied: allow,
+      isProjectAdmin: notAdmin,
+      cannotRun: runs,
+    });
     if (r.kind !== 'refused') throw new Error('expected refusal');
     const { status, code } = await parse(r.response);
     expect([status, code]).toEqual([409, 'service-account-unregistered']);
@@ -204,45 +200,31 @@ describe('resolveTriggerOwner: a reader learns why, by status', () => {
 });
 
 describe('resolveTriggerOwner: a non-reader gets one 403, for every reason', () => {
+  // The account can't run the target either: the 403 still wins, so no 409 leaks.
   const nonReader = {
     canReadServiceAccounts: async () => false,
     actAsDenied: deny,
     isProjectAdmin: notAdmin,
+    cannotRun: async () => true,
   } as const;
 
   test('missing, unregistered and not-act_as-able all look the same', async () => {
-    const missing = await resolveTriggerOwner(
-      ctx(),
-      { runAsServiceAccountId: BOT },
-      {
-        serviceAccounts: binding(null),
-        ...nonReader,
-      },
-    );
-    const unregistered = await resolveTriggerOwner(
-      ctx(),
-      { runAsServiceAccountId: BOT },
-      {
-        serviceAccounts: binding(account({ unregisteredAt: '2026-02-02T00:00:00.000Z' as never })),
-        ...nonReader,
-      },
-    );
-    const forbidden = await resolveTriggerOwner(
-      ctx(),
-      { runAsServiceAccountId: BOT },
-      {
-        serviceAccounts: binding(account()),
-        ...nonReader,
-      },
-    );
-    const projectOwn = await resolveTriggerOwner(
-      ctx(),
-      { runAsServiceAccountId: BOT },
-      {
-        serviceAccounts: binding(account({ projectId: PROJECT })),
-        ...nonReader,
-      },
-    );
+    const missing = await resolveTriggerOwner(ctx(), { runAsServiceAccountId: BOT }, TARGET, {
+      serviceAccounts: binding(null),
+      ...nonReader,
+    });
+    const unregistered = await resolveTriggerOwner(ctx(), { runAsServiceAccountId: BOT }, TARGET, {
+      serviceAccounts: binding(account({ unregisteredAt: '2026-02-02T00:00:00.000Z' as never })),
+      ...nonReader,
+    });
+    const forbidden = await resolveTriggerOwner(ctx(), { runAsServiceAccountId: BOT }, TARGET, {
+      serviceAccounts: binding(account()),
+      ...nonReader,
+    });
+    const projectOwn = await resolveTriggerOwner(ctx(), { runAsServiceAccountId: BOT }, TARGET, {
+      serviceAccounts: binding(account({ projectId: PROJECT })),
+      ...nonReader,
+    });
     for (const r of [missing, unregistered, forbidden, projectOwn]) {
       expect(r.kind).toBe('refused');
     }
@@ -267,16 +249,13 @@ describe('resolveTriggerOwner: a non-reader gets one 403, for every reason', () 
 
 describe("resolveTriggerOwner: a project's own account isn't named by id", () => {
   test('a reader gets the 409, pointing at runAsProject', async () => {
-    const r = await resolveTriggerOwner(
-      ctx(),
-      { runAsServiceAccountId: BOT },
-      {
-        serviceAccounts: binding(account({ projectId: PROJECT })),
-        canReadServiceAccounts: async () => true,
-        actAsDenied: allow,
-        isProjectAdmin: admin,
-      },
-    );
+    const r = await resolveTriggerOwner(ctx(), { runAsServiceAccountId: BOT }, TARGET, {
+      serviceAccounts: binding(account({ projectId: PROJECT })),
+      canReadServiceAccounts: async () => true,
+      actAsDenied: allow,
+      isProjectAdmin: admin,
+      cannotRun: runs,
+    });
     if (r.kind !== 'refused') throw new Error('expected refusal');
     const { status, code, text } = await parse(r.response);
     expect([status, code]).toEqual([409, 'service-account-project-owned']);
@@ -303,11 +282,12 @@ describe('resolveTriggerOwner: runAsProject', () => {
       },
     };
   }
-  const deps = (over: Partial<Parameters<typeof resolveTriggerOwner>[2]> = {}) => ({
+  const deps = (over: Partial<Parameters<typeof resolveTriggerOwner>[3]> = {}) => ({
     serviceAccounts: binding(null),
     canReadServiceAccounts: async () => false,
     actAsDenied: deny,
     isProjectAdmin: admin,
+    cannotRun: runs,
     ...over,
   });
 
@@ -316,6 +296,7 @@ describe('resolveTriggerOwner: runAsProject', () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsProject: true, projectId: PROJECT },
+      TARGET,
       deps({ projectAccounts: accounts }),
     );
     expect(r).toEqual({
@@ -331,6 +312,7 @@ describe('resolveTriggerOwner: runAsProject', () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsProject: false, projectId: PROJECT },
+      TARGET,
       deps({ projectAccounts: accounts }),
     );
     expect(r).toEqual({ kind: 'owner', owner: { kind: 'user', id: ADA } });
@@ -342,6 +324,7 @@ describe('resolveTriggerOwner: runAsProject', () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsProject: true, runAsServiceAccountId: BOT, projectId: PROJECT },
+      TARGET,
       deps({ projectAccounts: accounts }),
     );
     if (r.kind !== 'refused') throw new Error('expected refusal');
@@ -355,6 +338,7 @@ describe('resolveTriggerOwner: runAsProject', () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsProject: true },
+      TARGET,
       deps({ projectAccounts: projectAccounts() }),
     );
     if (r.kind !== 'refused') throw new Error('expected refusal');
@@ -368,6 +352,7 @@ describe('resolveTriggerOwner: runAsProject', () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsProject: true, projectId: PROJECT },
+      TARGET,
       deps({ projectAccounts: accounts, isProjectAdmin: notAdmin }),
     );
     if (r.kind !== 'refused') throw new Error('expected refusal');
@@ -381,6 +366,7 @@ describe('resolveTriggerOwner: runAsProject', () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsProject: true, projectId: PROJECT },
+      TARGET,
       deps(),
     );
     if (r.kind !== 'refused') throw new Error('expected refusal');
@@ -389,10 +375,65 @@ describe('resolveTriggerOwner: runAsProject', () => {
     expect(text).toContain("This runtime can't make a project's own account.");
   });
 
+  test("its account can't run the target: the 409 with the project's words, asked of the account once it's made", async () => {
+    const accounts = projectAccounts();
+    const asked: unknown[] = [];
+    const r = await resolveTriggerOwner(
+      ctx({ kind: 'user', id: ADA }),
+      { runAsProject: true, projectId: PROJECT },
+      TARGET,
+      deps({
+        projectAccounts: accounts,
+        cannotRun: async (id, target) => {
+          asked.push([id, target]);
+          return true;
+        },
+      }),
+    );
+    if (r.kind !== 'refused') throw new Error('expected refusal');
+    const { status, code, text } = await parse(r.response);
+    expect([status, code]).toEqual([409, 'trigger-owner-cannot-run-target']);
+    expect(JSON.parse(text).error.message).toBe(
+      "The trigger can't run agent \"acme.agent\" as the project. The project's own account runs only what the project's editors can: run the trigger as a service account that can, or own it yourself.",
+    );
+    expect(accounts.calls).toHaveLength(1);
+    expect(asked).toEqual([[PA, TARGET]]);
+  });
+
+  test('refused before the account is made: the account is never asked', async () => {
+    let asked = 0;
+    const cannotRun = async () => {
+      asked += 1;
+      return true;
+    };
+    const request = { runAsProject: true, projectId: PROJECT } as const;
+    const notAdminR = await resolveTriggerOwner(
+      ctx({ kind: 'user', id: ADA }),
+      request,
+      TARGET,
+      deps({ isProjectAdmin: notAdmin, projectAccounts: projectAccounts(), cannotRun }),
+    );
+    const takenR = await resolveTriggerOwner(
+      ctx({ kind: 'user', id: ADA }),
+      request,
+      TARGET,
+      deps({
+        projectAccounts: projectAccounts({
+          kind: 'err',
+          error: { code: 'service-account-name-taken', message: 'taken' },
+        }),
+        cannotRun,
+      }),
+    );
+    expect([notAdminR.kind, takenR.kind]).toEqual(['refused', 'refused']);
+    expect(asked).toBe(0);
+  });
+
   test("its name taken by someone's account: the 409 says who can clear it", async () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsProject: true, projectId: PROJECT },
+      TARGET,
       deps({
         projectAccounts: projectAccounts({
           kind: 'err',
@@ -412,6 +453,7 @@ describe('resolveTriggerOwner: runAsProject', () => {
     const r = await resolveTriggerOwner(
       ctx({ kind: 'user', id: ADA }),
       { runAsProject: true, projectId: PROJECT },
+      TARGET,
       deps({
         projectAccounts: projectAccounts({
           kind: 'err',
@@ -422,5 +464,71 @@ describe('resolveTriggerOwner: runAsProject', () => {
     if (r.kind !== 'refused') throw new Error('expected refusal');
     const { status, code } = await parse(r.response);
     expect([status, code]).toEqual([404, 'project-not-found']);
+  });
+});
+
+describe('resolveTriggerOwner: past the gate, the account must be able to run the target', () => {
+  test("it can't: a 409 naming the account and the target, asked for that account and target", async () => {
+    const asked: unknown[] = [];
+    const r = await resolveTriggerOwner(
+      ctx({ kind: 'user', id: ADA }),
+      { runAsServiceAccountId: BOT },
+      TARGET,
+      {
+        serviceAccounts: binding(account()),
+        canReadServiceAccounts: async () => true,
+        actAsDenied: allow,
+        isProjectAdmin: notAdmin,
+        cannotRun: async (id, target) => {
+          asked.push([id, target]);
+          return true;
+        },
+      },
+    );
+    if (r.kind !== 'refused') throw new Error('expected refusal');
+    const { status, code, text } = await parse(r.response);
+    expect([status, code]).toEqual([409, 'trigger-owner-cannot-run-target']);
+    expect(JSON.parse(text).error.message).toBe(
+      'Service account "acme-nightly-bot" can\'t run agent "acme.agent", so the trigger can\'t run as it. Give the account the editor role on the target\'s project, or name another account.',
+    );
+    expect(asked).toEqual([[BOT, TARGET]]);
+  });
+
+  test('the gate refuses first: the account is never asked', async () => {
+    let asked = false;
+    const r = await resolveTriggerOwner(
+      ctx({ kind: 'user', id: ADA }),
+      { runAsServiceAccountId: BOT },
+      TARGET,
+      {
+        serviceAccounts: binding(account()),
+        canReadServiceAccounts: async () => true,
+        actAsDenied: deny,
+        isProjectAdmin: notAdmin,
+        cannotRun: async () => {
+          asked = true;
+          return true;
+        },
+      },
+    );
+    if (r.kind !== 'refused') throw new Error('expected refusal');
+    expect((await parse(r.response)).status).toBe(403);
+    expect(asked).toBe(false);
+  });
+
+  test('no account named: the caller owns it, and nothing is asked', async () => {
+    let asked = false;
+    const r = await resolveTriggerOwner(ctx({ kind: 'user', id: ADA }), {}, TARGET, {
+      serviceAccounts: binding(account()),
+      canReadServiceAccounts: async () => true,
+      actAsDenied: allow,
+      isProjectAdmin: notAdmin,
+      cannotRun: async () => {
+        asked = true;
+        return true;
+      },
+    });
+    expect(r).toEqual({ kind: 'owner', owner: { kind: 'user', id: ADA } });
+    expect(asked).toBe(false);
   });
 });

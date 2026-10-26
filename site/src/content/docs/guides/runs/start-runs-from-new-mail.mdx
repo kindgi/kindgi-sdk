@@ -307,6 +307,18 @@ account. No change moves the owner: only a take-over does.
   then reads the new owner's own mailbox, and starts afresh there. On the
   company's, `--run-as=project` hands it to the project's own account
   instead, and `--run-as=<service-account-id>` to another service account.
+- **The owner must be able to run what the trigger runs,** with an
+  authorization store. A service account named with
+  `--run-as=<service-account-id>`, at create or take-over, that can't run
+  the agent or flow is refused (`409 trigger-owner-cannot-run-target`):
+  give it the editor role on the target's project, or name another. So is
+  `--run-as=project` on one the project's editors can't run: run the
+  trigger as a service account that can, or own it yourself. And since no
+  change moves the owner, a new agent or flow must be one the owner can
+  run, a person or an account. That isn't checked when you're the owner,
+  nor for an owner that was unregistered or removed. A tenant admin can
+  give an account the role, or a project admin can take the trigger over
+  first.
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 

@@ -477,6 +477,9 @@ describe('what each route asks the authorizer', () => {
         return next();
       },
       can: async () => false,
+      canFor: async () => {
+        throw new Error('unused');
+      },
       check: async () => {
         throw new Error('unused');
       },
@@ -594,6 +597,7 @@ describe('the list holds only schedules whose project the caller may read', () =
     return {
       authorize: () => async (_c, next) => next(),
       can: async () => false,
+      canFor: async () => true,
       check: async () => {
         throw new Error('unused');
       },
