@@ -68,8 +68,9 @@ agent lists the tool by that id, as `{ id: 'acme.gmail.send', version:
   `resultIsOutsideData`, so the agent reads each mail as data, not
   instructions
   ([Results from outside](../../tools/read-only-tools/#results-from-outside)).
-  A read gives a `MailMessage` (`@kindgi/connections/mail`), the same shape
-  for Gmail and Outlook.
+  A message read (`gmailMessageGet`, `outlookMessageGet`) gives a
+  `MailMessage` (`@kindgi/connections/mail`), the same shape for Gmail and
+  Outlook.
 - **Sending mail, adding labels and posting change things,** so in a run no
   person started, each of their calls waits for a person's yes. The others
   only read, and a read with a person's connection waits there too

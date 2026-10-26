@@ -13,7 +13,7 @@ A **mail trigger** watches one mailbox: its inbox, or one folder or Gmail
 label in it. Each new mail starts a run, with the mail and the rest of its
 thread as the run's input. Its runs act as the trigger's owner, with the
 owner's connections. They land in the trigger's project, and each names
-the trigger and the mail that started it (runtime 0.2.0 or later).
+the trigger and its fire, one for each mail (runtime 0.2.0 or later).
 
 Mail is text from anyone who can write to the mailbox. So in a run a mail
 started, nothing changes and no more of the mailbox is read without a
@@ -107,13 +107,18 @@ Attachments: receipt.pdf (application/pdf, 84 KB)
   mailbox sent shows as "(this mailbox)". Other mail from the mailbox's
   address shows as "(this mailbox's address, not its sent mail)", since
   anyone can put that address on a mail.
-- **Quoted earlier mail is left out,** marked `[earlier mail left out]`,
-  since the thread already has it. What's left out is an English
-  `On … wrote:` line with `>` lines under it; an Outlook block that starts
-  `-----Original Message-----`, or `From:` with `Sent:`, when every line
-  under it is in an earlier mail; and a run of `>` lines. A quote in
-  another language's form stays in. A forward, an answer typed between
-  quoted lines, and a mail that would be left empty keep their text whole.
+- **Quoted earlier mail is left out,** since the thread already has it.
+  On Gmail, it's marked `[earlier mail left out]`. What's left out is a
+  run of `>` lines to the end of the mail, and an English `On … wrote:`
+  line right above it; and an Outlook block that starts
+  `-----Original Message-----`, or with `From:`, `Sent:` or `Date:`, and
+  `Subject:` lines, when every line under it is in an earlier mail. So a
+  quote in another language's form loses its `>` lines but keeps the line
+  above them, such as `Le … a écrit :`, and in an answer typed between
+  quoted lines, only the `>` lines after the last answer go. A forward,
+  and a mail that would be left empty, keep their text whole. On Outlook,
+  the turn takes only the part of each mail that Outlook marks as new,
+  with no marker.
 - **Links lose their tracking parameters,** such as `utm_source` and
   `fbclid`. A web address still over 100 characters keeps its scheme, its
   host and the start of its path, with `…`, so the agent can't give it back
@@ -127,10 +132,11 @@ Attachments: receipt.pdf (application/pdf, 84 KB)
   and attachments shows its first 20, then how many more.
 
 **A flow** gets the mail as its input: `{ mail, thread, leftOut }`.
-`mail` is the new mail, a `MailMessage` (`@kindgi/connections/mail`), with
-its text whole up to 50,000 characters. `thread` is its thread's earlier
-mail, oldest first, within the same limits, and `leftOut` counts the
-mails that didn't fit.
+`mail` is the new mail as the agent's turn has it, a `MailMessage`
+(`@kindgi/connections/mail`): its own text, with quoted earlier mail left
+out and links shortened as above, and cut to fit the turn (`bodyCut` says
+so). `thread` is its thread's earlier mail, oldest first, within the
+same limits, and `leftOut` counts the mails that didn't fit.
 
 ### One conversation for each thread
 
@@ -243,9 +249,10 @@ owner: only a take-over does.
   their mailboxes it reads, and which folder or Gmail label in it: take it
   over to watch your own." A project admin may still move it to the
   company's mailbox.
-- **A trigger on the company's mailbox takes a project admin** to create
-  and to change, before the change or after: "Changing a trigger on the
-  company's mailbox takes a project admin." A shared trigger's change does
+- **A trigger on the company's mailbox takes a project admin** to create,
+  "Watching the company's mailbox takes a project admin.", and to change,
+  before the change or after: "Changing a trigger on the company's mailbox
+  takes a project admin." A shared trigger's change does
   too, "Changing a shared mail trigger takes a project admin.", and its
   pause, resume and unregister take `write` on the project.
 - **A project admin's change to a personal trigger is recorded** as
@@ -302,23 +309,28 @@ and under **For** choose **The company**.
 pnpm exec kindgi mail-triggers fires <trigger-id> --table
 ```
 
-Each new mail is one **fire**. The list is newest first, kept for 30
-days, with when it fired, its outcome, the run it started, and a note:
+Each new mail is one **fire**. The list is newest first, with when it
+fired, its outcome, the run it started, and a note. A fire is kept for 30
+days, and longer while its run isn't finished, such as one waiting for a
+person's yes:
 
 - **`started`:** a run started for the mail.
 - **`pending`:** it waits for an earlier mail of its thread
   (`thread-busy:`).
-- **`skipped`:** it wasn't for a run. The note says why: the mailbox's own
-  address sent it (`own-address:`), it's an automatic reply
+- **`skipped`:** it wasn't for a run. The note says why, such as: the
+  mailbox's own address sent it (`own-address:`), it's an automatic reply
   (`auto-submitted:`), it came before the trigger began watching
   (`before-since:`), it was gone before it was read (`not-found:`), the
   connection now reaches another account (`mailbox-changed:`), or an
   earlier turn of its thread already gave it to the agent
   (`mail-already-given:`). A `cursor-reset:` row says where the trigger
   started looking afresh, and why.
-- **`refused`:** it's over the hourly limit (`over-limit:`), the mailbox's
-  connection was missing (`connection-missing:`), or the app gave it no
-  thread (`no-thread-id:`). **Such a mail never runs,** then or later:
+- **`refused`:** the note says why, such as: it's over the hourly limit
+  (`over-limit:`), the mailbox's connection was missing
+  (`connection-missing:`), the app gave it no thread (`no-thread-id:`),
+  the runtime was busy (`rate-limited:`, `database-busy:`), the owner may
+  no longer run the agent or flow, or the trigger was paused or removed
+  before the run started. **Such a mail never runs,** then or later:
   staff handle it in the mailbox. A later mail of its thread still brings
   it to the agent, in that mail's turn.
 - **`failed`:** its run didn't start, or the app failed it after Kindgi's
@@ -329,20 +341,23 @@ days, with when it fired, its outcome, the run it started, and a note:
 A trigger's `statusReason` says why it isn't reading mail:
 
 - **`connection-missing`:** the mailbox's connection is gone or needs
-  reconnecting. The trigger keeps looking, and reads again once its owner,
-  or a tenant admin for the company's mailbox, connects again. A mail it
-  found meanwhile is `refused`, and never runs.
+  reconnecting. The trigger keeps looking, and once its owner, or a tenant
+  admin for the company's mailbox, connects again, it reads on from where
+  it stopped, so mail that came meanwhile runs then. A mail it had already
+  found when the connection went is `refused`, and never runs.
 - **`owner-refused`:** its owner was removed from the tenant, it's a
   service account that's no longer registered, or the owner may no longer
-  run its agent or flow. Nothing is read, and the trigger doesn't pause
-  itself. Restore the owner's access, have a project admin take it over
-  (a person's mailbox then starts afresh), or unregister it. The next look
-  that opens the mailbox clears it.
+  run its agent or flow. Nothing more is read, and its looks don't pause
+  it, but mail it had already found is `refused` when its run would
+  start, and those fires count toward the pause. Restore the owner's
+  access, have a project admin take it over (a person's mailbox then
+  starts afresh), or unregister it. The next look that opens the mailbox
+  clears it.
 - **Paused:** after 5 fires in a row that were refused or failed, the
   trigger pauses itself, with the last reason. A refusal for the hourly
-  limit, a missing connection or a missing thread doesn't count, nor does
-  a skip. When the app is down, a look that fails only moves the next
-  look.
+  limit, a missing connection, a missing thread or a busy runtime doesn't
+  count, nor does a run that didn't start in time, nor a skip. When the
+  app is down, a look that fails only moves the next look.
 
 When the app no longer knows where the trigger left off, such as after the
 runtime was down for long, the trigger catches up from its last good
@@ -355,7 +370,8 @@ rest in the mailbox. A `cursor-reset:` row in its fires says so.
   `resume` starts it afresh: mail that came while it was paused doesn't
   run.
 - `kindgi mail-triggers update <trigger-id>` changes what it runs, its
-  mailbox, folder, pace or label, with the same flags as `create`.
+  mailbox, folder, pace or label, with `create`'s flags but `--project`
+  and `--run-as`.
   `--mailbox` and `--as` go together, since the mailbox is replaced whole.
   A new mailbox or folder starts afresh too. Its owner stays as it is
   ([Shared or personal](#shared-or-personal)).

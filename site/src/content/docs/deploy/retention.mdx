@@ -99,13 +99,14 @@ A skipped, refused or repeated delivery's body is never kept.
 
 A [mail trigger](../../guides/runs/start-runs-from-new-mail/)'s fires, one
 for each mail it found, are kept for 30 days too, whatever the policies
-say. A fire keeps the mail's and its thread's ids, never the mail. The
-mail and its thread are the run's input, kept and removed with the run
-under `run` retention. For an agent, they're also turns of its
-conversation, under `conversation` retention once the conversation is
-deleted. As in a webhook's event, the people in a mail
-aren't Kindgi identities, so erasing a person in Kindgi doesn't find them
-in a run's input.
+say, and longer while a fire's run isn't finished, such as one waiting
+for a person's yes. A fire keeps the mail's and its thread's ids, never
+the mail. The mail and its thread are the run's input, kept and removed
+with the run under `run` retention. For an agent, they're also turns of
+its conversation, under `conversation` retention once the conversation
+is deleted. As in a webhook's event, the people in a mail aren't Kindgi
+identities, so erasing a person in Kindgi doesn't find them in a run's
+input.
 
 ## 1. Set a policy
 
