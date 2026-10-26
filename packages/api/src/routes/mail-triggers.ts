@@ -707,7 +707,10 @@ type BeforeAfter = { readonly before: unknown; readonly after: unknown };
 
 /** What a PATCH changed of a mail trigger, for `trigger-changed-for-owner`. */
 type MailTriggerChange = {
-  /** The names of the fields that changed, in the wire's order. */
+  /**
+   * The names of the fields that changed: what it runs, then what it
+   * reads, then its settings, as for schedules and webhooks.
+   */
   readonly fields: readonly string[];
   readonly target?: BeforeAfter;
   readonly mailbox?: BeforeAfter;
@@ -727,6 +730,9 @@ function whatChanged(before: MailTriggerRecord, after: MailTriggerRecord): MailT
     fields.push('target');
     out.target = { before: targetFields(before.target), after: targetFields(after.target) };
   }
+  if (!sameJson(before.toolsAllowedUnattended ?? [], after.toolsAllowedUnattended ?? [])) {
+    fields.push('toolsAllowedUnattended');
+  }
   if (!sameJson(before.config.mailbox, after.config.mailbox)) {
     fields.push('mailbox');
     out.mailbox = { before: { ...before.config.mailbox }, after: { ...after.config.mailbox } };
@@ -739,9 +745,6 @@ function whatChanged(before: MailTriggerRecord, after: MailTriggerRecord): MailT
     if (before.config[field] !== after.config[field]) fields.push(field);
   }
   if ((before.label ?? null) !== (after.label ?? null)) fields.push('label');
-  if (!sameJson(before.toolsAllowedUnattended ?? [], after.toolsAllowedUnattended ?? [])) {
-    fields.push('toolsAllowedUnattended');
-  }
   return { fields, ...out };
 }
 
