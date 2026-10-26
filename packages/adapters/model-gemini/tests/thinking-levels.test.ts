@@ -148,64 +148,69 @@ describe('adapter_config.thinkingLevels: the check agrees with the factory', () 
     ).toEqual({ problems: [], thrown: undefined });
   });
 
-  test.each([
-    ['not a string', true, 'must be "model=level,…" (e.g. "gemini-3.8-flash=low"), got true.'],
-    ['empty', ' ', 'must be "model=level,…" (e.g. "gemini-3.8-flash=low"), got " ".'],
-    [
-      'an entry without a level',
-      'gemini-3.8-flash',
-      'has "gemini-3.8-flash": each entry is model=level.',
-    ],
-    [
-      'an entry with two',
-      'gemini-3.8-flash=low=high',
-      'has "gemini-3.8-flash=low=high": each entry is model=level.',
-    ],
-    [
-      'a model named twice',
-      'gemini-3.8-flash=low,gemini-3.8-flash=high',
-      'names gemini-3.8-flash twice: one level each.',
-    ],
-    [
-      'a model the registration does not list',
-      'gemini-9-ultra=low',
-      "names gemini-9-ultra, which this registration doesn't list in metadata.models.",
-    ],
-    [
-      'a model with no thinking',
-      'gemini-3.1-pro-preview=low',
-      "names gemini-3.1-pro-preview, which has no thinking in metadata.models: it isn't known to think.",
-    ],
-    [
-      'a level Gemini does not have',
-      'gemini-3.8-flash=none',
-      'gives gemini-3.8-flash "none": a level is minimal, low, medium or high.',
-    ],
-    [
-      'a level in capitals (levels are lowercase)',
-      'gemini-3.8-flash=LOW',
-      'gives gemini-3.8-flash "LOW": a level is minimal, low, medium or high.',
-    ],
-    [
-      "a level under the model's lowest",
-      'gemini-3.8-flash=minimal',
-      'gives gemini-3.8-flash "minimal", below its thinking.lowest: it thinks at "low" at the least.',
-    ],
-  ] as const)(
-    '%s: the check points at thinkingLevels, and the factory throws the same message',
-    (_name, thinkingLevels, says) => {
-      const { problems, thrown } = both({ project: 'acme-project', thinkingLevels });
-      expect(problems).toEqual([
-        {
-          path: '/adapter_config/thinkingLevels',
-          message: `adapter_config.thinkingLevels ${says}`,
-        },
-      ]);
-      expect(thrown).toBe(
-        adapterConfigError(GEMINI_ADAPTER_ID, 'acme-gemini', problems[0]!).message,
-      );
-    },
-  );
+  describe.each([
+    ['Vertex AI', { project: 'acme-project' }],
+    ['the Developer API', { api: 'developer' }],
+  ] as const)('on %s', (_api, target) => {
+    test.each([
+      ['not a string', true, 'must be "model=level,…" (e.g. "gemini-3.8-flash=low"), got true.'],
+      ['empty', ' ', 'must be "model=level,…" (e.g. "gemini-3.8-flash=low"), got " ".'],
+      [
+        'an entry without a level',
+        'gemini-3.8-flash',
+        'has "gemini-3.8-flash": each entry is model=level.',
+      ],
+      [
+        'an entry with two',
+        'gemini-3.8-flash=low=high',
+        'has "gemini-3.8-flash=low=high": each entry is model=level.',
+      ],
+      [
+        'a model named twice',
+        'gemini-3.8-flash=low,gemini-3.8-flash=high',
+        'names gemini-3.8-flash twice: one level each.',
+      ],
+      [
+        'a model the registration does not list',
+        'gemini-9-ultra=low',
+        "names gemini-9-ultra, which this registration doesn't list in metadata.models.",
+      ],
+      [
+        'a model with no thinking',
+        'gemini-3.1-pro-preview=low',
+        "names gemini-3.1-pro-preview, which has no thinking in metadata.models: it isn't known to think.",
+      ],
+      [
+        'a level Gemini does not have',
+        'gemini-3.8-flash=none',
+        'gives gemini-3.8-flash "none": a level is minimal, low, medium or high.',
+      ],
+      [
+        'a level in capitals (levels are lowercase)',
+        'gemini-3.8-flash=LOW',
+        'gives gemini-3.8-flash "LOW": a level is minimal, low, medium or high.',
+      ],
+      [
+        "a level under the model's lowest",
+        'gemini-3.8-flash=minimal',
+        'gives gemini-3.8-flash "minimal", below its thinking.lowest: it thinks at "low" at the least.',
+      ],
+    ] as const)(
+      '%s: the check points at thinkingLevels, and the factory throws the same message',
+      (_name, thinkingLevels, says) => {
+        const { problems, thrown } = both({ ...target, thinkingLevels });
+        expect(problems).toEqual([
+          {
+            path: '/adapter_config/thinkingLevels',
+            message: `adapter_config.thinkingLevels ${says}`,
+          },
+        ]);
+        expect(thrown).toBe(
+          adapterConfigError(GEMINI_ADAPTER_ID, 'acme-gemini', problems[0]!).message,
+        );
+      },
+    );
+  });
 
   test("a model whose lowest isn't a Gemini level is refused by name, not compared", () => {
     const models = [model('gemini-3.8-flash', 'off')];
