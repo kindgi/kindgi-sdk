@@ -304,7 +304,8 @@ describe('kindgi webhooks: the rest of the group', () => {
     expect(calls).toEqual([['list', { projectId: 'p-1', status: 'active' }]]);
     expect(out.stdout).toContain('acme.refund-review@1.0.0');
     expect(out.stdout).toContain('base64 X-WC-Webhook-Signature');
-    expect(out.stdout).toContain('Ada Lovelace');
+    expect(out.stdout).toContain('RUNS AS');
+    expect(out.stdout).toContain('Ada Lovelace (personal)');
   });
 
   test('pause says the events of a paused trigger are dropped', async () => {

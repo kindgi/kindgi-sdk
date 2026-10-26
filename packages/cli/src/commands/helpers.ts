@@ -246,6 +246,18 @@ export function allowUnattendedField(
   return { toolsAllowedUnattended: [] };
 }
 
+/**
+ * A schedule's or a webhook trigger's `RUNS AS` cell: its owner's name (else
+ * id), and whether that makes it personal (a person) or shared (a service
+ * account). Empty when the server names no owner.
+ */
+export function runsAsCell(
+  owner: { readonly kind: string; readonly id: string; readonly displayName?: string } | undefined,
+): string {
+  if (owner === undefined) return '';
+  return `${owner.displayName ?? owner.id} (${owner.kind === 'user' ? 'personal' : 'shared'})`;
+}
+
 /** Extract an optional integer flag; throws on non-integer values. */
 export function integerFlag(ctx: CommandContext, name: string): number | undefined {
   const raw = ctx.options[name];

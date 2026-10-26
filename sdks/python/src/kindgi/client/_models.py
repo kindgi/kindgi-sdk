@@ -8985,6 +8985,7 @@ class EvidenceKind(RootModel[str]):
                 "person-ungranted",
                 "trigger-owner-set",
                 "trigger-tools-allowed-unattended-set",
+                "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -9154,6 +9155,7 @@ class ComplianceEvidence(BaseModel):
                 "person-ungranted",
                 "trigger-owner-set",
                 "trigger-tools-allowed-unattended-set",
+                "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -9251,6 +9253,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "person-ungranted",
                 "trigger-owner-set",
                 "trigger-tools-allowed-unattended-set",
+                "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -9325,6 +9328,7 @@ class Filter(BaseModel):
                 "person-ungranted",
                 "trigger-owner-set",
                 "trigger-tools-allowed-unattended-set",
+                "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
             ],
@@ -10367,7 +10371,7 @@ class Config8(BaseModel):
 
 class TakeTriggerOwnerBody(BaseModel):
     """
-    Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.
+    Who the trigger's runs act as from now: for a trigger whose owner left, or to make one shared or personal. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.
     """
 
     model_config = ConfigDict(
@@ -15423,7 +15427,7 @@ class WebhookTriggerRecord(BaseModel):
     """
     owner: TriggerOwner
     """
-    Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every delivery.
+    Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every delivery.
     """
     input: Any | None = None
     """
@@ -16507,7 +16511,7 @@ class ScheduleRecord(BaseModel):
     """
     owner: TriggerOwner | None = None
     """
-    Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire.
+    Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every fire.
     """
     cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
     """
