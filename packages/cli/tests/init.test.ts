@@ -713,6 +713,32 @@ describe('kindgi init — the pack pins the pnpm that installs it', () => {
     expect(out.stderr).toContain('Add "packageManager": "pnpm@<version>"');
   });
 
+  test("--quiet: the scaffold's notes go; that pnpm's version couldn't be read stays", async () => {
+    const unread = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack', '--quiet'],
+        initSeam: {
+          pnpmVersion: async () => {
+            throw new Error('spawn pnpm ENOENT');
+          },
+        },
+      }),
+    );
+    expect(unread.exitCode, unread.stderr).toBe(0);
+    expect(unread.stdout).toBe('');
+    expect(unread.stderr).toBe(
+      [
+        "package.json has no packageManager: pnpm's version couldn't be read here (pnpm --version: spawn pnpm ENOENT).",
+        'Add "packageManager": "pnpm@<version>" (the pnpm you install with), so kindgi build, CI and teammates use the same pnpm.',
+        '',
+      ].join('\n'),
+    );
+
+    const read = await runCli(baseInputs({ argv: ['init', 'my-pack-2', '--quiet'] }));
+    expect(read.exitCode, read.stderr).toBe(0);
+    expect([read.stdout, read.stderr]).toEqual(['', '']);
+  });
+
   test('a version that is not one is never written', async () => {
     const out = await runCli(
       baseInputs({

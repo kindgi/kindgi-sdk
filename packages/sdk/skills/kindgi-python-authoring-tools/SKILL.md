@@ -95,8 +95,10 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   field's path (a bad output as `output-validation-failed`); the agent's
   `tool_errors` policy decides whether the model gets to fix the call.
 - **Problems in the declaration** (a missing docstring, an
-  unannotated parameter, a non-object input) raise `DefinitionError`
-  where the tool is declared; the indexer reports it with the file.
+  unannotated parameter, a non-object input, or an input or output
+  schema the runtime's compile refuses, such as one with a keyword it
+  doesn't know) raise `DefinitionError` where the tool is declared; the
+  indexer reports it with the file.
 
 ## `ToolContext`
 

@@ -25,8 +25,9 @@ import { join } from 'node:path';
 import { PACK_ID_REGEX } from '../commands/init.js';
 import { syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
-import { renderJson } from '../output.js';
+import { type OutputFormat, renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
+import { note, renderLines, warning } from '../progress-lines.js';
 import { CLI_VERSION } from '../version-info.js';
 import { type AgentAccessRows, agentAccessRows, patchAgentAccess } from './agent-access.js';
 import {
@@ -52,20 +53,38 @@ export interface RunInitScalaAugmentInputs {
   readonly packIdOverride?: string;
   /** Overwrite an existing `kindgi.config.json` and the wrappers. */
   readonly force: boolean;
+  /** As `RunInitAugmentInputs.format`: default `json`, as with no flag. */
+  readonly format?: OutputFormat;
   /** Test seam: where kindgi-pack comes from (kindgi-pack-scala is its sibling). */
   readonly javaSource?: KindgiJavaSource;
 }
 
-/** The build's own `name` and `version` (`name := "…"`, or `ThisBuild / version := "…"`). */
+/**
+ * The build's own `name` and `version` (`name := "…"`, or `ThisBuild / version := "…"`):
+ * on a line of its own, or inside `.settings(…)` on one line with others. A
+ * commented-out one isn't the build's.
+ */
 export function readSbtIdentity(build: string): {
   readonly name?: string;
   readonly version?: string;
 } {
+  const code = withoutComments(build);
   const setting = (key: string): string | undefined =>
-    new RegExp(`(?:^|\\n)\\s*(?:ThisBuild\\s*/\\s*)?${key}\\s*:=\\s*"([^"]+)"`).exec(build)?.[1];
+    new RegExp(`(?:^|[\\n(,])\\s*(?:ThisBuild\\s*/\\s*)?${key}\\s*:=\\s*"([^"]+)"`).exec(code)?.[1];
   const name = setting('name');
   const version = setting('version');
   return { ...(name !== undefined && { name }), ...(version !== undefined && { version }) };
+}
+
+/**
+ * Scala's strings (`"…"`, `"""…"""`) and comments (`// …`, `/* … *\/`): the
+ * leftmost match wins, so a `//` inside a string stays part of the string.
+ */
+const STRING_OR_COMMENT = /"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|\/\/[^\n]*|\/\*[\s\S]*?\*\//g;
+
+/** The build with its comments blanked, strings untouched. */
+function withoutComments(build: string): string {
+  return build.replace(STRING_OR_COMMENT, (match) => (match.startsWith('/') ? ' ' : match));
 }
 
 /** The line an app's build.sbt adds for kindgi-pack-scala. */
@@ -142,24 +161,29 @@ export async function runInitScalaAugment(
     warnings: access.warnings,
     nextSteps,
   };
+  const format = inputs.format ?? 'json';
   return {
     kind: 'ok',
     rendered: {
-      stdout: renderJson(summary, 'json').stdout,
-      stderr: [
-        '',
-        `  Kindgi added to ${inputs.targetDir} (a Scala pack in the app; preview).`,
-        `  ${JVM_PREVIEW}`,
-        `  Pack id: ${packId.value}    Version: ${version}`,
-        `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
-        ...access.outside.map((line) => `  ✓ ${line}`),
-        ...access.warnings.map((warning) => `  ⚠ ${warning}`),
-        '',
-        '  Next steps:',
-        ...nextSteps.map((step) => `    ${step}`),
-        '',
-        '',
-      ].join('\n'),
+      stdout: renderJson(summary, format).stdout,
+      stderr: renderLines(
+        [
+          note(''),
+          note(`  Kindgi added to ${inputs.targetDir} (a Scala pack in the app; preview).`),
+          note(`  ${JVM_PREVIEW}`),
+          note(`  Pack id: ${packId.value}    Version: ${version}`),
+          note(
+            `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+          ),
+          ...access.outside.map((line) => note(`  ✓ ${line}`)),
+          ...access.warnings.map((w) => warning(`  ⚠ ${w}`)),
+          note(''),
+          note('  Next steps:'),
+          ...nextSteps.map((step) => note(`    ${step}`)),
+          note(''),
+        ],
+        format === 'quiet',
+      ),
     },
   };
 }

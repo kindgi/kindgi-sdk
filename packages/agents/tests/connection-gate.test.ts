@@ -724,7 +724,9 @@ describe('a token the tool echoes in what it throws goes no further', () => {
     });
     expect(t.ran).toHaveLength(2);
     expect(firstToken).toBe('secret-token-mail-2');
-    expect(t.failed[0]?.error.message).toMatch(/send failed with \[redacted\]$/);
+    expect(t.failed[0]?.error.message).toBe(
+      'Tool "pack.send" handler threw: send failed with [redacted]; caused by Error: the first was [redacted]',
+    );
     const seen = [JSON.stringify(t.events), JSON.stringify(t.results), ...stringsOf(t.thrown)].join(
       '\n',
     );

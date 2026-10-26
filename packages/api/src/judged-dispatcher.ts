@@ -20,7 +20,7 @@ import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Cursor, RunId, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
-import { type CandidateCall, type CorrectionDifference, gradeCorrection } from './corrections.js';
+import { type CallDifference, type CandidateCall, gradeCorrection } from './corrections.js';
 import type {
   EvalCaseStoreBinding,
   JudgedCaseCorrection,
@@ -149,13 +149,18 @@ export interface JudgedComparisonSummary {
    * that reads from somewhere. A recomputed call (reads from nowhere) isn't.
    */
   readonly diverged: number;
-  /** Tool calls refused across the cases (what the candidate would have done). */
+  /**
+   * Tool calls the replay refused across the cases (what the candidate
+   * would have done). Reads count too, despite the name: the replay refuses
+   * a call it can't run live (a write, or a read that needs an approval or
+   * reaches outside, say) that has no recording of the same call.
+   */
   readonly refusedWrites: number;
   /** Cases that errored: none of their repetitions ran. */
   readonly errors: number;
   /**
-   * Cases that stopped at a refused write (a flow's tool node the replay
-   * refused): no output to score, so they're left out of the metrics.
+   * Cases that stopped at a refused tool call (a flow's tool node the
+   * replay refused): no output to score, so they're left out of the metrics.
    */
   readonly stopped: number;
   /**
@@ -253,7 +258,7 @@ export interface JudgedCaseResult {
     readonly judgmentId: string;
     /** Which repetition (1-based) these differences are from. */
     readonly repetition: number;
-    readonly differences: readonly CorrectionDifference[];
+    readonly differences: readonly CallDifference[];
   }[];
   /**
    * What each repetition's replay cost in model calls, as the runtime
@@ -262,11 +267,15 @@ export interface JudgedCaseResult {
    */
   readonly costUsd?: readonly number[];
   readonly diverged: boolean;
+  /**
+   * Tool calls the replay refused in this case: the most in any one of its
+   * repetitions. Reads count too, despite the name.
+   */
   readonly refusedWrites: number;
   readonly noContext: boolean;
   readonly approvalSkipped: boolean;
   readonly error?: string;
-  /** Set when the replay stopped at a refused write: what it would have done. */
+  /** Set when the replay stopped at a refused tool call: what it would have done. */
   readonly stopped?: NonNullable<EvalRunSubjectInvokeOutcome['stopped']>;
   /**
    * Set in a rescore when this case's replays can't be read again (a
@@ -463,7 +472,7 @@ class CaseTally {
    */
   private readonly firstFailure = new Map<
     string,
-    { readonly repetition: number; readonly differences: readonly CorrectionDifference[] }
+    { readonly repetition: number; readonly differences: readonly CallDifference[] }
   >();
   private correctionRepetitions = 0;
   /** Each repetition's reported cost, in order (undefined where one reported none). */
@@ -585,7 +594,7 @@ class CaseTally {
       refusedWrites: this.refusedWrites,
       noContext: this.judgedCase.context === undefined,
       approvalSkipped: this.approvalSkipped,
-      // A case none of whose repetitions ran stopped (at a refused write) or errored.
+      // A case none of whose repetitions ran stopped (at a refused tool call) or errored.
       ...(none && this.stopped !== undefined && { stopped: this.stopped }),
       ...(none && this.stopped === undefined && this.error !== undefined && { error: this.error }),
     };

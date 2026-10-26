@@ -44,6 +44,7 @@ __all__ = [
     "compile_problem",
     "issues_from_pydantic",
     "pattern_problem",
+    "runtime_compile_problem",
     "strict_schema_problem",
     "wire_schema",
 ]
@@ -287,20 +288,14 @@ def check_schema(schema: Mapping[str, Any]) -> None:
 
 
 def compile_problem(schema: Mapping[str, Any]) -> str | None:
-    """Why the runtime's compile of an inline schema refuses `schema`: it isn't valid Draft
-    2020-12, or its strict mode refuses it (`strict_schema_problem`). `None` when it compiles.
+    """Why the runtime's compile of an inline schema refuses `schema` (`runtime_compile_problem`).
+    `None` when it compiles.
 
     Then, of a schema the runtime compiles, any pattern it holds that Python's `re` can't read,
     as `check_schema` refuses it: one JavaScript reads, which this SDK can't check data against
     (`SchemaValidator`), and also one the runtime never compiles (in a `$defs` schema no `$ref`
     reaches, say)."""
-    try:
-        # The runtime checks a schema against the meta-schema without its formats: a pattern's
-        # syntax is its compile's to refuse.
-        Draft202012Validator.check_schema(schema, format_checker=FormatChecker(formats=()))
-    except InvalidSchemaError as exc:
-        return exc.message or str(exc)
-    problem = strict_schema_problem(schema)
+    problem = runtime_compile_problem(schema)
     if problem is not None:
         return problem
     try:
@@ -310,13 +305,30 @@ def compile_problem(schema: Mapping[str, Any]) -> str | None:
     return None
 
 
+def runtime_compile_problem(schema: Mapping[str, Any]) -> str | None:
+    """Why the runtime's compile of an inline schema refuses `schema`: it isn't valid Draft
+    2020-12, or its strict mode refuses it (`strict_schema_problem`). `None` when it compiles.
+
+    For a tool's schema derived from a model or a type, whose data pydantic checks: a pattern
+    Python's `re` can't read is pydantic's to read, so only `compile_problem` refuses it."""
+    try:
+        # The runtime checks a schema against the meta-schema without its formats: a pattern's
+        # syntax is its compile's to refuse.
+        Draft202012Validator.check_schema(schema, format_checker=FormatChecker(formats=()))
+    except InvalidSchemaError as exc:
+        return exc.message or str(exc)
+    return strict_schema_problem(schema)
+
+
 def pattern_problem(schema: Mapping[str, Any]) -> str | None:
     """Of the runtime's strict compile's refusals of a valid Draft 2020-12 `schema`, the first that
     is a pattern JavaScript's `RegExp` refuses, where the compile meets it
     (`strict_schema_problem`), or `None`.
 
-    For a schema derived from a model or a type: pydantic writes its keywords, but its patterns
-    are the tool's. `compile_problem` checks a schema given as a dict, patterns included."""
+    For a guardrail config's schema derived from a model or a type: pydantic writes its keywords,
+    which the runtime's non-strict check of a config doesn't refuse, but its patterns are the
+    guardrail's. A tool's derived schema gets `runtime_compile_problem`, and a schema given as a
+    dict `compile_problem`, patterns included."""
     return next((p for p in _strict_problems(schema) if p.startswith(_REGEXP_REFUSED)), None)
 
 

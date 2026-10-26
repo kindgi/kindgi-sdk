@@ -280,6 +280,9 @@ class Replay(BaseModel):
     max_diverged: Annotated[int | None, Field(alias="maxDiverged", ge=0)] = None
     max_errors: Annotated[int | None, Field(alias="maxErrors", ge=0)] = None
     max_refused_writes: Annotated[int | None, Field(alias="maxRefusedWrites", ge=0)] = None
+    """
+    At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.
+    """
     max_stopped: Annotated[int | None, Field(alias="maxStopped", ge=0)] = None
 
 
@@ -7079,86 +7082,13 @@ class Changes(BaseModel):
     new: list[NewItem]
 
 
-class Differences(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["count"]
-    expected: Annotated[int, Field(ge=0)]
-    actual: Annotated[int, Field(ge=0)]
-    refused: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many of the actual calls were refused on the replay. Absent when none were.
-    """
-
-
-class Differences1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["must-not-call"]
-    actual: Annotated[int, Field(ge=1)]
-    refused: Annotated[int | None, Field(ge=1)] = None
-    """
-    How many of the forbidden calls were refused on the replay. Absent when none were.
-    """
-
-
-class Differences2(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["missing-field"]
-    field: str
-    expected: Any
-    refused: bool | None = None
-    """
-    Present and true when the call blamed for the miss was refused on the replay.
-    """
-
-
-class Differences3(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tool: str
-    kind: Literal["field-value"]
-    field: str
-    expected: Any
-    actual: Any
-    refused: bool | None = None
-    """
-    Present and true when the call blamed for the miss was refused on the replay.
-    """
-
-
-class CorrectionDifference(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
-    repetition: Annotated[int, Field(ge=1)]
-    """
-    Which repetition (1-based) these differences are from.
-    """
-    differences: list[Differences | Differences1 | Differences2 | Differences3]
-
-
 class CostUsdItem(RootModel[float]):
     root: Annotated[float, Field(ge=0.0)]
 
 
 class Stopped(BaseModel):
     """
-    Set when the replay stopped at a refused write: what it would have done.
+    Set when the replay stopped at a refused tool call: what it would have done.
     """
 
     model_config = ConfigDict(
@@ -7200,7 +7130,7 @@ class EvalRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
@@ -11153,7 +11083,7 @@ class Threshold(BaseModel):
 
 class ImproveScheduleInput(BaseModel):
     """
-    An improve schedule's `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent's runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.
+    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
     """
 
     model_config = ConfigDict(
@@ -11776,6 +11706,82 @@ class ComparisonCandidateFlow(BaseModel):
     flow_id: Annotated[str, Field(alias="flowId")]
     version: str
     versions: FlowVersionOverrides | None = None
+
+
+class CallDifferenceCount(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["count"]
+    expected: Annotated[int, Field(ge=0)]
+    actual: Annotated[int, Field(ge=0)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the actual calls were refused on the replay. Absent when none were.
+    """
+
+
+class CallDifferenceMustNotCall(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["must-not-call"]
+    actual: Annotated[int, Field(ge=1)]
+    refused: Annotated[int | None, Field(ge=1)] = None
+    """
+    How many of the forbidden calls were refused on the replay. Absent when none were.
+    """
+
+
+class CallDifferenceMissingField(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["missing-field"]
+    field: str
+    expected: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
+
+
+class CallDifferenceFieldValue(BaseModel):
+    """
+    One way a run's calls differed from a correction; it can quote argument values.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tool: str
+    kind: Literal["field-value"]
+    field: str
+    expected: Any
+    actual: Any
+    refused: bool | None = None
+    """
+    Present and true when the call blamed for the miss was refused on the replay.
+    """
 
 
 class ScopeTenant(BaseModel):
@@ -14504,7 +14510,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
     """
-    Tool calls refused across the cases (what the candidate would have done).
+    Tool calls the replay refused across the cases (what the candidate would have done). Reads count too, despite the name: the replay refuses a call it can't run live (a write, or a read that needs an approval or reaches outside, say) that has no recording of the same call.
     """
     errors: Annotated[int, Field(ge=0)]
     """
@@ -14524,7 +14530,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     stopped: Annotated[int, Field(ge=0)]
     """
-    Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.
+    Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics.
     """
     reads: Literal["recorded", "live"]
     class_weights: Annotated[
@@ -14545,6 +14551,24 @@ class JudgedComparisonSummary(BaseModel):
     Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
     """
     cost_usd: Annotated[JudgedComparisonCost | None, Field(alias="costUsd")] = None
+
+
+class CorrectionDifference(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    repetition: Annotated[int, Field(ge=1)]
+    """
+    Which repetition (1-based) these differences are from.
+    """
+    differences: list[
+        CallDifferenceCount
+        | CallDifferenceMustNotCall
+        | CallDifferenceMissingField
+        | CallDifferenceFieldValue
+    ]
 
 
 class ComparisonCaseResult(BaseModel):
@@ -14593,12 +14617,15 @@ class ComparisonCaseResult(BaseModel):
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
+    """
+    Tool calls the replay refused in this case: the most in any one of its repetitions. Reads count too, despite the name.
+    """
     no_context: Annotated[bool, Field(alias="noContext")]
     approval_skipped: Annotated[bool, Field(alias="approvalSkipped")]
     error: str | None = None
     stopped: Stopped | None = None
     """
-    Set when the replay stopped at a refused write: what it would have done.
+    Set when the replay stopped at a refused tool call: what it would have done.
     """
     rescored: Literal[False] | None = None
     """
@@ -16472,7 +16499,7 @@ class ScheduleRecord(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
     """
-    A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).
+    A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options).
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """

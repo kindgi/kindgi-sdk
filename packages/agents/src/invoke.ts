@@ -26,7 +26,8 @@ import type { Agent } from './types.js';
  * `AgentTurnResult` or an `InvokeAgentError`.
  *
  * Budgets enforced (all optional, all take agent-declared defaults):
- *   - `agent.budget.maxSteps`     — cap on model↔tool iterations (default 8).
+ *   - `agent.budget.maxSteps`     — cap on model↔tool iterations (default 8,
+ *                                   at most AGENT_TURN_LOOP_MAX_ITERATIONS, 32).
  *   - `agent.budget.maxCostUsd`   — cumulative USD across model calls.
  *   - `agent.budget.maxWallMs`    — wall-clock cap; combined with abortSignal.
  */

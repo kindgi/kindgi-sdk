@@ -3,6 +3,7 @@
 
 import type { ValidateFunction } from 'ajv';
 
+import { describeCauses, scrubText } from '@kindgi/log';
 import { holdJsonSchema, parseWithSchema } from '@kindgi/schema';
 import type { CompileJsonSchemaOptions } from '@kindgi/schema';
 import type { Result } from '@kindgi/types';
@@ -220,7 +221,7 @@ export async function invokeToolOrPause<TInput = unknown, TOutput = unknown>(
     }
     const err: HandlerError = {
       code: 'handler-error',
-      message: `Tool "${tool.id}" handler threw: ${cause instanceof Error ? cause.message : String(cause)}`,
+      message: `Tool "${tool.id}" handler threw: ${thrownText(cause)}`,
       toolId: tool.id,
       cause,
     };
@@ -247,6 +248,18 @@ export async function invokeToolOrPause<TInput = unknown, TOutput = unknown>(
 }
 
 /**
+ * What a handler's throw says in its error's message: the error's own
+ * message and then its causes (`; caused by …`), so `fetch failed` says
+ * why; a value that isn't an error, `String(cause)`. It's masked with
+ * `scrubText`'s full mask, since the message reaches the run's record, the
+ * console and the model.
+ */
+function thrownText(cause: unknown): string {
+  if (!(cause instanceof Error)) return scrubText(String(cause), { fullMask: true });
+  return `${scrubText(String(cause.message), { fullMask: true })}${describeCauses(cause)}`;
+}
+
+/**
  * The call's pause, if the handler returned one: from a tool that
  * declares `pauses`, within the bounds `pauseOutcome` checks.
  */
@@ -260,7 +273,7 @@ function pausedCall(
   } catch (cause) {
     const err: HandlerError = {
       code: 'handler-error',
-      message: `Tool "${tool.id}" paused out of bounds: ${cause instanceof Error ? cause.message : String(cause)}`,
+      message: `Tool "${tool.id}" paused out of bounds: ${thrownText(cause)}`,
       toolId: tool.id,
       cause,
     };

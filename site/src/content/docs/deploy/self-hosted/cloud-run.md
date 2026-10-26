@@ -17,9 +17,9 @@ Cloud SQL. A tool call from the runtime to your pack took 42 ms at the
 median, and 100 ms at p95.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -74,10 +74,11 @@ Who calls whom:
   `pnpm exec kindgi`.
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
   on it.
-- **Access to the runtime image** (`kindgi auth registry`; see
-  [Install](../../../start/install/)).
-- **A license key:** a non-production key covers staging. Write to
-  contact@kindgi.com for one.
+- **A license key:** a non-production key covers staging, and it also pulls
+  the runtime image. Get one at
+  [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
+- **Docker logged in to `registry.kindgi.com`** with that key
+  ([Pull the runtime image](../pull-the-runtime-image/)).
 - **A pack** that `kindgi build --local --push` builds, with an environment
   block for this deployment in its config.
 
@@ -130,9 +131,10 @@ otherwise defaults to `ENTERPRISE_PLUS`, which takes only the
 
 ## 2. The images into Artifact Registry
 
-Cloud Run pulls from Artifact Registry, not from the runtime's private
-registry. Copy the runtime image there by digest, with every platform it was
-built for:
+Cloud Run pulls from Artifact Registry. It can't pull from
+`registry.kindgi.com`, which takes your license key as its password. With
+Docker logged in there, copy the runtime image into Artifact Registry by
+digest, with every platform it was built for:
 
 ```sh
 REPO=$(terraform output -raw image_repository)
@@ -149,6 +151,10 @@ docker buildx imagetools create --tag "$REPO/runtime:0.1.10" \
 The copy keeps the release's digest. A plain `docker pull`, `tag` and `push`
 from an Apple silicon machine pushes only the arm64 image, which Cloud Run
 can't run.
+
+The copy goes through the machine you run it on, every layer down and back up,
+and takes both platforms (amd64 and arm64), so on a slow uplink it can take
+most of an hour.
 
 **A repository you already have** instead of the module's own:
 `image_repository = { project, location, repository }`. The module then creates
@@ -808,6 +814,26 @@ A new grant can take a minute or two to apply.
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
   it, `terraform plan` stops and asks for it.
+- **Or upgrade with the module's `upgrade.sh`:** a small dev deployment
+  (`network_mode = "none"`, on runtime 0.1.8 or later) can run it instead,
+  to 0.2.0 or later. It copies the new image from `registry.kindgi.com`, so
+  [log in there](../pull-the-runtime-image/) first. It runs the upgrade
+  checks against the database, then backs the database up, and changes the
+  running deployment only when you type `yes`. If the new revision doesn't
+  come up, it prints the way back rather than rolling back on its own. To
+  see what it would do first, add `--dry-run`: it lists every change a real
+  run would make, in order, and shows Terraform's plan for the new image,
+  but changes nothing and never asks for `yes`. It doesn't run the upgrade
+  checks against the database, since they run as jobs in your project. Use
+  the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
+  you're upgrading to, or, before that release is out, its newest
+  `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
+  and refuses a later `--to`. A server-only release, such as 0.2.0.1, is a
+  server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
+  `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. The
+  module's README has the rest, under
+  [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading),
+  and `./upgrade.sh --help` lists its options.
 - **Backups:** Cloud SQL backs the database up daily, with point-in-time
   recovery. On the module's edition (`ENTERPRISE`) it keeps 7 backups and
   7 days of transaction logs by default, in the multi-region nearest the

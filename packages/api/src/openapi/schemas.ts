@@ -496,7 +496,12 @@ export const GatePolicySpecSchema: JsonSchema = {
       properties: {
         maxDiverged: { type: 'integer', minimum: 0 },
         maxErrors: { type: 'integer', minimum: 0 },
-        maxRefusedWrites: { type: 'integer', minimum: 0 },
+        maxRefusedWrites: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            "At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.",
+        },
         maxStopped: { type: 'integer', minimum: 0 },
       },
     },
@@ -4823,8 +4828,9 @@ export const CorrectionSchema: JsonSchema = {
   },
 };
 
-/** One way a candidate's calls differed from a correction; it can quote argument values. */
-const correctionDifference = {
+/** One way a run's calls differed from a correction; it can quote argument values. */
+export const CallDifferenceSchema: JsonSchema = {
+  description: "One way a run's calls differed from a correction; it can quote argument values.",
   oneOf: [
     {
       type: 'object',
@@ -8968,7 +8974,8 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
     refusedWrites: {
       type: 'integer',
       minimum: 0,
-      description: 'Tool calls refused across the cases (what the candidate would have done).',
+      description:
+        "Tool calls the replay refused across the cases (what the candidate would have done). Reads count too, despite the name: the replay refuses a call it can't run live (a write, or a read that needs an approval or reaches outside, say) that has no recording of the same call.",
     },
     errors: { type: 'integer', minimum: 0, description: 'Cases none of whose repetitions ran.' },
     erased: {
@@ -8991,7 +8998,7 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description:
-        "Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.",
+        "Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics.",
     },
     reads: { type: 'string', enum: ['recorded', 'live'] },
     classWeights: {
@@ -9257,7 +9264,7 @@ export const ComparisonCaseResultSchema: JsonSchema = {
             minimum: 1,
             description: 'Which repetition (1-based) these differences are from.',
           },
-          differences: { type: 'array', items: correctionDifference },
+          differences: { type: 'array', items: { $ref: '#/components/schemas/CallDifference' } },
         },
       },
     },
@@ -9268,7 +9275,12 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       items: { type: 'number', minimum: 0 },
     },
     diverged: { type: 'boolean' },
-    refusedWrites: { type: 'integer', minimum: 0 },
+    refusedWrites: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Tool calls the replay refused in this case: the most in any one of its repetitions. Reads count too, despite the name.',
+    },
     noContext: { type: 'boolean' },
     approvalSkipped: { type: 'boolean' },
     error: { type: 'string' },
@@ -9276,7 +9288,7 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['toolId', 'arguments'],
-      description: 'Set when the replay stopped at a refused write: what it would have done.',
+      description: 'Set when the replay stopped at a refused tool call: what it would have done.',
       properties: { toolId: { type: 'string' }, arguments: {}, reason: { type: 'string' } },
     },
     rescored: {
@@ -9348,7 +9360,7 @@ export const EvalRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     cancelReason: {
@@ -13218,7 +13230,7 @@ export const ScheduleRecordSchema: JsonSchema = {
     improve: {
       $ref: '#/components/schemas/ImproveScheduleTarget',
       description:
-        'A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).',
+        'A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options).',
     },
     projectId: {
       type: 'string',
@@ -13319,7 +13331,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'An improve schedule\'s `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent\'s runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.',
+    "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
   properties: {
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
@@ -15496,6 +15508,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
   ['JudgedComparisonCost', JudgedComparisonCostSchema],
+  ['CallDifference', CallDifferenceSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],

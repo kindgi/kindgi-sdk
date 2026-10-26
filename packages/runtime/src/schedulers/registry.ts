@@ -97,10 +97,10 @@ export interface TriggerRegistryBinding {
 /**
  * What a schedule runs: a flow at an exact version, or an agent. An agent
  * that names no version runs its live version for the schedule's project,
- * as a run that names none does. `improve` starts an improvement pass on
- * an agent for a live scope when enough new trusted "no" judgments have
- * come in (its input says how many, and the pass's options); otherwise
- * its fire is `skipped`.
+ * as a run that names none does. `improve` starts an Improve run on an
+ * agent for a live scope when enough answers have been marked wrong since
+ * its last one (its input says how many, and the Improve options);
+ * otherwise its fire is `skipped`.
  */
 export type TriggerTarget =
   | { readonly kind: 'flow'; readonly flowId: string; readonly flowVersion: string }
