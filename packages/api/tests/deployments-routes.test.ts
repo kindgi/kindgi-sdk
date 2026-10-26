@@ -4170,8 +4170,9 @@ function makeVersionedToolRegistry(): ToolRegistryBinding & { versions: (id: str
     async get() {
       return null;
     },
-    async getVersion() {
-      return null;
+    async getVersion({ toolId, version }) {
+      return (rows.get(toolId as unknown as string)?.get(version as unknown as string) ??
+        null) as never;
     },
     async headExists({ toolId }) {
       return rows.has(toolId as unknown as string);
@@ -5312,6 +5313,74 @@ describe("POST /v1/deployments — a tool version that's already published", () 
     const error = errorOf(await res.text());
     expect(error.code).toBe('tool-already-registered');
     expect(error.details).toEqual({ primitive: 'tool', id: `${TOOL_ID}@1.0.0`, fields: ['input'] });
+    // The tool it published first is rolled back.
+    expect(await tools.get({ tenantId, toolId: 'acme.search' as never })).toBeNull();
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test("published after the deploy checked, but its version can't be read at the write: 500, nothing kept, what it wrote before rolled back", async () => {
+    const tool = (id: string) => ({
+      id,
+      description: 'x',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+      modulePath: `./tools/${id}.js`,
+    });
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [tool('acme.search'), tool(TOOL_ID)],
+        guardrails: [],
+        agents: [],
+        flows: [],
+      },
+    });
+    const tools = makeInMemoryToolRegistry();
+    let reads = 0;
+    const refreshes: unknown[] = [];
+    const toolRegistry: ToolRegistryBinding = {
+      ...tools,
+      // The check's read and the write's fail; a later one would find it.
+      getVersion: async (input) => {
+        if ((input.toolId as unknown as string) === TOOL_ID && ++reads <= 2) return null;
+        return tools.getVersion(input);
+      },
+      // Another deploy publishes the version, from another image, between
+      // this deploy's check and its write.
+      publish: async (input) => {
+        if ((input.tool.id as unknown as string) === TOOL_ID) {
+          await tools.publish({
+            ...input,
+            tool: {
+              ...input.tool,
+              codeArtifactRef: {
+                ...input.tool.codeArtifactRef,
+                imageRef: `ghcr.io/acme/elsewhere@sha256:${'b'.repeat(64)}`,
+              } as never,
+            },
+          });
+        }
+        return tools.publish(input);
+      },
+      async refreshCodeArtifactRef(input) {
+        refreshes.push(input);
+        return { refreshed: false };
+      },
+    };
+    const { app, deploymentRegistry } = makeApp({ fixture, toolRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    expect(errorOf(await res.text()).code).toBe('internal-server-error');
+    // It stops at the read that failed: the version isn't pointed at this image uncompared.
+    expect(reads).toBe(2);
+    expect(refreshes).toEqual([]);
     // The tool it published first is rolled back.
     expect(await tools.get({ tenantId, toolId: 'acme.search' as never })).toBeNull();
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);

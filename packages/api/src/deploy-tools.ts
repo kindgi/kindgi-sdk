@@ -92,8 +92,9 @@ export async function planPackTools(
  * plan didn't compare it: a new one published since, or one its publish
  * decided (`publish-decides`). Kept only with the pack's definition:
  * throws `PublishRefused` for another one, and the deploy rolls back what
- * it wrote. A registry that holds no such version leaves nothing to
- * compare, and the tool is kept as before.
+ * it wrote. `getVersion` reads every version publish holds, unregistered
+ * ones too, so a version it can't read is a failed read: the deploy rolls
+ * back rather than keep a version it didn't compare.
  */
 export async function keepPublishedTool(
   registry: ToolReads,
@@ -102,7 +103,11 @@ export async function keepPublishedTool(
 ): Promise<void> {
   const version = tool.version as unknown as Semver;
   const stored = await registry.getVersion({ tenantId, toolId: tool.id, version });
-  if (stored === null) return;
+  if (stored === null) {
+    throw new Error(
+      `tool ${tool.id}@${tool.version}: already published, but its version can't be read`,
+    );
+  }
   const fields = changedToolFields(stored, tool);
   if (fields.length === 0) return;
   throw changedVersion(
