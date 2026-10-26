@@ -111,6 +111,7 @@ export interface ToolRegistryBinding {
    * derived "retired" state (GET returns 410 gone).
    * Publish of a new version reactivates. Version is REQUIRED
    * (there are no bare-tool-id semantics).
+   * Rejects when its store fails; the route answers 500.
    */
   unregister(input: ToolUnregisterInput): Promise<ToolUnregisterOutcome>;
   /**
@@ -119,6 +120,7 @@ export interface ToolRegistryBinding {
    * bytes verbatim (semver hygiene). Idempotent. A version of another
    * kind than the tool's active versions is `kind-mismatch`, as on
    * `publish`, and stays unregistered.
+   * Rejects when its store fails; the route answers 500.
    */
   reinstateVersion(input: ToolReinstateVersionInput): Promise<ToolReinstateVersionOutcome>;
   /**

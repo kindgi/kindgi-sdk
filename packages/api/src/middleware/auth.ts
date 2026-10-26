@@ -8,6 +8,7 @@ import type { ReviewerRole } from '@kindgi/authz';
 import type { ApiTokenId, SessionId, TenantId, UserId } from '@kindgi/types';
 
 import type { SigningKeyBinding } from '@kindgi/crypto';
+import type { Logger } from '@kindgi/log';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { PersonCapabilitiesBinding } from '../person-capabilities-binding.js';
@@ -20,6 +21,7 @@ import {
   isSystemCapability,
   isSystemKeysPath,
 } from '../system.js';
+import { loggable } from './error-mapper.js';
 
 /**
  * Resolve an API token → tenant identity. For static bearer tokens this
@@ -437,16 +439,23 @@ export function bearerAuthMiddleware(
       if (now - last >= touchThrottleMs) {
         touchBucket.set(sid, now);
         // Fire-and-forget; we don't want the write path to hold the
-        // request. Adapter errors surface via observability, not the
-        // hot path (the next check catches a genuinely stale row).
+        // request. A touch the store couldn't write is said, and the
+        // session's next request touches again rather than wait out the
+        // throttle. The line names the tenant, never the session: an older
+        // store's token is `kgi_sk_<sessionId>`.
+        const log = c.get('log') as Logger | undefined;
         void sessionStore
           .touch({
             tenantId: resolution.tenantId,
             sessionId: resolution.sessionId,
             at: new Date(now),
           })
-          .catch(() => {
-            // Best-effort — the next request retries.
+          .catch((cause: unknown) => {
+            if (touchBucket.get(sid) === now) touchBucket.delete(sid);
+            log?.warn(
+              "the session's activity wasn't recorded: its inactivity timeout still counts from the touch before, and its next request touches again",
+              { tenantId: resolution.tenantId, err: loggable(cause) },
+            );
           });
       }
     }

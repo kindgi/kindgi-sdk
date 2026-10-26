@@ -170,9 +170,10 @@ const DATA_EXCEPTION = 'a value the database rejected';
 const DATA_EXCEPTION_RE = /^22[0-9A-Z]{3}$/;
 
 /**
- * `err` as this handler logs it, and as a middleware that answers a
- * storage failure itself logs it (`idempotencyMiddleware`). A log line
- * writes an error's message and stack, and its causes', down to
+ * `err` as this handler logs it, as a middleware that answers a storage
+ * failure itself logs it (`idempotencyMiddleware`), and as the auth
+ * middleware logs a session touch that failed. A log line writes an
+ * error's message and stack, and its causes', down to
  * `LOGGED_CAUSE_DEPTH`. Two messages there
  * can carry a request's values:
  * - a query error's is its SQL and the values bound to it, a person's

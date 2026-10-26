@@ -51,6 +51,7 @@ export interface EnvBinding {
    * Idempotent delete. Returns `{ deleted: false }` on unknown key.
    * No soft-delete — env is a plain overwrite-shaped store; delete
    * means gone.
+   * Rejects when its store fails; the route answers 500.
    */
   delete(input: EnvDeleteInput): Promise<EnvDeleteOutcome>;
 
