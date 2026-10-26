@@ -20,17 +20,27 @@ import { randomUUID } from 'node:crypto';
 import { ConnectionRejectedError } from '@kindgi/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MAIL_CLOCK_MARGIN_MS, MAIL_THREAD_BUDGET, type MailCall } from '../src/mail.js';
+import {
+  MAIL_CLOCK_MARGIN_MS,
+  MAIL_THREAD_BUDGET,
+  type MailCall,
+  isMailCallError,
+  isMailScopeMissing,
+} from '../src/mail.js';
 import { microsoftMail } from '../src/microsoft-mail.js';
 
 const TOKEN = 'eyJ0eXAi.not-a-real-token';
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const INBOX_DELTA = `${GRAPH}/me/mailFolders/inbox/messages/delta`;
 
-/** Graph, as the `fetch` a mail call is given: each GET, and the answer `answer` gives it. */
+/**
+ * Graph, as the `fetch` a mail call is given: each GET, and the answer
+ * `answer` gives it. A stopped signal rejects with its reason, as `fetch` does.
+ */
 function graph(answer: (url: URL) => Response) {
   const calls: { url: string; headers: Record<string, string> }[] = [];
   const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    init?.signal?.throwIfAborted();
     calls.push({ url: String(url), headers: (init?.headers ?? {}) as Record<string, string> });
     return answer(new URL(String(url)));
   });
@@ -171,6 +181,25 @@ describe('microsoftMail.start', () => {
     ).rejects.toThrow("isn't an Outlook folder");
     expect(calls).toHaveLength(0);
   });
+  it('tries a busy answer again, as the tools do', async () => {
+    let tries = 0;
+    const { call, calls } = graph(() =>
+      ++tries === 1
+        ? Response.json(
+            {
+              error: {
+                code: 'ApplicationThrottled',
+                message: 'Application is over its MailboxConcurrency limit.',
+              },
+            },
+            { status: 429, headers: { 'retry-after': '0' } },
+          )
+        : Response.json({ value: [], '@odata.deltaLink': `${INBOX_DELTA}?$deltatoken=t1` }),
+    );
+    const start = await microsoftMail.start(call, { from: new Date('2026-10-26T02:00:00Z') });
+    expect(start.cursor).toBe(`${INBOX_DELTA}?$deltatoken=t1`);
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe('microsoftMail.changes', () => {
@@ -208,17 +237,55 @@ describe('microsoftMail.changes', () => {
     expect(await microsoftMail.changes(call, { cursor })).toEqual({ kind: 'cursor-expired' });
   });
 
-  it("throws a refused token as ConnectionRejectedError, and Microsoft's other refusals in its words without the token", async () => {
-    const refused = graph(() => new Response('', { status: 401 }));
-    await expect(microsoftMail.changes(refused.call, { cursor })).rejects.toBeInstanceOf(
+  it('throws a refused token as ConnectionRejectedError, so the caller renews it', async () => {
+    const { call } = graph(() => new Response('', { status: 401 }));
+    await expect(microsoftMail.changes(call, { cursor })).rejects.toBeInstanceOf(
       ConnectionRejectedError,
     );
-    const bad = graph(() => graphError(400, 'BadRequest', 'Unsupported query.'));
-    const err = await microsoftMail.changes(bad.call, { cursor }).catch((e: Error) => e);
-    expect(String(err)).toContain(
-      'Outlook refused the call (HTTP 400): BadRequest: Unsupported query.',
+  });
+
+  it("throws a missing scope's 403 as a MailCallError with Graph's code, without the token or Microsoft's words", async () => {
+    const { call } = graph(() =>
+      graphError(403, 'ErrorAccessDenied', 'Access is denied. Check credentials and try again.'),
     );
+    const err = await microsoftMail.changes(call, { cursor }).catch((e: unknown) => e);
+    expect(isMailCallError(err)).toBe(true);
+    expect(err).toMatchObject({ status: 403, reason: 'ErrorAccessDenied' });
+    expect(isMailScopeMissing(err)).toBe(true);
     expect(String(err)).not.toContain(TOKEN);
+    expect(String(err)).not.toContain('Check credentials');
+  });
+
+  it('throws a 503 the tries did not get past as a MailCallError, after 3 tries', async () => {
+    const { call, calls } = graph(() =>
+      Response.json(
+        {
+          error: {
+            code: 'ServiceNotAvailable',
+            message: 'The service is temporarily unavailable.',
+          },
+        },
+        { status: 503, headers: { 'retry-after': '0' } },
+      ),
+    );
+    const err = await microsoftMail.changes(call, { cursor }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 503, reason: 'ServiceNotAvailable' });
+    expect(calls).toHaveLength(3);
+  });
+
+  it("throws a folder that isn't there as a MailCallError 404, not a read's not-found", async () => {
+    const { call } = graph(() =>
+      graphError(404, 'ErrorItemNotFound', 'The specified object was not found in the store.'),
+    );
+    const err = await microsoftMail.start(call, { from: new Date() }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 404, reason: 'ErrorItemNotFound' });
+  });
+
+  it("rejects with the signal's reason when the call is cut off, not as a MailCallError", async () => {
+    const timeout = new DOMException('The operation timed out.', 'TimeoutError');
+    const { call } = graph(() => Response.json({ value: [] }));
+    const cut = { ...call, abortSignal: AbortSignal.abort(timeout) };
+    await expect(microsoftMail.changes(cut, { cursor })).rejects.toBe(timeout);
   });
 
   it.each([

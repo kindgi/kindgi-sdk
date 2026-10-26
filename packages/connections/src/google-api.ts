@@ -7,7 +7,7 @@
  * package subpath.
  */
 
-import type { AppSend } from './app-request.js';
+import { AppRefused, type AppSend } from './app-request.js';
 import { google } from './google.js';
 
 /** The connected mailbox's API: `me` is whoever signed in, the person or the company's mailbox. */
@@ -18,7 +18,7 @@ export const GMAIL_ID = /^[A-Za-z0-9_-]{1,256}$/;
 export const LABEL_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** Gmail found nothing at the path: a message deleted, or a history id it no longer keeps. */
-export class GmailNotFound extends Error {}
+export class GmailNotFound extends AppRefused {}
 
 /**
  * A GET in the mailbox, its JSON answer, or an error in Google's words.
@@ -28,27 +28,65 @@ export class GmailNotFound extends Error {}
 export async function gmailJson(send: AppSend, toolId: string, path: string): Promise<unknown> {
   const res = await send({ entry: google, connection: 'mail', toolId, url: `${GMAIL}${path}` });
   if (res.ok) return res.json();
-  const says = await googleSays(res);
+  const { reason, says } = googleErrorOf(await res.text(), res.status);
   if (res.status === 404) {
     throw new GmailNotFound(
+      404,
+      reason,
       `Gmail found nothing at ${path.split('?')[0]} in the mailbox. (${says})`,
     );
   }
-  throw new Error(`Gmail refused the call (HTTP ${res.status}): ${says}`);
+  throw new AppRefused(res.status, reason, `Gmail refused the call (HTTP ${res.status}): ${says}`);
 }
 
 /** What Google's error says (its status and message), else the HTTP status. */
 export async function googleSays(res: Response): Promise<string> {
-  const text = await res.text();
+  return googleErrorOf(await res.text(), res.status).says;
+}
+
+interface GoogleError {
+  readonly status?: unknown;
+  readonly message?: unknown;
+  readonly errors?: unknown;
+  readonly details?: unknown;
+}
+
+/** The ErrorInfo among an error's `details`, which names its reason. */
+const ERROR_INFO = 'type.googleapis.com/google.rpc.ErrorInfo';
+
+/**
+ * An error answer's reason (`error.errors[0].reason`, else its ErrorInfo's
+ * `reason`), and what it says (its status and message, else the HTTP status).
+ */
+export function googleErrorOf(
+  text: string,
+  status: number,
+): { readonly reason?: string; readonly says: string } {
+  let e: GoogleError | undefined;
   try {
-    const e = (JSON.parse(text) as { error?: { status?: unknown; message?: unknown } }).error;
-    if (typeof e?.message === 'string') {
-      return typeof e.status === 'string' ? `${e.status}: ${e.message}` : e.message;
-    }
+    e = (JSON.parse(text) as { error?: GoogleError } | null)?.error;
   } catch {
     // Not JSON: the status says enough.
   }
-  return `HTTP ${res.status}`;
+  const reason = reasonOf(e);
+  const says =
+    typeof e?.message === 'string'
+      ? typeof e.status === 'string'
+        ? `${e.status}: ${e.message}`
+        : e.message
+      : `HTTP ${status}`;
+  return { ...(reason !== undefined && { reason }), says };
+}
+
+function reasonOf(e: GoogleError | undefined): string | undefined {
+  const first: unknown = Array.isArray(e?.errors) ? e.errors[0] : undefined;
+  const reason = (first as { reason?: unknown } | null | undefined)?.reason;
+  if (typeof reason === 'string' && reason !== '') return reason;
+  const info: unknown = Array.isArray(e?.details)
+    ? e.details.find((d: { '@type'?: unknown } | null) => d?.['@type'] === ERROR_INFO)
+    : undefined;
+  const infoReason = (info as { reason?: unknown } | undefined)?.reason;
+  return typeof infoReason === 'string' && infoReason !== '' ? infoReason : undefined;
 }
 
 /** The query string: each value encoded, a list as the parameter repeated. */

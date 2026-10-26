@@ -7,7 +7,7 @@
  * and a message as a `MailMessage`. Not a package subpath.
  */
 
-import type { AppSend } from './app-request.js';
+import { AppRefused, type AppSend } from './app-request.js';
 import { cutText, htmlToText, isAutoSubmitted } from './mail-text.js';
 import type { MailAttachment, MailMessage, MailPerson } from './mail.js';
 import { microsoft } from './microsoft.js';
@@ -27,17 +27,7 @@ export const MESSAGE_FIELDS =
 export const ATTACHMENTS = 'attachments($select=name,contentType,size,isInline)';
 
 /** Graph found nothing at the path: a message deleted, or a folder that isn't there. */
-export class GraphNotFound extends Error {}
-
-/** Graph refused the call, with this status. */
-export class GraphRefused extends Error {
-  constructor(
-    readonly status: number,
-    says: string,
-  ) {
-    super(`Outlook refused the call (HTTP ${status}): ${says}`);
-  }
-}
+export class GraphNotFound extends AppRefused {}
 
 /**
  * A GET in the mailbox, its JSON answer, or an error in Microsoft's words.
@@ -58,12 +48,28 @@ export async function graphJson(
     headers: { prefer },
   });
   if (res.ok) return res.json();
-  const says = await graphSays(res);
-  if (res.status === 404) {
+  throw graphRefusal(res.status, graphErrorOf(await res.text(), res.status), url);
+}
+
+/** Graph's refusal of a call to `url`: a 404 as `GraphNotFound`. */
+export function graphRefusal(
+  status: number,
+  error: { readonly code?: string; readonly says: string },
+  url: string,
+): AppRefused {
+  if (status === 404) {
     const path = new URL(url).pathname.replace(/^\/v1\.0/, '');
-    throw new GraphNotFound(`Outlook found nothing at ${path} in the mailbox. (${says})`);
+    return new GraphNotFound(
+      404,
+      error.code,
+      `Outlook found nothing at ${path} in the mailbox. (${error.says})`,
+    );
   }
-  throw new GraphRefused(res.status, says);
+  return new AppRefused(
+    status,
+    error.code,
+    `Outlook refused the call (HTTP ${status}): ${error.says}`,
+  );
 }
 
 /** What Microsoft's error says (its code and message), else the HTTP status. */

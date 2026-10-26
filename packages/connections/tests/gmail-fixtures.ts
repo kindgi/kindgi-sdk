@@ -8,7 +8,10 @@
  *   (`id`, `threadId`, `labelIds`, `snippet`, `historyId`, `internalDate`
  *   in epoch milliseconds as a string, `payload` as MIME parts with
  *   `body.data` in base64url, `sizeEstimate`);
- * - an error: `{error: {code, message, status}}`, as Google's APIs answer.
+ * - an error: `{error: {code, message, errors: [{message, domain, reason}],
+ *   status, details}}`, as Google's APIs answer
+ *   (cloud.google.com/apis/design/errors: `details` may hold an ErrorInfo
+ *   naming the reason, as a missing scope's 403 does).
  */
 
 /** A text part, its content in UTF-8, base64url. */
@@ -99,7 +102,34 @@ export function fullMessage(id: string, threadId: string, m: FullMessage = {}) {
   };
 }
 
-/** Google's error answer. */
-export function googleError(code: number, status: string, message: string): Response {
-  return Response.json({ error: { code, message, status } }, { status: code });
+/** Google's error answer: `reason` in `errors`, and `info` as its ErrorInfo's, when given. */
+export function googleError(
+  code: number,
+  status: string,
+  message: string,
+  reason?: string,
+  info?: string,
+  headers?: Record<string, string>,
+): Response {
+  return Response.json(
+    {
+      error: {
+        code,
+        message,
+        ...(reason !== undefined && { errors: [{ message, domain: 'global', reason }] }),
+        status,
+        ...(info !== undefined && {
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+              reason: info,
+              domain: 'googleapis.com',
+              metadata: { service: 'gmail.googleapis.com' },
+            },
+          ],
+        }),
+      },
+    },
+    { status: code, ...(headers !== undefined && { headers }) },
+  );
 }

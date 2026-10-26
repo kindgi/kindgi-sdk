@@ -25,16 +25,26 @@ import { ConnectionRejectedError } from '@kindgi/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { googleMail } from '../src/google-mail.js';
-import { MAIL_CLOCK_MARGIN_MS, MAIL_THREAD_BUDGET, type MailCall } from '../src/mail.js';
+import {
+  MAIL_CLOCK_MARGIN_MS,
+  MAIL_THREAD_BUDGET,
+  type MailCall,
+  isMailCallError,
+  isMailScopeMissing,
+} from '../src/mail.js';
 import { fullMessage, googleError } from './gmail-fixtures.js';
 
 const TOKEN = 'ya29.not-a-real-token';
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
-/** Gmail, as the `fetch` a mail call is given: each GET, and the answer `answer` gives it. */
+/**
+ * Gmail, as the `fetch` a mail call is given: each GET, and the answer
+ * `answer` gives it. A stopped signal rejects with its reason, as `fetch` does.
+ */
 function gmail(answer: (url: URL) => Response) {
   const calls: { url: URL; authorization: string }[] = [];
   const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    init?.signal?.throwIfAborted();
     const parsed = new URL(String(url));
     calls.push({
       url: parsed,
@@ -94,6 +104,24 @@ describe('googleMail.start', () => {
     await expect(googleMail.start(call, { from: new Date(), folder: 'INBOX&x=1' })).rejects.toThrow(
       "isn't a Gmail label id",
     );
+  });
+  it('tries a busy answer again, as the tools do', async () => {
+    let tries = 0;
+    const { call, calls } = gmail(() =>
+      ++tries === 1
+        ? googleError(
+            429,
+            'RESOURCE_EXHAUSTED',
+            'Too many concurrent requests for user.',
+            'rateLimitExceeded',
+            undefined,
+            { 'retry-after': '0' },
+          )
+        : Response.json({ emailAddress: 'support@acme.example', historyId: '9876543210' }),
+    );
+    const start = await googleMail.start(call, { from: new Date('2026-10-26T02:00:00Z') });
+    expect(start.cursor).toBe('9876543210');
+    expect(calls).toHaveLength(2);
   });
 });
 
@@ -197,18 +225,73 @@ describe('googleMail.changes', () => {
     );
     expect(calls).toHaveLength(1);
   });
+});
 
-  it("throws a refused token as ConnectionRejectedError, and Google's other refusals in its words without the token", async () => {
-    const refused = gmail(() => new Response('', { status: 401 }));
-    await expect(googleMail.changes(refused.call, { cursor: '1' })).rejects.toBeInstanceOf(
+describe('googleMail failures', () => {
+  it('throws a refused token as ConnectionRejectedError, so the caller renews it', async () => {
+    const { call } = gmail(() => new Response('', { status: 401 }));
+    await expect(googleMail.changes(call, { cursor: '1' })).rejects.toBeInstanceOf(
       ConnectionRejectedError,
     );
-    const bad = gmail(() => googleError(400, 'FAILED_PRECONDITION', 'Mail service not enabled'));
-    const err = await googleMail.changes(bad.call, { cursor: '1' }).catch((e: Error) => e);
-    expect(String(err)).toContain(
-      'Gmail refused the call (HTTP 400): FAILED_PRECONDITION: Mail service not enabled',
+  });
+
+  it("throws a missing scope's 403 as a MailCallError with Gmail's reason, without the token or Google's words", async () => {
+    const { call } = gmail(() =>
+      googleError(
+        403,
+        'PERMISSION_DENIED',
+        'Request had insufficient authentication scopes.',
+        'insufficientPermissions',
+        'ACCESS_TOKEN_SCOPE_INSUFFICIENT',
+      ),
     );
+    const err = await googleMail.changes(call, { cursor: '1' }).catch((e: unknown) => e);
+    expect(isMailCallError(err)).toBe(true);
+    expect(err).toMatchObject({ status: 403, reason: 'insufficientPermissions' });
+    expect(isMailScopeMissing(err)).toBe(true);
     expect(String(err)).not.toContain(TOKEN);
+    expect(String(err)).not.toContain('insufficient authentication');
+  });
+
+  it("takes the ErrorInfo's reason when the answer has no errors list", async () => {
+    const { call } = gmail(() =>
+      googleError(
+        403,
+        'PERMISSION_DENIED',
+        'Request had insufficient authentication scopes.',
+        undefined,
+        'ACCESS_TOKEN_SCOPE_INSUFFICIENT',
+      ),
+    );
+    const err = await googleMail.start(call, { from: new Date() }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 403, reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' });
+    expect(isMailScopeMissing(err)).toBe(true);
+  });
+
+  it('throws a 503 the tries did not get past as a MailCallError, after 3 tries', async () => {
+    const { call, calls } = gmail(() =>
+      googleError(
+        503,
+        'UNAVAILABLE',
+        'The service is currently unavailable.',
+        'backendError',
+        undefined,
+        {
+          'retry-after': '0',
+        },
+      ),
+    );
+    const err = await googleMail.start(call, { from: new Date() }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 503, reason: 'backendError' });
+    expect(isMailScopeMissing(err)).toBe(false);
+    expect(calls).toHaveLength(3);
+  });
+
+  it("rejects with the signal's reason when the call is cut off, not as a MailCallError", async () => {
+    const timeout = new DOMException('The operation timed out.', 'TimeoutError');
+    const { call } = gmail(() => Response.json({ historyId: '1' }));
+    const cut = { ...call, abortSignal: AbortSignal.abort(timeout) };
+    await expect(googleMail.start(cut, { from: new Date() })).rejects.toBe(timeout);
   });
 });
 

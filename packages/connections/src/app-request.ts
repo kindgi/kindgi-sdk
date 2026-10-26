@@ -27,6 +27,22 @@ export interface AppCaller {
   readonly abortSignal?: AbortSignal;
 }
 
+/**
+ * The app answered with a status other than OK and other than a 401
+ * (`ConnectionRejectedError`): its status, its reason code when it gives
+ * one, and a message in the app's own words, for a tool's model. The mail
+ * calls throw it as a `MailCallError`, without the words (`mailCalls`).
+ */
+export class AppRefused extends Error {
+  constructor(
+    readonly status: number,
+    readonly reason: string | undefined,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 /** Tries of one call when the app says it's busy, the first included. */
 const MAX_TRIES = 3;
 /** The first wait when the app gives no time; it doubles each try. */

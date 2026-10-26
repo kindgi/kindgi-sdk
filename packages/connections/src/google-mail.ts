@@ -14,7 +14,7 @@
 import { type AppSend, mailSend } from './app-request.js';
 import { type GmailMessage, gmailMessage } from './gmail-mime.js';
 import { GMAIL_ID, GmailNotFound, LABEL_ID, gmailJson, query } from './google-api.js';
-import { checkBudget, checkMax } from './mail-input.js';
+import { checkBudget, checkMax, mailCalls } from './mail-calls.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
   type MailFolder,
@@ -40,7 +40,7 @@ const NOT_IN_THREAD: ReadonlySet<string> = new Set(['DRAFT', 'SPAM', 'TRASH']);
 const SINCE_MAX = 499;
 
 /** Gmail's mail calls. */
-export const googleMail: MailFunctions = {
+export const googleMail: MailFunctions = mailCalls({
   async start(call, input) {
     labelOf(input);
     const profile = (await gmailJson(mailSend(call), 'gmail.profile.get', '/profile')) as {
@@ -122,7 +122,7 @@ export const googleMail: MailFunctions = {
       throw err;
     }
   },
-};
+});
 
 /** A page of the label's history from `startHistoryId`, or `'expired'` when Gmail no longer keeps it. */
 async function historyPage(

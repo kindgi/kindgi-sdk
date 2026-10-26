@@ -11,23 +11,23 @@
  * `microsoft` entry's rate limits, and none counts against sends.
  */
 
-import { type AppSend, mailSend } from './app-request.js';
+import { AppRefused, type AppSend, mailSend } from './app-request.js';
 import {
   AS_TEXT,
   ATTACHMENTS,
   GRAPH,
   GRAPH_ID,
   GraphNotFound,
-  GraphRefused,
   IMMUTABLE_IDS,
   MESSAGE_FIELDS,
   type RawMessage,
   graphErrorOf,
   graphJson,
+  graphRefusal,
   outlookMessage,
   query,
 } from './graph-api.js';
-import { checkBudget, checkMax } from './mail-input.js';
+import { checkBudget, checkMax, mailCalls } from './mail-calls.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
   type MailChanges,
@@ -65,7 +65,7 @@ const GRAPH_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?Z$/;
 const SINCE_MAX = 999;
 
 /** Outlook's mail calls. */
-export const microsoftMail: MailFunctions = {
+export const microsoftMail: MailFunctions = mailCalls({
   async start(call, input) {
     const url = `${GRAPH}/me/mailFolders/${folderOf(input)}/messages/delta?${query({
       changeType: 'created',
@@ -142,7 +142,7 @@ export const microsoftMail: MailFunctions = {
         conversation === undefined ? [] : await earlier(send, conversation, mail, input.budget),
     };
   },
-};
+});
 
 /** An item of a delta page or a message list: a message's ids and when it came, or a removal. */
 interface DeltaItem {
@@ -213,10 +213,7 @@ async function deltaPage(send: AppSend, url: string): Promise<DeltaPage | null |
   ) {
     return 'expired';
   }
-  if (res.status === 404) {
-    throw new GraphNotFound(`Outlook found no such folder for the delta. (${error.says})`);
-  }
-  throw new GraphRefused(res.status, error.says);
+  throw graphRefusal(res.status, error, url);
 }
 
 function foundMessage(
@@ -267,7 +264,7 @@ async function earlier(
       `${AS_TEXT}, ${IMMUTABLE_IDS}`,
     )) as typeof answer;
   } catch (err) {
-    if (err instanceof GraphRefused && err.status === 400) return [];
+    if (err instanceof AppRefused && err.status === 400) return [];
     throw err;
   }
   const items = Array.isArray(answer?.value) ? (answer.value as (RawMessage | null)[]) : [];
