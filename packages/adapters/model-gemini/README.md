@@ -46,12 +46,12 @@ One non-streaming `models.generateContent` call per `invoke`:
 
 ## How much it thinks
 
-Gemini 3 models think before they answer unless they're told otherwise. The thinking bills as output, and it counts against `maxOutputTokens`, so a high level with a small cap can end with no answer.
+Gemini 3 models can think before they answer, as much as Google sets by default. Gemini 3.8 Flash thinks on every call, and `low` is the least it takes. The thinking bills as output, and it counts against `maxOutputTokens`, so a high level with a small cap can end with no answer.
 
 - **`thinkingLevels`** sets a level for each model it names: `minimal`, `low`, `medium` or `high`. That's Gemini's `thinkingLevel`, sent upper-cased on every call to that model. A model it doesn't name thinks as Google sets by default.
   - In code: `thinkingLevels: { 'gemini-3.8-flash': 'low' }`.
   - On a registration: `adapter_config.thinkingLevels: "gemini-3.8-flash=low,gemini-3.5-flash-lite=minimal"`.
-- **Each model it names** needs `thinking` in `metadata.models`, and a level no lower than its `thinking.lowest`. Gemini 3.8 Flash takes `low` at the least, and Vertex AI refuses `minimal` on it. Anything else is refused, naming the model, when the provider is made or registered.
+- **Each model it names** needs `thinking` in `metadata.models`, and a level no lower than its `thinking.lowest`: Vertex AI refuses `minimal` on Gemini 3.8 Flash. Anything else is refused, naming the entry or the model, when the provider is made or registered.
 - **A call's `thinking: 'lowest'`** (judges set it) still sends the model's `thinking.lowest`.
 - **Gemini 2.5** takes a token budget instead of a level, and isn't covered.
 - **It takes effect from the 0.2.0-rc.1 adapter.** An older one ignores the key, as the adapter ignores any `adapter_config` key it doesn't know. Keys are case-sensitive, so a misspelled one is ignored too.
