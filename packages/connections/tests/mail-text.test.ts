@@ -126,6 +126,20 @@ describe('trimLinks', () => {
     }
   });
 
+  it("keeps a site's own parameters as written, and a name no tracker owns alone", () => {
+    for (const use of ['tool', 'turn'] as const) {
+      expect(trimLinks('https://carrier.example/track?trk=1Z999AA10123456784&lang=en', use)).toBe(
+        'https://carrier.example/track?trk=1Z999AA10123456784&lang=en',
+      );
+      expect(trimLinks('https://acme.example/s?q=a%20b&utm_source=n&p=x/y:z~1', use)).toBe(
+        'https://acme.example/s?q=a%20b&p=x/y:z~1',
+      );
+      expect(trimLinks('https://acme.example/?utm%5Fsource=n&a=1', use)).toBe(
+        'https://acme.example/?a=1',
+      );
+    }
+  });
+
   it("cuts a mail turn's address over 100 characters to its host and the start of its path", () => {
     const redirect = `https://click.mail.acme.example/ls/click?upn=${'u001.Xk9'.repeat(20)}`;
     expect(trimLinks(`Unsubscribe: ${redirect}`, 'turn')).toBe(
@@ -200,6 +214,21 @@ describe('htmlToText', () => {
     );
     expect(htmlToText('<a href=https://acme.example/faq>FAQ</a>')).toBe(
       'FAQ <https://acme.example/faq>',
+    );
+  });
+
+  it("shows a link's target when its text holds the address only inside other words", () => {
+    expect(
+      htmlToText('<a href="https://evil.example/">bank.example/login?ref=evil.example</a>'),
+    ).toBe('bank.example/login?ref=evil.example <https://evil.example/>');
+    expect(htmlToText('<a href="https://acme.example/faq">see evilacme.example/faq</a>')).toBe(
+      'see evilacme.example/faq <https://acme.example/faq>',
+    );
+    expect(htmlToText('<p>Visit <a href="https://acme.example/">acme.example</a>.</p>')).toBe(
+      'Visit acme.example.',
+    );
+    expect(htmlToText('<a href="https://acme.example/">Visit acme.example, today</a>')).toBe(
+      'Visit acme.example, today',
     );
   });
 

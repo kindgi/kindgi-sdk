@@ -197,7 +197,7 @@ export function cutText(
  * and ad platforms add (Mailchimp's `mc_cid`, HubSpot's `_hsenc`, …).
  */
 const TRACKING_PARAM =
-  /^(?:utm_[a-z_]+|_hsenc|_hsmi|mc_cid|mc_eid|fbclid|gclid|dclid|msclkid|mkt_tok|igshid|yclid|_ga|_gl|vero_id|oly_enc_id|oly_anon_id|sc_cid|trk)$/i;
+  /^(?:utm_[a-z_]+|_hsenc|_hsmi|mc_cid|mc_eid|fbclid|gclid|dclid|msclkid|mkt_tok|igshid|yclid|_ga|_gl|vero_id|oly_enc_id|oly_anon_id|sc_cid)$/i;
 
 /**
  * Who a mail's text is for: a person's read tool (`tool`), which keeps
@@ -223,9 +223,22 @@ function cleanUrl(href: string): URL | undefined {
     return undefined;
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
-  const tracking = [...url.searchParams.keys()].filter((name) => TRACKING_PARAM.test(name));
-  for (const name of tracking) url.searchParams.delete(name);
+  // As text, so the other pairs keep their bytes: `URLSearchParams` would
+  // write the whole query again in a form's encoding (`%20` as `+`).
+  const pairs = url.search.slice(1).split('&');
+  const kept = pairs.filter((pair) => !TRACKING_PARAM.test(paramName(pair)));
+  if (kept.length < pairs.length) url.search = kept.join('&');
   return url;
+}
+
+/** A query pair's name, decoded as a form's. */
+function paramName(pair: string): string {
+  const name = pair.split('=', 1)[0] ?? '';
+  try {
+    return decodeURIComponent(name.replaceAll('+', ' '));
+  } catch {
+    return name;
+  }
 }
 
 /**
@@ -606,10 +619,24 @@ function hrefOf(inner: string): string | undefined {
 function linkTarget(text: string, url: string): string {
   const shown = decodeHtmlEntities(text).replace(/\s+/g, ' ').trim();
   if (shown === '') return '';
-  const bare = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
-  if (shown.includes(bare)) return '';
+  if (showsAddress(shown, url)) return '';
   // Encoded, as the text around it still is: decoding gives the address back.
   return ` &lt;${url.replaceAll('&', '&amp;')}&gt;`;
+}
+
+/**
+ * Whether a link's text shows its address as a word of its own, with or
+ * without the scheme and the closing `/`: at the text's start or after a
+ * space, and at its end or before a space or `.,;:!?)`. Text that only
+ * holds the address inside another (`bank.example/login?ref=evil.example`)
+ * doesn't show it.
+ */
+function showsAddress(shown: string, url: string): boolean {
+  const bare = url
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|\\s)(?:https?://)?${bare}/?(?=$|[\\s.,;:!?)])`, 'i').test(shown);
 }
 
 function tagAsText(inner: string): string {
