@@ -181,7 +181,9 @@ In a run a mail started, these calls wait for a person's yes:
 A read that only reaches your own systems, such as a tool that finds an
 order in your store and says `mutating: false`, runs unasked. A call that
 uses a person's connection goes to that person to decide, and any other to
-its reviewers, as in any run.
+its reviewers, as in any run. In the console, its approval shows the mail
+its run started from
+([Deciding in the console](../../approvals/approvals-reference/#deciding-in-the-console)).
 
 **A flow's tool step can't wait,** so a step whose tool would wait fails,
 with `needs-a-person`, and the tool never runs. The run's `failureMessage`
@@ -434,6 +436,116 @@ rest in the mailbox. A `cursor-reset:` row in its fires says so.
   mailbox's inbox. Its owner stays as it is
   ([Shared or personal](#shared-or-personal)).
 - `kindgi mail-triggers unregister <trigger-id>` removes it.
+
+## In the console
+
+A project's **Mail triggers** page, under **Run**, lists its mail
+triggers. Each row has:
+
+- its label, and what it watches, such as "The company's Gmail, Inbox";
+- whether it's **Active** or **Paused**, and, when it isn't reading mail,
+  why: **Not connected**, **Owner refused** or **Paused by the runtime**
+  ([When it stops reading](#when-it-stops-reading));
+- what it starts, such as "the agent Support Desk" or "the flow Refunds
+  1.0.0";
+- whether it's **Shared** or **Personal**
+  ([Shared or personal](#shared-or-personal));
+- when its last mail came, and **Runs it started →**.
+
+The list has a search box. **New mail trigger**, at the top, is for
+project editors and up, and makes a trigger that runs as you: "New mail in
+the mailbox starts what you pick, each mail its own run, acting as you.
+Mail already there doesn't run: it starts from now." It asks for:
+
+- **Mailbox:** **Gmail** or **Outlook**.
+- **Whose:** **Mine, through my own connection**, which you connect first
+  on the **Connections** page, or, for project admins, **The company's**
+  ([The company's mailbox](#the-companys-mailbox)).
+- **Gmail label** or **Outlook folder:** empty for the inbox, else the
+  label's id, such as `Label_12`, or the folder's id or well-known name,
+  such as `archive`.
+- **Starts:** an agent, at its live version, or a flow, at its latest
+  version that isn't retired, which the trigger then keeps starting. To
+  start another of its versions, create the trigger with the CLI's
+  `--flow-version` ([Create one](#create-one)).
+- **Looks:** how often it looks for new mail, from every 30 seconds to
+  every hour. It's every minute to start with.
+- **Runs an hour, at most:** 1 to 600, 60 to start with. Past it, a mail
+  never runs, and staff answer it in the mailbox.
+- **Label:** its name in lists. Left empty, its id names it.
+
+**Make it** opens the new trigger's page. Its tools allowed unattended
+start empty: a project admin lists them with the CLI
+([List a tool](#list-a-tool)). A trigger made here on the company's mailbox
+is personal to whoever made it. To have the project own it, create it with
+`--run-as=project` ([The company's mailbox](#the-companys-mailbox)).
+
+A trigger's page says what it does, such as "New mail in the company's
+Gmail, inbox starts the agent Support Desk (its live version), one run per
+mail." Then:
+
+- **Mailbox:** whose mailbox it is, its label or folder, or **Inbox**, the
+  account it reads, once it has looked, when it last looked, and its pace,
+  such as "Looks every minute, at most 60 runs an hour".
+- **Each run:** what a run gets, "The mail and its thread, as its message"
+  for an agent, in the thread's own conversation, or "The mail and its
+  thread, as fields" for a flow. And **Runs as:** its owner and whether
+  it's shared or personal, such as "Sam Lee · Personal", or "This project
+  · Shared" when the project's own account owns it.
+- **Mail:** a summary, such as "Of its 3 mails, 2 started a run and 1 was
+  skipped.", **Runs it started →**, and each mail it found: when, what
+  happened, and the run it started. These are its
+  [fires](#see-what-each-mail-did) in words, such as "Over its
+  runs-an-hour limit: this mail never runs", and a mail that never runs
+  adds "Answer it in the mailbox."
+- **Details,** folded at the foot of the page: its trigger id, its owner,
+  the account, its tools allowed unattended, and when it was made.
+
+The mail itself isn't on the trigger's page. It's on each run, for whoever
+may read the run.
+
+When a trigger isn't reading mail, its page says why: "The mailbox's
+connection is gone or has lapsed. It keeps looking, and reads mail again
+once the mailbox is connected again.", with **Reconnect**, or "Its owner
+was removed, or may no longer run what it starts. It reads nothing until
+that changes or a project admin takes it over." When the runtime paused
+it, the page shows the runtime's own sentence.
+
+On the list and on the page:
+
+- **Pause**, **Resume** and **Remove** are for project editors and up on a
+  shared trigger, and for its owner and project admins on a personal one.
+  Pause: "It stops looking for new mail. When it's resumed it starts from
+  then: mail that came while it was paused doesn't run, and staff answer
+  it in the mailbox." Remove: "It stops looking for new mail. The runs it
+  started stay, with their record of what started them. It can't be
+  brought back: a new one starts from when it's made."
+
+On the trigger's page, project admins also get **Take over**: "The runs
+its mail starts from now on act as you, with your access." On a person's
+mailbox, the trigger then reads your own Gmail or Outlook, from then on,
+so you need your own connection to it. Runs already started keep theirs,
+and a paused trigger stays paused. On a trigger with tools allowed
+unattended, the dialog adds that its runs still call them, with the new
+owner's access.
+
+A tenant admin gets **Change owner…** instead, on a trigger on the
+company's mailbox, whenever the tenant has a registered service account
+the trigger doesn't already run as. Its **Runs as** list has each
+registered service account and, when the trigger isn't already yours,
+"You — with your access". The dialog says what changes before anything
+does, as for
+[a schedule](../run-on-a-schedule/#in-the-console). A trigger on a
+person's mailbox has only **Take over**: a person's mailbox is read as a
+person.
+
+To change what a trigger runs, what it reads or its pace, use
+`kindgi mail-triggers update` ([Pause it, change it](#pause-it-change-it)).
+
+A run a mail started says so on its page, under **Started by**: "The mail
+trigger “support inbox”", what it watches, whom the run acts for, and
+**Its other runs →**, the runs list filtered to that trigger. Once the
+trigger is removed, it reads "A mail trigger that's since been removed".
 
 ## Turn the mail into fields first
 
