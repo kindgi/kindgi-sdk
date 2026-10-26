@@ -590,7 +590,20 @@ Any other value stops the runtime at start:
 
 Your own classifier lists the kinds to purge under `byKind`, each with its
 `days`, and `onDenyDays` for denied ones; `legalHold: true` keeps a kind for
-good. A kind it doesn't list is kept.
+good. A kind it doesn't list is kept, whatever the `default`'s `days` say.
+
+To keep a kind for as long as its tenant exists, give it `"kept": true` in
+place of `days`:
+
+```json
+"hitl-decision": { "retention": { "kept": true }, "signed": true, "exportable": true }
+```
+
+No pass purges a kept kind, however old its events. A kept kind gives no
+`days` and no `onDenyDays`, and it can be on legal hold too. Unlike a legal
+hold, `kept` doesn't keep a kind's text through an
+[erasure](../../guides/agents/erase-a-persons-data/#what-it-clears): an
+erasure still clears it.
 
 An entry can name another kind instead of giving a policy. It's then kept,
 and purged, as that kind is, so the two can't drift apart. The shipped
@@ -631,6 +644,18 @@ kindgi-runtime: fatal: Error: compliance-classifier.byKind.secret-revoked: names
 
 For a kind the file doesn't list, it says
 `` compliance-classifier.byKind.secret-revoked: names "secret-sett", which isn't listed with a policy ``.
+
+A retention that gives `kept` with `days` or `onDenyDays` stops it too:
+
+```text
+kindgi-runtime: fatal: Error: compliance-classifier.byKind.hitl-decision.retention: gives both kept and days: a kept kind is kept for as long as its tenant exists, so it gives no days
+```
+
+A retention that gives neither says
+`` compliance-classifier.byKind.hitl-decision.retention: gives neither days nor kept: give the days to keep the kind, or "kept": true to keep it for as long as its tenant exists ``,
+and `"kept": false` says
+`` compliance-classifier.byKind.hitl-decision.retention.kept: must be true, or left out ``.
+The `default` is checked the same way.
 
 The setting also turns on `GET /v1/compliance/evidence`, which lists the audit
 events as compliance evidence. Without it, that route answers `404`.
