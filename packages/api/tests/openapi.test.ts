@@ -9,7 +9,11 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import { OPERATIONS, generateOpenApiDocument, honoToOpenapiPath } from '../src/index.js';
-import { READS_WITHOUT_STORAGE, answersDatabaseBusy } from '../src/openapi/operations.js';
+import {
+  READS_WITHOUT_STORAGE,
+  answersDatabaseBusy,
+  answersIdempotencyStoreUnavailable,
+} from '../src/openapi/operations.js';
 import { RunEventSchema } from '../src/openapi/schemas.js';
 
 import { fullAppInput, noopResolveToken, noopRunHandler } from './support/full-app.js';
@@ -159,6 +163,55 @@ describe('OpenAPI — generated document', () => {
     const method = doc.paths['/v1/identity/me/permissions']?.get;
     expect(method, 'identity.me.permissions missing').toBeTruthy();
     expect(method?.responses['503']?.description).toContain('authz-backend-unavailable');
+  });
+
+  test('every served write that takes an Idempotency-Key declares the 503 its key store answers', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const writes = OPERATIONS.filter(
+      (o) => o.unserved === undefined && answersIdempotencyStoreUnavailable(o),
+    );
+    // Guard against a filter that selects nothing (which would pass vacuously):
+    // well over a hundred writes take the key.
+    expect(writes.length).toBeGreaterThan(100);
+    for (const op of writes) {
+      const response = doc.paths[op.openapiPath]?.[op.method]?.responses['503'];
+      expect(
+        response,
+        `${op.operationId} (${op.method} ${op.openapiPath}) must declare a 503 (idempotency-store-unavailable)`,
+      ).toBeDefined();
+      // A write that keeps its own 503 must name this one too.
+      expect(
+        response?.description,
+        `${op.operationId} 503 must name idempotency-store-unavailable`,
+      ).toContain('idempotency-store-unavailable');
+    }
+  });
+
+  test('an operation without the key never declares it: reads, and writes that take no key', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const others = OPERATIONS.filter(
+      (o) => o.unserved === undefined && !answersIdempotencyStoreUnavailable(o),
+    );
+    // Both kinds are there, so neither half passes vacuously.
+    expect(others.some((o) => o.method === 'get')).toBe(true);
+    expect(others.some((o) => o.method === 'post')).toBe(true);
+    for (const op of others) {
+      const response = doc.paths[op.openapiPath]?.[op.method]?.responses['503'];
+      expect(
+        response?.description ?? '',
+        `${op.operationId} takes no Idempotency-Key`,
+      ).not.toContain('idempotency-store-unavailable');
+    }
   });
 
   test("what the runtime doesn't serve is left out, with the schemas only it uses", () => {

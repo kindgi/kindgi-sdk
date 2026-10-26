@@ -18,6 +18,7 @@ import {
   type ParameterSpec,
   type ResponseSpec,
   answersDatabaseBusy,
+  answersIdempotencyStoreUnavailable,
   honoToOpenapiPath,
 } from './operations.js';
 import { COMPONENT_SCHEMAS, type JsonSchema, ref } from './schemas.js';
@@ -350,10 +351,22 @@ const DATABASE_BUSY_HEAD: ResponseSpec = {
 };
 
 /**
+ * What a write that takes an `Idempotency-Key` answers when the key's store
+ * fails before the write runs, unless the operation declares a 503 of its
+ * own — see `answersIdempotencyStoreUnavailable`.
+ */
+const IDEMPOTENCY_STORE_UNAVAILABLE: ResponseSpec = {
+  description:
+    "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+  schema: ref('WireError'),
+};
+
+/**
  * An operation's own responses plus the ones the generator shares across
- * operations: a 413 for anything with a body, and the 503 a read answers
- * when the database is too busy — each only when the operation doesn't
- * declare that status itself.
+ * operations: a 413 for anything with a body, the 503 a read answers when
+ * the database is too busy, and the 503 a keyed write answers when its
+ * key's store fails — each only when the operation doesn't declare that
+ * status itself.
  */
 function responsesWithShared(op: OperationSpec): Readonly<Record<string, ResponseSpec>> {
   let responses = op.responses;
@@ -362,6 +375,9 @@ function responsesWithShared(op: OperationSpec): Readonly<Record<string, Respons
   }
   if (answersDatabaseBusy(op) && responses['503'] === undefined) {
     responses = { ...responses, '503': op.method === 'head' ? DATABASE_BUSY_HEAD : DATABASE_BUSY };
+  }
+  if (answersIdempotencyStoreUnavailable(op) && responses['503'] === undefined) {
+    responses = { ...responses, '503': IDEMPOTENCY_STORE_UNAVAILABLE };
   }
   return responses;
 }

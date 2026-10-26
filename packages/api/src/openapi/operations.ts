@@ -100,7 +100,7 @@ const IdempotencyKeyParam: ParameterSpec = {
   in: 'header',
   required: false,
   description:
-    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5).",
+    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.1.12).",
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -1519,7 +1519,11 @@ const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
   '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
 };
 
-/** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
+/**
+ * A secrets store's external provider (the router's), answering a read or a
+ * write: each at its own status. Each operation that spreads it is a write
+ * that takes an `Idempotency-Key`, so its 503 names that store's too.
+ */
 const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
   '429': ErrorResponse(
     "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
@@ -1528,7 +1532,7 @@ const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
     "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
   ),
   '503': ErrorResponse(
-    "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+    "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
   ),
 };
 
@@ -1584,6 +1588,22 @@ export const READS_WITHOUT_STORAGE: ReadonlySet<string> = new Set([
 export function answersDatabaseBusy(op: OperationSpec): boolean {
   return (
     (op.method === 'get' || op.method === 'head') && !READS_WITHOUT_STORAGE.has(op.operationId)
+  );
+}
+
+/**
+ * Whether a served operation can answer `503 idempotency-store-unavailable`:
+ * a write that takes an `Idempotency-Key`, which `idempotencyMiddleware`
+ * answers so when the key's store fails before the write runs. The spec
+ * generator injects the 503 for these (unless the operation declares a 503
+ * of its own, which then names it too), and a test holds every one of them
+ * to it.
+ */
+export function answersIdempotencyStoreUnavailable(op: OperationSpec): boolean {
+  return (
+    op.method !== 'get' &&
+    op.method !== 'head' &&
+    (op.parameters ?? []).some((p) => p.in === 'header' && p.name === IdempotencyKeyParam.name)
   );
 }
 
@@ -2212,7 +2232,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts.",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts. Or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`), so nothing was changed.",
       ),
     },
   },
@@ -2266,7 +2286,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2299,7 +2319,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Another tenant has the slug, or a create whose setup is pending holds it with another request (`tenant-slug-taken`); or its image prefix overlaps another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body; or that key's replay, when the first answer held the admin key (`idempotency-key-replay-withheld`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2385,7 +2405,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2417,7 +2437,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2453,7 +2473,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2490,7 +2510,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The tenant is closing (`tenant-closing`); the prefix equals, holds or sits inside another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2536,7 +2556,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2612,7 +2632,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2863,7 +2883,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The host isn't allowed (`endpoint-host-not-allowed`) or doesn't name the deployment's service (`endpoint-name-mismatch`, with `details.expected`); the pack service didn't answer (`endpoint-unreachable`) or answered as another pack or version (`endpoint-info-mismatch`, with `details.differs`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2957,7 +2977,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2985,7 +3005,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -3018,7 +3038,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not `waiting` (`endpoint-not-pending`, with `details.status`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -3048,7 +3068,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -11355,7 +11375,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The app wouldn't give a token for the code: its client id, secret or redirect URL (`connection-app-refused`).",
       ),
       '503': ErrorResponse(
-        "The connection couldn't be stored just now (`connection-store-failed`).",
+        "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -11444,7 +11464,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "No connection with that id, or not the caller's (`connection-not-found`).",
       ),
-      '503': ErrorResponse("The removal couldn't be stored just now (`connection-store-failed`)."),
+      '503': ErrorResponse(
+        "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
     },
   },
   {

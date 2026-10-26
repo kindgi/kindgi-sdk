@@ -100,6 +100,8 @@ Semantics:
 - Retries with the same key return the stored response byte-identical (including status code), marked `X-Idempotent-Replay: true`.
 - Retries with the same key but a different body → `409 conflict` with error `code: 'idempotency-key-body-mismatch'`.
 - A retry sent while the first request still runs → `409 conflict` with error `code: 'idempotency-key-in-flight'` and `Retry-After`, when the store holds keys (`IdempotencyStore.holds`; the runtime's does from 0.1.5). It doesn't run the operation again; retry after it, and you get the first request's answer. The hold lasts 30 s and is renewed while the request runs, so a crashed request's key frees within 30 s.
+- A store that can't be read before the request runs (its stored answer or its hold) → `503` with error `code: 'idempotency-store-unavailable'` and `Retry-After` (5 seconds), from 0.1.12. Nothing ran, so a retry with the same key is safe.
+- A store that can't keep the answer after the request ran: the request's own answer stands, though it can't be replayed, and the failure is logged. Its hold isn't released, so a retry within the hold's 30 s gets `idempotency-key-in-flight`, as for a crashed request, and one after that runs again.
 - Applies to `POST`, `PUT`, `PATCH`, `DELETE`.
 
 `@kindgi/client` sends the `Idempotency-Key` header on mutating calls when the caller passes `idempotencyKey`.
@@ -166,15 +168,18 @@ The SDK's `fromWire(json)` (`sdks/typescript/src/errors.ts`) matches on `code`.
 | `permission-denied`                              | 403         |
 | `rate-limit-exceeded`                            | 429         |
 | `database-busy` (a `GET` or `HEAD` only)         | 503         |
+| `idempotency-store-unavailable` (a keyed write, before it runs) | 503 |
 | Anything else server-caused                      | 500         |
 
 A `429 rate-limit-exceeded` carries `Retry-After`, in whole seconds, when the limit is over a time window, as `schema-compile-time`, `template-render-time` and the request rate limits are; a limit that counts what's waiting, not time, carries none. When a tenant's limit refused the request, `details.limit` names it. `schema-compile-time` is the time the tenant's schemas spent compiling in the last 60 seconds, against `details.budgetMs`. It counts every compile in a request that publishes schemas, and a schema compiled again in any other request. A publish it refuses stores nothing. `template-render-time` is the time the tenant's instructions templates spent rendering in the last 60 seconds, against `details.budgetMs`. An agent turn whose work either budget refuses fails with `rate-limit-exceeded` and the same `details`: `POST /v1/runs` answers it as this 429, with `Retry-After` and `details.runId`, and the run reads as failed with that code.
 
-A `503 database-busy` answers a `GET` or `HEAD` that the database was too busy to answer in time: a lock or statement timeout ended its query, or no pooled connection came free within the wait. It carries `Retry-After` (5 seconds). A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of the binding error that stopped it, such as `persistence-error`): a write can have saved part of its work before the timeout, and clients retry a 503 as an answer that nothing ran.
+A `503 database-busy` answers a `GET` or `HEAD` that the database was too busy to answer in time: a lock or statement timeout ended its query, or no pooled connection came free within the wait. It carries `Retry-After` (5 seconds). A request with any other method that the database was too busy for answers a 500 (`internal-server-error`, or the code of the binding error that stopped it, such as `persistence-error`): a write can have saved part of its work before the timeout, and clients retry a 503 as an answer that nothing ran. A keyed write whose `Idempotency-Key` store couldn't be read before it ran is the exception: nothing ran, so it answers `503 idempotency-store-unavailable` (§3.1).
 
 The storage failure is marked `code: 'database-busy'`, on the error or down its `cause` chain. A thrown error reaches `mapThrownError`, which checks for the mark. A route that answers a binding's Result error at its code's status asks `databaseBusyAnswer(error, c)` (`middleware/error-mapper.ts`) first and returns its answer when it gives one. A binding that re-codes a storage failure under its own code keeps the failure as the error's `cause`, so the read answers the same whether the binding threw the failure or returned it.
 
 The OpenAPI document declares this `503` on every served `GET` and `HEAD`, injected once where the spec is built (`openapi/generate.ts`), so a new read is covered without a per-route edit. The exceptions are the reads that never reach storage, and so can never answer `database-busy`: they're listed in `READS_WITHOUT_STORAGE` (`openapi/operations.ts`) — the liveness probe and the spec document today — and a new read of that kind goes there too. A read that declares its own `503` keeps it in place of the shared one, so its description has to name `database-busy` as well, the way `GET /v1/identity/me/permissions` names both `authz-backend-unavailable` and `database-busy`.
+
+A write that takes an `Idempotency-Key` (§3.1) gets the same treatment for its `503 idempotency-store-unavailable`: the generator injects it on every served `POST`, `PUT`, `PATCH` or `DELETE` that declares the `Idempotency-Key` header (`answersIdempotencyStoreUnavailable`), and one that declares its own `503` names `idempotency-store-unavailable` in it as well.
 
 ---
 

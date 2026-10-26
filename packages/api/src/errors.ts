@@ -175,6 +175,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    * other method answers 500 (`mapThrownError`).
    */
   'database-busy': 503,
+  // 503 — the Idempotency-Key store, on a write before it runs. With `Retry-After`.
+  /**
+   * A write with an `Idempotency-Key` whose store couldn't be read before
+   * it ran (`idempotencyMiddleware`): nothing ran, so a retry with the
+   * same key is safe.
+   */
+  'idempotency-store-unavailable': 503,
   // Waitpoint domain: "no pending token" or "already resolved" are
   // 409-shaped (a caller conflict with the run's current state).
   'waitpoint-error': 409,

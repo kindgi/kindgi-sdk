@@ -481,6 +481,11 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'idempotency-store-unavailable': {
+    description:
+      "A write sent with an Idempotency-Key couldn't be checked against its key, because the store that keeps the keys couldn't be read, so the write didn't run and changed nothing. Retry with the same key after the `Retry-After` header.",
+    details: [],
+  },
   'hitl-required': {
     description:
       "The API doesn't send this code. A conversation that reaches its review threshold parks the turn for an approval instead.",

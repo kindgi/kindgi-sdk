@@ -5,11 +5,13 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import type { Context, MiddlewareHandler } from 'hono';
 
+import type { Logger } from '@kindgi/log';
 import type { TenantId } from '@kindgi/types';
 
 import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
+import { loggable } from './error-mapper.js';
 import { requestBodyBytes } from './request-body.js';
 
 /**
@@ -136,6 +138,8 @@ const DEFAULT_HOLD_MS = 30 * 1000;
 const IN_FLIGHT_RETRY_AFTER_S = 5;
 /** The statuses a stored answer can have that never carry a body. */
 const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
+/** What a write whose store couldn't be read is told to wait, in seconds. */
+const STORE_UNAVAILABLE_RETRY_AFTER_S = 5;
 
 /**
  * Idempotency-Key middleware per API-ROUTE-CONVENTIONS.md §3.1.
@@ -160,6 +164,18 @@ const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
  *   instead of running the operation again. The hold becomes the stored
  *   answer, or is released when nothing is stored. A crashed request's
  *   hold lapses within `holdMs`.
+ * - A store that fails before the handler runs (`get` or `hold` throws):
+ *   nothing ran, so the write answers 503 `idempotency-store-unavailable`
+ *   with `Retry-After`, and a retry with the same key is safe. Logged as an
+ *   error.
+ * - An answer that can't be stored after (`set` throws, or its body can't
+ *   be read to store): the operation took effect, so its answer stands,
+ *   though it can't be replayed. Logged as an error. The
+ *   hold isn't released: a repeat sent meanwhile gets 409
+ *   `idempotency-key-in-flight`, never a second run straight away, and the
+ *   hold lapses within `holdMs`, as a crashed request's does. A hold that
+ *   can't be renewed or released is logged as a warning, and the answer
+ *   doesn't change.
  *
  * The middleware sits AFTER auth so `tenantId` is available. The cache
  * key is the tenant, the caller (`user:…`, `service_account:…`, else the
@@ -196,17 +212,28 @@ export function idempotencyMiddleware(
 
     const bodyHash = await fingerprint(c as Context<AppEnv>);
     const cacheKey = `${tenantId}|${callerIdentity(c as Context<AppEnv>)}|${c.req.method.toUpperCase()}:${c.req.path}|${rawKey}`;
-    const hit = await store.get(cacheKey);
+    const log = (c as Context<AppEnv>).get('log') as Logger | undefined;
+    let hit: StoredIdempotencyEntry | null;
+    try {
+      hit = await store.get(cacheKey);
+    } catch (cause) {
+      return storeUnavailable(c, log, cause, requestId);
+    }
     if (hit !== null) return replay(c, hit, bodyHash, requestId, ttlMs);
 
     const { holds } = store;
     const holder = randomUUID();
     if (holds !== undefined) {
-      const held = await holds.hold(cacheKey, {
-        holder,
-        bodyHash,
-        expiresAt: Date.now() + holdMs,
-      });
+      let held: IdempotencyHoldOutcome;
+      try {
+        held = await holds.hold(cacheKey, {
+          holder,
+          bodyHash,
+          expiresAt: Date.now() + holdMs,
+        });
+      } catch (cause) {
+        return storeUnavailable(c, log, cause, requestId);
+      }
       if (held.kind === 'stored') return replay(c, held.entry, bodyHash, requestId, ttlMs);
       if (held.kind === 'in-flight') {
         if (held.bodyHash !== bodyHash) return bodyMismatch(c, requestId);
@@ -230,37 +257,53 @@ export function idempotencyMiddleware(
         ? undefined
         : setInterval(
             () => {
-              holds.renew(cacheKey, holder, Date.now() + holdMs).catch(() => undefined);
+              holds.renew(cacheKey, holder, Date.now() + holdMs).catch((cause: unknown) => {
+                log?.warn('could not renew the Idempotency-Key hold; it lapses unless renewed', {
+                  err: loggable(cause),
+                });
+              });
             },
             Math.max(1, Math.floor(holdMs / 3)),
           );
     renewal?.unref?.();
-    let answered = false;
+    let tookEffect = false;
     try {
       await next();
 
       const res = c.res;
       // Only what took effect is replayed; see the doc above.
       if (res.status >= 400) return;
+      tookEffect = true;
       const withheld = (c as Context<AppEnv>).get('idempotencyWithhold') === true;
-      const savedBody = withheld ? '' : await res.clone().text();
       const contentType = res.headers.get('Content-Type') ?? 'application/octet-stream';
-      const now = Date.now();
-      await store.set(cacheKey, {
-        bodyHash,
-        status: res.status,
-        contentType,
-        bodyText: savedBody,
-        expiresAt: now + ttlMs,
-        ...(withheld && { withheld: true }),
-        storedAt: now,
-      });
-      answered = true;
+      try {
+        const savedBody = withheld ? '' : await res.clone().text();
+        const now = Date.now();
+        await store.set(cacheKey, {
+          bodyHash,
+          status: res.status,
+          contentType,
+          bodyText: savedBody,
+          expiresAt: now + ttlMs,
+          ...(withheld && { withheld: true }),
+          storedAt: now,
+        });
+      } catch (cause) {
+        // The operation took effect, so its answer stands; the hold lapses
+        // (see the doc above).
+        log?.error("could not store the request's answer for its Idempotency-Key", {
+          err: loggable(cause),
+        });
+      }
     } finally {
       if (renewal !== undefined) clearInterval(renewal);
-      // Nothing stored (a refusal, a failure, a throw): let a retry run.
-      if (!answered && holds !== undefined) {
-        await holds.release(cacheKey, holder).catch(() => undefined);
+      // Nothing took effect (a refusal, a failure, a throw): let a retry run.
+      if (!tookEffect && holds !== undefined) {
+        await holds.release(cacheKey, holder).catch((cause: unknown) => {
+          log?.warn('could not release the Idempotency-Key hold; it lapses within its hold time', {
+            err: loggable(cause),
+          });
+        });
       }
     }
   };
@@ -312,6 +355,29 @@ function bodyMismatch(c: Context, requestId: string) {
         code: 'idempotency-key-body-mismatch',
         message:
           'Idempotency-Key was reused with a different request body. Use a fresh key or the original body.',
+      },
+      requestId,
+    ),
+  );
+}
+
+/**
+ * The answer to a write whose store failed before it ran (`get` or `hold`
+ * threw): nothing ran, so a retry with the same key is safe. As
+ * `tenant-state.ts` answers a write whose tenant state can't be read.
+ */
+function storeUnavailable(c: Context, log: Logger | undefined, cause: unknown, requestId: string) {
+  log?.error("could not read the Idempotency-Key store; the request didn't run", {
+    err: loggable(cause),
+  });
+  c.header('Retry-After', String(STORE_UNAVAILABLE_RETRY_AFTER_S));
+  c.status(statusFor('idempotency-store-unavailable') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'idempotency-store-unavailable',
+        message:
+          "The Idempotency-Key store can't be read just now, so nothing was changed: try again with the same key.",
       },
       requestId,
     ),
