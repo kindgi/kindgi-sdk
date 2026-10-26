@@ -127,6 +127,12 @@ class Tool(Generic[P, R]):
     A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project
     admin's to set) lifts that, in its own runs only. A run a person starts is unaffected.
     `None` (the default) means `False`."""
+    result_is_outside_data: bool | None = None
+    """`True`: the tool's results are text from outside that nobody checked, such as a mail someone
+    sent or a page a search found. An agent reads each result of the tool as data, not instructions,
+    in that turn and in every later turn's history. It changes what the model is told, not what the
+    tool may do: pair it with approvals for anything an agent could do with what it read. `None`
+    (the default) means `False`."""
     needs: Sequence[Mapping[str, Any]] | None = None
     needs_spec: Mapping[str, Any] | None = None
     sandbox: str | None = None
@@ -168,6 +174,7 @@ def tool(
     effects: Sequence[Mapping[str, Any]] = (),
     mutating: bool | None = None,
     needs_approval_when_unattended: bool | None = None,
+    result_is_outside_data: bool | None = None,
     needs: Sequence[Mapping[str, Any]] | None = None,
     needs_spec: Mapping[str, Any] | None = None,
     sandbox: str | None = None,
@@ -181,7 +188,9 @@ def tool(
     `mutating=False` declares it read-only: it runs in a dry run, and an agent's
     approval gates don't ask before it by default. `needs_approval_when_unattended=True`
     makes each call wait for a person's approval in a run no person started (a webhook, a
-    schedule, an event, or a service account's key).
+    schedule, an event, or a service account's key). `result_is_outside_data=True` says the
+    tool's results are text from outside that nobody checked (a mail someone sent, a page a
+    search found): an agent reads each as data, not instructions.
 
     `pauses=True` lets a call wait for another system's answer: the handler hands
     `ctx.wait_token.url` to that system and returns `ctx.pause()`; the answer that system
@@ -229,6 +238,7 @@ def tool(
             effects=tuple(effects),
             mutating=mutating,
             needs_approval_when_unattended=needs_approval_when_unattended,
+            result_is_outside_data=result_is_outside_data,
             needs=needs,
             needs_spec=needs_spec,
             sandbox=sandbox,
@@ -264,6 +274,7 @@ def http_tool(
     effects: Sequence[Mapping[str, Any]] = (),
     mutating: bool | None = None,
     needs_approval_when_unattended: bool | None = None,
+    result_is_outside_data: bool | None = None,
 ) -> Tool[..., Any]:
     """Declare a tool that is one HTTP request — no handler: the Kindgi runtime makes the call.
 
@@ -338,6 +349,7 @@ def http_tool(
         effects=tuple(effects),
         mutating=mutating,
         needs_approval_when_unattended=needs_approval_when_unattended,
+        result_is_outside_data=result_is_outside_data,
         spec=spec,
         module=_defined_in(1),
         _input_adapter=_adapter(input),

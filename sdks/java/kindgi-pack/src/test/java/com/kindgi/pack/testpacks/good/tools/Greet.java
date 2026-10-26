@@ -17,6 +17,7 @@ public final class Greet {
       .output(Output.class)
       .mutating(false)
       .needsApprovalWhenUnattended(false)
+      .resultIsOutsideData(true)
       .handler((input, ctx) -> new Output("Hello, " + input.name()));
 
   /** Defined in another class: not this file's to index. */

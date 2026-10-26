@@ -336,7 +336,7 @@ export async function followReplaySessionGate(ctx: TurnContext, kctx: NodeContex
       approval.rationale !== undefined ? `: ${approval.rationale}` : ''
     }`,
     ...(approval.rationale !== undefined && { rationale: approval.rationale }),
-  } as never);
+  });
 }
 
 /**

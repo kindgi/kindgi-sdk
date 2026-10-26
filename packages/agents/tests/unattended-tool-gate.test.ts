@@ -8,13 +8,16 @@ import type { NodeContext } from '@kindgi/handler';
 import type { HitlSpec } from '@kindgi/policy-contract';
 import {
   RUN_STARTED_BY,
+  type RunMailbox,
   type RunStartedBy,
+  type UnattendedWaitReason,
   needsPersonsYesUnattended,
   runIsAttended,
   toolNeedsPersonsYesUnattended,
+  unattendedWaitReason,
 } from '@kindgi/runtime';
 import { defineTool } from '@kindgi/tools';
-import type { AnyTool } from '@kindgi/tools';
+import type { AnyTool, ConnectionNeed } from '@kindgi/tools';
 import type { RunId, TenantId, ToolId } from '@kindgi/types';
 
 import { turnInputFromSnapshot } from '../src/invoke.js';
@@ -37,7 +40,14 @@ function agent(conversationPolicy?: Record<string, unknown>): Agent {
   } as unknown as Agent;
 }
 
-function refundTool(ran: unknown[], declared: { needsApprovalWhenUnattended?: boolean }): AnyTool {
+/** What a test tool declares: the rule's flags, and its connections. */
+interface Declared {
+  readonly needsApprovalWhenUnattended?: boolean;
+  readonly mutating?: boolean;
+  readonly needsSpec?: { readonly connections: Record<string, ConnectionNeed> };
+}
+
+function refundTool(ran: unknown[], declared: Declared): AnyTool {
   const defined = defineTool<{ order: string }, { ok: boolean }>({
     id: 'pack.refund' as ToolId,
     description: 'Refunds an order.',
@@ -69,8 +79,11 @@ const UNATTENDED: readonly (RunStartedBy | undefined)[] = [
   'schedule',
   'webhook',
   'event',
+  'mail',
   undefined,
 ];
+/** The runs a trigger with a `toolsAllowedUnattended` list started. */
+const LISTABLE = ['webhook', 'schedule', 'mail'] as const;
 
 describe('runIsAttended', () => {
   test('only a person counts', () => {
@@ -88,12 +101,12 @@ describe('needsPersonsYesUnattended — the one rule the gate and the runtime sh
       expect(needsPersonsYesUnattended(declared, by, [])).toBe(true);
       expect(needsPersonsYesUnattended(declared, by, ['pack.other'])).toBe(true);
     }
-    for (const by of ['webhook', 'schedule'] as const) {
+    for (const by of LISTABLE) {
       expect(needsPersonsYesUnattended(declared, by, ['pack.other', 'pack.refund'])).toBe(false);
     }
   });
 
-  test("only a webhook's or a schedule's run has a list: on any other, one lifts nothing", () => {
+  test("only a webhook's, a schedule's or a mail trigger's run has a list: on any other, one lifts nothing", () => {
     for (const by of ['key', 'event', undefined] as const) {
       expect(needsPersonsYesUnattended(declared, by, ['pack.refund'])).toBe(true);
     }
@@ -118,7 +131,7 @@ describe('needsPersonsYesUnattended — the one rule the gate and the runtime sh
   });
 });
 
-describe("toolNeedsPersonsYesUnattended — a change made with a person's connection counts", () => {
+describe("toolNeedsPersonsYesUnattended — any use of a person's connection counts, reads included", () => {
   const asPerson = { mail: { app: 'google', permissions: ['gmail.send'], as: 'person' } } as const;
   const asCompany = {
     repo: { app: 'github', permissions: ['contents:write'], as: 'company' },
@@ -143,19 +156,20 @@ describe("toolNeedsPersonsYesUnattended — a change made with a person's connec
   test('so it waits in a run no person started, unless its trigger lists it', () => {
     for (const by of UNATTENDED) expect(needsPersonsYesUnattended(sends, by, undefined)).toBe(true);
     expect(needsPersonsYesUnattended(sends, 'person', undefined)).toBe(false);
-    for (const by of ['webhook', 'schedule'] as const) {
+    for (const by of LISTABLE) {
       expect(needsPersonsYesUnattended(sends, by, ['pack.send'])).toBe(false);
     }
   });
 
-  test("not a read-only tool, a company's connection, or no connection", () => {
-    expect(
-      toolNeedsPersonsYesUnattended({
-        id: 'pack.read',
-        mutating: false,
-        needsSpec: { connections: asPerson },
-      }),
-    ).toBe(false);
+  test("a read with a person's connection too: neither `mutating: false` nor the flag's `false` lifts it", () => {
+    const reads = { id: 'pack.read', mutating: false, needsSpec: { connections: asPerson } };
+    expect(toolNeedsPersonsYesUnattended(reads)).toBe(true);
+    expect(toolNeedsPersonsYesUnattended({ ...reads, needsApprovalWhenUnattended: false })).toBe(
+      true,
+    );
+  });
+
+  test("not a company's connection, or no connection", () => {
     expect(
       toolNeedsPersonsYesUnattended({ id: 'pack.push', needsSpec: { connections: asCompany } }),
     ).toBe(false);
@@ -169,6 +183,244 @@ describe("toolNeedsPersonsYesUnattended — a change made with a person's connec
         needsApprovalWhenUnattended: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe('the unattended rule, case by case', () => {
+  const person = (app: string) => ({ app, permissions: ['mail.read'], as: 'person' }) as const;
+  const company = (app: string) => ({ app, permissions: ['mail.read'], as: 'company' }) as const;
+  /** A read-only tool with one connection. */
+  const reads = (need: { readonly app: string; readonly as: 'person' | 'company' }) => ({
+    id: 'pack.read',
+    mutating: false,
+    needsSpec: { connections: { mail: need } },
+  });
+  const personsRead = reads(person('microsoft'));
+  const companyGmailRead = reads(company('google'));
+  const companyGithubRead = reads(company('github'));
+  const companySend = {
+    id: 'pack.send',
+    needsSpec: { connections: { mail: company('microsoft') } },
+  };
+  const refund = { id: 'pack.refund' };
+  const personMailbox: RunMailbox = { app: 'microsoft', as: 'person' };
+  const companyGoogle: RunMailbox = { app: 'google', as: 'company' };
+  const companyMicrosoft: RunMailbox = { app: 'microsoft', as: 'company' };
+
+  type Case = readonly [
+    string,
+    Parameters<typeof needsPersonsYesUnattended>[0],
+    RunStartedBy | undefined,
+    readonly string[] | undefined,
+    RunMailbox | undefined,
+    UnattendedWaitReason | undefined,
+  ];
+  const cases: readonly Case[] = [
+    [
+      "a webhook's run: a person's read waits",
+      personsRead,
+      'webhook',
+      undefined,
+      undefined,
+      'persons-connection',
+    ],
+    [
+      "a schedule's run: a person's read waits",
+      personsRead,
+      'schedule',
+      undefined,
+      undefined,
+      'persons-connection',
+    ],
+    [
+      "a mail's run, a person's mailbox: its read waits",
+      personsRead,
+      'mail',
+      undefined,
+      personMailbox,
+      'persons-connection',
+    ],
+    [
+      "a webhook's run, the read listed: it runs",
+      personsRead,
+      'webhook',
+      ['pack.read'],
+      undefined,
+      undefined,
+    ],
+    [
+      "a schedule's run, the read listed: it runs",
+      personsRead,
+      'schedule',
+      ['pack.read'],
+      undefined,
+      undefined,
+    ],
+    [
+      "a mail's run, a person's mailbox, the read listed: it runs",
+      personsRead,
+      'mail',
+      ['pack.read'],
+      personMailbox,
+      undefined,
+    ],
+    [
+      "a person's run: a person's read runs",
+      personsRead,
+      'person',
+      undefined,
+      undefined,
+      undefined,
+    ],
+    [
+      "a webhook's run: a company's read runs",
+      companyGithubRead,
+      'webhook',
+      undefined,
+      undefined,
+      undefined,
+    ],
+    [
+      "no `startedBy`: a person's read waits, and a list lifts nothing",
+      personsRead,
+      undefined,
+      ['pack.read'],
+      undefined,
+      'persons-connection',
+    ],
+    [
+      "a key's run: a list lifts nothing",
+      personsRead,
+      'key',
+      ['pack.read'],
+      undefined,
+      'persons-connection',
+    ],
+    [
+      "a mail's run, a company Google mailbox: a company Google read waits",
+      companyGmailRead,
+      'mail',
+      undefined,
+      companyGoogle,
+      'mail-own-mailbox',
+    ],
+    [
+      "a mail's run, a company Google mailbox: another app's company read runs",
+      companyGithubRead,
+      'mail',
+      undefined,
+      companyGoogle,
+      undefined,
+    ],
+    [
+      "a mail's run, a company Microsoft mailbox: a company Google read runs",
+      companyGmailRead,
+      'mail',
+      undefined,
+      companyMicrosoft,
+      undefined,
+    ],
+    [
+      "a mail's run, a company Google mailbox, its read listed: it runs",
+      companyGmailRead,
+      'mail',
+      ['pack.read'],
+      companyGoogle,
+      undefined,
+    ],
+    [
+      "a mail's run, a company mailbox: an unlisted reply waits",
+      companySend,
+      'mail',
+      undefined,
+      companyMicrosoft,
+      'mail-change',
+    ],
+    [
+      "a mail's run, a company mailbox: a listed reply runs",
+      companySend,
+      'mail',
+      ['pack.send'],
+      companyMicrosoft,
+      undefined,
+    ],
+    [
+      "a mail's run: an unlisted change with no connection waits",
+      refund,
+      'mail',
+      undefined,
+      companyGoogle,
+      'mail-change',
+    ],
+    [
+      "a mail's run: a listed change with no connection runs",
+      refund,
+      'mail',
+      ['pack.refund'],
+      companyGoogle,
+      undefined,
+    ],
+    [
+      "a mail's run that records no mailbox: any connection's read waits",
+      companyGithubRead,
+      'mail',
+      undefined,
+      undefined,
+      'mail-own-mailbox',
+    ],
+    [
+      "a mail's run, its list naming another tool: the read still waits",
+      companyGmailRead,
+      'mail',
+      ['pack.other'],
+      companyGoogle,
+      'mail-own-mailbox',
+    ],
+    [
+      "a webhook's run: a change with no connection runs, as before",
+      refund,
+      'webhook',
+      undefined,
+      undefined,
+      undefined,
+    ],
+    [
+      "a webhook's run: a company change runs, as before",
+      companySend,
+      'webhook',
+      undefined,
+      undefined,
+      undefined,
+    ],
+    [
+      "a person's run that names a mailbox: nothing waits",
+      companySend,
+      'person',
+      undefined,
+      companyMicrosoft,
+      undefined,
+    ],
+    [
+      "a mail's run: a tool that declares it waits for that first",
+      { ...personsRead, id: 'pack.declared', needsApprovalWhenUnattended: true, mutating: true },
+      'mail',
+      undefined,
+      personMailbox,
+      'declared',
+    ],
+    [
+      "a mail's run: a change with a person's connection waits for the connection first",
+      { ...personsRead, mutating: true },
+      'mail',
+      undefined,
+      personMailbox,
+      'persons-connection',
+    ],
+  ];
+
+  test.each(cases)('%s', (_, tool, startedBy, listed, mailbox, reason) => {
+    expect(unattendedWaitReason(tool, startedBy, listed, mailbox)).toBe(reason);
+    expect(needsPersonsYesUnattended(tool, startedBy, listed, mailbox)).toBe(reason !== undefined);
   });
 });
 
@@ -272,11 +524,15 @@ describe("resolveEffectiveToolHitl — a tool that needs a person's yes when una
   });
 });
 
-/** One `pack.refund` call in a turn that started as `startedBy` says. Approvals are granted. */
+/**
+ * One `pack.refund` call in a turn that started as `startedBy` says, from
+ * `mailbox` when one is given. Approvals are granted.
+ */
 async function dispatchStartedBy(
   startedBy: RunStartedBy | undefined,
-  declared: { needsApprovalWhenUnattended?: boolean },
+  declared: Declared,
   toolsAllowedUnattended?: readonly string[],
+  mailbox?: RunMailbox,
 ) {
   const ran: unknown[] = [];
   const tool = refundTool(ran, declared);
@@ -291,6 +547,7 @@ async function dispatchStartedBy(
       agent: a,
       ...(startedBy !== undefined && { startedBy }),
       ...(toolsAllowedUnattended !== undefined && { toolsAllowedUnattended }),
+      ...(mailbox !== undefined && { mailbox }),
     },
     bindings: {
       conversationBinding: {
@@ -302,6 +559,29 @@ async function dispatchStartedBy(
       hitl: {
         enqueue: async (input: Record<string, unknown>) => {
           enqueued.push(input);
+        },
+      },
+      // Every connection the tool needs is there, so only the approval rule decides.
+      connections: {
+        envName: 'production',
+        resolver: {
+          resolveConnections: async (asked: {
+            readonly needs: Record<string, ConnectionNeed>;
+          }) => ({
+            kind: 'ready',
+            connections: Object.fromEntries(
+              Object.entries(asked.needs).map(([name, need]) => [
+                name,
+                {
+                  connectionId: `conn-${name}`,
+                  app: need.app,
+                  appName: 'Acme',
+                  accessToken: `token-${name}`,
+                  account: { id: `acct-${name}`, label: 'support@acme.example' },
+                },
+              ]),
+            ),
+          }),
         },
       },
     },
@@ -364,6 +644,30 @@ describe('dispatch-tools — a turn no person started', () => {
     expect(ran).toEqual([{ order: '7' }]);
   });
 
+  test("in a mail's turn, a change waits unless the trigger lists it, though it declares nothing", async () => {
+    const unlisted = await dispatchStartedBy('mail', {});
+    expect(unlisted.enqueued).toHaveLength(1);
+    expect(unlisted.waits).toHaveLength(1);
+    const listed = await dispatchStartedBy('mail', {}, ['pack.refund']);
+    expect([listed.enqueued, listed.waits, listed.ran]).toEqual([[], [], [{ order: '7' }]]);
+  });
+
+  test("in a mail's turn, a read of another app's company connection runs at once; one of the mailbox's own waits", async () => {
+    const mailbox: RunMailbox = { app: 'google', as: 'company' };
+    const read = (app: string): Declared => ({
+      mutating: false,
+      needsSpec: { connections: { mail: { app, permissions: ['mail.read'], as: 'company' } } },
+    });
+    const other = await dispatchStartedBy('mail', read('github'), undefined, mailbox);
+    expect([other.enqueued, other.waits, other.ran]).toEqual([[], [], [{ order: '7' }]]);
+    const own = await dispatchStartedBy('mail', read('google'), undefined, mailbox);
+    expect(own.enqueued).toHaveLength(1);
+    expect(own.enqueued[0]).toMatchObject({ subjectKind: 'tool-call:pending' });
+    expect(own.waits).toHaveLength(1);
+    // Approved, so it runs.
+    expect(own.ran).toEqual([{ order: '7' }]);
+  });
+
   test("a declared tool the turn's trigger lists runs at once; one it doesn't list still waits", async () => {
     const listed = await dispatchStartedBy('schedule', DECLARED, ['pack.refund']);
     expect([listed.enqueued, listed.waits, listed.ran]).toEqual([[], [], [{ order: '7' }]]);
@@ -397,6 +701,18 @@ describe('a resumed turn', () => {
     for (const none of [{}, { toolsAllowedUnattended: null }]) {
       expect(turnInputFromSnapshot(snapshot(none), { agent: agent() })).not.toHaveProperty(
         'toolsAllowedUnattended',
+      );
+    }
+  });
+
+  test("gets its mail's mailbox from the snapshot, never from whoever resumes it", () => {
+    const mailbox = { app: 'google', as: 'company' } as const;
+    expect(
+      turnInputFromSnapshot(snapshot({ startedBy: 'mail', mailbox }), { agent: agent() }).mailbox,
+    ).toEqual(mailbox);
+    for (const none of [{}, { mailbox: null }]) {
+      expect(turnInputFromSnapshot(snapshot(none), { agent: agent() })).not.toHaveProperty(
+        'mailbox',
       );
     }
   });
