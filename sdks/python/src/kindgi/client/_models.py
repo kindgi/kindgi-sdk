@@ -1797,32 +1797,6 @@ class CompleteApprovalBody(BaseModel):
     """
 
 
-class Resume(BaseModel):
-    """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["ok"]
-
-
-class Resume1(BaseModel):
-    """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["failed"]
-    code: str
-    message: str
-
-
 class Reviewer(BaseModel):
     """
     Reviewer roster row. Deactivation is soft (audit trail survives offboarding). `deactivatedAt` present → reviewer no longer receives approvals.
@@ -5526,59 +5500,6 @@ class ProviderCheckResult(BaseModel):
     """
 
 
-class Config(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["stdio"]
-    command: Annotated[str, Field(min_length=1)]
-    args: list[str] | None = None
-    env: dict[str, str] | None = None
-
-
-class Config1(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["http-sse"]
-    url: AnyUrl
-    sse_url: Annotated[AnyUrl | None, Field(alias="sseUrl")] = None
-    """
-    Optional distinct SSE endpoint if the server splits them.
-    """
-    headers: dict[str, str] | None = None
-    """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
-    """
-
-
-class Config2(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["streamable-http"]
-    url: AnyUrl
-    headers: dict[str, str] | None = None
-    """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
-    """
-
-
 class MCPEndpointSecretRef(BaseModel):
     """
     The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.
@@ -5664,59 +5585,6 @@ class MCPAuthHeader(BaseModel):
     """
 
 
-class Config3(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["stdio"]
-    command: Annotated[str, Field(min_length=1)]
-    args: list[str] | None = None
-    env: dict[str, str] | None = None
-
-
-class Config4(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["http-sse"]
-    url: AnyUrl
-    sse_url: Annotated[AnyUrl | None, Field(alias="sseUrl")] = None
-    """
-    Optional distinct SSE endpoint if the server splits them.
-    """
-    headers: dict[str, str] | None = None
-    """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
-    """
-
-
-class Config5(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["streamable-http"]
-    url: AnyUrl
-    headers: dict[str, str] | None = None
-    """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
-    """
-
-
 class RegisterMCPEndpointResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -5793,28 +5661,6 @@ class MCPPromptCollection(BaseModel):
         populate_by_name=True,
     )
     data: list[MCPPrompt]
-
-
-class Content2(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    type: Literal["text"]
-    text: str
-
-
-class Content3(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    type: Literal["image"]
-    data: str
-    """
-    Base64-encoded image bytes.
-    """
-    mime_type: Annotated[str, Field(alias="mimeType")]
 
 
 class GetMCPPromptBody(BaseModel):
@@ -6865,46 +6711,6 @@ class Suite1(BaseModel):
     version: str
 
 
-class Version(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_id: Annotated[str | None, Field(alias="agentId")] = None
-    flow_id: Annotated[str | None, Field(alias="flowId")] = None
-    version: str
-    cases: Annotated[int, Field(ge=0)]
-
-
-class Baseline(BaseModel):
-    """
-    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["recorded"]
-    versions: list[Version]
-
-
-class Baseline1(BaseModel):
-    """
-    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["version"]
-    agent_id: Annotated[str, Field(alias="agentId")]
-    version: str
-    via: Literal["explicit", "live"]
-    live_scope: Annotated[dict[str, Any] | None, Field(alias="liveScope")] = None
-
-
 class Model3(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6980,26 +6786,6 @@ class Fresh(BaseModel):
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
     items: Annotated[int, Field(ge=1)]
-
-
-class Baseline2(BaseModel):
-    """
-    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    yes_weight: Annotated[float, Field(alias="yesWeight")]
-    total_weight: Annotated[float, Field(alias="totalWeight")]
-    items: Annotated[int, Field(ge=0)]
-    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
-    top_k: Annotated[TopK, Field(alias="topK")]
-    fresh: Fresh | None = None
-    """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
-    """
 
 
 class CandidateItem(BaseModel):
@@ -10228,32 +10014,6 @@ class ScheduleFirePage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class Config6(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
-    timezone: str | None = None
-    input: Any | None = None
-    """
-    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
-    """
-
-
-class Config7(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    cron_expression: Annotated[str | None, Field(alias="cronExpression")] = None
-    timezone: str | None = None
-    input: Any | None = None
-    """
-    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
-    """
-
-
 class ScheduleUnregisterResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -10363,14 +10123,6 @@ class WebhookReceipt(BaseModel):
     """
     A WooCommerce save-time ping: answered, nothing started.
     """
-
-
-class Config8(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    input: Any | None = None
 
 
 class TakeTriggerOwnerBody(BaseModel):
@@ -10497,120 +10249,6 @@ class MailTriggerRecord(BaseModel):
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-
-
-class Config10(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    mailbox: MailTriggerMailbox
-    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
-    """
-    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
-    """
-    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
-    """
-    How often it looks for new mail, in seconds (default 60).
-    """
-    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
-    """
-    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
-    """
-
-
-class RegisterMailTriggerBody(BaseModel):
-    """
-    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the mail, so it takes none. A trigger on a person's mailbox reads the caller's own mail and is theirs: it needs `write` on the project. One on the company's mailbox needs `admin` on the project. Both need `execute` on what it runs.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    Run a flow (with `flowVersion`).
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The trigger's project. Absent → the tenant's default project.
-    """
-    run_as_service_account_id: Annotated[
-        str | None, Field(alias="runAsServiceAccountId", min_length=1)
-    ] = None
-    """
-    On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
-    """
-    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
-    """
-    On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
-    """
-    config: Config10
-    label: str | None = None
-    tools_allowed_unattended: Annotated[
-        list[ToolsAllowedUnattendedItem] | None,
-        Field(alias="toolsAllowedUnattended", max_length=100),
-    ] = None
-    """
-    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
-    """
-
-
-class Config11(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    mailbox: MailTriggerMailbox | None = None
-    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
-    """
-    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
-    """
-    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
-    """
-    How often it looks for new mail, in seconds (default 60).
-    """
-    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
-    """
-    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
-    """
-
-
-class PatchMailTriggerBody(BaseModel):
-    """
-    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its mailbox (replaced whole), folder, pace or label. A personal trigger's change is its owner's or a project admin's; a shared one's, a project admin's; and the company's mailbox, before or after, takes a project admin. The owner stays.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    Run a flow (with `flowVersion`).
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    config: Config11 | None = None
-    label: str | None = None
-    tools_allowed_unattended: Annotated[
-        list[ToolsAllowedUnattendedItem] | None,
-        Field(alias="toolsAllowedUnattended", max_length=100),
-    ] = None
-    """
-    Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
-    """
 
 
 class MailFire(BaseModel):
@@ -11770,6 +11408,32 @@ class AuditAuthzListResponse(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
+class CompleteApprovalResultResumeOk(BaseModel):
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["ok"]
+
+
+class CompleteApprovalResultResumeFailed(BaseModel):
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["failed"]
+    code: str
+    message: str
+
+
 class JudgeClassScopeTenant(BaseModel):
     """
     Where a judge class applies: the whole tenant, one project, or one agent in a project.
@@ -11894,6 +11558,59 @@ class CodeArtifactRefFilesystem(BaseModel):
     module_path: Annotated[str, Field(alias="modulePath", min_length=1)]
 
 
+class MCPEndpointConfigStdio(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["stdio"]
+    command: Annotated[str, Field(min_length=1)]
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+
+
+class MCPEndpointConfigHttpSse(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["http-sse"]
+    url: AnyUrl
+    sse_url: Annotated[AnyUrl | None, Field(alias="sseUrl")] = None
+    """
+    Optional distinct SSE endpoint if the server splits them.
+    """
+    headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
+
+
+class MCPEndpointConfigStreamableHttp(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["streamable-http"]
+    url: AnyUrl
+    headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
+
+
 class RecordedSecretScopeTenant(BaseModel):
     """
     Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
@@ -11930,6 +11647,81 @@ class RecordedSecretScopeProject(BaseModel):
     )
     kind: Literal["project"]
     project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class RegisterMCPEndpointBodyConfigStdio(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["stdio"]
+    command: Annotated[str, Field(min_length=1)]
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+
+
+class RegisterMCPEndpointBodyConfigHttpSse(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["http-sse"]
+    url: AnyUrl
+    sse_url: Annotated[AnyUrl | None, Field(alias="sseUrl")] = None
+    """
+    Optional distinct SSE endpoint if the server splits them.
+    """
+    headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
+
+
+class RegisterMCPEndpointBodyConfigStreamableHttp(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["streamable-http"]
+    url: AnyUrl
+    headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
+
+
+class MCPPromptMessageContentText(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: Literal["text"]
+    text: str
+
+
+class MCPPromptMessageContentImage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: Literal["image"]
+    data: str
+    """
+    Base64-encoded image bytes.
+    """
+    mime_type: Annotated[str, Field(alias="mimeType")]
 
 
 class Overrides(BaseModel):
@@ -11980,6 +11772,46 @@ class ComparisonCandidateFlow(BaseModel):
     flow_id: Annotated[str, Field(alias="flowId")]
     version: str
     versions: FlowVersionOverrides | None = None
+
+
+class Version(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    version: str
+    cases: Annotated[int, Field(ge=0)]
+
+
+class JudgedComparisonSummaryBaselineRecorded(BaseModel):
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["recorded"]
+    versions: list[Version]
+
+
+class JudgedComparisonSummaryBaselineVersion(BaseModel):
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["version"]
+    agent_id: Annotated[str, Field(alias="agentId")]
+    version: str
+    via: Literal["explicit", "live"]
+    live_scope: Annotated[dict[str, Any] | None, Field(alias="liveScope")] = None
 
 
 class CallDifferenceCount(BaseModel):
@@ -12358,6 +12190,26 @@ class JudgedComparisonSummaryCorrectionsJudgment(BaseModel):
     pass_: Annotated[bool, Field(alias="pass")]
 
 
+class ComparisonCaseResultBaseline(BaseModel):
+    """
+    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+    items: Annotated[int, Field(ge=0)]
+    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    top_k: Annotated[TopK, Field(alias="topK")]
+    fresh: Fresh | None = None
+    """
+    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    """
+
+
 class ComparisonCaseResultTool(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12501,6 +12353,88 @@ class PromotionMovesGuardrail(BaseModel):
     version: str | None = None
     """
     Absent for guardrails, which have no version.
+    """
+
+
+class RegisterScheduleBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
+    timezone: str | None = None
+    input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
+    """
+
+
+class PatchScheduleBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    cron_expression: Annotated[str | None, Field(alias="cronExpression")] = None
+    timezone: str | None = None
+    input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
+    """
+
+
+class RegisterWebhookTriggerBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    input: Any | None = None
+
+
+class PatchWebhookTriggerBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    input: Any | None = None
+
+
+class RegisterMailTriggerBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mailbox: MailTriggerMailbox
+    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
+    """
+    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    """
+    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
+    """
+    How often it looks for new mail, in seconds (default 60).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
+    """
+
+
+class PatchMailTriggerBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mailbox: MailTriggerMailbox | None = None
+    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
+    """
+    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    """
+    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
+    """
+    How often it looks for new mail, in seconds (default 60).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
     """
 
 
@@ -13674,7 +13608,9 @@ class CompleteApprovalResult(BaseModel):
     ] = None
     resume: (
         Annotated[
-            Resume | Resume1 | CompleteApprovalResultResumeUnrecognized,
+            CompleteApprovalResultResumeOk
+            | CompleteApprovalResultResumeFailed
+            | CompleteApprovalResultResumeUnrecognized,
             _open.OpenUnion("kind", CompleteApprovalResultResumeUnrecognized),
         ]
         | None
@@ -14623,7 +14559,9 @@ class MCPPromptMessage(BaseModel):
     )
     role: Annotated[Literal["user", "assistant"] | str, _open.OPEN]
     content: Annotated[
-        Content2 | Content3 | MCPPromptMessageContentUnrecognized,
+        MCPPromptMessageContentText
+        | MCPPromptMessageContentImage
+        | MCPPromptMessageContentUnrecognized,
         _open.OpenUnion("type", MCPPromptMessageContentUnrecognized),
     ]
 
@@ -14777,7 +14715,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
     """
-    baseline: Baseline | Baseline1
+    baseline: JudgedComparisonSummaryBaselineRecorded | JudgedComparisonSummaryBaselineVersion
     """
     What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
     """
@@ -14867,7 +14805,7 @@ class ComparisonCaseResult(BaseModel):
     """
     The candidate's replay runs, one per repetition.
     """
-    baseline: Baseline2
+    baseline: ComparisonCaseResultBaseline
     """
     An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
     """
@@ -15802,7 +15740,7 @@ class RegisterWebhookTriggerBody(BaseModel):
     """
     The trigger's project; absent: the tenant's Default project.
     """
-    config: Config8 | None = None
+    config: RegisterWebhookTriggerBodyConfig | None = None
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
     """
     The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).
@@ -15860,7 +15798,7 @@ class PatchWebhookTriggerBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    config: Config8 | None = None
+    config: PatchWebhookTriggerBodyConfig | None = None
     label: str | None = None
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     hmac_secret_name: Annotated[str | None, Field(alias="hmacSecretName", min_length=1)] = None
@@ -15900,6 +15838,80 @@ class PatchWebhookTriggerBody(BaseModel):
     ] = None
     """
     Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class RegisterMailTriggerBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the mail, so it takes none. A trigger on a person's mailbox reads the caller's own mail and is theirs: it needs `write` on the project. One on the company's mailbox needs `admin` on the project. Both need `execute` on what it runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The trigger's project. Absent → the tenant's default project.
+    """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
+    """
+    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
+    """
+    On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
+    """
+    config: RegisterMailTriggerBodyConfig
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class PatchMailTriggerBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its mailbox (replaced whole), folder, pace or label. A personal trigger's change is its owner's or a project admin's; a shared one's, a project admin's; and the company's mailbox, before or after, takes a project admin. The owner stays.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    config: PatchMailTriggerBodyConfig | None = None
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -16680,7 +16692,11 @@ class RegisterMCPEndpointBody(BaseModel):
     """
     MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
     """
-    config: Config3 | Config4 | Config5
+    config: (
+        RegisterMCPEndpointBodyConfigStdio
+        | RegisterMCPEndpointBodyConfigHttpSse
+        | RegisterMCPEndpointBodyConfigStreamableHttp
+    )
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
     """
@@ -16911,7 +16927,7 @@ class RegisterScheduleBody(BaseModel):
     """
     `true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
     """
-    config: Config6
+    config: RegisterScheduleBodyConfig
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
     """
     Default `latest`.
@@ -16959,7 +16975,7 @@ class PatchScheduleBody(BaseModel):
     """
     Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
     """
-    config: Config7 | None = None
+    config: PatchScheduleBodyConfig | None = None
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
     """
     Default `latest`.
@@ -17106,7 +17122,10 @@ class MCPEndpoint(BaseModel):
     MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
     """
     config: Annotated[
-        Config | Config1 | Config2 | MCPEndpointConfigUnrecognized,
+        MCPEndpointConfigStdio
+        | MCPEndpointConfigHttpSse
+        | MCPEndpointConfigStreamableHttp
+        | MCPEndpointConfigUnrecognized,
         _open.OpenUnion("transport", MCPEndpointConfigUnrecognized),
     ]
     """

@@ -37,6 +37,44 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   schema derived from a model still has only its patterns checked: the
   runtime checks a config against it non-strict. Matches the TypeScript
   `@kindgi/tools` definition check.
+
+- `kindgi`: **A union's members are named by the value that tells them
+  apart.** The members of five inline unions in `kindgi.client.models` had
+  numbered names, and six other models' numbered names would have shifted
+  into the freed ones. These names change, and no old name is kept:
+  - **A union's members, by their discriminator:**
+    - `Config`, `Config1`, `Config2` (an MCP endpoint's config: stdio,
+      http-sse, streamable-http): `MCPEndpointConfigStdio`,
+      `MCPEndpointConfigHttpSse`, `MCPEndpointConfigStreamableHttp`.
+    - `Config3` to `5` (the same, in a registration's body):
+      `RegisterMCPEndpointBodyConfigStdio`,
+      `RegisterMCPEndpointBodyConfigHttpSse`,
+      `RegisterMCPEndpointBodyConfigStreamableHttp`.
+    - `Content2`, `Content3` (an MCP prompt message's content: text, image):
+      `MCPPromptMessageContentText`, `MCPPromptMessageContentImage`.
+    - `Resume`, `Resume1` (how completing an approval resumed its run: ok,
+      failed): `CompleteApprovalResultResumeOk`,
+      `CompleteApprovalResultResumeFailed`.
+    - `Baseline`, `Baseline1` (what a judged comparison compared with:
+      recorded runs, a version): `JudgedComparisonSummaryBaselineRecorded`,
+      `JudgedComparisonSummaryBaselineVersion`.
+  - **Named after their field, so no freed name passes to them:**
+    - `Config6`, `Config7` (a schedule's config, registering and patching):
+      `RegisterScheduleBodyConfig`, `PatchScheduleBodyConfig`.
+    - `Config10`, `Config11` (a mail trigger's config, registering and
+      patching): `RegisterMailTriggerBodyConfig`, `PatchMailTriggerBodyConfig`.
+    - `Config8` (a webhook trigger's config, in both bodies): now one class
+      per body, `RegisterWebhookTriggerBodyConfig` and
+      `PatchWebhookTriggerBodyConfig`. A mapping works for either; an
+      instance of one isn't taken by the other.
+    - `Baseline2` (a compared case's baseline score):
+      `ComparisonCaseResultBaseline`.
+
+  Code that imports an old name fails at the import, and an `isinstance` or
+  `match` on one needs the new name. The client's generation now keeps a
+  dropped name dropped, so no later model takes `Config` or `Baseline` with
+  another meaning. (#938)
+
 - `kindgi`: **a tool or an agent whose model has a pydantic tagged union
   deploys.** With `Field(discriminator=...)`, pydantic writes OpenAPI's
   `discriminator` keyword beside the union's `oneOf`, and the runtime refused
