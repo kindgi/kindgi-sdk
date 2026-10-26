@@ -293,7 +293,7 @@ const gmailMessageGetSpec = (
       'gmail.messages.get',
       `/messages/${input.messageId}?format=full`,
     )) as GmailMessage;
-    return gmailMessage(raw, MAIL_THREAD_BUDGET.messageChars);
+    return gmailMessage(raw, MAIL_THREAD_BUDGET.messageChars, 'tool');
   },
 });
 

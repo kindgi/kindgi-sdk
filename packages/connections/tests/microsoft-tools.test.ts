@@ -457,6 +457,22 @@ describe('outlook.messages.get', () => {
     expect(r.kind === 'ok' && r.value.bodyCut).toBe(true);
   });
 
+  it('keeps a long web address whole, without its tracking', async () => {
+    const share = `https://share.acme.example/s/${'k'.repeat(80)}/invoice.pdf?rlkey=z9`;
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        body: { contentType: 'text', content: `The invoice: ${share}&utm_source=mail` },
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'ok' && r.value.body).toBe(`The invoice: ${share}`);
+  });
+
   it("an id that isn't one never reaches the path", async () => {
     const sent = graphAnswering(() => Response.json(RAW_MESSAGE));
     for (const messageId of ['../mailFolders', 'a/b', 'a?b', '']) {

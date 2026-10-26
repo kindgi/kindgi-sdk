@@ -319,7 +319,7 @@ const messageGetSpec = (
       `${GRAPH}/me/messages/${encodeURIComponent(input.messageId)}?${q}`,
       `${AS_TEXT}, ${IMMUTABLE_IDS}`,
     )) as RawMessage;
-    return outlookMessage(raw, MAIL_THREAD_BUDGET.messageChars, 'body');
+    return outlookMessage(raw, MAIL_THREAD_BUDGET.messageChars, 'body', 'tool');
   },
 });
 

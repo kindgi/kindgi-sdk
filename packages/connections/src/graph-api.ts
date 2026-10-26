@@ -8,7 +8,7 @@
  */
 
 import { AppRefused, type AppSend } from './app-request.js';
-import { cutText, htmlToText, isAutoSubmitted, trimLinks } from './mail-text.js';
+import { type MailTextUse, cutText, htmlToText, isAutoSubmitted, trimLinks } from './mail-text.js';
 import type { MailAttachment, MailMessage, MailPerson } from './mail.js';
 import { microsoft } from './microsoft.js';
 
@@ -158,13 +158,15 @@ export function people(raw: readonly RawAddress[] | null | undefined): MailPerso
 
 /**
  * A message as a `MailMessage`, its body cut at `chars`: its `body`, or
- * its `uniqueBody` (what it added to its thread). A body Graph gives as
- * HTML, not taking the `Prefer`, is turned into text.
+ * its `uniqueBody` (what it added to its thread), its links as `use`
+ * gives them. A body Graph gives as HTML, not taking the `Prefer`, is
+ * turned into text.
  */
 export function outlookMessage(
   raw: RawMessage,
   chars: number,
   which: 'body' | 'uniqueBody',
+  use: MailTextUse,
 ): MailMessage {
   const from = person(raw.from);
   const content = raw[which];
@@ -172,7 +174,7 @@ export function outlookMessage(
     content?.contentType?.toLowerCase() === 'html'
       ? htmlToText(content.content ?? '')
       : (content?.content ?? '');
-  const body = cutText(trimLinks(text), chars);
+  const body = cutText(trimLinks(text, use), chars);
   return {
     id: raw.id,
     ...(typeof raw.conversationId === 'string' &&

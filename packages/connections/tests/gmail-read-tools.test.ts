@@ -315,6 +315,19 @@ describe('gmailMessageGet', () => {
     expect(calls.map((c) => c.url.href)).toEqual([`${GMAIL}/messages/m3?format=full`]);
   });
 
+  it('keeps a long web address whole, without its tracking', async () => {
+    const share = `https://share.acme.example/s/${'k'.repeat(80)}/invoice.pdf?rlkey=z9`;
+    gmailAnswering(() =>
+      Response.json(
+        fullMessage('m4', 't1', {
+          html: `<p>The <a href="${share}&amp;utm_source=mail">invoice</a>.</p>`,
+        }),
+      ),
+    );
+    const r = await invokeToolForTest(tool, { messageId: 'm4' }, { connections: { mail: mail() } });
+    expect(r.kind === 'ok' && r.value.body).toBe(`The invoice <${share}>.`);
+  });
+
   it('cuts the text at 50,000 characters, and says so', async () => {
     gmailAnswering(() => Response.json(fullMessage('long', 't', { text: 'x'.repeat(60_000) })));
     const r = await invokeToolForTest(

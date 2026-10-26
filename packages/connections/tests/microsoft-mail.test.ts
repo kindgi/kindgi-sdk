@@ -530,13 +530,13 @@ describe('microsoftMail.read', () => {
     ]);
   });
 
-  it("gives a mail's web addresses without their tracking", async () => {
+  it("gives a mail's web addresses without their tracking, one over 100 characters cut", async () => {
     const { call } = graph(() =>
       Response.json(
         message('m3', '2026-10-26T01:00:00Z', {
           body: {
             contentType: 'text',
-            content: 'Your parcel: https://acme.example/track/1042?utm_source=mail&carrier=dhl',
+            content: `Your parcel: https://acme.example/track/1042?utm_source=mail&carrier=dhl\nThe invoice: https://share.acme.example/s/${'k'.repeat(80)}?rlkey=z9`,
           },
         }),
       ),
@@ -546,7 +546,7 @@ describe('microsoftMail.read', () => {
       budget: { ...MAIL_THREAD_BUDGET, earlier: 0 },
     });
     expect(read.kind === 'ok' && read.mail.body).toBe(
-      'Your parcel: https://acme.example/track/1042?carrier=dhl',
+      `Your parcel: https://acme.example/track/1042?carrier=dhl\nThe invoice: https://share.acme.example/s/${'k'.repeat(37)}…?…`,
     );
   });
 

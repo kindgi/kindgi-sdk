@@ -12,6 +12,7 @@
 
 import { receivedAt } from './google-api.js';
 import {
+  type MailTextUse,
   cutText,
   decodeBytes,
   decodeEncodedWords,
@@ -53,16 +54,16 @@ export interface GmailMessage {
 }
 
 /**
- * A message read with `format=full`, its body cut at `chars`. Header
- * values are decoded from RFC 2047 encoded words, which leaves one Gmail
- * has decoded already as it is.
+ * A message read with `format=full`, its body cut at `chars`, its links
+ * as `use` gives them. Header values are decoded from RFC 2047 encoded
+ * words, which leaves one Gmail has decoded already as it is.
  */
-export function gmailMessage(raw: GmailMessage, chars: number): MailMessage {
+export function gmailMessage(raw: GmailMessage, chars: number, use: MailTextUse): MailMessage {
   const payload = raw.payload ?? {};
   const header = (name: string): string => gmailHeader(payload, name) ?? '';
   const from = parseAddressList(header('From'))[0];
   const { text, attachments } = gmailBody(payload);
-  const body = cutText(trimLinks(text), chars);
+  const body = cutText(trimLinks(text, use), chars);
   const replyRef = replyRefOf(payload);
   const sent = (Array.isArray(raw.labelIds) ? raw.labelIds : []).includes('SENT');
   return {

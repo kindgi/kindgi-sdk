@@ -116,7 +116,7 @@ export const googleMail: MailFunctions = mailCalls({
         const read = await readInThread(send, input.messageId, threadId, input.budget);
         if (read !== undefined) return read;
       }
-      return { kind: 'ok', mail: gmailMessage(raw, input.budget.messageChars), thread: [] };
+      return { kind: 'ok', mail: gmailMessage(raw, input.budget.messageChars, 'turn'), thread: [] };
     } catch (err) {
       if (err instanceof GmailNotFound) return { kind: 'not-found' };
       throw err;
@@ -282,8 +282,8 @@ async function readInThread(
     .slice(0, budget.earlier);
   return {
     kind: 'ok',
-    mail: gmailMessage(messages[at] as GmailMessage, budget.messageChars),
-    thread: earlier.map(({ m }) => gmailMessage(m, budget.earlierChars)),
+    mail: gmailMessage(messages[at] as GmailMessage, budget.messageChars, 'turn'),
+    thread: earlier.map(({ m }) => gmailMessage(m, budget.earlierChars, 'turn')),
   };
 }
 

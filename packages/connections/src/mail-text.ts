@@ -198,18 +198,24 @@ export function cutText(
  */
 const TRACKING_PARAM =
   /^(?:utm_[a-z_]+|_hsenc|_hsmi|mc_cid|mc_eid|fbclid|gclid|dclid|msclkid|mkt_tok|igshid|yclid|_ga|_gl|vero_id|oly_enc_id|oly_anon_id|sc_cid|trk)$/i;
-/** A link longer than this, without its tracking, is shortened: an opaque redirect, say. */
+
+/**
+ * Who a mail's text is for: a person's read tool (`tool`), which keeps
+ * each web address whole, or a mail turn (`turn`), where one still over
+ * 100 characters is cut. Both lose their tracking parameters.
+ */
+export type MailTextUse = 'tool' | 'turn';
+
+/** A mail turn's link longer than this, without its tracking, is cut: an opaque redirect, say. */
 const LINK_MAX = 100;
-/** How much of a shortened link's path is kept. */
+/** How much of a cut link's path is kept. */
 const PATH_KEPT = 40;
 
 /**
- * A web link as a run reads it: without its tracking parameters, and when
- * still over 100 characters, its scheme, host and the start of its path,
- * `…` for the rest and `?…` for a query. Undefined for anything but an
- * `http:` or `https:` URL.
+ * A web link without its tracking parameters. Undefined for anything but
+ * an `http:` or `https:` URL.
  */
-export function cleanUrl(href: string): string | undefined {
+function cleanUrl(href: string): URL | undefined {
   let url: URL;
   try {
     url = new URL(href);
@@ -219,25 +225,36 @@ export function cleanUrl(href: string): string | undefined {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
   const tracking = [...url.searchParams.keys()].filter((name) => TRACKING_PARAM.test(name));
   for (const name of tracking) url.searchParams.delete(name);
+  return url;
+}
+
+/**
+ * A clean link as `use` gives it: whole, or for a mail turn, when over
+ * 100 characters, its scheme, host and the start of its path, `…` for
+ * the rest and `?…` for a query.
+ */
+function linkText(url: URL, use: MailTextUse): string {
   const text = url.toString();
-  if (text.length <= LINK_MAX) return text;
+  if (use === 'tool' || text.length <= LINK_MAX) return text;
   const path =
     url.pathname.length > PATH_KEPT ? `${url.pathname.slice(0, PATH_KEPT)}…` : url.pathname;
   return `${url.protocol}//${url.host}${path}${url.search !== '' ? '?…' : ''}`;
 }
 
 /**
- * Each web address in plain text as {@link cleanUrl} gives it. A
- * sentence's closing punctuation after one stays outside it, and one
- * already shortened (`…`) stays as it is.
+ * Each web address in a mail's text without its tracking parameters, and
+ * for a mail turn, cut when still over 100 characters. A sentence's
+ * closing punctuation after one stays outside it, and one already cut
+ * (`…`) stays as it is.
  */
-export function trimLinks(text: string): string {
+export function trimLinks(text: string, use: MailTextUse): string {
   return text.replace(/\bhttps?:\/\/[^\s<>"]+/gi, (match) => {
     let end = match.length;
     while (end > 0 && TRAILING.has(match.charAt(end - 1))) end--;
-    const url = match.slice(0, end);
-    if (url.includes('…')) return match;
-    return (cleanUrl(url) ?? url) + match.slice(end);
+    const href = match.slice(0, end);
+    if (href.includes('…')) return match;
+    const url = cleanUrl(href);
+    return (url === undefined ? href : linkText(url, use)) + match.slice(end);
   });
 }
 
@@ -316,8 +333,9 @@ const ENTITIES: ReadonlyMap<string, string> = new Map(
  * HTML as plain text: what a reader sees, one line per paragraph, list
  * item or table row, with `head`, `script` and `style` content, comments
  * and tags left out, and character references decoded. A link to a web
- * page keeps its address after its text, `<…>`, as {@link cleanUrl}
- * gives it, unless the text shows it already; any other link keeps its
+ * page keeps its whole address after its text, `<…>`, without its
+ * tracking parameters, unless the text shows it already (a mail turn's
+ * {@link trimLinks} cuts a long one); any other link keeps its
  * text only. A line inside a `blockquote` starts with `> `, one for each
  * level up to 8, as a mail client quotes. Linear in the input's length.
  */
@@ -428,7 +446,7 @@ function linkTag(
 function hrefOf(inner: string): string | undefined {
   const m = /\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(inner);
   const href = m?.[1] ?? m?.[2] ?? m?.[3];
-  return href === undefined ? undefined : cleanUrl(decodeHtmlEntities(href).trim());
+  return href === undefined ? undefined : cleanUrl(decodeHtmlEntities(href).trim())?.toString();
 }
 
 /**

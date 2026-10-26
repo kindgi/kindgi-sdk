@@ -486,18 +486,31 @@ describe('googleMail.read', () => {
     expect(read.kind === 'ok' && Object.keys(read.thread[1] ?? {})).not.toContain('replyRef');
   });
 
-  it("gives a mail's web addresses without their tracking", async () => {
+  it("gives a mail's web addresses without their tracking, one over 100 characters cut", async () => {
+    const share = `https://share.acme.example/s/${'k'.repeat(80)}?rlkey=z9`;
     const { call } = gmail(() =>
-      Response.json(
-        fullMessage('m9', 't9', {
-          text: 'Your parcel: https://acme.example/track/1042?utm_source=mail&utm_medium=email&carrier=dhl',
-        }),
-      ),
+      Response.json({
+        id: 't9',
+        historyId: '9876543299',
+        messages: [
+          fullMessage('m8', 't9', { at: '2026-10-25T10:00:00Z', text: `The invoice: ${share}` }),
+          fullMessage('m9', 't9', {
+            at: '2026-10-25T11:00:00Z',
+            text: `Your parcel: https://acme.example/track/1042?utm_source=mail&utm_medium=email&carrier=dhl\nThe invoice: ${share}`,
+          }),
+        ],
+      }),
     );
-    const read = await googleMail.read(call, { messageId: 'm9', budget: MAIL_THREAD_BUDGET });
-    expect(read.kind === 'ok' && read.mail.body).toBe(
-      'Your parcel: https://acme.example/track/1042?carrier=dhl',
-    );
+    const read = await googleMail.read(call, {
+      messageId: 'm9',
+      threadId: 't9',
+      budget: MAIL_THREAD_BUDGET,
+    });
+    const cut = `https://share.acme.example/s/${'k'.repeat(37)}…?…`;
+    expect(read.kind === 'ok' && [read.mail.body, read.thread[0]?.body]).toEqual([
+      `Your parcel: https://acme.example/track/1042?carrier=dhl\nThe invoice: ${cut}`,
+      `The invoice: ${cut}`,
+    ]);
   });
 
   it("keeps the thread's order for messages that came in the same millisecond", async () => {
@@ -557,10 +570,15 @@ describe('googleMail.read', () => {
   });
 
   it('reads the message alone when the thread it came with is gone', async () => {
+    const share = `https://share.acme.example/s/${'k'.repeat(80)}`;
     const { call } = gmail((url) =>
       url.pathname.includes('/threads/')
         ? googleError(404, 'NOT_FOUND', 'Requested entity was not found.')
-        : Response.json(fullMessage('m3', 't1', { html: '<p>Only <b>HTML</b> here.</p>' })),
+        : Response.json(
+            fullMessage('m3', 't1', {
+              html: `<p>Only <b>HTML</b> here, and <a href="${share}">the invoice</a>.</p>`,
+            }),
+          ),
     );
     const read = await googleMail.read(call, {
       messageId: 'm3',
@@ -569,7 +587,11 @@ describe('googleMail.read', () => {
     });
     expect(read).toEqual({
       kind: 'ok',
-      mail: expect.objectContaining({ id: 'm3', body: 'Only HTML here.', bodyCut: false }),
+      mail: expect.objectContaining({
+        id: 'm3',
+        body: `Only HTML here, and the invoice <https://share.acme.example/s/${'k'.repeat(37)}…>.`,
+        bodyCut: false,
+      }),
       thread: [],
     });
   });

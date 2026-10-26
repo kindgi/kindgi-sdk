@@ -137,7 +137,7 @@ export const microsoftMail: MailFunctions = mailCalls({
       if (err instanceof GraphNotFound) return { kind: 'not-found' };
       throw err;
     }
-    const mail = outlookMessage(raw, input.budget.messageChars, 'body');
+    const mail = outlookMessage(raw, input.budget.messageChars, 'body', 'turn');
     // The message's own conversation: it's read anyway, and it's current.
     const conversation = mail.threadId ?? input.threadId;
     return {
@@ -289,7 +289,7 @@ async function earlier(
     )
     .slice(0, budget.earlier)
     .map((m) => {
-      const message = outlookMessage(m, budget.earlierChars, 'uniqueBody');
+      const message = outlookMessage(m, budget.earlierChars, 'uniqueBody', 'turn');
       const sent = folders.sentitems !== undefined && m.parentFolderId === folders.sentitems;
       return sent ? { ...message, sent: true } : message;
     });

@@ -113,31 +113,51 @@ describe('cutText', () => {
 
 describe('trimLinks', () => {
   it("cleans each web address in plain text, a sentence's punctuation left after it", () => {
-    expect(
-      trimLinks(
-        'Track it at https://acme.example/t/1042?utm_source=mail&id=9. Or see (https://acme.example/faq?fbclid=Zx1)!',
-      ),
-    ).toBe('Track it at https://acme.example/t/1042?id=9. Or see (https://acme.example/faq)!');
+    for (const use of ['tool', 'turn'] as const) {
+      expect(
+        trimLinks(
+          'Track it at https://acme.example/t/1042?utm_source=mail&id=9. Or see (https://acme.example/faq?fbclid=Zx1)!',
+          use,
+        ),
+      ).toBe('Track it at https://acme.example/t/1042?id=9. Or see (https://acme.example/faq)!');
+    }
+  });
+
+  it("cuts a mail turn's address over 100 characters to its host and the start of its path", () => {
     const redirect = `https://click.mail.acme.example/ls/click?upn=${'u001.Xk9'.repeat(20)}`;
-    expect(trimLinks(`Unsubscribe: ${redirect}`)).toBe(
+    expect(trimLinks(`Unsubscribe: ${redirect}`, 'turn')).toBe(
       'Unsubscribe: https://click.mail.acme.example/ls/click?…',
+    );
+    const hundred = `https://acme.example/r/${'a'.repeat(77)}`;
+    expect(hundred).toHaveLength(100);
+    expect(trimLinks(`${hundred}?utm_source=mail`, 'turn')).toBe(hundred);
+    expect(trimLinks(`${hundred}b`, 'turn')).toBe(`https://acme.example/r/${'a'.repeat(37)}…`);
+  });
+
+  it("keeps a read tool's long address whole, without its tracking", () => {
+    const long = `https://share.acme.example/s/${'k'.repeat(60)}/invoice.pdf?rlkey=${'z'.repeat(30)}`;
+    expect(long.length).toBeGreaterThan(100);
+    expect(trimLinks(`The invoice: ${long}&utm_source=mail.`, 'tool')).toBe(
+      `The invoice: ${long}.`,
     );
   });
 
-  it('leaves other text, and an address already shortened, as they are', () => {
-    expect(trimLinks('http is a protocol; mailto:support@acme.example')).toBe(
-      'http is a protocol; mailto:support@acme.example',
-    );
-    expect(trimLinks('See <https://click.mail.acme.example/ls/click?…>')).toBe(
-      'See <https://click.mail.acme.example/ls/click?…>',
-    );
+  it('leaves other text, and an address already cut, as they are', () => {
+    for (const use of ['tool', 'turn'] as const) {
+      expect(trimLinks('http is a protocol; mailto:support@acme.example', use)).toBe(
+        'http is a protocol; mailto:support@acme.example',
+      );
+      expect(trimLinks('See <https://click.mail.acme.example/ls/click?…>', use)).toBe(
+        'See <https://click.mail.acme.example/ls/click?…>',
+      );
+    }
   });
 
   it('stays linear on an address that is mostly punctuation', () => {
-    expect(trimLinks(`https://acme.example/${'.'.repeat(200_000)}x`)).toBe(
+    expect(trimLinks(`https://acme.example/${'.'.repeat(200_000)}x`, 'turn')).toBe(
       `https://acme.example/${'.'.repeat(39)}…`,
     );
-    expect(trimLinks(`https://acme.example/x${'.'.repeat(200_000)}`)).toBe(
+    expect(trimLinks(`https://acme.example/x${'.'.repeat(200_000)}`, 'turn')).toBe(
       `https://acme.example/x${'.'.repeat(200_000)}`,
     );
   });
@@ -194,13 +214,15 @@ describe('htmlToText', () => {
     expect(htmlToText('<a name="top">Top</a>')).toBe('Top');
   });
 
-  it('shortens a link still over 100 characters to its host and the start of its path', () => {
+  it("keeps a long link's address whole, for a mail turn's trimLinks to cut", () => {
     const redirect = `https://click.mail.acme.example/ls/click?upn=${'u001.Xk9'.repeat(20)}`;
-    expect(htmlToText(`<a href="${redirect}">Track the parcel</a>`)).toBe(
+    const text = htmlToText(`<a href="${redirect}&amp;utm_source=mail">Track the parcel</a>`);
+    expect(text).toBe(`Track the parcel <${redirect}>`);
+    expect(trimLinks(text, 'turn')).toBe(
       'Track the parcel <https://click.mail.acme.example/ls/click?…>',
     );
     const deep = `https://acme.example/${'account/'.repeat(10)}orders`;
-    expect(htmlToText(`<a href="${deep}?ref=7">Your account</a>`)).toBe(
+    expect(trimLinks(htmlToText(`<a href="${deep}?ref=7">Your account</a>`), 'turn')).toBe(
       `Your account <https://acme.example/${'account/'.repeat(5).slice(0, 39)}…?…>`,
     );
   });
