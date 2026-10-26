@@ -117,7 +117,9 @@ const list: LeafCommand = {
       async () => {
         const projectRef = stringFlag(ctx, 'project');
         const projectId =
-          projectRef !== undefined ? await resolveProjectRef(ctx, projectRef) : undefined;
+          projectRef !== undefined
+            ? await resolveProjectRef(ctx, projectRef, '--project')
+            : undefined;
         const packId = stringFlag(ctx, 'pack');
         const imageRefPrefix = stringFlag(ctx, 'image-ref-prefix');
         const signerKeyId = stringFlag(ctx, 'signer-key-id');

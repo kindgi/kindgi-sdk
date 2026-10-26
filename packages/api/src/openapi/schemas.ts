@@ -12062,6 +12062,12 @@ export const ProjectSchema: JsonSchema = {
       description:
         "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.",
     },
+    formerSlugs: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the tenant can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.",
+    },
     createdAt: { type: 'string' },
     updatedAt: { type: 'string' },
   },

@@ -63,7 +63,17 @@ export interface CreateProjectParams {
 }
 
 export type CreateProjectError =
-  | { readonly code: 'slug-conflict'; readonly message: string; readonly cause?: unknown }
+  | {
+      /**
+       * Another project in its org has `spec.slug`, or, with
+       * `heldAs: 'old-slug'`, another project of the tenant had it before it
+       * was renamed (`ProjectBinding.create`'s outcome, the same way).
+       */
+      readonly code: 'slug-conflict';
+      readonly message: string;
+      readonly heldAs?: 'old-slug';
+      readonly cause?: unknown;
+    }
   /** `spec.orgId` isn't the tenant's: it never existed, or it was deleted. */
   | { readonly code: 'org-not-found'; readonly message: string; readonly orgId: OrgId }
   | { readonly code: 'default-conflict'; readonly message: string; readonly cause?: unknown }

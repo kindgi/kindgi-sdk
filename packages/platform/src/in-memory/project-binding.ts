@@ -15,7 +15,9 @@
  * guardrail at write time: creating a second Default in the same
  * tenant resolves to `project-default-already-exists`. A project's
  * slug is unique within its org, and a project without an org's among
- * the tenant's projects without one (`slug-conflict`).
+ * the tenant's projects without one (`slug-conflict`). A slug a project
+ * had before a rename stays that project's, across the tenant, until the
+ * project is deleted (`slug-conflict` with `heldAs: 'old-slug'`).
  */
 
 import type { Filter, OrgId, Page, ProjectId, TeamId, TenantId, UserId } from '@kindgi/types';
@@ -95,6 +97,13 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
   readonly grants: TeamProjectGrantBinding;
 } {
   const projectRows = new Map<ProjectId, Project>();
+  // One entry per rename that changed a slug, oldest first, as the durable
+  // binding's rename record keeps them. A project's delete drops its own.
+  const slugRenames: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly fromSlug: string;
+  }[] = [];
   const membershipRows = new Map<string, ProjectMembership>();
   const grantRows = new Map<string, TeamProjectGrant>();
   // Track grant insertion order for deterministic `list` ordering.
@@ -106,8 +115,44 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     return p;
   }
 
-  // Cascade — a deleted project's direct memberships + team grants drop with it.
+  /** The slugs `row` had before it was renamed, newest first, without its current one. */
+  function formerSlugsOf(row: Project): string[] {
+    const former: string[] = [];
+    for (let i = slugRenames.length - 1; i >= 0; i -= 1) {
+      const rename = slugRenames[i];
+      if (rename === undefined || rename.projectId !== row.id) continue;
+      if (rename.fromSlug !== row.slug && !former.includes(rename.fromSlug)) {
+        former.push(rename.fromSlug);
+      }
+    }
+    return former;
+  }
+
+  /** A project as the binding answers it, with its `formerSlugs`. */
+  function withFormerSlugs(row: Project): Project {
+    return { ...row, formerSlugs: formerSlugsOf(row) };
+  }
+
+  /**
+   * Is `slug` one that another project of the tenant (not `exceptId`) had
+   * before it was renamed, and isn't its slug again?
+   */
+  function slugHeld(tenantId: TenantId, slug: string, exceptId?: ProjectId): boolean {
+    for (const rename of slugRenames) {
+      if (rename.tenantId !== tenantId || rename.fromSlug !== slug) continue;
+      if (rename.projectId === exceptId) continue;
+      const holder = projectRows.get(rename.projectId);
+      if (holder !== undefined && holder.slug !== slug) return true;
+    }
+    return false;
+  }
+
+  // Cascade — a deleted project's direct memberships + team grants drop with it,
+  // and so do its renames, which frees the slugs it had.
   function cascadeProjectDelete(projectId: ProjectId): void {
+    for (let i = slugRenames.length - 1; i >= 0; i -= 1) {
+      if (slugRenames[i]?.projectId === projectId) slugRenames.splice(i, 1);
+    }
     for (const key of membershipRows.keys()) {
       if (key.startsWith(`${projectId}::`)) membershipRows.delete(key);
     }
@@ -175,6 +220,11 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       if (spec.orgId !== undefined && (await options.orgExists?.(tenantId, spec.orgId)) === false) {
         return { kind: 'org-not-found', orgId: spec.orgId };
       }
+      // The hold first, as the durable binding checks it before its insert
+      // meets the slug's unique index.
+      if (slugHeld(tenantId, spec.slug)) {
+        return { kind: 'slug-conflict', slug: spec.slug, heldAs: 'old-slug' };
+      }
       if (slugTaken(tenantId, spec.orgId, spec.slug)) {
         return { kind: 'slug-conflict', slug: spec.slug };
       }
@@ -196,7 +246,8 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
     },
 
     async get(tenantId, projectId): Promise<Project | undefined> {
-      return findProjectInTenant(tenantId, projectId);
+      const row = findProjectInTenant(tenantId, projectId);
+      return row === undefined ? undefined : withFormerSlugs(row);
     },
 
     async list(tenantId, filter: ProjectListFilter): Promise<Page<Project>> {
@@ -207,7 +258,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         if (filter.nameContains !== undefined && !row.name.includes(filter.nameContains)) {
           continue;
         }
-        all.push(row);
+        all.push(withFormerSlugs(row));
       }
       all.sort((a, b) => {
         if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
@@ -218,17 +269,17 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
 
     async getDefault(tenantId): Promise<Project | undefined> {
       for (const row of projectRows.values()) {
-        if (row.tenantId === tenantId && row.isDefault) return row;
+        if (row.tenantId === tenantId && row.isDefault) return withFormerSlugs(row);
       }
       return undefined;
     },
 
     async update(tenantId, projectId, patch: ProjectPatch): Promise<ProjectUpdateOutcome> {
-      const row = findProjectInTenant(tenantId, projectId);
-      if (row === undefined) {
+      const found = findProjectInTenant(tenantId, projectId);
+      if (found === undefined) {
         return { kind: 'project-not-found' };
       }
-      let nextOrgId = row.orgId;
+      let nextOrgId = found.orgId;
       if (patch.orgId !== undefined) {
         nextOrgId = patch.orgId === null ? undefined : patch.orgId;
       }
@@ -236,7 +287,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
       // environment order; a rename, slug or description change is not. The
       // parent changes exactly when `nextOrgId` differs from the current org,
       // and the order guard takes precedence over `org-not-found`.
-      if (patch.orgId !== undefined && nextOrgId !== row.orgId) {
+      if (patch.orgId !== undefined && nextOrgId !== found.orgId) {
         const orderId = await options.environmentOrderOf?.(tenantId, projectId);
         if (orderId !== undefined) {
           return { kind: 'project-in-environment-order', orderId };
@@ -248,6 +299,17 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         (await options.orgExists?.(tenantId, patch.orgId)) === false
       ) {
         return { kind: 'org-not-found', orgId: patch.orgId };
+      }
+      // Read again after the awaits: the slug it's renamed from is the one
+      // it has now, as the durable binding reads it under the row's lock, so
+      // two renames at once both keep theirs.
+      const row = findProjectInTenant(tenantId, projectId);
+      if (row === undefined) {
+        return { kind: 'project-not-found' };
+      }
+      const renamed = patch.slug !== undefined && patch.slug !== row.slug;
+      if (renamed && slugHeld(tenantId, patch.slug, projectId)) {
+        return { kind: 'slug-conflict', slug: patch.slug, heldAs: 'old-slug' };
       }
       // The slug it ends up with, where it ends up: a move to another org
       // (or out of one) can meet a project with the same slug there.
@@ -272,6 +334,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         ...(row.productionSince !== undefined ? { productionSince: row.productionSince } : {}),
       };
       projectRows.set(projectId, next);
+      if (renamed) slugRenames.push({ tenantId, projectId, fromSlug: row.slug });
       return { kind: 'ok' };
     },
 

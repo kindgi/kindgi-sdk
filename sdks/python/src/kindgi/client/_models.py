@@ -9727,6 +9727,10 @@ class Project(BaseModel):
     """
     When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.
     """
+    former_slugs: Annotated[list[str] | None, Field(alias="formerSlugs")] = None
+    """
+    The slugs this project had before it was renamed, newest first, and empty when it never was. No other project of the tenant can take them, in any org, while this project exists. Absent from a runtime that doesn't keep them.
+    """
     created_at: Annotated[str, Field(alias="createdAt")]
     updated_at: Annotated[str, Field(alias="updatedAt")]
 

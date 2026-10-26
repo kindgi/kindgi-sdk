@@ -137,6 +137,14 @@ export interface Project {
    * `ProjectBinding.setProduction`.
    */
   readonly productionSince?: Timestamp;
+  /**
+   * The slugs the project had before it was renamed, newest first, and
+   * empty when it never was. They stay the project's: no other project of
+   * the tenant can take one, in any org, while the project exists. A
+   * binding that keeps them always fills this in; it's absent only from one
+   * that doesn't.
+   */
+  readonly formerSlugs?: readonly string[];
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }

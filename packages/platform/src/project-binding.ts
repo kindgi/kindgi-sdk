@@ -62,7 +62,10 @@ export interface ProjectBinding {
   /**
    * Create a `Project` within the tenant. `spec.orgId` optional.
    * Resolves to `ok` with the assigned `ProjectId`; to `slug-conflict`
-   * when another project in the tenant has `spec.slug`; and, when
+   * when another project in its org has `spec.slug` (for a project without
+   * an org: another project without one), or when another project of the
+   * tenant had `spec.slug` before it was renamed (`heldAs: 'old-slug'`);
+   * and, when
    * `spec.isDefault === true` and the tenant already has a Default, to
    * `project-default-already-exists` — the isDefault-uniqueness
    * guardrail is enforced at write time.
@@ -87,11 +90,18 @@ export interface ProjectBinding {
    * Partially update a `Project`. `ProjectPatch.orgId` supports
    * `null` to re-assign the project out of any org. Resolves to
    * `project-not-found` when no project has `projectId` in the tenant,
-   * to `slug-conflict` when `patch.slug` is another project's slug, and to
+   * to `slug-conflict` when `patch.slug` is another project's slug where the
+   * project ends up, or a slug another project of the tenant had before it
+   * was renamed (`heldAs: 'old-slug'`), and to
    * `project-in-environment-order` when the patch would change `orgId` for a
    * project that is a member of an environment order (clear it first). A
    * patch that leaves `orgId` untouched — a rename, slug or description
    * change — is never refused on that ground.
+   *
+   * A patch that changes the slug keeps the old one as the project's: it
+   * joins `Project.formerSlugs`, and no other project can take it. The
+   * project can take it back, unless another project holds it too. A patch
+   * whose slug is the current one changes nothing there.
    */
   update(
     tenantId: TenantId,
@@ -101,10 +111,12 @@ export interface ProjectBinding {
   /**
    * Delete a `Project`. Resolves to `project-in-environment-order` when the
    * project is a member of an environment order — the delete does not happen;
-   * clear it from the order first. Deleting an id that names no project is
-   * `ok` (idempotent). What happens to content rows that still reference a
-   * deleted project is the storage layer's concern; the in-memory adapter
-   * removes the project's direct memberships and team grants with it.
+   * clear it from the order first. A deleted project's slugs, its current
+   * one and its `formerSlugs`, are free again. Deleting an id that names no
+   * project is `ok` (idempotent). What happens to content rows that still
+   * reference a deleted project is the storage layer's concern; the
+   * in-memory adapter removes the project's direct memberships and team
+   * grants with it.
    */
   delete(tenantId: TenantId, projectId: ProjectId): Promise<ProjectDeleteOutcome>;
   /**
@@ -180,9 +192,14 @@ export interface ProjectMembershipBinding {
 export type ProjectCreateOutcome =
   | { readonly kind: 'ok'; readonly projectId: ProjectId }
   | {
-      /** Another project in the tenant already has this slug. */
+      /**
+       * Another project in its org already has this slug, or, with
+       * `heldAs: 'old-slug'`, another project of the tenant had it before it
+       * was renamed.
+       */
       readonly kind: 'slug-conflict';
       readonly slug: string;
+      readonly heldAs?: 'old-slug';
     }
   | {
       /** `spec.isDefault` was `true` and the tenant already has a Default project. */
@@ -227,9 +244,14 @@ export type ProjectUpdateOutcome =
       readonly kind: 'project-not-found';
     }
   | {
-      /** Another project in the tenant already has the patched slug. */
+      /**
+       * Another project already has the slug where the project ends up, or,
+       * with `heldAs: 'old-slug'`, another project of the tenant had the
+       * patched slug before it was renamed.
+       */
       readonly kind: 'slug-conflict';
       readonly slug: string;
+      readonly heldAs?: 'old-slug';
     }
   | {
       /**

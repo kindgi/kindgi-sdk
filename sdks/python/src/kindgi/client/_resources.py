@@ -8819,7 +8819,7 @@ class ProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the tenant had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second Default, `409 project-default-already-exists`.
         """
         return self._client._request(
             _OPERATIONS["projects.create"],
@@ -8854,7 +8854,7 @@ class ProjectsResource:
     ) -> None:
         """Partially update a project. `PATCH /v1/projects/{projectId}`
 
-        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the tenant had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
         """
         return self._client._request(
             _OPERATIONS["projects.update"],
@@ -18174,7 +18174,7 @@ class AsyncProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the tenant had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second Default, `409 project-default-already-exists`.
         """
         return await self._client._request(
             _OPERATIONS["projects.create"],
@@ -18211,7 +18211,7 @@ class AsyncProjectsResource:
     ) -> None:
         """Partially update a project. `PATCH /v1/projects/{projectId}`
 
-        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.
+        A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the tenant had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.
         """
         return await self._client._request(
             _OPERATIONS["projects.update"],

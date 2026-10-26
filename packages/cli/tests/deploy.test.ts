@@ -166,7 +166,13 @@ interface FixtureOptions {
    * tests that expect the runner to be present rely on the default. */
   readonly omitSyncRunner?: boolean;
   /** The tenant's projects, for `--project <slug>`; absent: no lookup runner. */
-  readonly projects?: readonly { id: string; name: string; slug: string; orgId?: string }[];
+  readonly projects?: readonly {
+    id: string;
+    name: string;
+    slug: string;
+    orgId?: string;
+    formerSlugs?: readonly string[];
+  }[];
   /** The environment orders the token reads; with `projects`, the reads a refusal into a later environment makes. */
   readonly orders?: readonly EnvironmentOrderRow[];
   /** Which of those reads answers an error. */
@@ -220,9 +226,9 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       state.capturedFindSlug = o.slug;
       return {
         kind: 'ok',
-        projects: projects
-          .filter((p) => p.slug === o.slug)
-          .map(({ id, name, orgId }) => ({ id, name, ...(orgId !== undefined && { orgId }) })),
+        projects: projects.filter(
+          (p) => p.slug === o.slug || p.formerSlugs?.includes(o.slug) === true,
+        ),
       };
     };
   }
@@ -1704,6 +1710,36 @@ describe('kindgi deploy --project: one project per client', () => {
     expect(out.stderr).toContain('11111111-2222-4333-8444-555555555555');
     expect(out.stderr).toContain('66666666-7777-4888-8999-aaaaaaaaaaaa');
     expect(out.stderr).toContain('Pass the id.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test("a renamed project's old slug is refused, naming the new one and where to change it; nothing is sent", async () => {
+    await writeAutoEnvelope();
+    const renamed = [
+      { id: ACME, name: 'Acme shop', slug: 'acme-shop', formerSlugs: ['acme-store'] },
+      { id: GLOBEX, name: 'Globex shop', slug: 'globex-shop', formerSlugs: [] },
+    ];
+    const fixtures = makeFixtures({ projects: renamed });
+    const out = await deploy(fixtures, '--project=acme-store');
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain(
+      `--project acme-store: "acme-store" was the slug of project ${ACME} (Acme shop) until it was renamed to "acme-shop". Change --project to "acme-shop" or to the project's id.`,
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('a slug one project has and another had is refused, naming both; nothing is sent', async () => {
+    await writeAutoEnvelope();
+    const both = [
+      { id: ACME, name: 'Acme shop', slug: 'acme-shop', orgId: 'org-a' },
+      { id: GLOBEX, name: 'Globex shop', slug: 'globex-shop', formerSlugs: ['acme-shop'] },
+    ];
+    const fixtures = makeFixtures({ projects: both });
+    const out = await deploy(fixtures, '--project=acme-shop');
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain(
+      `--project acme-shop: "acme-shop" is the slug of project ${ACME} (Acme shop, org org-a) and was the slug of project ${GLOBEX} (Globex shop) until it was renamed to "globex-shop". Pass the project id instead.`,
+    );
     expect(fixtures.state.postCalls).toBe(0);
   });
 

@@ -462,6 +462,35 @@ describe('kindgi promote', () => {
     expect(named(calls, 'deployments.list')).toEqual([]);
   });
 
+  test("a renamed project's old slug is refused with its new one, before any deployment is read", async () => {
+    const renamed = [
+      { id: 'p-staging', name: 'Staging', slug: 'staging', formerSlugs: ['stage'] },
+      { id: 'p-prod', name: 'Prod', slug: 'prod', formerSlugs: [] },
+    ];
+    const outside = await run(['promote', '--from=stage', '--to=prod'], {
+      noPack: true,
+      projects: renamed,
+    });
+    expect(outside.out.exitCode).toBe(2);
+    expect(outside.out.stderr).toContain(
+      '"stage" was the slug of project p-staging (Staging) until it was renamed to "staging". Change --from to "staging" or to the project\'s id.',
+    );
+    expect(named(outside.calls, 'deployments.list')).toEqual([]);
+
+    const inPack = await run(['promote', '--from=staging', '--to=prod'], {
+      projects: renamed,
+      config: {
+        ...CONFIG,
+        environments: { ...CONFIG.environments, staging: { project: 'stage' } },
+      },
+    });
+    expect(inPack.out.exitCode).toBe(2);
+    expect(inPack.out.stderr).toContain(
+      'Change environments.staging.project to "staging" or to the project\'s id.',
+    );
+    expect(named(inPack.calls, 'deployments.list')).toEqual([]);
+  });
+
   test('in a pack: --from and --to on another runtime or tenant are refused, naming both; else it goes where a deploy into --from does', async () => {
     const on = (staging: object, prod: object) => ({
       ...CONFIG,
