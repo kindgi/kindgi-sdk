@@ -10588,6 +10588,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `mailbox`, `folder`, `pollSeconds` and `runsPerHour`, or a service account named or calling for a person's mailbox. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
       ),
+      '409': ErrorResponse(
+        "The service account `runAsServiceAccountId` names is no longer registered (`service-account-unregistered`), or can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or an Idempotency-Key reused with a different body.",
+      ),
     },
   },
   {
@@ -10730,7 +10733,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.takeOwnership',
     summary: 'Take over a mail trigger',
     description:
-      "The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).",
+      "The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10742,6 +10745,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`bad-input`: a body naming `toolsAllowedUnattended`, or a service account for a person's mailbox.",
       ),
       '404': ErrorResponse('No mail trigger with that id, or no such service account.'),
+      '409': ErrorResponse(
+        "The service account `runAsServiceAccountId` names is no longer registered (`service-account-unregistered`), or can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or an Idempotency-Key reused with a different body.",
+      ),
       '501': ErrorResponse(
         "`trigger-operation-unsupported`: this deployment can't change a trigger's owner.",
       ),

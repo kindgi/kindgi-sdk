@@ -23927,7 +23927,7 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Absent: the caller owns it."
+            "description": "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Absent: the caller owns it."
           },
           "config": {
             "type": "object",
@@ -61112,7 +61112,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The service account `runAsServiceAccountId` names is no longer registered (`service-account-unregistered`), or can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or an Idempotency-Key reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61860,7 +61860,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The service account `runAsServiceAccountId` names is no longer registered (`service-account-unregistered`), or can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or an Idempotency-Key reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -61900,7 +61900,7 @@
             }
           }
         },
-        "description": "The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).",
+        "description": "The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).",
         "parameters": [
           {
             "name": "triggerId",

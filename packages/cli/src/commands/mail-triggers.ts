@@ -200,7 +200,7 @@ const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   'run-as': {
     type: 'string',
     description:
-      "On the company's mailbox only: a service account, by id, that owns the trigger, so its runs act as that account (not as you). Needs `act_as` on the account; omit it to own the trigger yourself.",
+      "On the company's mailbox only: a service account, by id, that owns the trigger, so its runs act as that account (not as you). Needs `act_as` on the account, and the account needs a role that runs what the trigger runs (editor on the target's project); omit it to own the trigger yourself.",
   },
 };
 

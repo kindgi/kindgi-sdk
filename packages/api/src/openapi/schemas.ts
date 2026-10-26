@@ -14165,7 +14165,7 @@ export const RegisterMailTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Absent: the caller owns it.",
+        "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Absent: the caller owns it.",
     },
     config: {
       type: 'object',

@@ -7,8 +7,8 @@
  * fire makes, asked when the owner is set. Otherwise each fire would be
  * refused until the trigger paused.
  *
- * - With an authorization model: register and take-over, for schedules and
- *   webhooks, refuse an account that can't with a 409
+ * - With an authorization model: register and take-over, for schedules,
+ *   webhooks and mail triggers, refuse an account that can't with a 409
  *   `trigger-owner-cannot-run-target`, after the `act_as` gate, so no
  *   one past whom the gate stops learns anything.
  * - The account's check is `targetAccess`: `execute` on the flow or agent,
@@ -586,6 +586,52 @@ describe('retarget: an owner that is gone is not checked', () => {
     expect(res.body.error).toMatchObject({
       message: BOT_RETARGET.replace('"acme-nightly-bot"', `"${BOT}"`),
     });
+  });
+});
+
+const MAIL = '/v1/mail-triggers';
+/** A trigger on the company's mailbox, which an account may own. */
+const companyMail = (over: Record<string, unknown> = {}) => ({
+  agentId: AGENT,
+  projectId: PROJECT,
+  config: { mailbox: { app: 'microsoft', as: 'company' } },
+  ...over,
+});
+
+describe('mail triggers: an account named to run as must be able to run the target', () => {
+  test('register naming an account that cannot run it: a 409, and nothing is made', async () => {
+    const h = harness([]);
+    const res = await h.call('POST', MAIL, companyMail({ runAsServiceAccountId: BOT }));
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: AGENT_MESSAGE,
+    });
+    expect((await h.call('GET', MAIL)).body.data).toEqual([]);
+  });
+
+  test('take-over naming that account: a 409, and the owner stays', async () => {
+    const h = harness([]);
+    const made = await h.call('POST', MAIL, companyMail());
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const id = made.body.triggerId as string;
+    const res = await h.call('POST', `${MAIL}/${id}/owner`, { runAsServiceAccountId: BOT });
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: AGENT_MESSAGE,
+    });
+    expect((await h.call('GET', `${MAIL}/${id}`)).body.owner).toMatchObject({
+      kind: 'user',
+      id: ADA,
+    });
+  });
+
+  test('an account that can run it owns the mail trigger', async () => {
+    const h = harness([`bot execute agent:${AGENT}`]);
+    const made = await h.call('POST', MAIL, companyMail({ runAsServiceAccountId: BOT }));
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    expect(made.body.owner).toMatchObject({ kind: 'service', id: BOT });
   });
 });
 

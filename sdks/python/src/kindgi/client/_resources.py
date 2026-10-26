@@ -10089,7 +10089,7 @@ class MailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
 
-        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.takeOwnership"],
@@ -19443,7 +19443,7 @@ class AsyncMailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
 
-        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.takeOwnership"],
