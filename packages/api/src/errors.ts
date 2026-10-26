@@ -368,7 +368,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'service-account-name-taken': 409,
   /** A grant for an unregistered service account. */
   'service-account-unregistered': 409,
-  /** A trigger named to run as a service account that can't run what the trigger starts. */
+  /** A trigger's owner can't run what it starts: a service account it's named to run as, or the owner a new target keeps. */
   'trigger-owner-cannot-run-target': 409,
   /** Adding a person with an email another person of the tenant has. */
   'identity-user-email-taken': 409,

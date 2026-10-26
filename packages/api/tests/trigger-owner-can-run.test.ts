@@ -13,6 +13,9 @@
  *   one past whom the gate stops learns anything.
  * - The account's check is `targetAccess`: `execute` on the flow or agent,
  *   `publish` on the agent for an improvement pass.
+ * - A retarget (`PATCH` with a new target) asks the same of the trigger's
+ *   owner, of any kind, since the owner stays: unless the caller is the
+ *   owner, or the owner is gone.
  * - Without a model, nothing changes: a grant limits nothing there.
  */
 
@@ -35,21 +38,36 @@ import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { RunHandlerBinding, ServiceAccountBinding, TokenResolver } from '../src/index.js';
+import type {
+  IdentityDirectoryBinding,
+  RunHandlerBinding,
+  ServiceAccountBinding,
+  TokenResolver,
+} from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const ADA = randomUUID() as UserId;
 const MEMBER = randomUUID() as UserId;
+/** A project admin who isn't a tenant admin. */
+const PADMIN = randomUUID() as UserId;
+/** A person who owns a schedule. */
+const PAT = randomUUID() as UserId;
 const BOT = randomUUID();
 const PROJECT = randomUUID() as ProjectId;
 const ADMIN_TOKEN = 'can-run-admin';
 const MEMBER_TOKEN = 'can-run-member';
+const PADMIN_TOKEN = 'can-run-project-admin';
+const PAT_TOKEN = 'can-run-pat';
 const FLOW = 'acme.nightly';
 const AGENT = 'acme.agent';
+/** The agent a retarget moves a schedule to. */
+const AGENT2 = 'acme.agent-two';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === ADMIN_TOKEN) return { tenantId, userId: ADA, scopes: ['tenant-admin'] };
   if (token === MEMBER_TOKEN) return { tenantId, userId: MEMBER, scopes: [] };
+  if (token === PADMIN_TOKEN) return { tenantId, userId: PADMIN, scopes: [] };
+  if (token === PAT_TOKEN) return { tenantId, userId: PAT, scopes: [] };
   return null;
 };
 
@@ -61,28 +79,55 @@ const ADA_GRANTS = [
   `admin project:${PROJECT}`,
   `execute flow:${FLOW}`,
   `execute agent:${AGENT}`,
+  `execute agent:${AGENT2}`,
   `publish agent:${AGENT}`,
   `act_as service_account:${BOT}`,
 ];
 
+/** What the project admin and Pat hold as callers: enough to see and change the schedule. */
+const PADMIN_GRANTS = [
+  `padmin read project:${PROJECT}`,
+  `padmin write project:${PROJECT}`,
+  `padmin admin project:${PROJECT}`,
+  `padmin execute agent:${AGENT}`,
+  `padmin execute agent:${AGENT2}`,
+];
+const PAT_GRANTS = [
+  `pat read project:${PROJECT}`,
+  `pat write project:${PROJECT}`,
+  `pat execute agent:${AGENT}`,
+];
+
 /**
  * A key the fake store grants, as `action type:id`: Ada's bare, the
- * member's prefixed `member `, the account's prefixed `bot `.
+ * others' prefixed `member `, `padmin ` or `pat `, the account's `bot `.
  */
+const WHO: Readonly<Record<string, string>> = {
+  [MEMBER]: 'member ',
+  [PADMIN]: 'padmin ',
+  [PAT]: 'pat ',
+};
 const key = (p: Principal, action: Action, r: ResourceRef) => {
-  const who = p.actor.kind === 'service_account' ? 'bot ' : p.actor.id === MEMBER ? 'member ' : '';
+  const who = p.actor.kind === 'service_account' ? 'bot ' : (WHO[p.actor.id] ?? '');
   return `${who}${action} ${r.type}:${r.id}`;
 };
 
 /**
  * The app with a fake store that grants `grants` and records each ask,
  * with the context it was asked with. `failForBot` makes every check of the
- * account throw, as a store that's down does.
+ * account throw, as a store that's down does. `gone` is read on each call:
+ * set `bot` to unregister the account, `pat` to remove Pat, `reads` to make
+ * every read of either fail. `directory: false` leaves the app without one.
  */
 function harness(
   grants: readonly string[],
-  opts: { readonly authz?: boolean; readonly failForBot?: boolean } = {},
+  opts: {
+    readonly authz?: boolean;
+    readonly failForBot?: boolean;
+    readonly directory?: boolean;
+  } = {},
 ) {
+  const gone = { bot: false, pat: false, reads: false };
   const asked: { readonly key: string; readonly ctx?: AuthzCheckContext }[] = [];
   const decide = (
     p: Principal,
@@ -95,7 +140,7 @@ function harness(
     if (opts.failForBot === true && p.actor.kind === 'service_account') {
       throw new Error('test: the store is down');
     }
-    const allowed = [...ADA_GRANTS, ...grants].includes(k);
+    const allowed = [...ADA_GRANTS, ...PADMIN_GRANTS, ...PAT_GRANTS, ...grants].includes(k);
     return {
       allowed,
       reason: allowed ? 'test: granted' : 'test: not granted',
@@ -107,17 +152,41 @@ function harness(
     checkBatch: async (p, action, rs, ctx) => rs.map((r) => decide(p, action, r, ctx)),
   };
   const serviceAccountBinding = {
-    get: async ({ serviceAccountId }: { serviceAccountId: string }) =>
-      serviceAccountId === BOT
-        ? { serviceAccountId, tenantId, name: 'acme-nightly-bot', grants: [], createdAt: '' }
-        : null,
+    get: async ({ serviceAccountId }: { serviceAccountId: string }) => {
+      if (gone.reads) throw new Error('test: the read failed');
+      return serviceAccountId === BOT
+        ? {
+            serviceAccountId,
+            tenantId,
+            name: 'acme-nightly-bot',
+            grants: [],
+            createdAt: '',
+            ...(gone.bot && { unregisteredAt: '2026-10-26T00:00:00Z' }),
+          }
+        : null;
+    },
   } as unknown as ServiceAccountBinding;
+  const identityDirectory = {
+    getUser: async ({ userId }: { userId: string }) => {
+      if (gone.reads) throw new Error('test: the read failed');
+      return userId === PAT
+        ? {
+            userId,
+            tenantId,
+            displayName: 'Pat Acme',
+            createdAt: '',
+            ...(gone.pat && { unregisteredAt: '2026-10-26T00:00:00Z' }),
+          }
+        : null;
+    },
+  } as unknown as IdentityDirectoryBinding;
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     triggerRegistry: createInMemoryTriggerRegistry({ defaultProjectId: PROJECT }),
     serviceAccountBinding,
+    ...(opts.directory !== false && { identityDirectory }),
     ...(opts.authz !== false && {
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
     }),
@@ -143,7 +212,9 @@ function harness(
   };
   /** The account's asks, by key. */
   const botAsked = () => asked.filter((a) => a.key.startsWith('bot ')).map((a) => a.key);
-  return { call, asked, botAsked };
+  /** How many times the store was asked `k`. */
+  const askedTimes = (k: string) => asked.filter((a) => a.key === k).length;
+  return { call, asked, botAsked, askedTimes, gone };
 }
 
 const schedule = (over: Record<string, unknown> = {}) => ({
@@ -339,6 +410,168 @@ describe("the account's check, as the store sees it", () => {
   });
 });
 
+const BOT_RETARGET = `Service account "acme-nightly-bot" can't run agent "${AGENT2}", so the trigger can't run it as that account. A tenant admin can give the account the editor role on the target's project, or a project admin can take the trigger over first.`;
+const patRetarget = (name: string) =>
+  `${name} can't run agent "${AGENT2}", so the trigger can't run it as them. A project admin can take the trigger over first.`;
+
+type Harness = ReturnType<typeof harness>;
+
+/** A schedule the account owns (it must be able to run AGENT). */
+async function botSchedule(h: Harness): Promise<string> {
+  const made = await h.call('POST', '/v1/schedules', schedule({ runAsServiceAccountId: BOT }));
+  expect(made.status, JSON.stringify(made.body)).toBe(201);
+  return made.body.triggerId as string;
+}
+
+/** A schedule Pat registered, so Pat owns it. */
+async function patSchedule(h: Harness): Promise<string> {
+  const made = await h.call('POST', '/v1/schedules', schedule(), PAT_TOKEN);
+  expect(made.status, JSON.stringify(made.body)).toBe(201);
+  expect(made.body.owner).toMatchObject({ kind: 'user', id: PAT });
+  return made.body.triggerId as string;
+}
+
+const retarget = (h: Harness, id: string, token = ADMIN_TOKEN) =>
+  h.call('PATCH', `/v1/schedules/${id}`, { agentId: AGENT2 }, token);
+
+describe('retarget: the owner must be able to run the new target', () => {
+  test('to an agent the owner account cannot run: a 409, and the schedule keeps its target', async () => {
+    const h = harness([`bot execute agent:${AGENT}`]);
+    const id = await botSchedule(h);
+    const res = await retarget(h, id);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: BOT_RETARGET,
+    });
+    expect(h.botAsked()).toContain(`bot execute agent:${AGENT2}`);
+    const got = await h.call('GET', `/v1/schedules/${id}`);
+    expect(JSON.stringify(got.body)).not.toContain(AGENT2);
+  });
+
+  test('to one it can run: a 200, and the account still owns it', async () => {
+    const h = harness([`bot execute agent:${AGENT}`, `bot execute agent:${AGENT2}`]);
+    const id = await botSchedule(h);
+    const res = await retarget(h, id);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.owner).toMatchObject({ kind: 'service', id: BOT });
+  });
+
+  test('a change that keeps the target asks the owner nothing', async () => {
+    const h = harness([`bot execute agent:${AGENT}`]);
+    const id = await botSchedule(h);
+    const before = h.botAsked().length;
+    const res = await h.call('PATCH', `/v1/schedules/${id}`, { label: 'nightly orders' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(h.botAsked()).toHaveLength(before);
+  });
+});
+
+describe('retarget: who reaches the 409', () => {
+  test('a project admin who is not a tenant admin gets it, with the same words', async () => {
+    const h = harness([`bot execute agent:${AGENT}`]);
+    const id = await botSchedule(h);
+    const res = await retarget(h, id, PADMIN_TOKEN);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: BOT_RETARGET,
+    });
+  });
+
+  test("a writer who isn't an admin gets the shared schedule's 403 first, and the account isn't asked", async () => {
+    const h = harness([
+      `bot execute agent:${AGENT}`,
+      `member read project:${PROJECT}`,
+      `member write project:${PROJECT}`,
+      `member execute agent:${AGENT}`,
+      `member execute agent:${AGENT2}`,
+    ]);
+    const id = await botSchedule(h);
+    const res = await retarget(h, id, MEMBER_TOKEN);
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(h.askedTimes(`bot execute agent:${AGENT2}`)).toBe(0);
+  });
+});
+
+describe("retarget: a person's schedule", () => {
+  test("a project admin moves it to an agent Pat can't run: the 409 names Pat", async () => {
+    const h = harness([]);
+    const id = await patSchedule(h);
+    const res = await retarget(h, id, PADMIN_TOKEN);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: patRetarget('Pat Acme'),
+    });
+    expect(h.askedTimes(`pat execute agent:${AGENT2}`)).toBe(1);
+  });
+
+  test("Pat moves it there: Pat's own 403 as the caller, before any 409", async () => {
+    const h = harness([]);
+    const id = await patSchedule(h);
+    const res = await retarget(h, id, PAT_TOKEN);
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.error).toMatchObject({ code: 'permission-denied' });
+    expect(h.askedTimes(`pat execute agent:${AGENT2}`)).toBe(1);
+  });
+
+  test('Pat moves it to an agent Pat can run: a 200, asked once, as the caller', async () => {
+    const h = harness([`pat execute agent:${AGENT2}`]);
+    const id = await patSchedule(h);
+    const res = await retarget(h, id, PAT_TOKEN);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(h.askedTimes(`pat execute agent:${AGENT2}`)).toBe(1);
+  });
+
+  test('an agent Pat can run: a 200, and Pat still owns it', async () => {
+    const h = harness([`pat execute agent:${AGENT2}`]);
+    const id = await patSchedule(h);
+    const res = await retarget(h, id, PADMIN_TOKEN);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.owner).toMatchObject({ kind: 'user', id: PAT });
+  });
+
+  test('without a directory, the words name Pat by id', async () => {
+    const h = harness([], { directory: false });
+    const id = await patSchedule(h);
+    const res = await retarget(h, id, PADMIN_TOKEN);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({ message: patRetarget(PAT) });
+  });
+});
+
+describe('retarget: an owner that is gone is not checked', () => {
+  test('an unregistered account: a 200, and the account is not asked', async () => {
+    const h = harness([`bot execute agent:${AGENT}`]);
+    const id = await botSchedule(h);
+    h.gone.bot = true;
+    const res = await retarget(h, id);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(h.askedTimes(`bot execute agent:${AGENT2}`)).toBe(0);
+  });
+
+  test('a person removed from the tenant: a 200, and they are not asked', async () => {
+    const h = harness([]);
+    const id = await patSchedule(h);
+    h.gone.pat = true;
+    const res = await retarget(h, id, PADMIN_TOKEN);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(h.askedTimes(`pat execute agent:${AGENT2}`)).toBe(0);
+  });
+
+  test("a read that fails isn't a gone owner: the check runs, and the id names the account", async () => {
+    const h = harness([`bot execute agent:${AGENT}`]);
+    const id = await botSchedule(h);
+    h.gone.reads = true;
+    const res = await retarget(h, id);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      message: BOT_RETARGET.replace('"acme-nightly-bot"', `"${BOT}"`),
+    });
+  });
+});
+
 describe('without an authorization model, nothing changes', () => {
   test('a tenant-admin key names an account with no grants: the account owns the trigger', async () => {
     const h = harness([], { authz: false });
@@ -350,6 +583,15 @@ describe('without an authorization model, nothing changes', () => {
       expect(res.status, JSON.stringify(res.body)).toBe(201);
       expect(res.body.owner).toMatchObject({ kind: 'service', id: BOT });
     }
+    expect(h.asked).toEqual([]);
+  });
+
+  test('a retarget of a schedule the account owns gets a 200', async () => {
+    const h = harness([], { authz: false });
+    const made = await h.call('POST', '/v1/schedules', schedule({ runAsServiceAccountId: BOT }));
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const res = await retarget(h, made.body.triggerId as string);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(h.asked).toEqual([]);
   });
 });

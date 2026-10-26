@@ -41,6 +41,7 @@ import {
   type TriggerOwnerNotices,
   isTriggerAdmin,
   noteChangeForOwner,
+  ownerCannotRunRefusal,
   ownerJson,
   ownerNamesOf,
   ownerRuleRefused,
@@ -529,6 +530,17 @@ export function schedulesRouter(
       !(await isTriggerAdmin(c, authorizer, found.value.projectId as unknown as string))
     ) {
       return ownerRuleRefused(c, authorizer, names, owned(found.value), 'schedule');
+    }
+    // The owner stays, so a new target must be one it can run, or every fire is refused.
+    if (target !== undefined && retargeted) {
+      const cannot = await ownerCannotRunRefusal(
+        c,
+        authorizer,
+        names,
+        found.value.owner,
+        target.value,
+      );
+      if (cannot !== undefined) return cannot;
     }
     const result = await binding.update(updateInput);
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);

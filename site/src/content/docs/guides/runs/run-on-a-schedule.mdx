@@ -92,6 +92,13 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   trigger-owner-cannot-run-target`). Give it the editor role on the
   target's project, or name another account. Without a store, grants limit
   nothing, so there's nothing to check.
+- **A new target is checked against the owner too:** a change keeps the
+  schedule's owner, so with a store, a new agent or flow must be one the
+  owner can run, an account or a person (`409
+  trigger-owner-cannot-run-target`). It isn't checked when you're the
+  owner, nor for an owner that was unregistered or removed. A tenant admin
+  can give an account the role, or a project admin can take the schedule
+  over first.
 - **A fire it may no longer run is `refused`:** after a grant is taken
   away, and every fire after the account is unregistered (runtime 0.1.9 or
   later). Take the schedule over, or delete it.

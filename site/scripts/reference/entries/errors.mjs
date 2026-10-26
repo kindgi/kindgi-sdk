@@ -2355,7 +2355,7 @@ export const ERROR_ENTRIES = {
   },
   'trigger-owner-cannot-run-target': {
     description:
-      "A schedule or webhook trigger named a service account to run as (`runAsServiceAccountId`), and the account can't run what the trigger starts: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule. The message names the account and the target. Give the account the editor role on the target's project, or name another account. Checked only with an authorization store.",
+      "A trigger's owner can't run what the trigger starts: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule. Checked only with an authorization store, at two points. When a schedule or webhook trigger names a service account to run as (`runAsServiceAccountId`), on create or take-over: give the account the editor role on the target's project, or name another account. And when a schedule's target changes, since its owner stays: the owner, a service account or a person, must be able to run the new one (not checked when you're the owner, or when the owner was unregistered or removed). A tenant admin can give an account the role, or a project admin can take the schedule over first. The message names the owner and the target.",
     details: [],
   },
   'identity-user-email-taken': {

@@ -3,7 +3,13 @@
 
 import type { Context } from 'hono';
 
-import { type TriggerTargetRef, ref, serviceAccountPrincipal, targetAccess } from '@kindgi/authz';
+import {
+  type TriggerTargetRef,
+  ref,
+  serviceAccountPrincipal,
+  targetAccess,
+  userPrincipal,
+} from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
@@ -144,11 +150,14 @@ export async function resolveTriggerOwner(
 
 /** Why a named account can't own the trigger, and what fixes it. */
 function cannotRunMessage(accountName: string, target: TriggerTargetRef): string {
-  const what =
-    target.kind === 'flow'
-      ? `run flow "${target.flowId}"`
-      : `${target.kind === 'improve' ? 'publish' : 'run'} agent "${target.agentId}"`;
-  return `Service account "${accountName}" can't ${what}, so the trigger can't run as it. Give the account the editor role on the target's project, or name another account.`;
+  return `Service account "${accountName}" can't ${targetWords(target)}, so the trigger can't run as it. Give the account the editor role on the target's project, or name another account.`;
+}
+
+/** What the owner can't do to `target`: `run flow "f"`, `run agent "a"` or `publish agent "a"`. */
+function targetWords(target: TriggerTargetRef): string {
+  return target.kind === 'flow'
+    ? `run flow "${target.flowId}"`
+    : `${target.kind === 'improve' ? 'publish' : 'run'} agent "${target.agentId}"`;
 }
 
 /**
@@ -251,6 +260,69 @@ export async function mayChangePersonalTrigger(
 export function callerOwns(c: Context<AppEnv>, owner: TriggerOwner): boolean {
   const caller = ownerOf(c);
   return caller.kind === owner.kind && caller.id === owner.id;
+}
+
+/**
+ * A retarget's check of the trigger's owner, of any kind: whether it can run
+ * the new target, the fire's own check (`targetAccess`), asked of the owner.
+ * A `PATCH` keeps the owner, so without it a target the owner can't run is
+ * accepted, and then every fire is refused until the trigger pauses. Nothing
+ * to check:
+ *   - without an authorization model: there a grant limits nothing;
+ *   - when the caller is the owner: the caller's own target check has run;
+ *   - when the owner is gone (an unregistered account, a person removed from
+ *     the tenant): every fire is refused for that already, and a take-over
+ *     is the fix.
+ * A store that fails throws, as at registration.
+ */
+export async function ownerCannotRunRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  names: TriggerOwnerNames | undefined,
+  owner: TriggerOwner,
+  target: TriggerTargetRef,
+): Promise<Response | undefined> {
+  if (authorizer === undefined || callerOwns(c, owner)) return undefined;
+  const tenantId = c.get('tenantId') as TenantId;
+  const read = await readOwner(names, tenantId, owner);
+  if (read.gone) return undefined;
+  const principal =
+    owner.kind === 'user'
+      ? userPrincipal(owner.id, tenantId)
+      : serviceAccountPrincipal(owner.id, tenantId);
+  if (await authorizer.canFor(c, principal, ...targetAccess(target))) return undefined;
+  return ownerError(
+    c,
+    c.get('requestId'),
+    'trigger-owner-cannot-run-target',
+    retargetMessage(owner, read.name ?? owner.id, target),
+  );
+}
+
+/** The owner's name for the words, and whether it's gone. */
+async function readOwner(
+  names: TriggerOwnerNames | undefined,
+  tenantId: TenantId,
+  owner: TriggerOwner,
+): Promise<{ readonly gone: boolean; readonly name?: string | undefined }> {
+  try {
+    if (owner.kind === 'user') {
+      const person = await names?.directory?.getUser({ tenantId, userId: owner.id as UserId });
+      return { gone: person?.unregisteredAt !== undefined, name: person?.displayName };
+    }
+    const account = await names?.serviceAccounts?.get({ tenantId, serviceAccountId: owner.id });
+    return { gone: account?.unregisteredAt !== undefined, name: account?.name };
+  } catch {
+    // A read that fails isn't a gone owner: the check still runs, so it fails closed.
+    return { gone: false };
+  }
+}
+
+/** Why the trigger's owner can't run its new target, and who can fix it. */
+function retargetMessage(owner: TriggerOwner, name: string, target: TriggerTargetRef): string {
+  return owner.kind === 'user'
+    ? `${name} can't ${targetWords(target)}, so the trigger can't run it as them. A project admin can take the trigger over first.`
+    : `Service account "${name}" can't ${targetWords(target)}, so the trigger can't run it as that account. A tenant admin can give the account the editor role on the target's project, or a project admin can take the trigger over first.`;
 }
 
 type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
