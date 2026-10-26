@@ -174,6 +174,8 @@ A `503 database-busy` answers a `GET` or `HEAD` that the database was too busy t
 
 The storage failure is marked `code: 'database-busy'`, on the error or down its `cause` chain. A thrown error reaches `mapThrownError`, which checks for the mark. A route that answers a binding's Result error at its code's status asks `databaseBusyAnswer(error, c)` (`middleware/error-mapper.ts`) first and returns its answer when it gives one. A binding that re-codes a storage failure under its own code keeps the failure as the error's `cause`, so the read answers the same whether the binding threw the failure or returned it.
 
+The OpenAPI document declares this `503` on every served `GET` and `HEAD`, injected once where the spec is built (`openapi/generate.ts`), so a new read is covered without a per-route edit. The exceptions are the reads that never reach storage, and so can never answer `database-busy`: they're listed in `READS_WITHOUT_STORAGE` (`openapi/operations.ts`) — the liveness probe and the spec document today — and a new read of that kind goes there too. A read that declares its own `503` keeps it in place of the shared one, so its description has to name `database-busy` as well, the way `GET /v1/identity/me/permissions` names both `authz-backend-unavailable` and `database-busy`.
+
 ---
 
 ## 5. Pagination

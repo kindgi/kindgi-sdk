@@ -1563,6 +1563,30 @@ const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Or this deployment's operator manages sign-in (\`identity-providers-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only the deployment's own token can change its providers.`,
 );
 
+/**
+ * Reads that never reach the storage backend, so they can't answer
+ * `503 database-busy`: the liveness probe (`GET /health`) and the spec
+ * document (`GET /v1/openapi.json`). Every other served `GET`/`HEAD`
+ * declares the shared 503 — see `buildOperation` in `generate.ts`.
+ */
+export const READS_WITHOUT_STORAGE: ReadonlySet<string> = new Set([
+  'system.health',
+  'system.openapi',
+]);
+
+/**
+ * Whether a served operation can answer `503 database-busy`: a `GET` or
+ * `HEAD` that isn't one of the storage-free reads. The spec generator
+ * injects the 503 for these (unless the operation declares a 503 of its
+ * own), and a test holds every one of them to it, so a new read can't miss
+ * it.
+ */
+export function answersDatabaseBusy(op: OperationSpec): boolean {
+  return (
+    (op.method === 'get' || op.method === 'head') && !READS_WITHOUT_STORAGE.has(op.operationId)
+  );
+}
+
 /** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
 function providerChangeConflict(text: string): ResponseSpec {
   return ErrorResponse(
@@ -2897,7 +2921,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`). Or, with `secrets=values`, it has nowhere to audit a secret given out, so it gives none (`pack-env-secrets-unaudited`).",
       ),
       '503': ErrorResponse(
-        "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`).",
+        "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`). Or the database was too busy to answer in time (`database-busy`, with `Retry-After`).",
       ),
     },
   },
@@ -7405,7 +7429,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The runtime has no authorization store (`permissions-unsupported`): read whoami instead.',
       ),
       '503': ErrorResponse(
-        "The authorization store couldn't be read (`authz-backend-unavailable`): try again.",
+        "The authorization store couldn't be read (`authz-backend-unavailable`), or the database was too busy to answer in time (`database-busy`, with `Retry-After`): try again.",
       ),
     },
   },
