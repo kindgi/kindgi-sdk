@@ -363,6 +363,7 @@ def _agent_entry(agent: Agent, rel_path: str, config: PackConfig) -> dict[str, A
             "conversationPolicy": _dict(agent.conversation_policy),
             "output": output,
             "toolErrors": _dict(agent.tool_errors),
+            "parallelToolCalls": agent.parallel_tool_calls,
             "memory": _dict(agent.memory),
             "settings": [dict(s) for s in agent.settings],
             "modelSettings": _dict(agent.model_settings),

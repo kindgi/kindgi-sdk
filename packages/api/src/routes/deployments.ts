@@ -2535,6 +2535,12 @@ function validateAgentIndexShape(
     out.push({ path: '/tools', message: 'agent.tools must be an array of tool ids' });
   }
   out.push(...agentOutputProblems(spec.output));
+  if (spec.parallelToolCalls !== undefined && typeof spec.parallelToolCalls !== 'boolean') {
+    out.push({
+      path: '/parallelToolCalls',
+      message: 'agent.parallelToolCalls must be true or false',
+    });
+  }
   return out;
 }
 

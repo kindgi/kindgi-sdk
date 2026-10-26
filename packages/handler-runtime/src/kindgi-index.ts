@@ -408,6 +408,11 @@ export interface IndexedAgent {
   readonly output?: Readonly<Record<string, unknown>>;
   /** How the agent's turns retry failed tool calls (`{ maxRetries?, retryOn? }`). */
   readonly toolErrors?: Readonly<Record<string, unknown>>;
+  /**
+   * Whether a step's read-only tool calls in a row run at the same time, up to 8: not one
+   * to a tool that pauses or declares connections, which may wait.
+   */
+  readonly parallelToolCalls?: boolean;
   /** How the agent uses what it retrieves (`{ instructionTypes? }`). */
   readonly memory?: Readonly<Record<string, unknown>>;
   readonly modulePath: string;
@@ -1883,6 +1888,7 @@ function optionalAgentFields(rec: Record<string, unknown>): Partial<IndexedAgent
   for (const key of ['preferredProvider', 'preferredModel', 'description'] as const) {
     if (typeof rec[key] === 'string') out[key] = rec[key];
   }
+  if (typeof rec.parallelToolCalls === 'boolean') out.parallelToolCalls = rec.parallelToolCalls;
   return out as Partial<IndexedAgent>;
 }
 

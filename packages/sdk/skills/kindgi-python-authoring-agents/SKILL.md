@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -160,6 +160,14 @@ brief_writer = Agent(
   the call. Default kinds are `invalid-arguments` and `unknown-tool`
   (nothing ran); add `tool-error` only when retrying the tool is safe.
   Each retry costs a step.
+- **`parallel_tool_calls`** — default on: when a model step asks for several
+  calls at once, calls to read-only tools (`mutating=False`, no changing
+  effect) that come one after another run at the same time, up to 8 of them,
+  and any other call on its own, in the order the model asked; the results
+  reach the conversation in that order either way. A call that may wait, for
+  another system's answer or for the person who started the run to connect an
+  app, runs on its own too. `False` runs every call on its own, for read-only
+  tools that mustn't overlap (a rate-limited API, say).
 - **`retrieval`** — what the agent reads from memory before each turn;
   empty = no memory. Each intent is a dict with the API's keys:
   `{"types": ["acme.preference"], "scope": "same-user", "mode": "both",

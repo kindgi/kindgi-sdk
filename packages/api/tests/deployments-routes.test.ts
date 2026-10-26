@@ -2039,6 +2039,51 @@ describe('POST /v1/deployments — manifest validation', () => {
     }
   });
 
+  test("an agent's parallelToolCalls that isn't true or false → 400 at /parallelToolCalls", async () => {
+    const index = indexWith(undefined);
+    const fixture = buildSignedDeploy({
+      index: { ...index, agents: index.agents.map((a) => ({ ...a, parallelToolCalls: 'false' })) },
+    });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { details?: { issues?: Array<Record<string, unknown>> } };
+    };
+    expect(body.error.details?.issues).toEqual([
+      {
+        primitive: 'agent',
+        index: 0,
+        id: 'acme.summary',
+        path: '/parallelToolCalls',
+        message: 'agent.parallelToolCalls must be true or false',
+      },
+    ]);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test("an agent's parallelToolCalls: false deploys, and its agent is registered with it", async () => {
+    const index = indexWith(undefined);
+    const fixture = buildSignedDeploy({
+      index: { ...index, agents: index.agents.map((a) => ({ ...a, parallelToolCalls: false })) },
+    });
+    const agents = makeInMemoryAgentRegistry();
+    const written: Agent[] = [];
+    const { app } = makeApp({
+      fixture,
+      agentRegistry: {
+        ...agents,
+        publish: async (input) => {
+          written.push(input.agent);
+          return agents.publish(input);
+        },
+      },
+    });
+    const res = await post(app, fixture.wire);
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(written.map((a) => a.parallelToolCalls)).toEqual([false]);
+  });
+
   test('an agent whose output schema compiles deploys', async () => {
     const fixture = buildSignedDeploy({
       index: indexWith({

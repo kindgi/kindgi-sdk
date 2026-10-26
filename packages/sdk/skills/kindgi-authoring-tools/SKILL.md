@@ -241,10 +241,11 @@ export default defined.value;
 
 ## Read-only tools: `mutating`
 
-`mutating: false` declares that the tool changes nothing outside Kindgi; it only reads. Leaving `mutating` out counts as mutating, the same as `true`. It decides three things, in both authoring modes:
+`mutating: false` declares that the tool changes nothing outside Kindgi; it only reads. Leaving `mutating` out counts as mutating, the same as `true`. It decides four things, in both authoring modes:
 
 - **Dry runs.** `kindgi runs start --dry-run` runs a tool only if it's `mutating: false` and its `effects` declare no `writes`, `deletes`, `spawns-run`, `emits-event` or `external-side-effect`. The first other tool stops the run with `dry-run-effectful-tool`.
 - **Approval gates.** When an agent turns tool gates on (`conversationPolicy.hitl.tools`) and sets neither an override for the tool nor a `default`, a `mutating: false` tool runs straight through, and any other tool asks for approval on its first use.
+- **Running together.** When a model step asks for several calls at once, an agent runs calls to read-only tools (`mutating: false`, no changing effect) that come one after another at the same time, up to 8 of them, and a call to any other tool on its own, in the order the model asked. A call that may wait, for another system's answer or for the person who started the run to connect an app, runs on its own too. Once a call needs an approval, the step's calls that haven't started run one at a time. The results reach the conversation and the model in the model's order either way. An agent with `parallelToolCalls: false` runs every call on its own.
 - **Runs a new mail started.** A call of a tool that isn't `mutating: false` waits for a person's yes, unless the mail trigger's `toolsAllowedUnattended` lists it.
 
 So declare `mutating: false` on every tool that only reads, and never on one that writes.

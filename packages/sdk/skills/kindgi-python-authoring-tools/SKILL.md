@@ -263,6 +263,15 @@ approval gates on (`conversation_policy={"hitl": {"tools": {...}}}`)
 and has neither an override for the tool nor a `default` doesn't ask
 before a read-only tool, and asks before any other on first use.
 
+And it decides what runs together: when a model step asks for several calls at
+once, an agent runs calls to read-only tools (no changing effect either) that
+come one after another at the same time, up to 8 of them, and any other call
+on its own, in the order the model asked. A call that may wait, for another
+system's answer or for the person who started the run to connect an app, runs
+on its own too. The results reach the conversation and the model in that order
+either way. `Agent(..., parallel_tool_calls=False)` runs every call on its
+own.
+
 In a run a new mail started, a call of a tool that isn't read-only waits
 for a person's yes, unless the mail trigger's `toolsAllowedUnattended`
 lists it.
@@ -422,9 +431,10 @@ removed field, a narrower type — not on every save.
    modules — the template's import `tools.x` directly.)
 8. **Blocking inside `async def`.** Use a `def` handler for blocking I/O.
 9. **A read-only tool without `mutating=False`.** A dry run stops at it,
-   and an agent's tool approval gate asks before it on first use.
+   an agent's tool approval gate asks before it on first use, and an
+   agent runs each call to it on its own.
 10. **`mutating=False` on a tool that writes.** A dry run then runs it
-    for real.
+    for real, and an agent may run it at the same time as other calls.
 11. **A package a tool imports, only in a dev group.** The deployed pack
     installs without dev dependencies (`uv sync --no-dev`, or Poetry's
     main group only), so the import works under `kindgi dev` and fails in
