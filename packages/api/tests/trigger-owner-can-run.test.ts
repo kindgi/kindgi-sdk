@@ -449,6 +449,23 @@ describe('retarget: the owner must be able to run the new target', () => {
     expect(JSON.stringify(got.body)).not.toContain(AGENT2);
   });
 
+  test('to an improvement pass, asked publish: an account with only execute gets a 409', async () => {
+    const h = harness([`bot execute agent:${AGENT}`]);
+    const id = await botSchedule(h);
+    const res = await h.call('PATCH', `/v1/schedules/${id}`, {
+      improve: { agentId: AGENT, scope: { kind: 'project', projectId: PROJECT } },
+      config: { input: {} },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: BOT_RETARGET.replace(`run agent "${AGENT2}"`, `publish agent "${AGENT}"`),
+    });
+    expect(h.botAsked()).toContain(`bot publish agent:${AGENT}`);
+    const got = await h.call('GET', `/v1/schedules/${id}`);
+    expect(JSON.stringify(got.body)).not.toContain('"improve"');
+  });
+
   test('to one it can run: a 200, and the account still owns it', async () => {
     const h = harness([`bot execute agent:${AGENT}`, `bot execute agent:${AGENT2}`]);
     const id = await botSchedule(h);
