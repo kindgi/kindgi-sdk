@@ -294,6 +294,7 @@ export type {
   ServiceAccountGrant,
   ServiceAccountGrantTarget,
   ServiceAccountListInput,
+  ServiceAccountProjectAccounts,
   ServiceAccountRef,
 } from './service-account-binding.js';
 export type {

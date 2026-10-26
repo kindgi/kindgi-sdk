@@ -444,6 +444,7 @@
           "service-account-not-found": 404,
           "service-account-name-taken": 409,
           "service-account-unregistered": 409,
+          "service-account-project-owned": 409,
           "identity-user-email-taken": 409,
           "last-tenant-admin": 409,
           "seed-user-admin": 409,
@@ -4254,6 +4255,10 @@
             "type": "string",
             "format": "date-time",
             "description": "Set once unregistered: it has no grants, and its keys no longer work."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs that project's shared triggers, it has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it."
           }
         }
       },
@@ -22880,6 +22885,13 @@
           "displayName": {
             "type": "string",
             "description": "The owner's name at the time of the response: the person's display name, or the service account's name. Absent when it can't be read (no directory, a removed account) and from a runtime before Kindgi 0.1.6: show the id then."
+          },
+          "isProjectAccount": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "Set when the owner is the trigger's project's own service account (`runAsProject`): the trigger is shared, and runs as the project. Show it as \"This project\". Absent otherwise."
           }
         }
       },
@@ -23037,7 +23049,11 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it."
+            "description": "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it."
+          },
+          "runAsProject": {
+            "type": "boolean",
+            "description": "`true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
           },
           "config": {
             "type": "object",
@@ -23621,7 +23637,11 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it."
+            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it."
+          },
+          "runAsProject": {
+            "type": "boolean",
+            "description": "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
           },
           "toolsAllowedUnattended": {
             "type": "array",
@@ -23706,12 +23726,16 @@
       "TakeTriggerOwnerBody": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Who the trigger's runs act as from now: for a trigger whose owner left, or to make one shared or personal. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.",
+        "description": "Who the trigger's runs act as from now: for a trigger whose owner left, or to make one shared or personal. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. With `runAsProject`: the project's own account does. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.",
         "properties": {
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs."
+            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`)."
+          },
+          "runAsProject": {
+            "type": "boolean",
+            "description": "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
           }
         }
       },
@@ -27533,7 +27557,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
+            "description": "`for` names a project's own service account, which has no keys (`service-account-project-owned`). Or Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -31361,7 +31385,7 @@
             }
           },
           "409": {
-            "description": "The account is unregistered (`service-account-unregistered`), or an idempotency conflict.",
+            "description": "The account is unregistered (`service-account-unregistered`), or a project's own account, whose grant is fixed (`service-account-project-owned`), or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31489,7 +31513,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "A project's own account, whose grant is fixed (`service-account-project-owned`), or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31637,7 +31661,7 @@
             }
           }
         },
-        "description": "A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.",
+        "description": "A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only. Unregistering a project's own account stops the triggers that run as it until an admin takes each over; the next `runAsProject` makes a new one.",
         "parameters": [
           {
             "name": "serviceAccountId",
@@ -53875,6 +53899,7 @@
             }
           }
         },
+        "description": "Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.",
         "parameters": [
           {
             "name": "projectId",
@@ -58744,7 +58769,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body. Or `reference-out-of-scope`: what it runs isn't registered in the schedule's project, its org or the tenant, or the version it names (`flowVersion`, or `agentVersion` when given) isn't one that project runs (`details.issues`, at `/target`, whose message names the version). Nothing is registered.",
+            "description": "Malformed request body, or `runAsProject` with `runAsServiceAccountId`, or for a schedule with no project (`bad-input`). Or `reference-out-of-scope`: what it runs isn't registered in the schedule's project, its org or the tenant, or the version it names (`flowVersion`, or `agentVersion` when given) isn't one that project runs (`details.issues`, at `/target`, whose message names the version). Nothing is registered.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58763,8 +58788,18 @@
               }
             }
           },
+          "403": {
+            "description": "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs; or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58785,6 +58820,16 @@
           },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: `runAsProject` on a runtime that can't make a project's own account.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59642,7 +59687,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -59682,7 +59727,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59712,7 +59757,7 @@
             }
           },
           "501": {
-            "description": "`trigger-operation-unsupported`: this deployment can't change a schedule's owner.",
+            "description": "`trigger-operation-unsupported`: this deployment can't change a schedule's owner, or can't make a project's own account (`runAsProject`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -59722,7 +59767,7 @@
             }
           }
         },
-        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
         "parameters": [
           {
             "name": "triggerId",
@@ -59801,7 +59846,7 @@
             }
           },
           "409": {
-            "description": "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or the route-minted webhookId collided (astronomically rare).",
+            "description": "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the route-minted webhookId collided (astronomically rare).",
             "content": {
               "application/json": {
                 "schema": {
@@ -59822,6 +59867,16 @@
           },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: `runAsProject` on a runtime that can't make a project's own account.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60549,7 +60604,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "A malformed body, or `runAsProject` with `runAsServiceAccountId`, or a body naming `toolsAllowedUnattended` (`bad-input`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60589,7 +60644,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60619,7 +60674,7 @@
             }
           },
           "501": {
-            "description": "`trigger-operation-unsupported`: this deployment can't change a trigger's owner.",
+            "description": "`trigger-operation-unsupported`: this deployment can't change a trigger's owner, or can't make a project's own account (`runAsProject`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60629,7 +60684,7 @@
             }
           }
         },
-        "description": "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+        "description": "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
         "parameters": [
           {
             "name": "triggerId",

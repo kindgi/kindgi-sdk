@@ -47,12 +47,15 @@ import { generateSigningSecret } from '../webhook-signing-secret.js';
 import { clampLimit } from './pagination.js';
 import {
   type OwnedTrigger,
+  type OwnerFacts,
   type TriggerOwnerNames,
   type TriggerOwnerNotices,
   isTriggerAdmin,
+  namesAnOwner,
   noteChangeForOwner,
   ownerJson,
   ownerNamesOf,
+  ownerRequestOf,
   ownerRuleRefused,
   personalTriggerRefusal,
   recordOwnerSet,
@@ -391,15 +394,14 @@ export function webhooksRouter(
       hmacSecretScope = await hmacScopeFor(c, item, hmacSecretName.value);
     }
 
-    // Who its runs act as: the caller, or the service account named with
-    // `runAsServiceAccountId` (gated by `act_as`; see `resolveTriggerOwner`).
-    const runAsRaw = body.runAsServiceAccountId;
-    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
-      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
-    }
+    // Who its runs act as: the caller, the service account named with
+    // `runAsServiceAccountId` (gated by `act_as`), or the project's own
+    // account with `runAsProject` (a project admin's; see `resolveTriggerOwner`).
+    const ownerRequest = ownerRequestOf(body, project);
+    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
     const resolved = await resolveTriggerOwner(
       c,
-      runAsRaw as string | undefined,
+      ownerRequest,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -467,7 +469,7 @@ export function webhooksRouter(
     }
     // A named service-account owner is a delegation: audit it. A plain
     // register (owner = caller) is the trigger's creation, not a change.
-    if (runAsRaw !== undefined) {
+    if (namesAnOwner(ownerRequest)) {
       await recordOwnerSet({
         auditEvents,
         tenantId,
@@ -478,6 +480,7 @@ export function webhooksRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...(resolved.projectAccount === true && { projectAccount: true }),
       });
     }
     if (tools.kind === 'ok' && tools.value.length > 0) {
@@ -848,7 +851,8 @@ export function webhooksRouter(
     );
     if (refused !== undefined) return refused;
     // The caller takes it over, or names a service account with
-    // `runAsServiceAccountId` in an optional body (gated by `act_as`).
+    // `runAsServiceAccountId` in an optional body (gated by `act_as`), or
+    // the project's own account with `runAsProject`.
     const parsed = await parseJsonObject(c, requestId, { allowEmpty: true });
     if (parsed.kind === 'err') return parsed.response;
     if ('toolsAllowedUnattended' in parsed.value) {
@@ -858,13 +862,14 @@ export function webhooksRouter(
         "a take-over keeps the trigger's `toolsAllowedUnattended`: change it with PATCH",
       );
     }
-    const runAsRaw = parsed.value.runAsServiceAccountId;
-    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
-      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
-    }
+    const ownerRequest = ownerRequestOf(
+      parsed.value,
+      found.value.projectId as unknown as string | undefined,
+    );
+    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
     const resolved = await resolveTriggerOwner(
       c,
-      runAsRaw as string | undefined,
+      ownerRequest,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -887,6 +892,7 @@ export function webhooksRouter(
       ...(found.value.toolsAllowedUnattended !== undefined && {
         toolsAllowedUnattended: found.value.toolsAllowedUnattended,
       }),
+      ...(resolved.projectAccount === true && { projectAccount: true }),
     });
     tellTakenOver(c, ownerNotices, owned(found.value), 'webhook');
     return webhookJson(c, result.value as WebhookTriggerRecord);
@@ -1073,7 +1079,7 @@ function parseSignature(
 
 function serializeWebhook(
   r: WebhookTriggerRecord,
-  names: ReadonlyMap<string, string>,
+  names: ReadonlyMap<string, OwnerFacts>,
   receiveUrl: WebhooksRouterOptions['receiveUrl'],
 ): Record<string, unknown> {
   return {
