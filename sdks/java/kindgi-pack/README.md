@@ -65,6 +65,13 @@ step can't wait. A webhook trigger or a schedule whose
 that, in its own runs only. A run a person starts is unaffected. Left unset,
 nothing changes.
 
+`resultIsOutsideData(true)` says the tool's results are text from outside that
+nobody checked, such as a mail someone sent or a page a search found. An agent
+reads each result of the tool as data, not instructions, in that turn and in
+every later turn's history. It changes what the model is told, not what the
+tool may do: pair it with approvals for anything an agent could do with what it
+read. Left unset, it counts as `false`.
+
 ## The pack
 
 A pack is a directory with a `kindgi.config.json`, usually the root of your

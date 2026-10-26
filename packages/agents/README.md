@@ -36,7 +36,7 @@ Keep an agent a piece of data that can be versioned, stored, and pinned by `{ id
     - Provenance recorded before the park isn't rebuilt.
     - Errors:
       - `run-snapshot-missing` when no snapshot was stored;
-      - `run-journal-unavailable` when the journal can't be read;
+      - `run-journal-unavailable` (`RunJournalUnavailableError`) when the journal can't be read; resuming again may work;
       - `capability-routing-failed` when the turn's provider or model is no longer registered or allowed.
   - **`InvokeAgentError`** — the `AgentError` variants plus:
     - `UnresolvedToolError` and `tool-version-unresolvable`;
@@ -45,10 +45,13 @@ Keep an agent a piece of data that can be versioned, stored, and pinned by `{ id
     - `BudgetExceededError` (`kind`: `steps` or `cost`);
     - `RateLimitExceededError` (`code: 'rate-limit-exceeded'`): a budget kept per tenant refused work the turn needed (its template renders, its schema compiles); the same turn may run after `retryAfterMs`;
     - `AgentTurnAbortedError` (`reason`: `external`, or `timeout` when `maxWallMs` elapses);
-    - `HitlRequiredError`, `GuardrailViolationError` and `UnresolvedGuardrailError`;
+    - `HitlRequiredError`;
+    - `HitlRejectedError` (`hitl-rejected`: a reviewer rejected the turn at its session gate, with their `rationale` when they gave one), `HitlCancelledError` (`hitl-cancelled`: nobody decided in time, with the wait's `reason`) and `HitlWithdrawnError` (`hitl-withdrawn`: a reviewer withdrew the approval);
+    - `GuardrailViolationError` and `UnresolvedGuardrailError`;
     - `OutputSchemaViolationError` (`code: 'output-schema-violation'`, with the last attempt's `errors` and the `attempts` checked): the final answer still doesn't fit the agent's `output` schema after the allowed repairs;
     - `TenantPolicyUnavailableError` (`code: 'tenant-policy-unavailable'`, with the `policyKind`): a tenant policy the turn must apply could not be evaluated, so the turn fails rather than run without it;
     - `RunSnapshotError` (`code`: `run-snapshot-missing`, or `run-snapshot-unreadable` when resuming again may work): a turn being resumed can't be rebuilt from its snapshot;
+    - `RunJournalUnavailableError` (`code: 'run-journal-unavailable'`): a turn being resumed can't read its run's journal (a passing storage error), so resuming again may work;
     - `SemanticUnavailableError` (`code: 'semantic-unavailable'`, with the `intent`'s position in `retrieval`): a retrieval intent searches by meaning and the runtime has no embeddings;
     - `ApprovalsPendingLimitError` (`code: 'approvals-pending-limit'`): a gate asked for an approval past the tenant's limit on approvals waiting;
     - `TurnMemoryLimitReachedError` (`code: 'turn-memory-limit-reached'`, with the `limit`, `tenant` or `server`): the turn holds more memory than that limit leaves it.

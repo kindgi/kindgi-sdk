@@ -437,6 +437,35 @@ export interface HitlRequiredError {
   readonly approvalId?: string;
 }
 
+/**
+ * A reviewer rejected the turn at its session approval gate; in a replay,
+ * the past run's reviewer did. `rationale` is the reviewer's, when they
+ * gave one.
+ */
+export interface HitlRejectedError {
+  readonly code: 'hitl-rejected';
+  readonly message: string;
+  readonly rationale?: string;
+}
+
+/**
+ * Nobody decided at an approval gate in time: its approval expired at the
+ * `admin` role, or its wait was cancelled another way. `reason` is the
+ * wait's (`timeout`, …).
+ */
+export interface HitlCancelledError {
+  readonly code: 'hitl-cancelled';
+  readonly message: string;
+  readonly reason: string;
+}
+
+/** A reviewer withdrew an approval gate's request (`reason: 'approval-withdrawn'`). */
+export interface HitlWithdrawnError {
+  readonly code: 'hitl-withdrawn';
+  readonly message: string;
+  readonly reason: string;
+}
+
 /** Emitted when the agent references guardrail IDs not in the registry. */
 export interface UnresolvedGuardrailError {
   readonly code: 'unresolved-guardrail';

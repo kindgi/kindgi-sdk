@@ -413,8 +413,8 @@ approval shows the account it acts as.
 - **In a run you started,** the agent's own approval settings decide
   ([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
 - **In a run no person started,** such as a schedule's or a webhook's, a
-  tool that changes something as a person waits for that person's yes. A
-  tool counts as one when it uses an `as: 'person'` connection and isn't
+  tool that uses a person's connection waits for that person's yes, reads
+  included: one with an `as: 'person'` connection waits even when it's
   marked `mutating: false`. The agent's rules can't lift it; only the
   schedule's or webhook's own list of
   [tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)
@@ -435,7 +435,7 @@ With reviewer email on, only they're emailed about it
 ([Reviewer email](../../approvals/decide-an-approval/#reviewer-email)).
 
 **A flow's tool step** in a run no person started can't wait for that yes.
-A step whose tool changes things with a person's connection fails before
+A step whose tool uses a person's connection fails before
 the tool runs, with `needs-a-person`
 ([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/#in-a-flow)).
 Call the tool from an agent step instead.

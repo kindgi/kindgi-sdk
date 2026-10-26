@@ -262,6 +262,21 @@ describe('a call to a tool that pauses', () => {
   });
 });
 
+describe('a call to a tool whose results are outside data (`resultIsOutsideData`)', () => {
+  const outside = (): AnyTool =>
+    ({ ...pausingTool(() => ANSWER, false).tool, resultIsOutsideData: true }) as unknown as AnyTool;
+
+  test('its result is stored marked as from outside, and the model reads it as data', async () => {
+    const turn = await step(outside(), async () => ANSWER, { records: new Map() });
+    expect(turn.waits).toEqual([]);
+    const stored = turn.appended.find((m) => m.role === 'tool');
+    expect(stored).toMatchObject({ content: ANSWER, fromEvent: true });
+    const [message] = toolMessages(turn.outcome);
+    expect(message?.content).toBe(formatEventForPrompt(JSON.stringify(ANSWER)));
+    expect(message?.content.match(/<\/event>/g)).toHaveLength(1);
+  });
+});
+
 describe('the system message of an agent with a tool that pauses', () => {
   async function firstMessages(
     tool: AnyTool,
@@ -301,6 +316,15 @@ describe('the system message of an agent with a tool that pauses', () => {
     expect(system?.content).toContain(EVENT_DATA_RULE);
     const [plain] = await firstMessages(pausingTool(() => ANSWER, false).tool);
     expect(plain?.content).not.toContain(EVENT_DATA_RULE);
+  });
+
+  test('says it from the turn’s start, too, for a tool whose results are outside data', async () => {
+    const tool = {
+      ...pausingTool(() => ANSWER, false).tool,
+      resultIsOutsideData: true,
+    } as unknown as AnyTool;
+    const [system] = await firstMessages(tool);
+    expect(system?.content).toContain(EVENT_DATA_RULE);
   });
 
   test("keeps an earlier turn's answer from outside as data", async () => {

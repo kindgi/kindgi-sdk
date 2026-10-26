@@ -13,6 +13,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
+  says the tool's results are text from outside that nobody checked, such as a
+  mail someone sent or a page a search found. An agent reads each result of the
+  tool as data, not instructions, in that turn and in every later turn's
+  history. It changes what the model is told, not what the tool may do: pair it
+  with approvals for anything an agent could do with what it read. The pack's
+  index carries it as `resultIsOutsideData`; left out, nothing changes.
+
 - `kindgi`: **a tool's schema derived from a model or a type is checked as
   the runtime compiles it, as one given as a dict is.** `@tool` and
   `http_tool` raise `DefinitionError` for a derived input or output schema
