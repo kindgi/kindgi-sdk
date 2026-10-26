@@ -69,11 +69,12 @@ first project that publishes it. Sending, labelling and posting are
 `mutating`, and wait for a person's yes in a run no person started.
 
 A reply goes to the one address the mail asks for, its Reply-To, else
-its From, and the call's `to` must name it: a reply to a mail that names
-more than one address, none, one that isn't an address, or the mailbox's
-own is refused, and sends nothing. The sender of a mail chooses both
-headers, so an agent that replies mustn't give out an order's details on
-the From address alone.
+its From, and the call's `to` must name it. A Reply-To that names no
+address, such as an empty group, counts as none. A reply to a mail that
+names more than one address, none, one that isn't an address, or the
+mailbox's own is refused, and sends nothing. The sender of a mail chooses
+both headers, so an agent that replies mustn't give out an order's details
+on the From address alone.
 
 A mail tool acts in the person's own mailbox. With `as: 'company'` it uses
 the company's instead, connected by signing in as that mailbox

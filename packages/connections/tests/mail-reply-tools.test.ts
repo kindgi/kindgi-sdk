@@ -12,6 +12,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { type GmailReplyInput, gmailReply } from '../src/google-tools.js';
+import { isMailAddress } from '../src/mail-reply.js';
 import { replyRefOf } from '../src/mail.js';
 import { type OutlookReplyInput, outlookReply } from '../src/microsoft-tools.js';
 
@@ -170,6 +171,15 @@ describe('gmailReply', () => {
     expect(header(sent[0]?.message ?? '', 'Subject')).toBe('RE: Order 1042');
   });
 
+  it('a Reply-To that names no address is none: the reply goes to its From', async () => {
+    for (const replyTo of ['', 'undisclosed-recipients:;', 'Orders']) {
+      const { sent } = gmailAnswering(answered({ ...HEADERS, 'Reply-To': replyTo }));
+      const r = await invokeToolForTest(tool, { ...REPLY, to: 'bo@acme.test' }, ctx());
+      expect(r.kind, replyTo).toBe('ok');
+      expect(header(sent[0]?.message ?? '', 'To')).toBe('bo@acme.test');
+    }
+  });
+
   it('each of these is one address, parsed as the read parses it', async () => {
     for (const [headers, to] of [
       [{ 'Reply-To': '"Doe, Jane" <jane@example.com>' }, 'jane@example.com'],
@@ -185,11 +195,20 @@ describe('gmailReply', () => {
     }
   });
 
-  it('refuses, and sends nothing, when the mail names two addresses or none, its own, or another than `to`; the refusal names the one it asks for', async () => {
+  it("refuses, and sends nothing, when the mail names two addresses, none, one that isn't an address, its own, or another than `to`; the refusal names the one it asks for", async () => {
     const own = { 'Reply-To': undefined, From: `Ana <${OWN.toUpperCase()}>` };
     for (const [headers, to, says] of [
       [{ 'Reply-To': 'a@acme.test, b@acme.test' }, 'a@acme.test', 'Reply-To names 2 addresses'],
-      [{ 'Reply-To': 'undisclosed-recipients:;' }, 'bo@acme.test', 'Reply-To names no address'],
+      [
+        { 'Reply-To': undefined, From: 'undisclosed-recipients:;' },
+        'bo@acme.test',
+        'From names no address',
+      ],
+      [
+        { 'Reply-To': 'Bo <bo@localhost>' },
+        'bo@acme.test',
+        "Reply-To isn't an address a reply can go to",
+      ],
       [own, OWN, "From is this mailbox's own address"],
       [{}, 'eve@evil.test', 'The mail asks for replies to orders@acme.test (its Reply-To)'],
       // Reply-To wins over From: a `to` naming the From is refused.
@@ -206,12 +225,20 @@ describe('gmailReply', () => {
     }
   });
 
-  it("refuses a value of the mail's that would carry a line break into the reply's headers, once unfolded and decoded", async () => {
+  it("refuses a value of the mail's that would carry a line break into the reply's headers, once unfolded and decoded, and an id that isn't <…> or runs past 900", async () => {
     for (const [headers, says] of [
       [{ Subject: '=?UTF-8?Q?Hi=0D=0ABcc:_eve@evil.test?=' }, 'Subject has a line break'],
       [{ References: '<m0@acme.test> =?UTF-8?Q?=0D=0A?=' }, "References isn't message ids"],
+      [{ References: '<m0@acme.test> m1@acme.test' }, "References isn't message ids"],
+      [{ References: '<m0@acme.test> <m<1@acme.test>' }, "References isn't message ids"],
+      [{ References: '<m0@acme.test> <m1>@acme.test>' }, "References isn't message ids"],
+      [{ References: '<m0@acme.test> <>' }, "References isn't message ids"],
+      [{ References: `<${'r'.repeat(890)}@acme.test>` }, 'References has an id over 900'],
       [{ 'Message-ID': '<m2@acme.test>\r\nBcc: eve@evil.test' }, 'Message-ID has a line break'],
       [{ 'Message-ID': 'm2@acme.test' }, "Message-ID isn't message ids"],
+      [{ 'Message-ID': '<m<2@acme.test>' }, "Message-ID isn't message ids"],
+      [{ 'Message-ID': '<m>2@acme.test>' }, "Message-ID isn't message ids"],
+      [{ 'Message-ID': '<m2 @acme.test>' }, "Message-ID isn't message ids"],
       [{ 'Message-ID': `<${'m'.repeat(890)}@acme.test>` }, 'Message-ID has an id over 900'],
     ] as const) {
       const { sent } = gmailAnswering(answered({ ...HEADERS, ...headers }));
@@ -221,20 +248,35 @@ describe('gmailReply', () => {
     }
   });
 
-  it('a folded References is unfolded and kept', async () => {
-    const { sent } = gmailAnswering(
-      answered({
-        ...HEADERS,
-        References: '<m0@acme.test>\r\n <m1@acme.test>\r\n\t<m1b@acme.test>',
-      }),
-    );
-    expect((await invokeToolForTest(tool, REPLY, ctx())).kind).toBe('ok');
-    expect(header(sent[0]?.message ?? '', 'References')).toBe(
-      '<m0@acme.test> <m1@acme.test> <m1b@acme.test> <m2@acme.test>',
-    );
+  it('a folded References is unfolded and kept, and ids that touch are each kept', async () => {
+    for (const references of [
+      '<m0@acme.test>\r\n <m1@acme.test>\r\n\t<m1b@acme.test>',
+      '<m0@acme.test><m1@acme.test>\r\n\t<m1b@acme.test>',
+    ]) {
+      const { sent } = gmailAnswering(answered({ ...HEADERS, References: references }));
+      expect((await invokeToolForTest(tool, REPLY, ctx())).kind, references).toBe('ok');
+      expect(header(sent[0]?.message ?? '', 'References'), references).toBe(
+        '<m0@acme.test> <m1@acme.test> <m1b@acme.test> <m2@acme.test>',
+      );
+    }
   });
 
-  it('a References of 500 ids gives 20, the first and the newest, folded with no line over 998; a 900-character subject stays 900 with Re:', async () => {
+  it('a mail with no Message-ID, or a blank one, gets no In-Reply-To, and its own References, or none', async () => {
+    const { 'Message-ID': _, ...noId } = HEADERS;
+    for (const headers of [noId, { ...noId, 'Message-ID': ' ' }]) {
+      let { sent } = gmailAnswering(answered(headers));
+      expect((await invokeToolForTest(tool, REPLY, ctx())).kind).toBe('ok');
+      expect(header(sent[0]?.message ?? '', 'In-Reply-To')).toBeUndefined();
+      expect(header(sent[0]?.message ?? '', 'References')).toBe('<m0@acme.test> <m1@acme.test>');
+      const { References: __, ...none } = headers;
+      ({ sent } = gmailAnswering(answered(none)));
+      expect((await invokeToolForTest(tool, REPLY, ctx())).kind).toBe('ok');
+      expect(sent[0]?.message).toMatch(/^To: orders@acme\.test\r\n/);
+      expect(sent[0]?.message).not.toMatch(/^(?:In-Reply-To|References):/m);
+    }
+  });
+
+  it('a References of 500 ids gives 20, the first and the newest; a 900-character subject stays 900 with Re:', async () => {
     const references = Array.from({ length: 500 }, (_, i) => `<id${i}@acme.test>`);
     const { sent } = gmailAnswering(
       answered({ ...HEADERS, References: references.join(' '), Subject: 's'.repeat(900) }),
@@ -246,8 +288,23 @@ describe('gmailReply', () => {
     expect(ids[0]).toBe('<id0@acme.test>');
     expect(ids.slice(1, -1)).toEqual(references.slice(-18));
     expect(ids.at(-1)).toBe('<m2@acme.test>');
-    for (const line of m.split('\r\n')) expect(line.length).toBeLessThanOrEqual(998);
     expect(header(m, 'Subject')).toBe(`Re: ${'s'.repeat(896)}`);
+  });
+
+  it('References go one id to a line, so ids near 900 characters keep each line under 998', async () => {
+    const references = Array.from(
+      { length: 25 },
+      (_, i) => `<${String(i).padStart(2, '0')}${'r'.repeat(836)}@acme.test>`,
+    );
+    const { sent } = gmailAnswering(answered({ ...HEADERS, References: references.join(' ') }));
+    expect((await invokeToolForTest(tool, REPLY, ctx())).kind).toBe('ok');
+    const m = sent[0]?.message ?? '';
+    expect(header(m, 'References')?.split(' ')).toEqual([
+      references[0],
+      ...references.slice(-18),
+      '<m2@acme.test>',
+    ]);
+    for (const line of m.split('\r\n')) expect(line.length).toBeLessThanOrEqual(998);
   });
 
   it('a call outside a run sends no mark', async () => {
@@ -295,6 +352,9 @@ describe('gmailReply', () => {
         toolContextForTest(ctx()),
       ),
     ).rejects.toThrow("`to` isn't an address a reply can go to.");
+    await expect(
+      tool.handler({ ...REPLY, inReplyTo: '../profile' }, toolContextForTest(ctx())),
+    ).rejects.toThrow("That isn't a message id gmailMessagesList gives.");
     expect(reads).toHaveLength(0);
   });
 
@@ -391,7 +451,7 @@ describe('outlookReply', () => {
     });
   });
 
-  it('reads who the message asks replies to go to, then posts the comment to its /reply, to that one address', async () => {
+  it('reads who the message asks replies to go to, then posts the body, as text, to its /reply, to that one address', async () => {
     const calls = graphAnswering(MESSAGE);
     const r = await invokeToolForTest(tool, { ...REPLY, to: 'ORDERS@acme.test' }, ctx());
     expect(r).toEqual({ kind: 'ok', value: { accepted: true } });
@@ -404,31 +464,51 @@ describe('outlookReply', () => {
       url: `${GRAPH}/me/messages/AAMkAD1/reply`,
       method: 'POST',
       headers: { prefer: 'IdType="ImmutableId"' },
-      body: {
-        message: { toRecipients: [{ emailAddress: { address: 'ORDERS@acme.test' } }] },
-        comment: REPLY.body,
+    });
+    // The whole request: one recipient, the body as text, and no `comment`.
+    expect(calls[1]?.body).toEqual({
+      message: {
+        toRecipients: [{ emailAddress: { address: 'ORDERS@acme.test' } }],
+        body: { contentType: 'text', content: REPLY.body },
       },
     });
   });
 
-  it('with no Reply-To, replies to its From', async () => {
-    const calls = graphAnswering({ ...MESSAGE, replyTo: [] });
-    const r = await invokeToolForTest(tool, { ...REPLY, to: 'bo@acme.test' }, ctx());
-    expect(r.kind).toBe('ok');
-    expect(posts(calls)[0]?.body).toMatchObject({
-      message: { toRecipients: [{ emailAddress: { address: 'bo@acme.test' } }] },
-    });
+  it('with no Reply-To, or one that names no address, replies to its From', async () => {
+    for (const replyTo of [[], undefined, [address('')]]) {
+      const calls = graphAnswering({ ...MESSAGE, replyTo });
+      const r = await invokeToolForTest(tool, { ...REPLY, to: 'bo@acme.test' }, ctx());
+      expect(r.kind, JSON.stringify(replyTo)).toBe('ok');
+      expect(posts(calls)[0]?.body).toMatchObject({
+        message: { toRecipients: [{ emailAddress: { address: 'bo@acme.test' } }] },
+      });
+    }
   });
 
-  it('refuses, and sends nothing, when the mail names two addresses or none, its own, or another than `to`; the refusal names the one it asks for', async () => {
+  it("refuses, and sends nothing, when the mail names two addresses, none, one that isn't an address, its own, or another than `to`; the refusal names the one it asks for", async () => {
     for (const [message, to, says] of [
       [
         { replyTo: [address('a@acme.test'), address('b@acme.test')] },
         'a@acme.test',
         'Reply-To names 2 addresses',
       ],
-      [{ replyTo: [address('')] }, 'bo@acme.test', "Reply-To isn't an address a reply can go to"],
+      // An entry with no address still counts, beside one that has one.
+      [
+        { replyTo: [address('orders@acme.test'), address('')] },
+        'orders@acme.test',
+        'Reply-To names 2 addresses',
+      ],
+      [
+        { replyTo: [address('bo@localhost')] },
+        'bo@acme.test',
+        "Reply-To isn't an address a reply can go to",
+      ],
       [{ replyTo: [], from: undefined }, 'bo@acme.test', 'From names no address'],
+      [
+        { replyTo: [], from: address('') },
+        'bo@acme.test',
+        "From isn't an address a reply can go to",
+      ],
       [{ replyTo: [], from: address('Ana@Acme.test') }, OWN, "From is this mailbox's own address"],
       [{}, 'eve@evil.test', 'The mail asks for replies to orders@acme.test (its Reply-To)'],
       [{}, 'bo@acme.test', 'The mail asks for replies to orders@acme.test (its Reply-To)'],
@@ -441,13 +521,16 @@ describe('outlookReply', () => {
     }
   });
 
-  it('`to` is a bare address: the schema refuses others, and so does the handler called directly', async () => {
+  it('`to` is a bare address, and the message id one Graph gives: the schema refuses others, and so does the handler called directly', async () => {
     const calls = graphAnswering(MESSAGE);
     const r = await invokeToolForTest(tool, { ...REPLY, to: 'Orders <orders@acme.test>' }, ctx());
     expect(r.kind === 'err' && r.error.code).toBe('input-validation-failed');
     await expect(
       tool.handler({ ...REPLY, to: 'orders@acme.test, eve@evil.test' }, toolContextForTest(ctx())),
     ).rejects.toThrow("`to` isn't an address a reply can go to.");
+    await expect(
+      tool.handler({ ...REPLY, inReplyTo: '../me' }, toolContextForTest(ctx())),
+    ).rejects.toThrow("That isn't a message id outlookMessagesList gives.");
     expect(calls).toHaveLength(0);
   });
 
@@ -481,5 +564,52 @@ describe('outlookReply', () => {
       value: { accepted: true },
     });
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe('isMailAddress', () => {
+  it("takes the addresses the reply tools' `to` schema takes, and no others", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    const atAcme = (length: number) => `${'a'.repeat(length - '@acme.test'.length)}@acme.test`;
+    const gmail = gmailReply({ id: 'acme.gmail.reply' });
+    const outlook = outlookReply({ id: 'acme.outlook.reply' });
+    const calls = {
+      gmailReply: (to: string) =>
+        invokeToolForTest(
+          gmail,
+          { inReplyTo: 'msg-1', to, body: 'Hi' },
+          { connections: { mail: connection('google') }, runId: 'run-1' },
+        ),
+      outlookReply: (to: string) =>
+        invokeToolForTest(
+          outlook,
+          { inReplyTo: 'AAMkAD1', to, body: 'Hi' },
+          { connections: { mail: connection('microsoft') }, runId: 'run-1' },
+        ),
+    };
+    for (const to of [
+      'orders@acme.test',
+      'o.b+x@sub.acme.test',
+      atAcme(254),
+      atAcme(255),
+      'bo@localhost',
+      '"bo smith"@acme.test',
+      'bo..x@acme.test',
+      '.bo@acme.test',
+      'bo@acme.test.',
+      'bo@-acme.test',
+      'bø@acme.test',
+      'bo@acme.test, eve@evil.test',
+      'Bo <bo@acme.test>',
+    ]) {
+      for (const [name, call] of Object.entries(calls)) {
+        const r = await call(to);
+        const schemaTakes = !(r.kind === 'err' && r.error.code === 'input-validation-failed');
+        expect(isMailAddress(to), `${name} ${to}`).toBe(schemaTakes);
+      }
+    }
   });
 });

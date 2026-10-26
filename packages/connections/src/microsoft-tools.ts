@@ -345,9 +345,9 @@ export interface OutlookReplyOutput {
 
 const REPLY_SAYS: Readonly<Record<MailboxOwner, string>> = {
   person:
-    "Reply with plain text to one message in the person's own Outlook mailbox (the Microsoft account they connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Microsoft adds the From line: the sender is always that person. Microsoft gives no id for the reply; it's kept in their Sent Items. In a run no person started, each reply waits for that person's yes.",
+    "Reply with plain text to one message in the person's own Outlook mailbox (the Microsoft account they connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. A Reply-To that names no address counts as none. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, or this mailbox's own, or neither names one. Microsoft adds the From line: the sender is always that person. Microsoft gives no id for the reply; it's kept in their Sent Items. In a run no person started, each reply waits for that person's yes.",
   company:
-    "Reply with plain text to one message in the company's Outlook mailbox (the one a tenant admin connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Microsoft adds the From line: the sender is always that mailbox. Microsoft gives no id for the reply; it's kept in the mailbox's Sent Items. In a run no person started, each reply waits for a yes.",
+    "Reply with plain text to one message in the company's Outlook mailbox (the one a tenant admin connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. A Reply-To that names no address counts as none. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, or this mailbox's own, or neither names one. Microsoft adds the From line: the sender is always that mailbox. Microsoft gives no id for the reply; it's kept in the mailbox's Sent Items. In a run no person started, each reply waits for a yes.",
 };
 
 const outlookReplySpec = (
@@ -401,12 +401,13 @@ const outlookReplySpec = (
         `${message}?${query({ $select: 'from,replyTo' })}`,
         IMMUTABLE_IDS,
       )) as RawMessage;
-      // Graph gives both structured; an empty `replyTo` is none.
-      const replyTo = answered.replyTo ?? [];
+      // Graph gives both structured, each entry as it is: one with no
+      // address is `undefined` here.
       replyAddress(
-        replyTo.length > 0
-          ? { name: 'Reply-To', people: replyTo.map(person) }
-          : { name: 'From', people: answered.from != null ? [person(answered.from)] : [] },
+        {
+          replyTo: (answered.replyTo ?? []).map(person),
+          from: answered.from != null ? [person(answered.from)] : [],
+        },
         input.to,
         ctx.connections?.mail?.account.label,
       );
@@ -418,11 +419,17 @@ const outlookReplySpec = (
         url: `${message}/reply`,
         method: 'POST',
         headers: { 'content-type': 'application/json', prefer: IMMUTABLE_IDS },
-        // The JSON form: Graph keeps the message's subject and thread, and
-        // `toRecipients` replaces whom it would answer with the one address.
+        // The JSON form: Graph keeps the message's subject and thread.
+        // Microsoft's page tells a JSON-form reply to go to the message's
+        // `replyTo`, not its `from`; `toRecipients` is that one address,
+        // whichever way Graph combines it with its own. The body goes as
+        // `text`, in place of a `comment` (the page takes one or the
+        // other), so nothing in it is read as HTML.
         body: JSON.stringify({
-          message: { toRecipients: [recipient(input.to)] },
-          comment: input.body,
+          message: {
+            toRecipients: [recipient(input.to)],
+            body: { contentType: 'text', content: input.body },
+          },
         }),
       });
       if (res.status !== 202) {

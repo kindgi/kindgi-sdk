@@ -3,10 +3,10 @@
 
 /**
  * Where a reply goes, for both reply tools: the one address the mail it
- * answers names, its `Reply-To` if it has one, else its `From`, as a mail
- * client works it out. The call's `to` must name that address, so the
- * model can't steer a reply elsewhere, and a person who approves a reply
- * sees where it goes.
+ * answers names, its `Reply-To` if that names an address, else its `From`,
+ * as a mail client works it out. The call's `to` must name that address,
+ * so the model can't steer a reply elsewhere, and a person who approves a
+ * reply sees where it goes.
  */
 
 import type { MailPerson } from './mail.js';
@@ -20,21 +20,26 @@ export function isMailAddress(value: string): boolean {
   return value.length <= 254 && /^[^\r\n,;<>"]+$/.test(value) && EMAIL.test(value);
 }
 
-/** Which header of the mail names where a reply goes, and the people it names (`undefined` for one that isn't an address). */
-export interface ReplyHeader {
-  readonly name: 'Reply-To' | 'From';
-  readonly people: readonly (MailPerson | undefined)[];
+/** The people a mail's `Reply-To` and `From` name (`undefined` for an entry that isn't an address). */
+export interface ReplyHeaders {
+  readonly replyTo: readonly (MailPerson | undefined)[];
+  readonly from: readonly (MailPerson | undefined)[];
 }
 
 /**
- * The address a reply goes to: the one `header` names. Refused, before
- * anything is sent, when it names none or more than one, when that one
- * isn't an address a mail tool takes, when it's the mailbox's own (`own`,
- * the connection's account), or when `to` isn't it (in any letter case).
- * The refusal names the address the mail asks for.
+ * The address a reply goes to: the one the `Reply-To` names, else the one
+ * the `From` names. A `Reply-To` that names no address (none there, blank,
+ * an empty group, or nothing the read can parse) is none, as the read
+ * shows it. Refused, before anything is sent, when the header it goes by
+ * names more than one, or the `From` none, when that one isn't an address
+ * a mail tool takes, when it's the mailbox's own (`own`, the connection's
+ * account), or when `to` isn't it (in any letter case). The refusal names
+ * the address the mail asks for.
  */
-export function replyAddress(header: ReplyHeader, to: string, own: string | undefined): string {
-  const { name, people } = header;
+export function replyAddress(headers: ReplyHeaders, to: string, own: string | undefined): string {
+  const byReplyTo = headers.replyTo.some((person) => person !== undefined);
+  const name = byReplyTo ? 'Reply-To' : 'From';
+  const people = byReplyTo ? headers.replyTo : headers.from;
   if (people.length !== 1) {
     const names = people.length === 0 ? 'no address' : `${people.length} addresses`;
     throw new Error(

@@ -1838,7 +1838,7 @@
     "version": "1.0.0",
     "definition": {
       "id": "acme.gmailreply",
-      "description": "Reply with plain text to one message in the person's own Gmail mailbox (the Google account they connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Gmail adds the From line: the sender is always that person. Returns the reply's id and its thread's. In a run no person started, each reply waits for that person's yes.",
+      "description": "Reply with plain text to one message in the person's own Gmail mailbox (the Google account they connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. A Reply-To that names no address counts as none. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, or this mailbox's own, or neither names one. Gmail adds the From line: the sender is always that person. Returns the reply's id and its thread's. In a run no person started, each reply waits for that person's yes.",
       "version": "1.0.0",
       "input": {
         "type": "object",
@@ -1913,7 +1913,7 @@
     "version": "1.0.0",
     "definition": {
       "id": "acme.gmailreply-as-company",
-      "description": "Reply with plain text to one message in the company's Gmail mailbox (the one a tenant admin connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Gmail adds the From line: the sender is always that mailbox. Returns the reply's id and its thread's. In a run no person started, each reply waits for a yes.",
+      "description": "Reply with plain text to one message in the company's Gmail mailbox (the one a tenant admin connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. A Reply-To that names no address counts as none. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, or this mailbox's own, or neither names one. Gmail adds the From line: the sender is always that mailbox. Returns the reply's id and its thread's. In a run no person started, each reply waits for a yes.",
       "version": "1.0.0",
       "input": {
         "type": "object",
@@ -1988,7 +1988,7 @@
     "version": "1.0.0",
     "definition": {
       "id": "acme.outlookreply",
-      "description": "Reply with plain text to one message in the person's own Outlook mailbox (the Microsoft account they connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Microsoft adds the From line: the sender is always that person. Microsoft gives no id for the reply; it's kept in their Sent Items. In a run no person started, each reply waits for that person's yes.",
+      "description": "Reply with plain text to one message in the person's own Outlook mailbox (the Microsoft account they connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. A Reply-To that names no address counts as none. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, or this mailbox's own, or neither names one. Microsoft adds the From line: the sender is always that person. Microsoft gives no id for the reply; it's kept in their Sent Items. In a run no person started, each reply waits for that person's yes.",
       "version": "1.0.0",
       "input": {
         "type": "object",
@@ -2060,7 +2060,7 @@
     "version": "1.0.0",
     "definition": {
       "id": "acme.outlookreply-as-company",
-      "description": "Reply with plain text to one message in the company's Outlook mailbox (the one a tenant admin connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Microsoft adds the From line: the sender is always that mailbox. Microsoft gives no id for the reply; it's kept in the mailbox's Sent Items. In a run no person started, each reply waits for a yes.",
+      "description": "Reply with plain text to one message in the company's Outlook mailbox (the one a tenant admin connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. A Reply-To that names no address counts as none. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, or this mailbox's own, or neither names one. Microsoft adds the From line: the sender is always that mailbox. Microsoft gives no id for the reply; it's kept in the mailbox's Sent Items. In a run no person started, each reply waits for a yes.",
       "version": "1.0.0",
       "input": {
         "type": "object",

@@ -331,9 +331,9 @@ export interface GmailReplyOutput {
 
 const REPLY_SAYS: Readonly<Record<MailboxOwner, string>> = {
   person:
-    "Reply with plain text to one message in the person's own Gmail mailbox (the Google account they connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Gmail adds the From line: the sender is always that person. Returns the reply's id and its thread's. In a run no person started, each reply waits for that person's yes.",
+    "Reply with plain text to one message in the person's own Gmail mailbox (the Google account they connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. A Reply-To that names no address counts as none. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, or this mailbox's own, or neither names one. Gmail adds the From line: the sender is always that person. Returns the reply's id and its thread's. In a run no person started, each reply waits for that person's yes.",
   company:
-    "Reply with plain text to one message in the company's Gmail mailbox (the one a tenant admin connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Gmail adds the From line: the sender is always that mailbox. Returns the reply's id and its thread's. In a run no person started, each reply waits for a yes.",
+    "Reply with plain text to one message in the company's Gmail mailbox (the one a tenant admin connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. A Reply-To that names no address counts as none. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, or this mailbox's own, or neither names one. Gmail adds the From line: the sender is always that mailbox. Returns the reply's id and its thread's. In a run no person started, each reply waits for a yes.",
 };
 
 /** The headers a reply reads from the message it answers. */
@@ -556,7 +556,7 @@ export function mimeMessage(m: GmailSendInput): string {
  * message id where one goes. The message's values go in only once
  * they're safe, as a send's own do:
  *
- * - `In-Reply-To` is its `Message-ID`, when it has one.
+ * - `In-Reply-To` is its `Message-ID`, when it has one that isn't blank.
  * - `References` is its `References` and its `Message-ID`, cut to 20 ids,
  *   the first and the newest 19, one id to a line, so no line passes 998
  *   characters (RFC 5322 §2.1.1). An id over 900 characters is refused.
@@ -575,11 +575,11 @@ function gmailReplyMessage(
     throw new Error('Gmail gave the message no thread: this tool sent nothing.');
   }
   const value = headerValues(answered.payload ?? {});
-  const replyTo = value('Reply-To');
   replyAddress(
-    replyTo !== undefined
-      ? { name: 'Reply-To', people: parseAddressList(replyTo) }
-      : { name: 'From', people: parseAddressList(value('From') ?? '') },
+    {
+      replyTo: parseAddressList(value('Reply-To') ?? ''),
+      from: parseAddressList(value('From') ?? ''),
+    },
     input.to,
     own,
   );
@@ -617,8 +617,14 @@ function replyIds(value: (name: string) => string | undefined): {
   readonly messageId: string | undefined;
   readonly references: readonly string[];
 } {
-  const messageId = value('Message-ID')?.trim();
-  const references = (value('References') ?? '').split(/[ \t]+/).filter((id) => id !== '');
+  // A blank Message-ID is none.
+  const messageId = value('Message-ID')?.trim() || undefined;
+  // Ids may touch (`<a@x><b@y>`, RFC 5322 §3.6.4); anything else beside them is refused.
+  const raw = value('References') ?? '';
+  const references = raw.match(/<[^<>\s]*>/g) ?? [];
+  if (!/^[ \t]*$/.test(raw.replace(/<[^<>\s]*>/g, ''))) {
+    throw new Error("The message's References isn't message ids (<…>): this tool sent nothing.");
+  }
   checkIds('Message-ID', messageId !== undefined ? [messageId] : []);
   checkIds('References', references);
   const ids = [...references, ...(messageId !== undefined ? [messageId] : [])];
@@ -629,6 +635,7 @@ function replyIds(value: (name: string) => string | undefined): {
   };
 }
 
+/** Refuses an id over 900 characters, or one that isn't `<…>` in printable ASCII. */
 function checkIds(name: string, ids: readonly string[]): void {
   for (const id of ids) {
     if (id.length > MESSAGE_ID_MAX) {
