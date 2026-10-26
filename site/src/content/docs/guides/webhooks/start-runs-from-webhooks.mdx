@@ -611,7 +611,8 @@ registered it, or the account named with
   them, and one with `--run-as` makes it shared.
 - **`kindgi webhooks list` says which:** its `RUNS AS` column shows the
   owner's name, else its id, and whether the trigger is personal or
-  shared, such as "Sam Lee (personal)".
+  shared, such as "Sam Lee (personal)". A trigger with no owner says
+  "no owner (an admin can take it over)".
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 - **A trigger registered with a token the runtime made at startup** is
