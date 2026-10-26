@@ -1102,7 +1102,19 @@ database:
    ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
    It holds every erasure so far, those made after the backup too. If no
    server answers, the backup's own ledger is all there is.
-2. **Bring the database back:**
+2. **Save the plan that goes back, before you bring the database back.**
+   Put `server_image`, and `pack_image`, back from the copy of
+   `prod.tfvars` you kept, then plan, and read it:
+
+   ```sh
+   terraform plan -var-file=prod.tfvars -out=back.tfplan
+   ```
+
+   The server runs its migrations each time one of its instances starts.
+   So apply this plan as soon as the database is back: an instance of the
+   new version that starts in between, on a restart or a scale-up, would
+   migrate the database forward again.
+3. **Bring the database back, then apply that plan at once:**
    - **From a backup:** restore it into the instance it came from. That
      overwrites everything on the instance, which is what going back
      needs:
@@ -1112,16 +1124,24 @@ database:
      gcloud sql backups restore <backup id> --restore-instance=$N
      ```
 
+     The new version serves until the apply, and a restore takes the
+     instance down for minutes. If the new version's revision started an
+     instance after the restore finished (its logs show it), restore once
+     more after the apply: by then only the old revision serves.
+
      With a database on a public IP, you can restore into a new instance
      instead, and move the server onto it, as **Restore Cloud SQL** under
-     [Operate it](#operate-it) says. Private-IP mode can't serve from
-     another instance.
+     [Operate it](#operate-it) says: set `database_instance` along with the
+     old images, and plan again for the apply. The server then moves and
+     goes back in one revision, so the new version never serves from the
+     restored instance. Private-IP mode can't serve from another instance.
    - **From an export:** make a fresh database on the instance, import the
      export into it as `kindgi`, and add a version of the server's database
      URL secret that names the fresh database, with the password set as in
-     [3. The secrets](#3-the-secrets), never in a command's arguments.
-     Don't change `database_name` instead: the module would drop the
-     migrated database, then fail to create the fresh one.
+     [3. The secrets](#3-the-secrets), never in a command's arguments. Add
+     that version last, right before the apply. Don't change
+     `database_name` instead: the module would drop the migrated database,
+     then fail to create the fresh one.
 
      ```sh
      gcloud sql databases create <fresh> --instance=<instance>
@@ -1129,8 +1149,13 @@ database:
        --database=<fresh> --user=kindgi
      ```
 
-3. **Put the old images back:** `server_image`, and `pack_image`, from the
-   copy of `prod.tfvars` you kept. Plan and apply, as in steps 6 and 7.
+   Then apply the saved plan:
+
+   ```sh
+   terraform apply back.tfplan
+   ```
+
+   If Terraform refuses it as stale, plan again and apply at once.
 4. **Replay the erasures before anyone uses it**
    ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
    A replay matches only when the server has its ledger key
