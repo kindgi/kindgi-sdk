@@ -448,6 +448,29 @@ describe('googleMail.read', () => {
     expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
   });
 
+  it("keeps the thread's order for messages that came in the same millisecond", async () => {
+    const at = '2026-10-25T11:00:00Z';
+    const { call } = gmail(() =>
+      Response.json({
+        id: 't1',
+        historyId: '9876543299',
+        messages: [
+          fullMessage('m1', 't1', { at: '2026-10-25T10:00:00Z' }),
+          fullMessage('s1', 't1', { at }),
+          fullMessage('s2', 't1', { at }),
+          fullMessage('m3', 't1', { at }),
+          fullMessage('s3', 't1', { at }),
+        ],
+      }),
+    );
+    const read = await googleMail.read(call, {
+      messageId: 'm3',
+      threadId: 't1',
+      budget: MAIL_THREAD_BUDGET,
+    });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['s2', 's1', 'm1']);
+  });
+
   it('leaves out a draft, and messages in the trash or spam', async () => {
     const { call } = gmail(() =>
       Response.json({
