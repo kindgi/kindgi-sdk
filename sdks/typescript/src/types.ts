@@ -2593,6 +2593,12 @@ export type McpEndpointConfig =
       readonly transport: 'stdio';
       readonly command: string;
       readonly args?: readonly string[];
+      /**
+       * Plain variables for the server's process, never a credential: a name
+       * such as `GITHUB_TOKEN`, `OPENAI_API_KEY` or `AWS_SECRET_ACCESS_KEY` is
+       * refused (`credential-in-env`); give it with `secretEnv`. Every value
+       * reads back as `[redacted]`, its name kept.
+       */
       readonly env?: Readonly<Record<string, string>>;
     }
   | {
@@ -2699,6 +2705,8 @@ export interface McpEndpoint {
   readonly secretRef?: McpEndpointSecretRef;
   /** How it signs in, when it isn't a plain bearer (see `RegisterMcpEndpointInput`). */
   readonly auth?: McpEndpointAuth;
+  /** A stdio server's secret variables, by reference (see `RegisterMcpEndpointInput`). */
+  readonly secretEnv?: Readonly<Record<string, McpEndpointSecretRef>>;
   /** Whether the run's `traceparent` is sent to the endpoint (see `RegisterMcpEndpointInput`). */
   readonly sendTraceparent?: boolean;
 }
@@ -2714,8 +2722,10 @@ export interface RegisterMcpEndpointInput {
   readonly transport: McpTransport;
   readonly config: McpEndpointConfig;
   /**
-   * The secret to authenticate with. A deployment refuses `stdio` endpoints
-   * (`403 host-access-denied`) unless it runs with `KINDGI_TENANT_HOST_ACCESS=local`.
+   * The secret sent as the endpoint's bearer. HTTP transports only: on
+   * `stdio` it's refused (`secret-ref-on-stdio`); use `secretEnv`. A
+   * deployment refuses `stdio` endpoints (`403 host-access-denied`) unless it
+   * runs with `KINDGI_TENANT_HOST_ACCESS=local`.
    */
   readonly secretRef?: McpEndpointSecretRef;
   /**
@@ -2726,6 +2736,13 @@ export interface RegisterMcpEndpointInput {
    * `auth` sends in `config.headers` too.
    */
   readonly auth?: McpEndpointAuth;
+  /**
+   * A stdio server's secrets, as variables of its process: each name
+   * (`GITHUB_TOKEN`) with the secret its value is read from when the runtime
+   * starts the server. 1 to 16 names, none also in `config.env`. `stdio`
+   * only: on an HTTP transport it's refused (`secret-env-on-http`).
+   */
+  readonly secretEnv?: Readonly<Record<string, McpEndpointSecretRef>>;
   /**
    * Send the W3C `traceparent` of the run calling a tool to the endpoint,
    * as a request header (ids only, never content). Default `false`. HTTP
