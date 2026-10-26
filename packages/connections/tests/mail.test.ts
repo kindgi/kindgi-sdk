@@ -9,6 +9,7 @@ import {
   isMailCallError,
   isMailScopeMissing,
   isReplyRef,
+  replyRefOf,
 } from '../src/mail.js';
 
 describe('MailCallError', () => {
@@ -81,5 +82,17 @@ describe('isReplyRef', () => {
     ]) {
       expect(isReplyRef(value)).toBe(false);
     }
+  });
+});
+
+describe('replyRefOf', () => {
+  it("is SHA-256's first 32 hex characters over the run id, the same for one run, other for two", () => {
+    expect(replyRefOf('run_01')).toBe('2118217d737b7ef413cde9791b633d32');
+    expect(replyRefOf('run_01')).toBe(replyRefOf('run_01'));
+    expect(replyRefOf('run_02')).not.toBe(replyRefOf('run_01'));
+    for (const runId of ['run_01', '', 'ü'.repeat(1000)]) {
+      expect(isReplyRef(replyRefOf(runId))).toBe(true);
+    }
+    expect(replyRefOf('run_01')).not.toContain('run_01');
   });
 });

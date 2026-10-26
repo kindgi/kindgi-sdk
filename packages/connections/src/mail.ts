@@ -10,6 +10,8 @@
  * and `fetch` they're given and keep nothing: the caller keeps the cursor.
  */
 
+import { createHash } from 'node:crypto';
+
 /** A mail address and the name shown with it. */
 export interface MailPerson {
   readonly address: string;
@@ -71,7 +73,17 @@ export interface MailMessage {
 /** The header a reply the agent sends carries its mark in. */
 export const REPLY_REF_HEADER = 'X-Reply-Ref';
 
-/** Whether a header's value is in a reply mark's form: 32 lowercase hex characters. */
+/**
+ * A run's reply mark, which each reply the run sends carries in
+ * {@link REPLY_REF_HEADER}: lowercase hex, the first 32 characters of
+ * SHA-256 over `reply-ref:v1:` and the run id. A hash, so the header
+ * never shows the run's id.
+ */
+export function replyRefOf(runId: string): string {
+  return createHash('sha256').update(`reply-ref:v1:${runId}`).digest('hex').slice(0, 32);
+}
+
+/** Whether a header's value is in a reply mark's form ({@link replyRefOf}'s): 32 lowercase hex characters. */
 export function isReplyRef(value: string): boolean {
   return /^[0-9a-f]{32}$/.test(value);
 }
