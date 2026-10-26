@@ -14,6 +14,7 @@ import { receivedAt } from './google-api.js';
 import {
   type MailTextUse,
   ThreadLines,
+  clippedPerson,
   cutQuote,
   cutText,
   decodeBytes,
@@ -21,6 +22,7 @@ import {
   htmlToText,
   isAutoSubmitted,
   listedAttachments,
+  listedRecipients,
   parseAddressList,
   trimLinks,
 } from './mail-text.js';
@@ -83,10 +85,12 @@ export function gmailMessage(
   return {
     id: typeof raw.id === 'string' ? raw.id : '',
     ...(typeof raw.threadId === 'string' && raw.threadId !== '' && { threadId: raw.threadId }),
-    ...(from !== undefined && { from }),
-    to: parseAddressList(header('To')),
-    cc: parseAddressList(header('Cc')),
-    replyTo: parseAddressList(header('Reply-To')),
+    ...(from !== undefined && { from: clippedPerson(from) }),
+    ...listedRecipients(
+      parseAddressList(header('To')),
+      parseAddressList(header('Cc')),
+      parseAddressList(header('Reply-To')),
+    ),
     subject: decodeEncodedWords(header('Subject')),
     receivedAt: receivedAt(raw.internalDate),
     body: body.text,

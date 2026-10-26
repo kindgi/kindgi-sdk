@@ -10,10 +10,12 @@
 import { AppRefused, type AppSend } from './app-request.js';
 import {
   type MailTextUse,
+  clippedPerson,
   cutText,
   htmlToText,
   isAutoSubmitted,
   listedAttachments,
+  listedRecipients,
   trimLinks,
 } from './mail-text.js';
 import type { MailAttachment, MailMessage, MailPerson } from './mail.js';
@@ -187,10 +189,8 @@ export function outlookMessage(
     id: raw.id,
     ...(typeof raw.conversationId === 'string' &&
       raw.conversationId !== '' && { threadId: raw.conversationId }),
-    ...(from !== undefined && { from }),
-    to: people(raw.toRecipients),
-    cc: people(raw.ccRecipients),
-    replyTo: people(raw.replyTo),
+    ...(from !== undefined && { from: clippedPerson(from) }),
+    ...listedRecipients(people(raw.toRecipients), people(raw.ccRecipients), people(raw.replyTo)),
     subject: raw.subject ?? '',
     receivedAt: raw.receivedDateTime ?? '',
     body: body.text,

@@ -34,11 +34,20 @@ export interface MailMessage {
   readonly id: string;
   /** The id the app groups its thread by: Gmail's `threadId`, Outlook's `conversationId`. */
   readonly threadId?: string;
-  /** Absent for a draft. */
+  /** Absent for a draft. Each person's address here is cut at 254 characters, and the name at 200. */
   readonly from?: MailPerson;
+  /** Its first 20 people. */
   readonly to: readonly MailPerson[];
+  /** How many people its To has past those 20. Absent when none. */
+  readonly toLeftOut?: number;
+  /** Its first 20 people. */
   readonly cc: readonly MailPerson[];
+  /** How many people its Cc has past those 20. Absent when none. */
+  readonly ccLeftOut?: number;
+  /** Its first 20 people. */
   readonly replyTo: readonly MailPerson[];
+  /** How many people its Reply-To has past those 20. Absent when none. */
+  readonly replyToLeftOut?: number;
   readonly subject: string;
   readonly receivedAt: string;
   /**

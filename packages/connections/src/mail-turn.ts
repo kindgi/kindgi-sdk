@@ -9,7 +9,7 @@
 
 import { createHash } from 'node:crypto';
 
-import { LIST_MAX, NAME_MAX, clipText, cutText } from './mail-text.js';
+import { ADDRESS_MAX, LIST_MAX, NAME_MAX, clipText, cutText } from './mail-text.js';
 import type { MailAttachment, MailMessage, MailPerson, MailTurn, MailTurnInput } from './mail.js';
 
 /**
@@ -177,17 +177,18 @@ function about(m: MailMessage, mailbox: string, subject: string): string {
 
 /** The new mail's To, Cc and Reply-To, those it has. */
 function recipients(mail: MailMessage): string {
-  const parts: [string, readonly MailPerson[]][] = [
-    ['To', mail.to],
-    ['Cc', mail.cc],
-    ['Reply-To', mail.replyTo],
+  const parts: [string, readonly MailPerson[], number | undefined][] = [
+    ['To', mail.to, mail.toLeftOut],
+    ['Cc', mail.cc, mail.ccLeftOut],
+    ['Reply-To', mail.replyTo, mail.replyToLeftOut],
   ];
   return parts
-    .filter(([, people]) => people.length > 0)
-    .map(
-      ([name, people]) =>
-        `${name}: ${listText(people.slice(0, LIST_MAX).map(personText), people.length - LIST_MAX)}`,
-    )
+    .map(([name, people, leftOut]) => {
+      const more = Math.max(people.length - LIST_MAX, 0) + (leftOut ?? 0);
+      return { name, listed: people.slice(0, LIST_MAX).map(personText), more };
+    })
+    .filter(({ listed, more }) => listed.length > 0 || more > 0)
+    .map(({ name, listed, more }) => `${name}: ${listText(listed, more)}`)
     .join(' · ');
 }
 
@@ -222,9 +223,6 @@ function sizeText(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-/** The longest address shown: no valid one is longer (RFC 5321). */
-const ADDRESS_MAX = 254;
 
 function personText(p: MailPerson): string {
   const address = headerText(p.address, ADDRESS_MAX);

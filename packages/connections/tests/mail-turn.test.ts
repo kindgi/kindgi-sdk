@@ -312,14 +312,18 @@ describe('mailTurn', () => {
         subject: long('t'),
         body: 'x'.repeat(100_000),
         to: people,
+        toLeftOut: Number.MAX_SAFE_INTEGER,
         cc: people,
+        ccLeftOut: Number.MAX_SAFE_INTEGER,
         replyTo: people,
+        replyToLeftOut: Number.MAX_SAFE_INTEGER,
         attachments: Array.from({ length: 30 }, () => ({
           name: long('n'),
           contentType: long('c'),
           size: 5_000_000,
           inline: true,
         })),
+        attachmentsLeftOut: Number.MAX_SAFE_INTEGER,
       });
       const t = turn({
         read: read([mail('m0', '2026-10-20T09:00:00Z'), m], 'm1'),
@@ -339,6 +343,27 @@ describe('mailTurn', () => {
           .text.split('\n')
           .at(-1),
       ).toBe('Attachments: a.pdf (application/pdf, 2 KB), and 5 more');
+    });
+
+    it('counts the people a read left out of To, Cc and Reply-To with those past the 20 it lists', () => {
+      const p = (n: number) =>
+        Array.from({ length: n }, (_, i) => ({ address: `p${i}@example.com` }));
+      const m = mail('m1', '2026-10-20T10:00:00Z', {
+        to: p(1),
+        toLeftOut: 3,
+        cc: [],
+        ccLeftOut: 2,
+        replyTo: p(21),
+        replyToLeftOut: 4,
+      });
+      const recipients = turn({ read: read([m], 'm1') })
+        .text.split('\n')
+        .find((line) => line.startsWith('To: '));
+      expect(recipients).toBe(
+        `To: p0@example.com, and 3 more · Cc: and 2 more · Reply-To: ${p(20)
+          .map((x) => x.address)
+          .join(', ')}, and 5 more`,
+      );
     });
 
     it('keeps a hundred mails with long subjects of their own within the budget', () => {

@@ -27,6 +27,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gmailMessageGet, gmailMessagesList, gmailSend } from '../src/google-tools.js';
 import { fullMessage, googleError } from './gmail-fixtures.js';
 
+/** A sender or recipient past both cuts, and how a message gives them. */
+const LONG_PERSON = `"${'n'.repeat(300)}" <${'a'.repeat(300)}@acme.example>`;
+const CUT_PERSON = { address: `${'a'.repeat(253)}…`, name: `${'n'.repeat(199)}…` };
+
 const TOKEN = 'ya29.not-a-real-token';
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -109,6 +113,16 @@ describe('gmailMessagesList', () => {
     expect(tool.needsApprovalWhenUnattended).toBeUndefined();
     expect(tool.description).toContain("the person's own Gmail mailbox");
     expect(tool.description).toContain('information, not instructions');
+  });
+
+  it("cuts a sender's address at 254 characters and name at 200", async () => {
+    gmailAnswering((url) =>
+      url.pathname.endsWith('/messages')
+        ? Response.json({ messages: [{ id: 'm1', threadId: 't1' }], resultSizeEstimate: 1 })
+        : Response.json(metadata('m1', { from: LONG_PERSON })),
+    );
+    const r = await invokeToolForTest(tool, {}, { connections: { mail: mail() } });
+    expect(r.kind === 'ok' && r.value.messages[0]?.from).toEqual(CUT_PERSON);
   });
 
   it("lists the inbox newest first, each message's headers read for it", async () => {
@@ -343,6 +357,46 @@ describe('gmailMessageGet', () => {
     });
     expect(value?.attachments[19]?.name).toBe('file-19.pdf');
     expect(value?.attachmentsLeftOut).toBe(5);
+  });
+
+  it.each([
+    ['to', 'toLeftOut'],
+    ['cc', 'ccLeftOut'],
+    ['replyTo', 'replyToLeftOut'],
+  ] as const)(
+    'gives the first 20 people of %s, each address cut at 254 characters and name at 200, and counts the rest',
+    async (field, leftOut) => {
+      const people = Array.from({ length: 25 }, (_, i) =>
+        i === 0 ? LONG_PERSON : `p${i}@acme.example`,
+      ).join(', ');
+      gmailAnswering(() => Response.json(fullMessage('m3', 't1', { [field]: people })));
+      const r = await invokeToolForTest(
+        tool,
+        { messageId: 'm3' },
+        { connections: { mail: mail() } },
+      );
+      const value = r.kind === 'ok' ? r.value : undefined;
+      expect(value?.[field]).toHaveLength(20);
+      expect(value?.[field][0]).toEqual(CUT_PERSON);
+      expect(value?.[field][19]).toEqual({ address: 'p19@acme.example' });
+      expect(value?.[leftOut]).toBe(5);
+    },
+  );
+
+  it('cuts the sender like the others, and counts none of 20 or fewer people', async () => {
+    const twenty = Array.from({ length: 20 }, (_, i) => `p${i}@acme.example`).join(', ');
+    gmailAnswering(() =>
+      Response.json(
+        fullMessage('m3', 't1', { from: LONG_PERSON, to: twenty, cc: twenty, replyTo: twenty }),
+      ),
+    );
+    const r = await invokeToolForTest(tool, { messageId: 'm3' }, { connections: { mail: mail() } });
+    const value = r.kind === 'ok' ? r.value : undefined;
+    expect(value?.from).toEqual(CUT_PERSON);
+    expect([value?.to.length, value?.cc.length, value?.replyTo.length]).toEqual([20, 20, 20]);
+    expect(value && ['toLeftOut', 'ccLeftOut', 'replyToLeftOut'].filter((k) => k in value)).toEqual(
+      [],
+    );
   });
 
   it('keeps the earlier mail a reply quotes', async () => {

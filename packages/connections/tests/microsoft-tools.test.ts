@@ -26,6 +26,10 @@ const send = outlookSend({ id: 'acme.outlook.send' });
 const list = outlookMessagesList({ id: 'acme.outlook.messages.list' });
 const get = outlookMessageGet({ id: 'acme.outlook.messages.get' });
 
+/** A sender or recipient past both cuts, and how a message gives them. */
+const LONG_ADDRESS = { address: `${'a'.repeat(300)}@acme.test`, name: 'n'.repeat(300) };
+const CUT_PERSON = { address: `${'a'.repeat(253)}…`, name: `${'n'.repeat(199)}…` };
+
 function mail(): ToolConnection {
   return {
     connectionId: randomUUID(),
@@ -249,6 +253,16 @@ describe('outlook.messages.list', () => {
     expect(list.needsApprovalWhenUnattended).toBeUndefined();
   });
 
+  it("cuts a sender's address at 254 characters and name at 200", async () => {
+    graphAnswering(() =>
+      Response.json({
+        value: [{ ...RAW_MESSAGE, from: { emailAddress: LONG_ADDRESS } }],
+      }),
+    );
+    const r = await invokeToolForTest(list, {}, { connections: { mail: mail() } });
+    expect(r.kind === 'ok' && r.value.messages[0]?.from).toEqual(CUT_PERSON);
+  });
+
   it('lists the newest first, with ids that survive a move', async () => {
     const sent = graphAnswering(() =>
       Response.json({ value: [RAW_MESSAGE, { id: 'draft-1', subject: null, isRead: true }] }),
@@ -455,6 +469,60 @@ describe('outlook.messages.get', () => {
     });
     expect(value?.attachments[19]?.name).toBe('file-19.pdf');
     expect(value?.attachmentsLeftOut).toBe(5);
+  });
+
+  it.each([
+    ['toRecipients', 'to', 'toLeftOut'],
+    ['ccRecipients', 'cc', 'ccLeftOut'],
+    ['replyTo', 'replyTo', 'replyToLeftOut'],
+  ] as const)(
+    'gives the first 20 people of %s, each address cut at 254 characters and name at 200, and counts the rest',
+    async (raw, field, leftOut) => {
+      graphAnswering(() =>
+        Response.json({
+          ...RAW_MESSAGE,
+          [raw]: Array.from({ length: 25 }, (_, i) => ({
+            emailAddress: i === 0 ? LONG_ADDRESS : { address: `p${i}@acme.test` },
+          })),
+        }),
+      );
+      const r = await invokeToolForTest(
+        get,
+        { messageId: RAW_MESSAGE.id },
+        { connections: { mail: mail() } },
+      );
+      const value = r.kind === 'ok' ? r.value : undefined;
+      expect(value?.[field]).toHaveLength(20);
+      expect(value?.[field][0]).toEqual(CUT_PERSON);
+      expect(value?.[field][19]).toEqual({ address: 'p19@acme.test' });
+      expect(value?.[leftOut]).toBe(5);
+    },
+  );
+
+  it('cuts the sender like the others, and counts none of 20 or fewer people', async () => {
+    const twenty = Array.from({ length: 20 }, (_, i) => ({
+      emailAddress: { address: `p${i}@acme.test` },
+    }));
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        from: { emailAddress: LONG_ADDRESS },
+        toRecipients: twenty,
+        ccRecipients: twenty,
+        replyTo: twenty,
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    const value = r.kind === 'ok' ? r.value : undefined;
+    expect(value?.from).toEqual(CUT_PERSON);
+    expect([value?.to.length, value?.cc.length, value?.replyTo.length]).toEqual([20, 20, 20]);
+    expect(value && ['toLeftOut', 'ccLeftOut', 'replyToLeftOut'].filter((k) => k in value)).toEqual(
+      [],
+    );
   });
 
   it('gives no count of attachments left out when there are 20 or fewer', async () => {

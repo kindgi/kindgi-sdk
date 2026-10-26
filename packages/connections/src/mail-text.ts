@@ -9,7 +9,7 @@
 
 import { TextDecoder } from 'node:util';
 
-import type { MailAttachment, MailPerson } from './mail.js';
+import type { MailAttachment, MailMessage, MailPerson } from './mail.js';
 
 /**
  * The addresses in a header's value (`From`, `To`, `Cc`, `Reply-To`):
@@ -192,10 +192,12 @@ export function cutText(
   return { text: text.slice(0, end), cut: true };
 }
 
-/** The most attachments a mail lists. A mail turn lists as many people in each of To, Cc and Reply-To. */
+/** The most attachments a mail lists, and the most people in each of its To, Cc and Reply-To. */
 export const LIST_MAX = 20;
-/** An attachment's name or type, a subject or a person's name in a mail turn: longer is cut. */
+/** An attachment's name or type, a person's name, or a subject in a mail turn: longer is cut. */
 export const NAME_MAX = 200;
+/** The longest address a mail gives: no valid one is longer (RFC 5321). */
+export const ADDRESS_MAX = 254;
 
 /** `text` cut to `max` characters, the last of them `…`, when it's longer. */
 export function clipText(text: string, max: number): string {
@@ -217,6 +219,36 @@ export function listedAttachments(all: readonly MailAttachment[]): {
       contentType: clipText(a.contentType, NAME_MAX),
     })),
     leftOut: Math.max(all.length - LIST_MAX, 0),
+  };
+}
+
+/** A person as a message gives them: the address cut at 254 characters, the name at 200. */
+export function clippedPerson(p: MailPerson): MailPerson {
+  return {
+    address: clipText(p.address, ADDRESS_MAX),
+    ...(p.name !== undefined && { name: clipText(p.name, NAME_MAX) }),
+  };
+}
+
+/**
+ * A mail's To, Cc and Reply-To as a message gives them: the first 20
+ * people in each, each cut as {@link clippedPerson} cuts, and how many
+ * each has past those.
+ */
+export function listedRecipients(
+  to: readonly MailPerson[],
+  cc: readonly MailPerson[],
+  replyTo: readonly MailPerson[],
+): Pick<MailMessage, 'to' | 'toLeftOut' | 'cc' | 'ccLeftOut' | 'replyTo' | 'replyToLeftOut'> {
+  const first = (all: readonly MailPerson[]) => all.slice(0, LIST_MAX).map(clippedPerson);
+  const past = (all: readonly MailPerson[]) => Math.max(all.length - LIST_MAX, 0);
+  return {
+    to: first(to),
+    ...(past(to) > 0 && { toLeftOut: past(to) }),
+    cc: first(cc),
+    ...(past(cc) > 0 && { ccLeftOut: past(cc) }),
+    replyTo: first(replyTo),
+    ...(past(replyTo) > 0 && { replyToLeftOut: past(replyTo) }),
   };
 }
 
