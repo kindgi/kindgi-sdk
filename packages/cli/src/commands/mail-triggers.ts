@@ -97,7 +97,7 @@ function mailFlags(on: 'register' | 'update'): Record<string, ParseArgsOption> {
     },
     folder: {
       type: 'string',
-      description: `The Gmail label id, or the Outlook folder id or well-known name, to watch${on === 'register' ? ' (default: the inbox)' : ''}.`,
+      description: `The Gmail label id, or the Outlook folder id or well-known name, to watch${on === 'register' ? ' (default: the inbox)' : ": `INBOX` on Gmail or `inbox` on Outlook to watch the inbox again. On a person's mailbox, only the trigger's owner changes it"}.`,
     },
     poll: {
       type: 'string',
@@ -117,7 +117,7 @@ function allowUnattendedFlag(on: 'register' | 'update'): Record<string, ParseArg
     'allow-unattended': {
       type: 'string',
       multiple: true,
-      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a mail started, every call that changes something, or uses the run's own mailbox, waits for one otherwise. Needs \`admin\` on the trigger's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? ' Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or mailbox must name it again (or `none`).' : ''}`,
+      description: `A tool, by id, whose calls in this trigger's runs needn't wait for a person's yes (repeatable; only tools its agent or flow calls, no wildcard). In a run a mail started, every call that changes something, or uses the run's own mailbox, waits for one otherwise. Needs \`admin\` on the trigger's project. The tenant's and the agent's approval rules still apply.${on === 'update' ? " Replaces the list; `none` clears it; left out, the list is kept, and a new --agent, --flow or mailbox must name it again (or `none`, which the owner of a person's trigger may give with their own change)." : ''}`,
     },
   };
 }
@@ -253,7 +253,7 @@ const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
   description:
-    "Change a mail trigger: what it runs, its mailbox, folder, pace or label, or the tools its runs may call unattended. A flag left out keeps the trigger's value, and its owner stays.",
+    "Change a mail trigger: what it runs, its mailbox, folder, pace or label, or the tools its runs may call unattended. A flag left out keeps the trigger's value, and its owner stays. On a person's mailbox, only the trigger's owner points it at another of their mailboxes or folders: a project admin can move it to the company's, or take it over to watch their own.",
   usage:
     'kindgi mail-triggers update <trigger-id> [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>] [--mailbox=google|microsoft --as=person|company] [--folder=<label-or-folder>] [--poll=<seconds>] [--runs-per-hour=<n>] [--label=<text>] [--allow-unattended=<tool-id>|none]…',
   optionSpec: {

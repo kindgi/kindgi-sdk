@@ -24031,7 +24031,7 @@
       "MailFire": {
         "type": "object",
         "additionalProperties": false,
-        "description": "One mail a mail trigger found and what came of it. A thread's mail runs one at a time, in the app's order.",
+        "description": "One mail a mail trigger found and what came of it. A thread's mail runs one at a time, oldest first.",
         "required": [
           "fireId",
           "triggerId",
@@ -24071,7 +24071,7 @@
           },
           "countsTowardPause": {
             "type": "boolean",
-            "description": "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:` and `connection-missing:` refusals: the limit passes, and connecting again ends the other. Skips never count."
+            "description": "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:`, `connection-missing:` and `no-thread-id` refusals: the limit passes, connecting again ends a missing connection, and a mail with no thread is the app's doing, not the trigger's. Skips never count."
           }
         }
       },
@@ -61276,7 +61276,7 @@
             }
           }
         },
-        "description": "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. A project admin's change to what a person's trigger runs or reads keeps its owner, so its runs go on acting as that person, and it's audited as `trigger-changed-for-owner`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too): naming it takes `admin` on the project, and a new target or mailbox while it lists any must name it again, as it is or `[]`.",
+        "description": "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
         "parameters": [
           {
             "name": "triggerId",

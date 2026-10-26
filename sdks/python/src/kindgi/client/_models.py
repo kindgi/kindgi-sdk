@@ -10603,7 +10603,7 @@ class PatchMailTriggerBody(BaseModel):
 
 class MailFire(BaseModel):
     """
-    One mail a mail trigger found and what came of it. A thread's mail runs one at a time, in the app's order.
+    One mail a mail trigger found and what came of it. A thread's mail runs one at a time, oldest first.
     """
 
     model_config = ConfigDict(
@@ -10629,7 +10629,7 @@ class MailFire(BaseModel):
     """
     counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
     """
-    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:` and `connection-missing:` refusals: the limit passes, and connecting again ends the other. Skips never count.
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:`, `connection-missing:` and `no-thread-id` refusals: the limit passes, connecting again ends a missing connection, and a mail with no thread is the app's doing, not the trigger's. Skips never count.
     """
 
 

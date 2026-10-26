@@ -479,6 +479,24 @@ export function mailTriggersRouter(
     if (rec.owner.kind === 'service' && mailboxAfter.as === 'person') {
       return bad(c, requestId, PERSON_MAILBOX_IS_A_PERSONS);
     }
+    const readsElsewhere =
+      mailboxAfter.app !== mailboxBefore.app || mailboxAfter.as !== mailboxBefore.as;
+    // What a personal trigger reads from a person's mailbox is its owner's
+    // alone to choose: the mailbox, and the folder or label in it. Nobody
+    // else, an admin included, points it at mail its owner didn't offer.
+    // An admin may still move it to the company's mailbox, or take it over.
+    if (rec.owner.kind === 'user' && mailboxAfter.as === 'person' && !isCaller(c, rec.owner)) {
+      const folderChanged =
+        config.value.folder !== undefined && config.value.folder !== rec.config.folder;
+      if (readsElsewhere || folderChanged) {
+        return refused(c, authorizer, {
+          action: 'write',
+          resource: ref('project', project),
+          message: ONLY_THE_OWNER_CHOOSES_WHAT_IT_READS,
+          failing: 'actor',
+        });
+      }
+    }
     if (target !== undefined) {
       const refusedTarget = await targetRefused(c, target.value, project);
       if (refusedTarget !== undefined) return refusedTarget;
@@ -492,19 +510,25 @@ export function mailTriggersRouter(
     // or id, not just a version) or another mailbox while it lists any must
     // name it again, kept or `[]`, so it's an admin's choice for what the
     // trigger now runs and reads, never carried over nor dropped unseen.
+    // A personal trigger's owner may clear it with their own new target or
+    // mailbox, since that only narrows what runs unattended.
     const kept = rec.toolsAllowedUnattended ?? [];
     const nextTarget = target?.value ?? rec.target;
     const retargeted = target !== undefined && retargets(rec.target, target.value);
-    const readsElsewhere =
-      mailboxAfter.app !== mailboxBefore.app || mailboxAfter.as !== mailboxBefore.as;
     if ((retargeted || readsElsewhere) && kept.length > 0 && tools.kind === 'absent') {
       return bad(
         c,
         requestId,
-        `this mail trigger's \`toolsAllowedUnattended\` lists ${kept.map((id) => `"${id}"`).join(', ')}: a new target or mailbox must name it again, as it is or \`[]\` to clear it`,
+        `this mail trigger's \`toolsAllowedUnattended\` lists ${kept.map((id) => `"${id}"`).join(', ')}: a new target or mailbox must name it again, \`[]\` to clear it, or a list, which a project admin sets`,
       );
     }
-    if (tools.kind === 'ok') {
+    const ownerClears =
+      tools.kind === 'ok' &&
+      tools.value.length === 0 &&
+      (retargeted || readsElsewhere) &&
+      rec.owner.kind === 'user' &&
+      isCaller(c, rec.owner);
+    if (tools.kind === 'ok' && !ownerClears) {
       const refusedList = await notAdmin(c, project, 'set `toolsAllowedUnattended`');
       if (refusedList !== undefined) return refusedList;
       const problem = await toolsAllowedUnattendedProblem(
@@ -677,6 +701,9 @@ export function mailTriggersRouter(
 
 const OWNER_MOVES_BY_TAKE_OVER =
   "a mail trigger's owner changes only by a take-over (`POST /v1/mail-triggers/{triggerId}/owner`)";
+
+const ONLY_THE_OWNER_CHOOSES_WHAT_IT_READS =
+  "Only the trigger's owner may choose what it reads from their mailbox, its mailbox and its folder or label: take it over to watch your own.";
 
 const PERSON_MAILBOX_IS_A_PERSONS =
   "a trigger on a person's mailbox reads its owner's own mail, so a person owns it: not a service account (`runAsServiceAccountId` goes with the company's mailbox)";

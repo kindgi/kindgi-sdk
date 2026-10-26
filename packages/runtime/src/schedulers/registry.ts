@@ -301,8 +301,9 @@ export interface TriggerFire {
    * pending (`detail` starts `rate-limited:`), or a mail trigger's
    * `runsPerHour` (`over-limit:`): the limit passes, and the
    * trigger isn't at fault. `false` too for a mail trigger's
-   * `connection-missing:`: the trigger's `statusReason` says so, and
-   * connecting again ends it. Absent from a runtime that doesn't say: then
+   * `connection-missing:`, which the trigger's `statusReason` says and
+   * connecting again ends, and for its `no-thread-id`, a mail the app gave
+   * no thread. Absent from a runtime that doesn't say: then
    * refused and failed fires counted, and the others didn't.
    */
   readonly countsTowardPause?: boolean;

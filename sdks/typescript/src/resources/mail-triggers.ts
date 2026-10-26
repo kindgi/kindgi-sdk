@@ -18,7 +18,8 @@
  * mailbox, with `runAsServiceAccountId`), and personal when a person does.
  * No edit moves the owner; only `takeOwnership` does. A personal
  * trigger's update, pause, resume and unregister are its owner's or a
- * project admin's.
+ * project admin's, but only its owner points it at another of their
+ * mailboxes or folders.
  *
  * In a run a mail started, every call that changes something, or uses the
  * run's own mailbox, waits for a person's yes unless the trigger lists it
@@ -68,7 +69,9 @@ export interface MailTriggersClient {
   /**
    * Changes what it runs, its mailbox, folder, pace or label. The owner
    * stays: a project admin's change to a person's trigger goes on acting as
-   * that person, and is audited.
+   * that person, and is audited. Only a person's trigger's owner points it
+   * at another of their mailboxes or folders; an admin may move it to the
+   * company's mailbox.
    *
    * @wire PATCH /v1/mail-triggers/:triggerId
    */

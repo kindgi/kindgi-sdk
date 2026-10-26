@@ -274,10 +274,7 @@ describe('who may change a personal trigger', () => {
   test("no edit moves the owner: an admin's retarget keeps it, audited as trigger-changed-for-owner", async () => {
     const h = harness();
     const id = await wrensTrigger(h);
-    const res = await h.call('PATCH', `${BASE}/${id}`, {
-      agentId: 'acme.triage',
-      config: { mailbox: { app: 'microsoft', as: 'person' } },
-    });
+    const res = await h.call('PATCH', `${BASE}/${id}`, { agentId: 'acme.triage' });
     expect(res.status).toBe(200);
     expect(res.body.owner).toMatchObject({ kind: 'user', id: WREN });
     const [changed, ...more] = h.events('trigger-changed-for-owner');
@@ -288,12 +285,8 @@ describe('who may change a personal trigger', () => {
       owner: `user:${WREN}`,
       by: expect.any(String),
       change: 'updated',
-      fields: ['target', 'mailbox'],
+      fields: ['target'],
       target: { before: { agentId: 'acme.support' }, after: { agentId: 'acme.triage' } },
-      mailbox: {
-        before: { app: 'google', as: 'person' },
-        after: { app: 'microsoft', as: 'person' },
-      },
     });
     expect(h.events('trigger-owner-set')).toEqual([]);
     // An admin's change to its pace or label names only the fields.
@@ -305,6 +298,54 @@ describe('who may change a personal trigger', () => {
     await h.call('PATCH', `${BASE}/${id}`, { agentId: 'acme.support' }, 'wren');
     await h.call('PATCH', `${BASE}/${id}`, { label: 'Renamed' });
     expect(h.events('trigger-changed-for-owner')).toHaveLength(2);
+  });
+
+  test("what a person's trigger reads from their mailbox is its owner's alone to change; an admin may move it to the company's", async () => {
+    const h = harness();
+    const id = await wrensTrigger(h);
+    // An admin's other mailbox, or other folder, on a person's mailbox: a 403.
+    const otherApp = await h.call('PATCH', `${BASE}/${id}`, {
+      config: { mailbox: { app: 'microsoft', as: 'person' } },
+    });
+    expect(otherApp.status).toBe(403);
+    expect(otherApp.body.error.message).toMatch(
+      /Only the trigger's owner may choose what it reads/,
+    );
+    const folder = { config: { folder: 'Label_7' } };
+    expect((await h.call('PATCH', `${BASE}/${id}`, folder)).status).toBe(403);
+    expect(h.events('trigger-changed-for-owner')).toEqual([]);
+    // Its owner's own are OK.
+    expect((await h.call('PATCH', `${BASE}/${id}`, folder, 'wren')).status).toBe(200);
+    const own = await h.call(
+      'PATCH',
+      `${BASE}/${id}`,
+      { config: { mailbox: { app: 'microsoft', as: 'person' }, folder: 'inbox' } },
+      'wren',
+    );
+    expect(own.status).toBe(200);
+    expect(own.body).toMatchObject({
+      mailbox: { app: 'microsoft', as: 'person' },
+      folder: 'inbox',
+    });
+    // An admin's move to the company's mailbox is OK, and audited.
+    const toCompany = await h.call('PATCH', `${BASE}/${id}`, {
+      config: { mailbox: { app: 'microsoft', as: 'company' } },
+    });
+    expect(toCompany.status).toBe(200);
+    expect(docOf(h.events('trigger-changed-for-owner')[0])).toMatchObject({
+      change: 'updated',
+      fields: ['mailbox'],
+      mailbox: {
+        before: { app: 'microsoft', as: 'person' },
+        after: { app: 'microsoft', as: 'company' },
+      },
+    });
+    // On the company's mailbox, its folder is an admin's as before.
+    const companyFolder = { config: { folder: 'AAMkAD-orders' } };
+    expect((await h.call('PATCH', `${BASE}/${id}`, companyFolder)).status).toBe(200);
+    // Back to a person's mailbox, the owner's: an admin's move is a 403.
+    const back = { config: { mailbox: { app: 'microsoft', as: 'person' } } };
+    expect((await h.call('PATCH', `${BASE}/${id}`, back)).status).toBe(403);
   });
 
   test("an admin's pause, resume and unregister of a person's trigger are audited; its owner's aren't", async () => {
@@ -411,12 +452,38 @@ describe('toolsAllowedUnattended', () => {
       toolsAllowedUnattended: ['acme.reply'],
     });
     const mailbox = { config: { mailbox: { app: 'microsoft', as: 'person' } } };
-    expect((await h.call('PATCH', `${BASE}/${id}`, mailbox, 'wren')).status).toBe(400);
-    const named = await h.call('PATCH', `${BASE}/${id}`, {
-      ...mailbox,
-      toolsAllowedUnattended: ['acme.reply'],
+    const bare = await h.call('PATCH', `${BASE}/${id}`, mailbox, 'wren');
+    expect(bare.status).toBe(400);
+    expect(bare.body.error.message).toMatch(
+      /`\[\]` to clear it, or a list, which a project admin sets/,
+    );
+    // The owner may clear it with their own new mailbox, not name a list.
+    const listed = { ...mailbox, toolsAllowedUnattended: ['acme.reply'] };
+    expect((await h.call('PATCH', `${BASE}/${id}`, listed, 'wren')).status).toBe(403);
+    const cleared = await h.call(
+      'PATCH',
+      `${BASE}/${id}`,
+      { ...mailbox, toolsAllowedUnattended: [] },
+      'wren',
+    );
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.toolsAllowedUnattended).toBeUndefined();
+    expect(docOf(h.events('trigger-tools-allowed-unattended-set').at(-1))).toMatchObject({
+      from: ['acme.reply'],
+      to: [],
     });
-    expect(named.status).toBe(200);
+  });
+
+  test("the owner's `[]` goes only with their own new target or mailbox", async () => {
+    const h = harness();
+    const id = await wrensTrigger(h, {}, ['acme.lookup']);
+    const alone = { toolsAllowedUnattended: [] };
+    expect((await h.call('PATCH', `${BASE}/${id}`, alone, 'wren')).status).toBe(403);
+    const retarget = { agentId: 'acme.triage', toolsAllowedUnattended: [] };
+    expect((await h.call('PATCH', `${BASE}/${id}`, retarget, 'wren')).status).toBe(200);
+    // Another writer's is a 403 before the list is looked at.
+    const other = await wrensTrigger(h, {}, ['acme.lookup']);
+    expect((await h.call('PATCH', `${BASE}/${other}`, retarget, 'milo')).status).toBe(403);
   });
 
   test('a tool the target never calls is a 400', async () => {
