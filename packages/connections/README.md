@@ -41,10 +41,11 @@ Ready-made tools that act with a connection, one subpath per app:
 
 - `@kindgi/connections/google/tools`: `gmailSend` sends a plain-text mail
   as the person whose Google connection the call has; `gmailMessagesList`
-  lists or searches their mailbox; and `gmailMessageGet` reads one message
-  whole, as a `MailMessage`.
+  lists or searches their mailbox; `gmailMessageGet` reads one message
+  whole, as a `MailMessage`; and `gmailReply` answers one in its thread.
 - `@kindgi/connections/microsoft/tools`: `outlookSend`,
-  `outlookMessagesList` and `outlookMessageGet`, the same for Outlook.
+  `outlookMessagesList`, `outlookMessageGet` and `outlookReply`, the same
+  for Outlook.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
@@ -69,6 +70,14 @@ first project that publishes it. Sending, labelling and posting are
 does a read with a person's connection, such as a mail read without
 `as: 'company'`, and in a run a mail started, so does a read with that
 mailbox's own connection.
+
+A reply goes to the one address the mail asks for, its Reply-To, else
+its From, and the call's `to` must name it. A Reply-To that names no
+address, such as an empty group, counts as none. A reply to a mail that
+names more than one address, none, one that isn't an address, or the
+mailbox's own is refused, and sends nothing. The sender of a mail chooses
+both headers, so an agent that replies mustn't give out an order's details
+on the From address alone.
 
 A mail tool acts in the person's own mailbox. With `as: 'company'` it uses
 the company's instead, connected by signing in as that mailbox
