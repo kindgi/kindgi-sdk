@@ -151,6 +151,40 @@ describe('kindgi mail-triggers', () => {
     }
   });
 
+  test('--run-as=project names the project on the company mailbox, at create and take-over; on a person mailbox it stops before the call', async () => {
+    const company = await mailTriggers([
+      'create',
+      '--flow=acme.triage',
+      '--flow-version=1.0.0',
+      '--mailbox=microsoft',
+      '--as=company',
+      '--run-as=project',
+    ]);
+    expect(company.out.exitCode, company.out.stderr).toBe(0);
+    expect(company.calls).toEqual([
+      [
+        'register',
+        {
+          flowId: 'acme.triage',
+          flowVersion: '1.0.0',
+          config: { mailbox: { app: 'microsoft', as: 'company' } },
+          runAsProject: true,
+        },
+      ],
+    ]);
+    const take = await mailTriggers(['take-ownership', ID, '--run-as=project']);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsProject: true }]]);
+    const person = await mailTriggers([
+      'create',
+      '--agent=acme.support',
+      '--mailbox=google',
+      '--run-as=project',
+    ]);
+    expect(person.out.exitCode).not.toBe(0);
+    expect(person.out.stderr).toContain('--run-as goes with --as=company');
+    expect(person.calls).toEqual([]);
+  });
+
   test('update sends only what is given; --mailbox and --as go together', async () => {
     const pace = await mailTriggers(['update', ID, '--poll=300', '--label=slower']);
     expect(pace.out.exitCode, pace.out.stderr).toBe(0);

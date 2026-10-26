@@ -281,6 +281,22 @@ describe('kindgi schedules', () => {
     expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
   });
 
+  test("--run-as=project names the project's own account on create and take-over", async () => {
+    const made = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      '--project=p-1',
+      '--run-as=project',
+    ]);
+    expect(made.out.exitCode, made.out.stderr).toBe(0);
+    expect(made.calls[0]).toMatchObject(['register', { runAsProject: true }]);
+    expect(made.calls[0]?.[1]).not.toHaveProperty('runAsServiceAccountId');
+
+    const take = await schedules(['take-ownership', ID, '--run-as=project']);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsProject: true }]]);
+  });
+
   test('--allow-unattended: repeatable on create and update; `none` clears on update only', async () => {
     const made = await schedules([
       'create',

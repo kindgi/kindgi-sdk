@@ -37,12 +37,15 @@ import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import {
   type OwnedTrigger,
+  type OwnerFacts,
   type TriggerOwnerNames,
   type TriggerOwnerNotices,
   isTriggerAdmin,
+  namesAnOwner,
   noteChangeForOwner,
   ownerJson,
   ownerNamesOf,
+  ownerRequestOf,
   ownerRuleRefused,
   personalTriggerRefusal,
   recordOwnerSet,
@@ -261,15 +264,14 @@ export function schedulesRouter(
       if (problem !== undefined) return bad(c, requestId, problem);
     }
 
-    // Who its runs act as: the caller, or the service account named with
-    // `runAsServiceAccountId` (gated by `act_as`; see `resolveTriggerOwner`).
-    const runAsRaw = body.runAsServiceAccountId;
-    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
-      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
-    }
+    // Who its runs act as: the caller, the service account named with
+    // `runAsServiceAccountId` (gated by `act_as`), or the project's own
+    // account with `runAsProject` (a project admin's; see `resolveTriggerOwner`).
+    const ownerRequest = ownerRequestOf(body, project);
+    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
     const resolved = await resolveTriggerOwner(
       c,
-      runAsRaw as string | undefined,
+      ownerRequest,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -300,7 +302,7 @@ export function schedulesRouter(
     }
     // A named service-account owner is a delegation: audit it. A plain
     // register (owner = caller) is the schedule's creation, not a change.
-    if (runAsRaw !== undefined) {
+    if (namesAnOwner(ownerRequest)) {
       await recordOwnerSet({
         auditEvents,
         tenantId,
@@ -311,6 +313,7 @@ export function schedulesRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...(resolved.projectAccount === true && { projectAccount: true }),
       });
     }
     if (tools.kind === 'ok' && tools.value.length > 0) {
@@ -691,7 +694,8 @@ export function schedulesRouter(
     );
     if (refused !== undefined) return refused;
     // The caller takes it over, or names a service account with
-    // `runAsServiceAccountId` in an optional body (gated by `act_as`).
+    // `runAsServiceAccountId` in an optional body (gated by `act_as`), or
+    // the project's own account with `runAsProject`.
     const parsed = await parseJsonObject(c, requestId, { allowEmpty: true });
     if (parsed.kind === 'err') return parsed.response;
     if ('toolsAllowedUnattended' in parsed.value) {
@@ -701,13 +705,14 @@ export function schedulesRouter(
         "a take-over keeps the schedule's `toolsAllowedUnattended`: change it with PATCH",
       );
     }
-    const runAsRaw = parsed.value.runAsServiceAccountId;
-    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
-      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
-    }
+    const ownerRequest = ownerRequestOf(
+      parsed.value,
+      found.value.projectId as unknown as string | undefined,
+    );
+    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
     const resolved = await resolveTriggerOwner(
       c,
-      runAsRaw as string | undefined,
+      ownerRequest,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -730,6 +735,7 @@ export function schedulesRouter(
       ...(found.value.toolsAllowedUnattended !== undefined && {
         toolsAllowedUnattended: found.value.toolsAllowedUnattended,
       }),
+      ...(resolved.projectAccount === true && { projectAccount: true }),
     });
     tellTakenOver(c, ownerNotices, owned(found.value), 'cron');
     return scheduleJson(c, result.value as CronTriggerRecord);
@@ -798,7 +804,7 @@ function targetFields(target: TriggerTarget): Record<string, unknown> {
 
 function serializeSchedule(
   r: CronTriggerRecord,
-  names: ReadonlyMap<string, string> = new Map(),
+  names: ReadonlyMap<string, OwnerFacts> = new Map(),
 ): Record<string, unknown> {
   return {
     scheduleId: r.triggerId as unknown as string,

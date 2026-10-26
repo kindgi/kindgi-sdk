@@ -2306,6 +2306,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchyBinding,
         authorizer,
         input.identityDirectory,
+        input.serviceAccountBinding,
       ),
     );
   }

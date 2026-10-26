@@ -23,7 +23,8 @@ import { deniedBy, refused } from './denied.js';
  */
 export interface TriggerOwnerNames {
   readonly directory?: Pick<IdentityDirectoryBinding, 'getUser'>;
-  readonly serviceAccounts?: Pick<ServiceAccountBinding, 'get'>;
+  /** Also where a project's own account is made, for `runAsProject`. */
+  readonly serviceAccounts?: Pick<ServiceAccountBinding, 'get' | 'projectAccounts'>;
 }
 
 /** Who a trigger's runs act as: the request's principal. */
@@ -35,8 +36,53 @@ export function ownerOf(c: Context<AppEnv>): TriggerOwner {
 
 /** The outcome of resolving the owner a register or take-over sets. */
 export type TriggerOwnerResolution =
-  | { readonly kind: 'owner'; readonly owner: TriggerOwner }
+  | {
+      readonly kind: 'owner';
+      readonly owner: TriggerOwner;
+      /** The owner is the trigger's project's own account (`runAsProject`). */
+      readonly projectAccount?: true;
+    }
   | { readonly kind: 'refused'; readonly response: Response };
+
+/** Who a register or take-over names as the trigger's owner, as its body says. */
+export interface TriggerOwnerRequest {
+  /** A service account, by id. */
+  readonly runAsServiceAccountId?: string;
+  /** The trigger's project's own account, made the first time. */
+  readonly runAsProject?: boolean;
+  /** The trigger's project, which `runAsProject` names. */
+  readonly projectId?: string;
+}
+
+/**
+ * The owner a register or take-over body names (`runAsServiceAccountId`,
+ * `runAsProject`), for the trigger in `projectId`; else why it's a 400.
+ */
+export function ownerRequestOf(
+  body: Record<string, unknown>,
+  projectId: string | undefined,
+): TriggerOwnerRequest | string {
+  const { runAsServiceAccountId, runAsProject } = body;
+  if (
+    runAsServiceAccountId !== undefined &&
+    (typeof runAsServiceAccountId !== 'string' || runAsServiceAccountId.length === 0)
+  ) {
+    return '`runAsServiceAccountId` must be a service-account id';
+  }
+  if (runAsProject !== undefined && typeof runAsProject !== 'boolean') {
+    return '`runAsProject` must be a boolean';
+  }
+  return {
+    ...(runAsServiceAccountId !== undefined && { runAsServiceAccountId }),
+    ...(runAsProject !== undefined && { runAsProject }),
+    ...(projectId !== undefined && { projectId }),
+  };
+}
+
+/** Whether a register names an owner other than the caller: a delegation, audited. */
+export function namesAnOwner(request: TriggerOwnerRequest): boolean {
+  return request.runAsServiceAccountId !== undefined || request.runAsProject === true;
+}
 
 /** What {@link resolveTriggerOwner} needs from the route to run its checks. */
 export interface ResolveTriggerOwnerDeps {
@@ -50,17 +96,30 @@ export interface ResolveTriggerOwnerDeps {
   readonly canReadServiceAccounts: () => Promise<boolean>;
   /** Whether the caller may not `act_as` the account (`true` → refused). */
   readonly actAsDenied: (serviceAccountId: string) => Promise<boolean>;
+  /** Whether the caller is an admin of the project, who may run a trigger as it. */
+  readonly isProjectAdmin: (projectId: string) => Promise<boolean>;
+  /** Where a project's own account is made; absent → `runAsProject` is a 501. */
+  readonly projectAccounts?: ServiceAccountBinding['projectAccounts'];
 }
 
 /**
- * The owner a register or take-over sets. Absent `runAsServiceAccountId`,
- * it's the caller — exactly {@link ownerOf}, today's rule. Named, it's that
- * service account, after two checks:
+ * The owner a register or take-over sets. Naming no one, it's the caller —
+ * exactly {@link ownerOf}, today's rule.
+ *
+ * `runAsProject` names the trigger's project's own account: it takes an
+ * admin of the project ({@link isTriggerAdmin}; without an authorization
+ * store, a tenant-admin key), and no `act_as`. The account is made the
+ * first time, and last: after every other check, so a refused request
+ * makes none. A trigger's insert that fails after it leaves the account,
+ * which has no keys, and the next `runAsProject` reuses it.
+ *
+ * `runAsServiceAccountId` names a service account, after three checks:
  *   1. A **reader-ordered** existence check. Only a caller who may read
  *      service accounts learns whether the named one exists: a missing or
- *      another tenant's → 404, an unregistered one → 409. Everyone else gets
- *      the same 403 whether or not it exists, so a non-reader can't probe
- *      the tenant's accounts by naming ids.
+ *      another tenant's → 404, an unregistered one → 409, a project's own
+ *      → 409 (name it with `runAsProject`). Everyone else gets the same 403
+ *      whatever the reason, so a non-reader can't probe the tenant's
+ *      accounts by naming ids.
  *   2. The **delegation gate** — `act_as` on the account, which tenant
  *      admins hold.
  * The named value is a service-account id only — never a user id — so a
@@ -68,14 +127,21 @@ export interface ResolveTriggerOwnerDeps {
  */
 export async function resolveTriggerOwner(
   c: Context<AppEnv>,
-  runAsServiceAccountId: string | undefined,
+  request: TriggerOwnerRequest,
   deps: ResolveTriggerOwnerDeps,
 ): Promise<TriggerOwnerResolution> {
+  const requestId = c.get('requestId');
+  const tenantId = c.get('tenantId') as TenantId;
+  const { runAsServiceAccountId, runAsProject } = request;
+  if (runAsProject === true) {
+    if (runAsServiceAccountId !== undefined) {
+      return refusedWith(c, 'bad-input', 'Name one: `runAsProject` or `runAsServiceAccountId`.');
+    }
+    return projectAccountOwner(c, request.projectId, deps);
+  }
   if (runAsServiceAccountId === undefined) return { kind: 'owner', owner: ownerOf(c) };
 
   const serviceAccountId = runAsServiceAccountId;
-  const requestId = c.get('requestId');
-  const tenantId = c.get('tenantId') as TenantId;
   // One 403 for every reason a non-reader is refused, so a missing account
   // and one the caller may not name are indistinguishable to them.
   const forbidden = (): Response =>
@@ -114,10 +180,79 @@ export async function resolveTriggerOwner(
         : forbidden(),
     };
   }
+  // One spelling for a project's own account, and no project's triggers
+  // run as another project's account.
+  if (account.projectId !== undefined) {
+    return {
+      kind: 'refused',
+      response: canRead
+        ? ownerError(
+            c,
+            requestId,
+            'service-account-project-owned',
+            "That's a project's own account: run a trigger as it with `runAsProject`.",
+          )
+        : forbidden(),
+    };
+  }
   if (await deps.actAsDenied(serviceAccountId)) {
     return { kind: 'refused', response: forbidden() };
   }
   return { kind: 'owner', owner: { kind: 'service', id: serviceAccountId } };
+}
+
+/**
+ * The trigger's project's own account as its owner (`runAsProject`): the
+ * project's admin's to name, made the first time.
+ */
+async function projectAccountOwner(
+  c: Context<AppEnv>,
+  projectId: string | undefined,
+  deps: ResolveTriggerOwnerDeps,
+): Promise<TriggerOwnerResolution> {
+  if (projectId === undefined) {
+    return refusedWith(c, 'bad-input', "`runAsProject` needs the trigger's project.");
+  }
+  if (!(await deps.isProjectAdmin(projectId))) {
+    return refusedWith(
+      c,
+      'permission-denied',
+      'Running a trigger as the project takes a project admin.',
+    );
+  }
+  if (deps.projectAccounts === undefined) {
+    return refusedWith(
+      c,
+      'trigger-operation-unsupported',
+      "This runtime can't make a project's own account.",
+    );
+  }
+  const by = callerRef(c);
+  const ensured = await deps.projectAccounts.ensure({
+    tenantId: c.get('tenantId') as TenantId,
+    projectId,
+    ...(by !== undefined && { by }),
+  });
+  if (ensured.kind === 'err') {
+    const { code, message } = ensured.error;
+    return refusedWith(
+      c,
+      code,
+      code === 'service-account-name-taken'
+        ? `An account named \`project-${projectId}\` is already registered. A tenant admin can unregister it.`
+        : message,
+    );
+  }
+  return {
+    kind: 'owner',
+    owner: { kind: 'service', id: ensured.value.serviceAccountId },
+    projectAccount: true,
+  };
+}
+
+/** A refused owner, answered with `code` and `message`. */
+function refusedWith(c: Context<AppEnv>, code: string, message: string): TriggerOwnerResolution {
+  return { kind: 'refused', response: ownerError(c, c.get('requestId'), code, message) };
 }
 
 /**
@@ -150,12 +285,16 @@ async function mayNotActAs(
 export function triggerOwnerDeps(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
-  serviceAccounts: Pick<ServiceAccountBinding, 'get'> | undefined,
+  serviceAccounts: Pick<ServiceAccountBinding, 'get' | 'projectAccounts'> | undefined,
 ): ResolveTriggerOwnerDeps {
   return {
     serviceAccounts,
     canReadServiceAccounts: () => isTenantAdmin(c, authorizer),
     actAsDenied: (serviceAccountId) => mayNotActAs(c, authorizer, serviceAccountId),
+    isProjectAdmin: (projectId) => isTriggerAdmin(c, authorizer, projectId),
+    ...(serviceAccounts?.projectAccounts !== undefined && {
+      projectAccounts: serviceAccounts.projectAccounts,
+    }),
   };
 }
 
@@ -211,7 +350,9 @@ type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
  * (no prior owner), present on a take-over (a plain caller one included).
  * A take-over keeps the trigger's `toolsAllowedUnattended`, so the entry
  * names it when it lists any: what the new owner's runs may call without
- * a person's yes. The one place the `trigger-owner-set` evidence is shaped.
+ * a person's yes. An owner that's the project's own account says so
+ * (`projectAccount: true`). The one place the `trigger-owner-set` evidence
+ * is shaped.
  */
 export async function recordOwnerSet(args: {
   readonly auditEvents: EmitAuditEventArgs['auditEvents'];
@@ -226,6 +367,8 @@ export async function recordOwnerSet(args: {
   readonly log: EmitAuditEventArgs['log'];
   /** The trigger's `toolsAllowedUnattended`, kept through the change. */
   readonly toolsAllowedUnattended?: readonly string[];
+  /** `to` is the trigger's project's own account (`runAsProject`). */
+  readonly projectAccount?: true;
 }): Promise<void> {
   const {
     auditEvents,
@@ -239,6 +382,7 @@ export async function recordOwnerSet(args: {
     correlationId,
     log,
     toolsAllowedUnattended,
+    projectAccount,
   } = args;
   await emitAuditEvent({
     auditEvents,
@@ -252,6 +396,7 @@ export async function recordOwnerSet(args: {
       triggerKind,
       ...(from !== undefined && { from: ownerKey(from) }),
       to: ownerKey(to),
+      ...(projectAccount === true && { projectAccount: true }),
       ...(by !== undefined && { by }),
       ...(toolsAllowedUnattended !== undefined &&
         toolsAllowedUnattended.length > 0 && {
@@ -404,7 +549,7 @@ export async function ownerRuleRefused(
   let message = `Changing what a shared ${word} runs takes a project admin.`;
   if (owner.kind === 'user') {
     const found = await ownerNamesOf(names, c.get('tenantId') as TenantId, [owner]);
-    const who = found.get(ownerKey(owner)) ?? owner.id;
+    const who = found.get(ownerKey(owner))?.name ?? owner.id;
     message = `This ${word} is personal: only ${who} or a project admin can change it.`;
   }
   return refused(c, authorizer, {
@@ -563,46 +708,76 @@ function ownerError(
   return c.json(toWireError({ code, message }, requestId));
 }
 
-/** An owner's key in the names {@link ownerNamesOf} returns. */
+/** An owner's key in what {@link ownerNamesOf} returns. */
 export function ownerKey(owner: TriggerOwner): string {
   return `${owner.kind}:${owner.id}`;
 }
 
+/** What a response says of an owner, as read when it's made. */
+export interface OwnerFacts {
+  /** The person's display name, or the service account's name. */
+  readonly name?: string;
+  /** The service account is a project's own account. */
+  readonly projectAccount?: true;
+}
+
 /**
- * Each owner's name at the time of the response, by `kind:id`, read once
- * per owner: the person's display name, or the service account's name.
- * One that can't be read (no binding, a removed account, a failed read)
- * has none.
+ * What each owner's response says, by `kind:id`, read once per owner: the
+ * person's display name, or the service account's name and whether it's a
+ * project's own. One that can't be read (no binding, a removed account, a
+ * failed read) has nothing, and its id stands.
  */
 export async function ownerNamesOf(
   names: TriggerOwnerNames | undefined,
   tenantId: TenantId,
   owners: readonly TriggerOwner[],
-): Promise<ReadonlyMap<string, string>> {
+): Promise<ReadonlyMap<string, OwnerFacts>> {
   const unique = new Map(owners.map((owner) => [ownerKey(owner), owner]));
-  const found = new Map<string, string>();
+  const found = new Map<string, OwnerFacts>();
   await Promise.all(
     [...unique].map(async ([key, owner]) => {
       try {
-        const name =
-          owner.kind === 'user'
-            ? (await names?.directory?.getUser({ tenantId, userId: owner.id as UserId }))
-                ?.displayName
-            : (await names?.serviceAccounts?.get({ tenantId, serviceAccountId: owner.id }))?.name;
-        if (name !== undefined && name.length > 0) found.set(key, name);
+        const facts = await ownerFactsOf(names, tenantId, owner);
+        if (facts.name !== undefined || facts.projectAccount !== undefined) found.set(key, facts);
       } catch {
-        // A name that can't be read: the owner's id stands.
+        // An owner that can't be read: its id stands.
       }
     }),
   );
   return found;
 }
 
-/** An owner as the wire carries it, named when its name was read. */
+async function ownerFactsOf(
+  names: TriggerOwnerNames | undefined,
+  tenantId: TenantId,
+  owner: TriggerOwner,
+): Promise<OwnerFacts> {
+  if (owner.kind === 'user') {
+    const name = (await names?.directory?.getUser({ tenantId, userId: owner.id as UserId }))
+      ?.displayName;
+    return name !== undefined && name.length > 0 ? { name } : {};
+  }
+  const account = await names?.serviceAccounts?.get({ tenantId, serviceAccountId: owner.id });
+  if (account === undefined || account === null) return {};
+  return {
+    ...(account.name.length > 0 && { name: account.name }),
+    ...(account.projectId !== undefined && { projectAccount: true }),
+  };
+}
+
+/**
+ * An owner as the wire carries it: named when its name was read, and
+ * `isProjectAccount` when it's a project's own account.
+ */
 export function ownerJson(
   owner: TriggerOwner,
-  names: ReadonlyMap<string, string>,
+  names: ReadonlyMap<string, OwnerFacts>,
 ): Record<string, unknown> {
-  const displayName = names.get(ownerKey(owner));
-  return { kind: owner.kind, id: owner.id, ...(displayName !== undefined && { displayName }) };
+  const facts = names.get(ownerKey(owner));
+  return {
+    kind: owner.kind,
+    id: owner.id,
+    ...(facts?.name !== undefined && { displayName: facts.name }),
+    ...(facts?.projectAccount === true && { isProjectAccount: true }),
+  };
 }

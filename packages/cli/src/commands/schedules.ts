@@ -12,6 +12,7 @@ import {
   integerFlag,
   readJsonInput,
   requiredPositional,
+  runAsFields,
   runSdk,
   runSdkRendered,
   runsAsCell,
@@ -282,14 +283,15 @@ const get: LeafCommand = {
 };
 
 /**
- * `--run-as`: the schedule's runs act as this service account, not you. Needs
- * `act_as` on the account. Shared by `create` and `take-ownership`.
+ * `--run-as`: the schedule's runs act as this service account, or as its
+ * project's own account (`project`), not you. Shared by `create` and
+ * `take-ownership`.
  */
 const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   'run-as': {
     type: 'string',
     description:
-      "A service account, by id: the schedule's owner, so its runs act as that account from the next fire (not as you). Needs `act_as` on the account; omit it to own the schedule yourself.",
+      "A service account, by id, or `project`: the schedule's owner, so its runs act as that account from the next fire (not as you). `project` runs it as the project's own account, made the first time, and takes `admin` on the project. A named account takes `act_as`. Omit it to own the schedule yourself.",
   },
 };
 
@@ -308,9 +310,9 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Run an agent or a flow on a schedule, or start Improve runs on an agent (--improve). It's personal: its runs act as you, and only you or a project admin can change it. With `--run-as`, it's shared and acts as that service account. Who it acts as is checked again at every run; its runs are in your project's runs, naming the schedule.",
+    "Run an agent or a flow on a schedule, or start Improve runs on an agent (--improve). It's personal: its runs act as you, and only you or a project admin can change it. With `--run-as=project`, it's shared and acts as the project's own account; with `--run-as=<service-account-id>`, as that service account. Who it acts as is checked again at every run; its runs are in your project's runs, naming the schedule.",
   usage:
-    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>] [--allow-unattended=<tool-id>]…',
+    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>|project] [--allow-unattended=<tool-id>]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...WHEN_FLAGS,
@@ -332,7 +334,7 @@ const create: LeafCommand = {
         config: { ...config, cronExpression: config.cronExpression },
         ...(project !== undefined && { projectId: project }),
         ...policyFields(ctx),
-        ...(runAs !== undefined && { runAsServiceAccountId: runAs }),
+        ...runAsFields(runAs),
         ...allowUnattendedField(ctx, 'register'),
       } as RegisterInput);
     }),
@@ -388,8 +390,8 @@ const takeOwnership: LeafCommand = {
   kind: 'leaf',
   name: 'take-ownership',
   description:
-    "Become a schedule's owner, so its runs act as you from the next fire: for a schedule whose owner left, or to make it shared (--run-as, a service account becomes the owner) or yours. Takes a project admin.",
-  usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>]',
+    "Become a schedule's owner, so its runs act as you from the next fire: for a schedule whose owner left, or to make it shared (--run-as=project, the project's own account becomes the owner; --run-as=<service-account-id>, that service account) or yours. Takes a project admin.",
+  usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>|project]',
   optionSpec: { ...RUN_AS_FLAG },
   run: (ctx) =>
     runSdkRendered(ctx, 'schedules take-ownership', async (): Promise<Rendered> => {
@@ -397,7 +399,7 @@ const takeOwnership: LeafCommand = {
       const runAs = stringFlag(ctx, 'run-as');
       const schedulesClient = ctx.client().schedules;
       const schedule = await (runAs !== undefined
-        ? schedulesClient.takeOwnership(id, { runAsServiceAccountId: runAs })
+        ? schedulesClient.takeOwnership(id, runAsFields(runAs))
         : schedulesClient.takeOwnership(id));
       const rendered = renderJson(schedule, ctx.globals.format);
       const kept = schedule.toolsAllowedUnattended ?? [];
