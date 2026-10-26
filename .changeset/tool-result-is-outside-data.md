@@ -13,4 +13,4 @@
 - in that turn, and again in every later turn's history;
 - with the framework's line about outside data in the system message from the turn's start.
 
-It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` and `outlookMessageGet` set it, so both move to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.

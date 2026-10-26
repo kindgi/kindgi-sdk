@@ -247,20 +247,43 @@ export function allowUnattendedField(
 }
 
 /**
- * A schedule's or a webhook trigger's `RUNS AS` cell: its owner's name (else
- * id), and whether that makes it personal (a person) or shared (a service
- * account). A trigger with no owner (the server's `{service, 'unknown'}`) is
- * neither: it starts nothing until an admin takes it over. Empty when the
- * server names no owner at all.
+ * A schedule's, a webhook trigger's or a mail trigger's `RUNS AS` cell: its
+ * owner's name (else id), and whether that makes it personal (a person) or
+ * shared (a service account). One run as its project's own account says
+ * "this project". A trigger with no owner (the server's
+ * `{service, 'unknown'}`) is neither: it starts nothing until an admin takes
+ * it over. Empty when the server names no owner at all.
  */
 export function runsAsCell(
-  owner: { readonly kind: string; readonly id: string; readonly displayName?: string } | undefined,
+  owner:
+    | {
+        readonly kind: string;
+        readonly id: string;
+        readonly displayName?: string;
+        readonly isProjectAccount?: boolean;
+      }
+    | undefined,
 ): string {
   if (owner === undefined) return '';
   if (owner.kind === 'service' && owner.id === 'unknown') {
     return 'no owner (an admin can take it over)';
   }
+  if (owner.isProjectAccount === true) return 'this project (shared)';
   return `${owner.displayName ?? owner.id} (${owner.kind === 'user' ? 'personal' : 'shared'})`;
+}
+
+/**
+ * The owner `--run-as` names, as a register or take-over body says it:
+ * `project` is the trigger's project's own account (`runAsProject`), and
+ * anything else a service account's id. A runtime's account ids are UUIDs,
+ * so the word can't be one. Nothing when the flag is absent.
+ */
+export function runAsFields(runAs: string | undefined): {
+  readonly runAsProject?: true;
+  readonly runAsServiceAccountId?: string;
+} {
+  if (runAs === undefined) return {};
+  return runAs === 'project' ? { runAsProject: true } : { runAsServiceAccountId: runAs };
 }
 
 /** Extract an optional integer flag; throws on non-integer values. */
