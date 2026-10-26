@@ -83,6 +83,7 @@ describe('sameToolDefinition', () => {
       t({ needsApprovalWhenUnattended: true, input: { type: 'object' } }),
       ['input', 'needsApprovalWhenUnattended'],
     ],
+    ['its result marked outside data', t({ resultIsOutsideData: true }), ['resultIsOutsideData']],
   ])('different, with %s, naming the fields in manifest order', (_why, other, fields) => {
     expect(sameToolDefinition(base, other)).toBe(false);
     expect(changedToolFields(base, other)).toEqual(fields);

@@ -399,7 +399,7 @@ declares it:
 | --- | --- | --- |
 | `person` | A person: signed in (the console, the chat of the Kindgi plugin for WordPress), or with their own API key | Yes |
 | `key` | A service account's key | No |
-| `schedule`, `webhook`, `event` | A trigger | No |
+| `schedule`, `webhook`, `event`, `mail` | A trigger | No |
 
 - **A key acts as its person.** A script on your own key starts runs as
   you, and they count as yours. For automation, use a
@@ -433,8 +433,8 @@ pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post
   person started: a rule that asks before the tool runs still asks. The
   run still acts as the trigger's owner, so the call is checked against
   their access. It covers both kinds of tool that ask: one that declares
-  `needsApprovalWhenUnattended`, and one that changes things with a
-  person's connection
+  `needsApprovalWhenUnattended`, and one that uses a person's connection,
+  reads included
   ([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
   Such a run still can't wait for anyone to connect
   ([When the connection is missing](../../connections/use-a-connection/#when-the-connection-is-missing)).
@@ -877,8 +877,8 @@ continues from that step.
 
 **A tool step can't wait for a person.** In a run no person started, a step
 whose tool needs a person's yes fails, and the tool never runs: one that
-declares `needsApprovalWhenUnattended`, or one that changes things with a
-person's connection
+declares `needsApprovalWhenUnattended`, or one that uses a person's
+connection
 ([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
 The run's `failureMessage` says why:
 
@@ -886,8 +886,8 @@ The run's `failureMessage` says why:
 needs-a-person: tool "acme-ops.post-update" needs a person's yes when no person started the run (needsApprovalWhenUnattended), and a flow's tool step can't wait for one. Call it from an agent step instead: there the call waits for a person to approve it.
 ```
 
-For a tool that changes things with a person's connection, the reason in
-parentheses reads `it changes things with a person's connection`. Call such a
+For a tool that uses a person's connection, the reason in parentheses
+reads `it uses a person's connection`. Call such a
 tool from an agent step, whose call waits for a reviewer. In a schedule's
 or a webhook trigger's run, the message adds that the trigger could list
 the tool instead

@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.5"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -236,7 +236,7 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
 - **The token:** `access_token` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account.label` says whose account it is (`ana@acme.com`).
 - **A 401 from the app:** `raise ConnectionRejected("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or raise your own error `from` it. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
 - **An HTTP tool** sends the token with no code: `authorization={"kind": "connection", "connection": "mail"}`.
-- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, unless it's marked `mutating=False` (mark read-only tools so). The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below).
+- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `mutating=False` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below).
 - **In a unit test:** `ToolContext.for_test(connections={"mail": ToolConnection(connection_id="c-1", app="google", app_name="Google", access_token="test", account=ConnectionAccount(id="1", label="ana@acme.com"))})`, all from `kindgi`. `ctx.connections` is empty when the tool declares none.
 
 Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
@@ -298,6 +298,10 @@ def refund(request: RefundRequest) -> Refunded:
 ```
 
 Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+
+## Results that are text from outside: `result_is_outside_data`
+
+`result_is_outside_data=True` says the tool's results are text from outside that nobody checked, such as a mail someone sent or a page a search found. An agent reads each result of the tool as data, not instructions, in that turn and in every later turn's history. It changes what the model is told, not what the tool may do: pair it with approvals for anything an agent could do with what it read. Absent means `false`.
 
 ## HTTP tools — one request, no code
 

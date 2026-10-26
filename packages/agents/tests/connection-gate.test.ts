@@ -17,7 +17,7 @@ import type { Principal } from '@kindgi/authz';
 import type { ModelMessage } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
-import type { RunStartedBy } from '@kindgi/runtime';
+import type { RunMailbox, RunStartedBy } from '@kindgi/runtime';
 import {
   type ConnectionNeed,
   ConnectionRejectedError,
@@ -115,6 +115,10 @@ interface TurnOptions {
   readonly unserved?: true;
   readonly principal?: Principal;
   readonly startedBy?: RunStartedBy;
+  /** What the run's trigger lists (`toolsAllowedUnattended`). */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /** A mail's run: the mailbox it came from. */
+  readonly mailbox?: RunMailbox;
   readonly policy?: Record<string, unknown>;
   /** The agent's `toolErrors`: which failures the model gets back to retry. */
   readonly toolErrors?: Record<string, unknown>;
@@ -175,6 +179,10 @@ async function turn(o: TurnOptions = {}) {
       agent: a,
       principal: o.principal ?? owner,
       startedBy: o.startedBy ?? 'person',
+      ...(o.toolsAllowedUnattended !== undefined && {
+        toolsAllowedUnattended: o.toolsAllowedUnattended,
+      }),
+      ...(o.mailbox !== undefined && { mailbox: o.mailbox }),
     },
     bindings: {
       conversationBinding: {
@@ -940,4 +948,76 @@ describe("a call that acts with a person's connection is theirs to approve", () 
     expect(t.waits).toHaveLength(1);
     expect(t.ran).toHaveLength(1);
   });
+});
+
+describe("in a run no person started, a read with a person's connection waits for that person", () => {
+  const read = { mutating: false } as const;
+  const service: Principal = {
+    actor: { kind: 'service_account', id: 'sa-1', tenantId: TENANT },
+  } as unknown as Principal;
+  const needsAPerson = {
+    kind: 'refused',
+    code: 'connection-needs-a-person',
+    name: 'mail',
+    app: 'acme',
+    message: 'a service account has no Acme connection of its own',
+  } as const;
+
+  test.each(['webhook', 'schedule', 'mail'] as const)(
+    "started by %s: the read waits, and its approval is the owner's",
+    async (startedBy) => {
+      const t = await turn({
+        ...read,
+        startedBy,
+        ...(startedBy === 'mail' && { mailbox: { app: 'google', as: 'person' } as const }),
+      });
+      expect(t.enqueued).toHaveLength(1);
+      expect(t.enqueued[0]).toMatchObject({
+        approver: { kind: 'member', userId: OWNER },
+        connection: { app: 'acme', account: 'owner@acme.example' },
+      });
+      // Approved, so it runs.
+      expect(t.ran).toHaveLength(1);
+    },
+  );
+
+  test.each(['webhook', 'schedule', 'mail'] as const)(
+    "listed by the %s's trigger: the read runs at once",
+    async (startedBy) => {
+      const t = await turn({ ...read, startedBy, toolsAllowedUnattended: ['pack.send'] });
+      expect(t.enqueued).toEqual([]);
+      expect(t.ran).toHaveLength(1);
+    },
+  );
+
+  test('a person started the run: the read runs at once, as before', async () => {
+    const t = await turn({ ...read });
+    expect(t.enqueued).toEqual([]);
+    expect(t.ran).toHaveLength(1);
+  });
+
+  test("a company connection's read in a webhook's run runs at once, as before", async () => {
+    const t = await turn({ ...read, needs: { shared }, startedBy: 'webhook' });
+    expect(t.enqueued).toEqual([]);
+    expect(t.ran).toHaveLength(1);
+  });
+
+  test.each([
+    ['an event', 'event', undefined],
+    ['a mail trigger with the read listed', 'mail', ['pack.send']],
+  ] as const)(
+    "a service account's run (%s): the person's read is refused, nothing is asked",
+    async (_, startedBy, listed) => {
+      const t = await turn({
+        ...read,
+        principal: service,
+        startedBy,
+        ...(listed !== undefined && { toolsAllowedUnattended: listed }),
+        answers: [needsAPerson],
+      });
+      expect(t.enqueued).toEqual([]);
+      expect(t.ran).toEqual([]);
+      expect(t.failed[0]?.error.code).toBe('connection-needs-a-person');
+    },
+  );
 });
