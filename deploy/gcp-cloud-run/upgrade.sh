@@ -4,15 +4,16 @@
 #
 # Upgrade a small dev Kindgi deployment (network_mode = "none") to a newer
 # runtime, in order: check, back up, upgrade. It never changes the running
-# deployment before you type "yes" at the plan, and it never rolls back by
-# itself — if the new revision doesn't come up it prints the commands to go
-# back and stops. With --dry-run it changes nothing: it lists, in order, what a
-# real run would change.
+# deployment before you type "yes" at the plan, and "yes" applies exactly the
+# saved plan it showed. It never rolls back by itself — if the new revision
+# doesn't come up it prints the commands to go back and stops. With --dry-run
+# it changes nothing: it lists, in order, what a real run would change.
 #
 # Scope: the small dev shape from README "A small dev deployment" — no VPC, and
 # a public-IP Cloud SQL instance reached over /cloudsql. Any other network_mode
 # is out of scope (the pre-upgrade check job would need VPC egress); the script
-# says so and stops.
+# says so and stops. Upgrade those by hand: README "Upgrading", and the docs'
+# Cloud Run page, "Upgrade by hand".
 #
 # Run it from this module directory, after `terraform init`, as the identity
 # that deploys the module (it reads the running service and the module's state,
@@ -42,7 +43,11 @@
 #
 #   --var-file         The tfvars the deployment already uses (.tfvars or
 #                      .tfvars.json), with server_image on one line. Read for
-#                      its variables and passed to `terraform plan`/`apply`.
+#                      its variables and passed to `terraform plan`. Terraform
+#                      also reads every *.auto.tfvars and *.auto.tfvars.json
+#                      in this folder by itself: keep the pack's env in one
+#                      (<env>.pack-env.auto.tfvars.json), since a file named
+#                      otherwise is left out of the plan.
 #   --runtime-digest   The release digest of the runtime being upgraded to,
 #                      from its release notes (sha256:…). Checked against the
 #                      release's tag, then mirrored into the deployment's

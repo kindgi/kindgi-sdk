@@ -282,6 +282,18 @@ pnpm exec kindgi env plan --env prod > /tmp/pack-env.json
 jq '{pack_env: .env, pack_secret_env: .secret_env}' /tmp/pack-env.json > prod.pack-env.auto.tfvars.json
 ```
 
+Keep that file in the module's folder, and keep its name's ending,
+`.auto.tfvars.json`. Terraform reads every `*.auto.tfvars` and
+`*.auto.tfvars.json` file in the folder it runs in by itself, for every
+`plan` and `apply` there, so the pack's env goes into each without a
+`-var-file`. A file named otherwise, `prod.pack-env.tfvars.json` say, is
+read only by a command that names it with `-var-file`. A plan made without
+it sets `pack_env` and `pack_secret_env` to nothing, and applying that plan
+takes the pack's env away: while a name the pack requires has no value, its
+service takes no calls. And since every such file in the folder is read,
+keep one deployment's there
+([Staging and production](#staging-and-production)).
+
 ## 4. The services
 
 With the images and the secrets in place, apply the whole module. It creates
@@ -797,6 +809,42 @@ Model call to gemini (gemini-2.5-flash) failed: {"error":{"code":403,"message":"
 
 A new grant can take a minute or two to apply.
 
+## Staging and production
+
+Run staging and production as two deployments of the module, so a change
+or an upgrade reaches staging first. Each has its own:
+
+- **Folder:** a copy of the module, at the same release. Terraform reads
+  every `*.auto.tfvars.json` in the folder, so two deployments' pack env in
+  one folder would both be read.
+- **State:** its own `prefix` at `terraform init`
+  (`-backend-config=prefix=staging`, say). Two deployments never share one.
+- **Variables:** `staging.tfvars` in one folder and `prod.tfvars` in the
+  other, each with its `project_id`, its `name_prefix`, and its
+  `kindgi_env`: the env its tools' stored secrets resolve in, the one you
+  name when you set them (`--env=staging`, say).
+- **Pack env:** `kindgi env plan --env staging` reads your pack config's
+  `staging` environment
+  ([Per-environment values](../../../guides/secrets/per-environment-values/)),
+  and its output goes into `staging.pack-env.auto.tfvars.json` in staging's
+  folder. Each environment in the pack config also names its deployment's
+  address, so `kindgi deploy --env staging` deploys there.
+- **License key:** a non-production key covers staging, as long as it
+  serves no end users and processes no live business data
+  ([Two licenses](../../../concepts/licensing/#two-licenses)).
+
+The two can go in two Google Cloud projects, or in one:
+
+- **Two projects** keep them apart: each project's resources, roles and
+  quotas are its own, and both deployments can keep the default
+  `name_prefix`.
+- **One project** works with a `name_prefix` for each (`kindgi-staging`
+  and `kindgi`, say): every resource the module makes is named with it. The
+  module turns the project's APIs on and never off, so tearing one down
+  leaves them on for the other. But the roles the module grants on the
+  whole project, Cloud SQL Client for one, then cover both deployments'
+  resources.
+
 ## Operate it
 
 - **Upgrade at least every 90 days.** A preview release stops starting 90
@@ -807,7 +855,8 @@ A new grant can take a minute or two to apply.
   alert on it
   ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** back up Cloud SQL, copy the new runtime image by digest, set
-  `server_image`, and apply. The new revision takes all the traffic.
+  `server_image`, and apply ([Upgrade by hand](#upgrade-by-hand) has the
+  steps). The new revision takes all the traffic.
   Migrations only go forward: never run two runtime versions on one
   database, and go back by restoring the backup. From a module copy older
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
@@ -819,7 +868,10 @@ A new grant can take a minute or two to apply.
   to 0.2.0 or later. It copies the new image from `registry.kindgi.com`, so
   [log in there](../pull-the-runtime-image/) first. It runs the upgrade
   checks against the database, then backs the database up, and changes the
-  running deployment only when you type `yes`. If the new revision doesn't
+  running deployment only when you type `yes`, which applies exactly the
+  saved plan it showed. Terraform made that plan with every
+  `*.auto.tfvars.json` in the folder too, your pack's env among them. If
+  the new revision doesn't
   come up, it prints the way back rather than rolling back on its own. To
   see what it would do first, add `--dry-run`: it lists every change a real
   run would make, in order, and shows Terraform's plan for the new image,
@@ -924,6 +976,94 @@ A new grant can take a minute or two to apply.
   the `lines` of its `boot` record, as in
   [The startup log](../restart-and-check-health/#the-startup-log). See
   [Logs](../logs/).
+
+## Upgrade by hand
+
+`upgrade.sh` covers the small dev shape only. With `network_mode`
+`direct` or `connector`, upgrade by hand, staging first
+([Staging and production](#staging-and-production)). Run the steps in the
+module's folder, as the identity that deploys the module. `N` is your
+`name_prefix`, and `REPO` the repository from
+[2. The images into Artifact Registry](#2-the-images-into-artifact-registry).
+
+1. **Read the upgrade steps** of each release you're upgrading across, in
+   its release notes, and take the new release's digest from its notes.
+2. **Copy the new runtime image** into Artifact Registry by digest, as in
+   [2. The images into Artifact Registry](#2-the-images-into-artifact-registry),
+   with the new version and its digest.
+3. **Run the new version's read-only checks** against the database
+   ([Checks you can run before upgrading](../operate/#checks-you-can-run-before-upgrading)),
+   as a Cloud Run job that reaches it the way the server does:
+
+   ```sh
+   SA=$(terraform output -json service_accounts | jq -r .server)
+   gcloud run jobs create $N-upgrade-check --region=<region> \
+     --image="$REPO/runtime@sha256:<new digest>" --service-account="$SA" \
+     --set-secrets=KINDGI_DATABASE_URL=$N-database-url:latest \
+     --network=$N --subnet=$N-run --vpc-egress=all-traffic \
+     --args=check,provider-keys --max-retries=0
+   gcloud run jobs execute $N-upgrade-check --region=<region> --wait
+   ```
+
+   - With `connector`, use `--vpc-connector=<your connector>
+     --vpc-egress=private-ranges-only` in place of the three network flags.
+     With a database on a public IP, use
+     `--set-cloudsql-instances=<its connection name>`.
+   - For each other check the release notes name, change the job's
+     `--args` with `gcloud run jobs update`, and run it again.
+   - A check that lists something exits `1`, so its run fails, and its logs
+     list what it found. Delete the job when you're done
+     (`gcloud run jobs delete`).
+4. **Back up the database,** just before you apply. An on-demand backup of
+   the instance the server serves from (`$N`, or `database_instance`'s
+   name after a restore):
+
+   ```sh
+   gcloud sql backups create --instance=$N --description="before <version>"
+   ```
+
+   With `database_host_instance`, the instance's backups are the app's:
+   export Kindgi's database instead, as `upgrade.sh` does
+   (`gcloud sql export sql <instance> gs://<bucket>/<file>.sql.gz --database=<database_name>`).
+   Writes made after the backup aren't in it.
+5. **Set the new image:** `server_image` in `prod.tfvars`, to
+   `$REPO/runtime@sha256:<new digest>`. If the release notes say to rebuild
+   the pack, rebuild it and set `pack_image` too. Keep a copy of the file as
+   it was: it's your way back.
+6. **Plan, and save the plan:**
+
+   ```sh
+   terraform plan -var-file=prod.tfvars -out=upgrade.tfplan
+   ```
+
+   Terraform also reads every `*.auto.tfvars.json` in the folder, your
+   pack's env among them. Read the plan: it should change the services'
+   images, and what the release notes say. A plan that removes the pack's
+   env was made without its file ([3. The secrets](#3-the-secrets)).
+7. **Apply exactly that plan:**
+
+   ```sh
+   terraform apply upgrade.tfplan
+   ```
+
+   A saved plan applies as you read it, with the variables it was made
+   with, so it takes no `-var-file`. If the state changed since, Terraform
+   refuses it as stale: plan again. The new revision takes all the traffic
+   once it's ready.
+8. **Check it,** as in [6. Check it](#6-check-it).
+
+**If it doesn't come up, go back.** Nothing rolls back on its own, and
+migrations only go forward, so never point the old version at the migrated
+database:
+
+- Restore the backup into a new instance, and move the server onto it, as
+  **Restore Cloud SQL** under [Operate it](#operate-it) says, with the
+  erasure replay before it serves. From an export, make a fresh database in
+  the instance (`gcloud sql databases create`), import the export into it
+  (`gcloud sql import sql`), and add a version of the server's database URL
+  secret that names it.
+- Put the old `server_image`, and `pack_image`, back in `prod.tfvars`.
+- Plan and apply, as in steps 6 and 7.
 
 ## Tear it down
 

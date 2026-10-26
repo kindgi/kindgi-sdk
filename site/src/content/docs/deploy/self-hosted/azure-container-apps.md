@@ -341,7 +341,10 @@ jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env
 
 `jq` turns the plan's `env` and `secret_env` into the module's `pack_env`
 and `pack_secret_env` variables. Terraform reads `*.auto.tfvars.json` only
-from the module's directory.
+from the module's directory, and there it reads each such file by itself,
+for every `plan` and `apply`. So keep the name's ending: a file named
+otherwise is read only with `-var-file`, and a plan made without it takes
+the pack's env away.
 
 ## 4. The services
 
