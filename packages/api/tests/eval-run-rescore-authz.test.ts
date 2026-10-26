@@ -51,6 +51,9 @@ function mounted(run: EvalRun, may: readonly string[]) {
       return c.json({ error: { code: 'permission-denied', message: 'denied' } }, 403);
     },
     can: async () => false,
+    canFor: async () => {
+      throw new Error('unused');
+    },
     check: async () => {
       throw new Error('unused');
     },

@@ -86,10 +86,15 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   no service account in the tenant has that id (`404
   service-account-not-found`) or it was unregistered (`409
   service-account-unregistered`).
-- **The account must be able to run it,** as any owner must: a fire it may
-  no longer run is `refused`. So is every fire after the account is
-  unregistered (runtime 0.1.9 or later): take the schedule over, or
-  delete it.
+- **The account must be able to run it,** as any owner must. With an
+  authorization store, that's checked when you name it: an account that
+  can't run what the schedule runs is refused (`409
+  service-account-cannot-run-target`). Give it the editor role on the
+  target's project, or name another account. Without a store, grants limit
+  nothing, so there's nothing to check.
+- **A fire it may no longer run is `refused`:** after a grant is taken
+  away, and every fire after the account is unregistered (runtime 0.1.9 or
+  later). Take the schedule over, or delete it.
 - **To hand an existing schedule to an account:** `kindgi schedules
   take-ownership <schedule-id> --run-as=<service-account-id>`. It needs
   what taking it over yourself needs, `admin` on the project and `execute`

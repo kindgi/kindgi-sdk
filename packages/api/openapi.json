@@ -444,6 +444,7 @@
           "service-account-not-found": 404,
           "service-account-name-taken": 409,
           "service-account-unregistered": 409,
+          "service-account-cannot-run-target": 409,
           "identity-user-email-taken": 409,
           "last-tenant-admin": 409,
           "seed-user-admin": 409,
@@ -23018,7 +23019,7 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it."
+            "description": "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 service-account-cannot-run-target`). Absent: the caller owns it."
           },
           "config": {
             "type": "object",
@@ -23602,7 +23603,7 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it."
+            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 service-account-cannot-run-target`). Absent: the caller owns it."
           },
           "toolsAllowedUnattended": {
             "type": "array",
@@ -23692,7 +23693,7 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs."
+            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 service-account-cannot-run-target`)."
           }
         }
       },
@@ -58745,7 +58746,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The service account `runAsServiceAccountId` names is no longer registered (`service-account-unregistered`), or can't run what the schedule runs (`service-account-cannot-run-target`). Or an Idempotency-Key reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59613,7 +59614,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The service account `runAsServiceAccountId` names is no longer registered (`service-account-unregistered`), or can't run what the schedule runs (`service-account-cannot-run-target`). Or an Idempotency-Key reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59653,7 +59654,7 @@
             }
           }
         },
-        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 service-account-cannot-run-target`). The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
         "parameters": [
           {
             "name": "triggerId",
@@ -59732,7 +59733,7 @@
             }
           },
           "409": {
-            "description": "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or the route-minted webhookId collided (astronomically rare).",
+            "description": "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or the service account `runAsServiceAccountId` names is no longer registered (`service-account-unregistered`), or can't run the flow (`service-account-cannot-run-target`). Or the route-minted webhookId collided (astronomically rare).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60478,7 +60479,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The service account `runAsServiceAccountId` names is no longer registered (`service-account-unregistered`), or can't run the flow (`service-account-cannot-run-target`). Or an Idempotency-Key reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60518,7 +60519,7 @@
             }
           }
         },
-        "description": "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+        "description": "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 service-account-cannot-run-target`). The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
         "parameters": [
           {
             "name": "triggerId",

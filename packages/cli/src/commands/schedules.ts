@@ -288,7 +288,7 @@ const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   'run-as': {
     type: 'string',
     description:
-      "A service account, by id: the schedule's owner, so its runs act as that account from the next fire (not as you). Needs `act_as` on the account; omit it to own the schedule yourself.",
+      "A service account, by id: the schedule's owner, so its runs act as that account from the next fire (not as you). Needs `act_as` on the account, and the account needs a role that runs what the schedule runs (editor on its project); omit it to own the schedule yourself.",
   },
 };
 

@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
-import { type Action, type ResourceRef, ref } from '@kindgi/authz';
+import { type Action, type ResourceRef, ref, targetAccess } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
@@ -246,6 +246,7 @@ export function schedulesRouter(
     const resolved = await resolveTriggerOwner(
       c,
       runAsRaw as string | undefined,
+      target.value,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -614,6 +615,7 @@ export function schedulesRouter(
     const resolved = await resolveTriggerOwner(
       c,
       runAsRaw as string | undefined,
+      found.value.target,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -708,22 +710,6 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     ...(f.missedCount !== undefined && { missedCount: f.missedCount }),
     ...(f.manual === true && { manual: true }),
   };
-}
-
-/**
- * What firing the target needs, as starting it by hand does: `execute` on
- * the agent or flow a run starts; `publish` on the agent an improvement
- * pass works on (as `POST /v1/proposals/improve`).
- */
-function targetAccess(target: TriggerTarget): [Action, ResourceRef] {
-  switch (target.kind) {
-    case 'flow':
-      return ['execute', ref('flow', target.flowId)];
-    case 'agent':
-      return ['execute', ref('agent', target.agentId)];
-    case 'improve':
-      return ['publish', ref('agent', target.agentId)];
-  }
 }
 
 /** `flowId` + `flowVersion`, `agentId` (+ `agentVersion`), or `improve`: exactly one target. */

@@ -3,7 +3,7 @@
 
 import type { Context } from 'hono';
 
-import { ref } from '@kindgi/authz';
+import { type TriggerTargetRef, ref, serviceAccountPrincipal, targetAccess } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
@@ -57,12 +57,18 @@ export interface ResolveTriggerOwnerDeps {
   readonly canReadServiceAccounts: () => Promise<boolean>;
   /** Whether the caller may not `act_as` the account (`true` → refused). */
   readonly actAsDenied: (serviceAccountId: string) => Promise<boolean>;
+  /**
+   * Whether the account can't run the trigger's target, as every fire
+   * checks it (`true` → refused). Without an authorization model, `false`:
+   * a grant limits nothing there.
+   */
+  readonly cannotRun: (serviceAccountId: string, target: TriggerTargetRef) => Promise<boolean>;
 }
 
 /**
  * The owner a register or take-over sets. Absent `runAsServiceAccountId`,
  * it's the caller — exactly {@link ownerOf}, today's rule. Named, it's that
- * service account, after two checks:
+ * service account, after three checks:
  *   1. A **reader-ordered** existence check. Only a caller who may read
  *      service accounts learns whether the named one exists: a missing or
  *      another tenant's → 404, an unregistered one → 409. Everyone else gets
@@ -70,12 +76,17 @@ export interface ResolveTriggerOwnerDeps {
  *      the tenant's accounts by naming ids.
  *   2. The **delegation gate** — `act_as` on the account, which tenant
  *      admins hold.
+ *   3. The account can run `target`, as every fire checks it → else 409.
+ *      Only a caller past the gate reaches it, so it tells no one else
+ *      anything; without it, each fire would be refused until the trigger
+ *      paused.
  * The named value is a service-account id only — never a user id — so a
  * caller can't name a person as the owner (no impersonation).
  */
 export async function resolveTriggerOwner(
   c: Context<AppEnv>,
   runAsServiceAccountId: string | undefined,
+  target: TriggerTargetRef,
   deps: ResolveTriggerOwnerDeps,
 ): Promise<TriggerOwnerResolution> {
   if (runAsServiceAccountId === undefined) return { kind: 'owner', owner: ownerOf(c) };
@@ -124,7 +135,27 @@ export async function resolveTriggerOwner(
   if (await deps.actAsDenied(serviceAccountId)) {
     return { kind: 'refused', response: forbidden() };
   }
+  if (await deps.cannotRun(serviceAccountId, target)) {
+    return {
+      kind: 'refused',
+      response: ownerError(
+        c,
+        requestId,
+        'service-account-cannot-run-target',
+        cannotRunMessage(account.name, target),
+      ),
+    };
+  }
   return { kind: 'owner', owner: { kind: 'service', id: serviceAccountId } };
+}
+
+/** Why a named account can't own the trigger, and what fixes it. */
+function cannotRunMessage(accountName: string, target: TriggerTargetRef): string {
+  const what =
+    target.kind === 'flow'
+      ? `run flow "${target.flowId}"`
+      : `${target.kind === 'improve' ? 'publish' : 'run'} agent "${target.agentId}"`;
+  return `Service account "${accountName}" can't ${what}, so the trigger can't run as it. Give the account the editor role on the target's project, or name another account.`;
 }
 
 /**
@@ -163,7 +194,27 @@ export function triggerOwnerDeps(
     serviceAccounts,
     canReadServiceAccounts: () => isTenantAdmin(c, authorizer),
     actAsDenied: (serviceAccountId) => mayNotActAs(c, authorizer, serviceAccountId),
+    cannotRun: (serviceAccountId, target) =>
+      accountCannotRun(c, authorizer, serviceAccountId, target),
   };
+}
+
+/**
+ * Whether the service account can't run `target`: the fire's own check
+ * (`targetAccess`), asked of the account, not the caller. Without an
+ * authorization model, no: there a grant limits nothing, so the account's
+ * runs aren't limited by one either. A store that fails throws, as the
+ * `act_as` check does, so the request fails rather than letting it pass.
+ */
+async function accountCannotRun(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  serviceAccountId: string,
+  target: TriggerTargetRef,
+): Promise<boolean> {
+  if (authorizer === undefined) return false;
+  const account = serviceAccountPrincipal(serviceAccountId, c.get('tenantId') as TenantId);
+  return !(await authorizer.canFor(c, account, ...targetAccess(target)));
 }
 
 type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
