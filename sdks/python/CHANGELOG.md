@@ -75,6 +75,20 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   dropped name dropped, so no later model takes `Config` or `Baseline` with
   another meaning. (#938)
 
+- `kindgi`: **An error inside a field is logged like `err`, and a value that
+  raises when read never fails the log call.** An error nested in a field (in a
+  mapping or a list) was written as its scrubbed `str()`, so its `name`, `code`
+  and causes were lost. It's now written as `err` is — its `name` (its class's),
+  scrubbed `message` and `code`, and its causes — without its stack at any
+  level. The message is written as the error gives it, with known secret shapes
+  masked; a database driver's message can itself quote the statement and the
+  values it was bound to (SQLAlchemy appends `[SQL: …]` and `[parameters: …]`
+  unless the engine has `hide_parameters=True`, and libpq keeps a `DETAIL:`
+  line), so when that matters log a field such as the SQLSTATE rather than the
+  error. None of the error's other attributes are written. An attribute that
+  raises when read counts as missing (a message that can't be read is empty), a
+  value that raises when read is `[unreadable]`, and fields whose keys can't be
+  listed are left out; the record is still written.
 - `kindgi`: **a tool or an agent whose model has a pydantic tagged union
   deploys.** With `Field(discriminator=...)`, pydantic writes OpenAPI's
   `discriminator` keyword beside the union's `oneOf`, and the runtime refused
