@@ -513,6 +513,27 @@ describe('a mail trigger run as its project', () => {
     expect(h.accounts.ensured()).toBe(0);
   });
 
+  test("a target its account can't run: the 409 at register and at a take-over, nothing registered, and the owner stays", async () => {
+    const h = harness();
+    const res = await h.call('POST', MAIL, mail('company', { runAsProject: true, flowId: SERVED }));
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'trigger-owner-cannot-run-target',
+      message: `The trigger can't run flow "${SERVED}" as the project. The project's own account runs only what the project's editors can: run the trigger as a service account that can, or own it yourself.`,
+    });
+    expect((await h.call('GET', MAIL)).body.data).toEqual([]);
+    const mine = await h.call('POST', MAIL, mail('company', { flowId: SERVED }));
+    expect(mine.status, JSON.stringify(mine.body)).toBe(201);
+    const id = mine.body.triggerId as string;
+    const takeOver = await h.call('POST', `${MAIL}/${id}/owner`, { runAsProject: true });
+    expect(takeOver.status, JSON.stringify(takeOver.body)).toBe(409);
+    expect(takeOver.body.error.code).toBe('trigger-owner-cannot-run-target');
+    expect((await h.call('GET', `${MAIL}/${id}`)).body.owner).toMatchObject({
+      kind: 'user',
+      id: GRACE,
+    });
+  });
+
   test("a take-over with `runAsProject` moves a company-mailbox trigger to the project's account", async () => {
     const h = harness();
     const mine = await h.call('POST', MAIL, mail('company'));
