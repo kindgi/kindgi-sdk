@@ -263,7 +263,7 @@ describe('register: an account that can run it owns the trigger', () => {
 });
 
 describe('take-over: naming an account that cannot run the target is a 409', () => {
-  test('a schedule: refused while the account cannot, then taken over once it can', async () => {
+  test('a schedule: a 409 while the account cannot run it, and the owner stays', async () => {
     const h = harness([]);
     const made = await h.call('POST', '/v1/schedules', schedule());
     expect(made.status).toBe(201);
