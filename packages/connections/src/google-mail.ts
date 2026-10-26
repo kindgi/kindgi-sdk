@@ -265,20 +265,35 @@ async function readInThread(
     if (err instanceof GmailNotFound) return undefined;
     throw err;
   }
-  // Oldest first, as Gmail gives a thread.
   const messages = (Array.isArray(thread?.messages) ? thread.messages : []) as GmailMessage[];
   const at = messages.findIndex((m) => m?.id === messageId);
   if (at === -1) return undefined;
+  // Earlier by when each came, not by place: the reference gives no order
+  // for a thread's messages. Two that came in the same millisecond keep it.
+  const own = dateOf(messages[at]);
   const earlier = messages
-    .slice(0, at)
-    .filter((m) => !(m?.labelIds ?? []).some((l) => typeof l === 'string' && NOT_IN_THREAD.has(l)))
-    .reverse()
+    .map((m, i) => ({ m, i, date: dateOf(m) }))
+    .filter(
+      ({ m, i, date }) =>
+        (date < own || (date === own && i < at)) &&
+        !(m?.labelIds ?? []).some((l) => typeof l === 'string' && NOT_IN_THREAD.has(l)),
+    )
+    .sort((a, b) => b.date - a.date || b.i - a.i)
     .slice(0, budget.earlier);
   return {
     kind: 'ok',
     mail: gmailMessage(messages[at] as GmailMessage, budget.messageChars),
-    thread: earlier.map((m) => gmailMessage(m, budget.earlierChars)),
+    thread: earlier.map(({ m }) => gmailMessage(m, budget.earlierChars)),
   };
+}
+
+/**
+ * A message's `internalDate` in milliseconds: when Gmail received it.
+ * `NaN` when it has none, which no time is before or after.
+ */
+function dateOf(m: GmailMessage | null | undefined): number {
+  const date = m?.internalDate;
+  return typeof date === 'string' && /^\d{1,16}$/.test(date) ? Number(date) : Number.NaN;
 }
 
 /** The folder as a Gmail label id: the inbox unless given. */

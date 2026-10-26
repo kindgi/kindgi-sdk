@@ -16,7 +16,8 @@
  *   (developers.google.com/workspace/gmail/api/guides/filtering);
  * - users.threads.get:
  *   developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/get
- *   (`id`, `historyId`, `messages[]` oldest first).
+ *   (`id`, `historyId`, `messages[]`, each with its `internalDate`; the
+ *   page gives no order for them, so the read counts on none).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -293,6 +294,31 @@ describe('googleMail failures', () => {
     const cut = { ...call, abortSignal: AbortSignal.abort(timeout) };
     await expect(googleMail.start(cut, { from: new Date() })).rejects.toBe(timeout);
   });
+
+  it('stops waiting to try again when the call is cut off, and makes no second call', async () => {
+    const timeout = new DOMException('The operation timed out.', 'TimeoutError');
+    const cutOff = new AbortController();
+    const { call } = gmail(() => {
+      // Cut off while the call waits the second Gmail asked for.
+      setTimeout(() => cutOff.abort(timeout), 0);
+      return googleError(
+        429,
+        'RESOURCE_EXHAUSTED',
+        'Too many concurrent requests for user.',
+        'rateLimitExceeded',
+        undefined,
+        { 'retry-after': '1' },
+      );
+    });
+    const err = await googleMail
+      .start({ ...call, abortSignal: cutOff.signal }, { from: new Date() })
+      .catch((e: unknown) => e);
+    expect(err).toBe(timeout);
+    expect(isMailCallError(err)).toBe(false);
+    // Not even a call its signal would stop: the wait itself ends.
+    expect(call.fetch).toHaveBeenCalledOnce();
+    expect(vi.mocked(call.fetch).mock.calls[0]?.[1]?.signal).toBe(cutOff.signal);
+  });
 });
 
 describe('googleMail.since', () => {
@@ -408,6 +434,18 @@ describe('googleMail.read', () => {
       budget: { ...MAIL_THREAD_BUDGET, earlier: 1 },
     });
     expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2']);
+  });
+
+  it('picks the earlier messages by when they came, whatever order the thread gives', async () => {
+    const { call } = gmail(() =>
+      Response.json({ ...thread, messages: [...thread.messages].reverse() }),
+    );
+    const read = await googleMail.read(call, {
+      messageId: 'm3',
+      threadId: 't1',
+      budget: MAIL_THREAD_BUDGET,
+    });
+    expect(read.kind === 'ok' && read.thread.map((m) => m.id)).toEqual(['m2', 'm1']);
   });
 
   it("reads the message first when its thread isn't given", async () => {
