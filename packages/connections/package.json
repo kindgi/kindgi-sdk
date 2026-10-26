@@ -56,6 +56,11 @@
       "import": "./dist/microsoft-tools.js",
       "default": "./dist/microsoft-tools.js"
     },
+    "./microsoft/mail": {
+      "types": "./dist/microsoft-mail.d.ts",
+      "import": "./dist/microsoft-mail.js",
+      "default": "./dist/microsoft-mail.js"
+    },
     "./linkedin": {
       "types": "./dist/linkedin.d.ts",
       "import": "./dist/linkedin.js",

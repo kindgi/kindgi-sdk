@@ -65,7 +65,7 @@ export const microsoft = defineApp({
       per: 'connection',
       units: 30,
       perSeconds: 60,
-      costs: { 'outlook.messages.list': 0, 'outlook.messages.get': 0 },
+      costs: { 'outlook.messages.list': 0, 'outlook.messages.get': 0, 'outlook.messages.delta': 0 },
     },
   ],
   setupGuide: '/guides/connections/microsoft/',

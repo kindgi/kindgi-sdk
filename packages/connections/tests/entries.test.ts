@@ -171,7 +171,12 @@ describe('the Microsoft entry', () => {
         per: 'connection',
         units: 30,
         perSeconds: 60,
-        costs: { 'outlook.messages.list': 0, 'outlook.messages.get': 0 },
+        // Reads, the mail calls' delta too, never count against sends.
+        costs: {
+          'outlook.messages.list': 0,
+          'outlook.messages.get': 0,
+          'outlook.messages.delta': 0,
+        },
       },
     ]);
     expect(microsoft.setupGuide).toBe('/guides/connections/microsoft/');

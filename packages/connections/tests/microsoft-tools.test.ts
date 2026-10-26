@@ -325,7 +325,7 @@ describe('outlook.messages.list', () => {
       { connections: { mail: mail() } },
     );
     expect(r.kind === 'err' && r.error.message).toContain(
-      "Outlook found nothing at /me/mailFolders/archive/messages in the person's mailbox. (ErrorItemNotFound: Not found.)",
+      'Outlook found nothing at /me/mailFolders/archive/messages in the mailbox. (ErrorItemNotFound: Not found.)',
     );
   });
 });
@@ -341,7 +341,8 @@ describe('outlook.messages.get', () => {
     expect(get.effects?.map((e) => e.kind)).toEqual(['reads', 'network']);
   });
 
-  it('reads one message, its body as plain text', async () => {
+  it('reads one message as a MailMessage, its body as plain text, at 2.0.0', async () => {
+    expect(get.version).toBe('2.0.0');
     const sent = graphAnswering(() => Response.json(RAW_MESSAGE));
     const r = await invokeToolForTest(
       get,
@@ -352,22 +353,96 @@ describe('outlook.messages.get', () => {
       kind: 'ok',
       value: {
         id: RAW_MESSAGE.id,
+        threadId: 'AAQkAGI2-conv',
         subject: 'The revised quote',
         from: { address: 'bo@acme.test', name: 'Bo' },
         to: [{ address: 'ana@acme.test', name: 'Ana' }],
         cc: [{ address: 'cy@acme.test' }],
+        replyTo: [],
         receivedAt: '2026-10-22T14:03:00Z',
         body: 'Here it is.\nBo',
         bodyCut: false,
-        conversationId: 'AAQkAGI2-conv',
+        attachments: [],
+        autoSubmitted: false,
       },
     });
     const url = sent[0]?.url ?? '';
     expect(url.split('?')[0]).toBe(`${GRAPH}/me/messages/${RAW_MESSAGE.id}`);
     expect(queryOf(url)).toEqual({
-      $select: 'id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,conversationId',
+      $select:
+        'id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,internetMessageHeaders,body',
+      $expand: 'attachments($select=name,contentType,size,isInline)',
     });
     expect(sent[0]?.headers.prefer).toBe('outlook.body-content-type="text", IdType="ImmutableId"');
+  });
+
+  it('names the attachments a person sees, and marks an automatic reply', async () => {
+    // learn.microsoft.com/en-us/graph/api/resources/message (internetMessageHeaders, replyTo),
+    // .../resources/attachment (name, contentType, size, isInline; fileAttachment and itemAttachment).
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        replyTo: [{ emailAddress: { address: 'orders@acme.test', name: 'Orders' } }],
+        internetMessageHeaders: [
+          { name: 'Received', value: 'from mail.acme.test' },
+          { name: 'Auto-Submitted', value: 'auto-replied' },
+        ],
+        attachments: [
+          {
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: 'quote.pdf',
+            contentType: 'application/pdf',
+            size: 52_113,
+            isInline: false,
+          },
+          {
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: 'logo.png',
+            contentType: 'image/png',
+            size: 900,
+            isInline: true,
+          },
+          {
+            '@odata.type': '#microsoft.graph.itemAttachment',
+            name: 'Fwd: the order',
+            contentType: null,
+            size: 2_000,
+            isInline: false,
+          },
+        ],
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'ok' && r.value).toMatchObject({
+      replyTo: [{ address: 'orders@acme.test', name: 'Orders' }],
+      attachments: [
+        { name: 'quote.pdf', contentType: 'application/pdf', size: 52_113 },
+        { name: 'Fwd: the order', contentType: 'message/rfc822', size: 2_000 },
+      ],
+      autoSubmitted: true,
+    });
+  });
+
+  it('turns a body Graph gives as HTML into text', async () => {
+    graphAnswering(() =>
+      Response.json({
+        ...RAW_MESSAGE,
+        body: {
+          contentType: 'html',
+          content: '<html><body><p>Here <b>it</b> is.</p></body></html>',
+        },
+      }),
+    );
+    const r = await invokeToolForTest(
+      get,
+      { messageId: RAW_MESSAGE.id },
+      { connections: { mail: mail() } },
+    );
+    expect(r.kind === 'ok' && r.value.body).toBe('Here it is.');
   });
 
   it('gives the first 50,000 characters of a longer body, and says it was cut', async () => {

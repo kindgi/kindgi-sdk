@@ -72,9 +72,10 @@ const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
   },
   outlookMessageGet: {
     '1.0.0': '8f108ce8482dad5c396bb98a5fd31cb4fae748b5844440025e81716c9feee7ce',
+    '2.0.0': 'b0dedd8841aebde9a165aaa0ceaec698d06c524a66ca3d6ce65ce010c134af2d',
   },
   'outlookMessageGet as company': {
-    '1.0.0': 'cc767f67f79a7a9cf69c8090c4ada1ff883115a0c97785005a72231b6d3a3ec9',
+    '2.0.0': 'b2fbe72f270301d1e5107977eec984076db1faeae77d73f6ad85eef2804c8279',
   },
   linkedinPost: { '1.0.0': '67bff01e1b26f3bff67d26d4fb568285c797518bbe5dd762691479a389f2e2ca' },
 };

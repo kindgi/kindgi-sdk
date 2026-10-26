@@ -14,6 +14,7 @@
 import { type AppSend, mailSend } from './app-request.js';
 import { type GmailMessage, gmailMessage } from './gmail-mime.js';
 import { GMAIL_ID, GmailNotFound, LABEL_ID, gmailJson, query } from './google-api.js';
+import { checkBudget, checkMax } from './mail-input.js';
 import {
   MAIL_CLOCK_MARGIN_MS,
   type MailFolder,
@@ -76,9 +77,7 @@ export const googleMail: MailFunctions = {
 
   async since(call, input) {
     const label = labelOf(input);
-    if (!Number.isInteger(input.max) || input.max < 1 || input.max > SINCE_MAX) {
-      throw new Error(`\`max\` is a whole number from 1 to ${SINCE_MAX}.`);
-    }
+    checkMax(input.max, SINCE_MAX);
     // Gmail takes a time to the second as epoch seconds (guides/filtering).
     const after = Math.floor((input.from.getTime() - MAIL_CLOCK_MARGIN_MS) / 1000);
     if (!Number.isFinite(after) || after < 0) throw new Error('`from` is not a time Gmail takes.');
@@ -287,20 +286,4 @@ function labelOf(input: MailFolder): string {
   const label = input.folder ?? 'INBOX';
   if (!LABEL_ID.test(label)) throw new Error(`"${label}" isn't a Gmail label id.`);
   return label;
-}
-
-function checkBudget(budget: MailThreadBudget): void {
-  const { messageChars, earlier, earlierChars } = budget;
-  if (
-    !Number.isInteger(messageChars) ||
-    messageChars < 1 ||
-    !Number.isInteger(earlier) ||
-    earlier < 0 ||
-    !Number.isInteger(earlierChars) ||
-    earlierChars < 1
-  ) {
-    throw new Error(
-      'The budget is whole numbers: at least 1 character, and 0 or more earlier messages.',
-    );
-  }
 }
