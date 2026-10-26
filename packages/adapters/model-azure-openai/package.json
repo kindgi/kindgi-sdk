@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/adapter-model-azure-openai",
-  "version": "0.1.10",
+  "version": "0.2.0-rc.0",
   "description": "Azure OpenAI ModelProvider for @kindgi/capabilities: your Azure OpenAI deployments (Responses or Chat Completions) by API key or the runtime's Entra identity.",
   "license": "Apache-2.0",
   "repository": {
