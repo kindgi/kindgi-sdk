@@ -462,8 +462,10 @@ Mail already there doesn't run: it starts from now." It asks for:
 - **Gmail label** or **Outlook folder:** empty for the inbox, else the
   label's id, such as `Label_12`, or the folder's id or well-known name,
   such as `archive`.
-- **Starts:** an agent, at its live version, or a flow, at one of its
-  versions.
+- **Starts:** an agent, at its live version, or a flow, at its latest
+  version that isn't retired, which the trigger then keeps starting. To
+  start another of its versions, create the trigger with the CLI's
+  `--flow-version` ([Create one](#create-one)).
 - **Looks:** how often it looks for new mail, from every 30 seconds to
   every hour. It's every minute to start with.
 - **Runs an hour, at most:** 1 to 600, 60 to start with. Past it, a mail
@@ -527,9 +529,10 @@ owner's access.
 
 A tenant admin gets **Change owner…** instead, on a trigger on the
 company's mailbox, whenever the tenant has a registered service account
-the trigger doesn't already run as. Its **Runs as** list has "You — with
-your access" and each registered service account, and the dialog says what
-changes before anything does, as for
+the trigger doesn't already run as. Its **Runs as** list has each
+registered service account and, when the trigger isn't already yours,
+"You — with your access". The dialog says what changes before anything
+does, as for
 [a schedule](../run-on-a-schedule/#in-the-console). A trigger on a
 person's mailbox has only **Take over**: a person's mailbox is read as a
 person.
