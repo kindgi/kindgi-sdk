@@ -87,11 +87,14 @@ export const PART_NOT_READ = '[Part of this message’s text is too long to read
  * - **Text:** in a `multipart/alternative`, the `text/plain` choice, else
  *   the first other one (`text/html` as plain text); in a
  *   `multipart/related`, its first part; in any other `multipart/*`, each
- *   part's text in order, a blank line between. A part with a file name,
- *   or `Content-Disposition: attachment`, is an attachment, never text.
+ *   part's text in order, a blank line between. A blank plain choice
+ *   gives way to one with text. A part with a file name, or
+ *   `Content-Disposition: attachment`, is an attachment, never text.
  * - **Charset:** each part's `Content-Type` charset, else UTF-8.
- * - **Attachments:** every attachment part, at any depth. An attached
- *   message (`message/rfc822`) is one attachment; what's inside isn't read.
+ * - **Attachments:** every attachment part, at any depth, and every other
+ *   part that isn't text: an image pasted into the mail, say, with no
+ *   name. One shown in the body is marked `inline`. An attached message
+ *   (`message/rfc822`) is one attachment; what's inside isn't read.
  */
 export function gmailBody(payload: GmailPart): {
   readonly text: string;
@@ -126,7 +129,14 @@ function textOf(part: GmailPart): PartText | undefined {
   }
   if (!type.startsWith('multipart/')) return undefined;
   const texts = (part.parts ?? []).map(textOf).filter((t): t is PartText => t !== undefined);
-  if (type === 'multipart/alternative') return texts.find((t) => !t.html) ?? texts[0];
+  if (type === 'multipart/alternative') {
+    // Some mailers send a blank plain choice beside the HTML that has the text.
+    return (
+      texts.find((t) => !t.html && t.text.trim() !== '') ??
+      texts.find((t) => t.text.trim() !== '') ??
+      texts[0]
+    );
+  }
   if (type === 'multipart/related') return texts[0];
   if (texts.length === 0) return undefined;
   return {
@@ -138,7 +148,7 @@ function textOf(part: GmailPart): PartText | undefined {
   };
 }
 
-function collectAttachments(part: GmailPart, into: MailAttachment[]): void {
+function collectAttachments(part: GmailPart, into: MailAttachment[], inRelated = false): void {
   if (isAttachment(part)) {
     const type = mimeTypeOf(part);
     const name = decodeEncodedWords(part.filename ?? '').trim();
@@ -146,17 +156,31 @@ function collectAttachments(part: GmailPart, into: MailAttachment[]): void {
       name: name !== '' ? name : type === 'message/rfc822' ? 'message.eml' : 'attachment',
       contentType: type !== '' ? type : 'application/octet-stream',
       size: typeof part.body?.size === 'number' ? part.body.size : 0,
+      ...(isInline(part, inRelated) && { inline: true }),
     });
     return;
   }
-  for (const child of part.parts ?? []) collectAttachments(child, into);
+  const related = mimeTypeOf(part) === 'multipart/related';
+  for (const child of part.parts ?? []) collectAttachments(child, into, related);
 }
 
 function isAttachment(part: GmailPart): boolean {
   if ((part.filename ?? '') !== '') return true;
-  if (mimeTypeOf(part) === 'message/rfc822') return true;
+  const type = mimeTypeOf(part);
+  // Not text, and not a container: an image, a calendar invite, an attached message.
+  if (type !== 'text/plain' && type !== 'text/html' && !type.startsWith('multipart/')) return true;
   const disposition = gmailHeader(part, 'Content-Disposition');
   return disposition !== undefined && /^\s*attachment\b/i.test(disposition);
+}
+
+/**
+ * Shown in the body, not attached: as its `Content-Disposition` says, else
+ * a part of a `multipart/related` that its HTML refers to by `Content-ID`.
+ */
+function isInline(part: GmailPart, inRelated: boolean): boolean {
+  const disposition = gmailHeader(part, 'Content-Disposition');
+  if (disposition !== undefined) return /^\s*inline\b/i.test(disposition);
+  return inRelated && gmailHeader(part, 'Content-ID') !== undefined;
 }
 
 function mimeTypeOf(part: GmailPart): string {

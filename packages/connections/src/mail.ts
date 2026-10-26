@@ -21,6 +21,13 @@ export interface MailAttachment {
   readonly name: string;
   readonly contentType: string;
   readonly size: number;
+  /**
+   * `true` for a part the mail shows in its body rather than attaches: a
+   * photo pasted into it, a signature's logo. Still the sender's, and
+   * listed like any other. Gmail's `Content-Disposition: inline`, or a
+   * `multipart/related` part with a `Content-ID`; Outlook's `isInline`.
+   */
+  readonly inline?: boolean;
 }
 
 export interface MailMessage {

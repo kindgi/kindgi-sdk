@@ -50,10 +50,10 @@ const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
     '1.0.0': 'f6b6cb415803ac50ea2dc55b8f9c6c3d1ec16bbe112183e83d7f409c3e7e4ee6',
   },
   gmailMessageGet: {
-    '1.0.0': '383d7e82728686689cb2b2a957e4e774cdeda7f2453f55e4a7aab0d39e63f400',
+    '1.0.0': 'a816d5447eae3b31df1715ded2c88c43d614c78d9acf73adf2a9d2e57fd12ef1',
   },
   'gmailMessageGet as company': {
-    '1.0.0': 'd02fb46d815cf9936f81b6961b3dcfad5bdbc7cd8c641fb1c3d17e4fdc8113fc',
+    '1.0.0': '64fe253fe1f82004741b75aa48eae3d68183b40276c12ac50004ace5fa13af7a',
   },
   githubIssuesList: { '1.0.0': '2e9a7f7d01f9aaa777df3cedf8374b5cdc3f7bb8b6d074f2a50ec08595916b98' },
   githubLabelsList: { '1.0.0': 'a9cd9f0fa4fc90fdf99eb42e3045f9544363d60beed12658aaf4c6f99a580fc9' },
@@ -72,10 +72,10 @@ const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
   },
   outlookMessageGet: {
     '1.0.0': '8f108ce8482dad5c396bb98a5fd31cb4fae748b5844440025e81716c9feee7ce',
-    '2.0.0': 'b0dedd8841aebde9a165aaa0ceaec698d06c524a66ca3d6ce65ce010c134af2d',
+    '2.0.0': 'f8b57988808ea35db8bf9de25653796552b7dce657ed829e600fc546e5b4aaf3',
   },
   'outlookMessageGet as company': {
-    '2.0.0': 'b2fbe72f270301d1e5107977eec984076db1faeae77d73f6ad85eef2804c8279',
+    '2.0.0': '350011bf4dd8a675f008dd72d7102033a5e07d946497c8ca58eb04bea30cfe21',
   },
   linkedinPost: { '1.0.0': '67bff01e1b26f3bff67d26d4fb568285c797518bbe5dd762691479a389f2e2ca' },
 };

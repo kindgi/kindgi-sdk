@@ -376,7 +376,7 @@ describe('outlook.messages.get', () => {
     expect(sent[0]?.headers.prefer).toBe('outlook.body-content-type="text", IdType="ImmutableId"');
   });
 
-  it('names the attachments a person sees, and marks an automatic reply', async () => {
+  it('names the attachments, one in the body marked inline, and marks an automatic reply', async () => {
     // learn.microsoft.com/en-us/graph/api/resources/message (internetMessageHeaders, replyTo),
     // .../resources/attachment (name, contentType, size, isInline; fileAttachment and itemAttachment).
     graphAnswering(() =>
@@ -419,12 +419,13 @@ describe('outlook.messages.get', () => {
     );
     expect(r.kind === 'ok' && r.value).toMatchObject({
       replyTo: [{ address: 'orders@acme.test', name: 'Orders' }],
-      attachments: [
-        { name: 'quote.pdf', contentType: 'application/pdf', size: 52_113 },
-        { name: 'Fwd: the order', contentType: 'message/rfc822', size: 2_000 },
-      ],
       autoSubmitted: true,
     });
+    expect(r.kind === 'ok' && r.value.attachments).toEqual([
+      { name: 'quote.pdf', contentType: 'application/pdf', size: 52_113 },
+      { name: 'logo.png', contentType: 'image/png', size: 900, inline: true },
+      { name: 'Fwd: the order', contentType: 'message/rfc822', size: 2_000 },
+    ]);
   });
 
   it('turns a body Graph gives as HTML into text', async () => {

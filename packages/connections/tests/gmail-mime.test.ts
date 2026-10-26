@@ -68,7 +68,7 @@ describe('gmailBody', () => {
     ).toBe('only HTML');
   });
 
-  it('finds the text in nested parts, and lists the attachments, not an inline image without a name', () => {
+  it('finds the text in nested parts, and lists the attachments, an inline image without a name marked', () => {
     const inlineImage: GmailPart = {
       mimeType: 'image/png',
       filename: '',
@@ -86,8 +86,47 @@ describe('gmailBody', () => {
     );
     expect(gmailBody(payload)).toEqual({
       text: 'See the receipt.',
-      attachments: [{ name: 'receipt.pdf', contentType: 'application/pdf', size: 52_113 }],
+      attachments: [
+        { name: 'attachment', contentType: 'image/png', size: 900, inline: true },
+        { name: 'receipt.pdf', contentType: 'application/pdf', size: 52_113 },
+      ],
     });
+  });
+
+  it('marks a part inline as its Content-Disposition says, and lists one that is not text', () => {
+    const photo: GmailPart = {
+      mimeType: 'image/jpeg',
+      filename: 'IMG_0412.jpeg',
+      headers: [{ name: 'Content-Disposition', value: 'inline; filename="IMG_0412.jpeg"' }],
+      body: { attachmentId: 'photo', size: 81_920 },
+    };
+    const invite: GmailPart = {
+      mimeType: 'text/calendar',
+      filename: '',
+      headers: [{ name: 'Content-Type', value: 'text/calendar; method=REQUEST' }],
+      body: { attachmentId: 'ics', size: 1_200 },
+    };
+    const payload = multipart(
+      'mixed',
+      multipart('alternative', text('text/plain', 'The mug, broken.'), invite),
+      photo,
+    );
+    expect(gmailBody(payload)).toEqual({
+      text: 'The mug, broken.',
+      attachments: [
+        { name: 'attachment', contentType: 'text/calendar', size: 1_200 },
+        { name: 'IMG_0412.jpeg', contentType: 'image/jpeg', size: 81_920, inline: true },
+      ],
+    });
+  });
+
+  it('takes the HTML choice when the plain one is blank', () => {
+    const payload = multipart(
+      'alternative',
+      text('text/plain', ' \r\n'),
+      text('text/html', '<p>Order 1042 came <b>broken</b>.</p>'),
+    );
+    expect(gmailBody(payload).text).toBe('Order 1042 came broken.');
   });
 
   it('reads an HTML-only message whose related part holds the HTML', () => {

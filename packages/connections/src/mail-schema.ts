@@ -48,6 +48,7 @@ export const MAIL_MESSAGE = {
           name: { type: 'string' },
           contentType: { type: 'string' },
           size: { type: 'integer', minimum: 0 },
+          inline: { type: 'boolean' },
         },
       },
     },

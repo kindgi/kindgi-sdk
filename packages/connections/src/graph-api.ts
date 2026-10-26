@@ -189,12 +189,13 @@ export function outlookMessage(
 }
 
 /**
- * The attachments a person sees: an inline one (an image in the HTML) is
- * left out. An attached message (`itemAttachment`) has no type of its own.
+ * The message's attachments, one shown in the body (an image in the HTML)
+ * marked `inline`. An attached message (`itemAttachment`) has no type of
+ * its own.
  */
 function attachmentsOf(raw: RawMessage): MailAttachment[] {
   return (raw.attachments ?? [])
-    .filter((a): a is RawAttachment => a !== null && a.isInline !== true)
+    .filter((a): a is RawAttachment => a !== null)
     .map((a) => {
       const item = a['@odata.type'] === '#microsoft.graph.itemAttachment';
       return {
@@ -206,6 +207,7 @@ function attachmentsOf(raw: RawMessage): MailAttachment[] {
               ? 'message/rfc822'
               : 'application/octet-stream',
         size: typeof a.size === 'number' && a.size >= 0 ? a.size : 0,
+        ...(a.isInline === true && { inline: true }),
       };
     });
 }
