@@ -170,10 +170,87 @@ export type MailRead =
   /** Gone from the mailbox, or moved out of reach, before it was read. */
   | { readonly kind: 'not-found' };
 
+const MAIL_CALL_ERROR = Symbol.for('kindgi.connections.mail-call-error');
+
 /**
- * One app's mail calls. A 401 throws `ConnectionRejectedError` (from
- * `@kindgi/tools`), so the caller renews the token once and calls again.
- * Any other failure throws, with the app's status and no token in it.
+ * The app answered a mail call with a status its result doesn't cover
+ * (a 404 a read answers `not-found` to is covered, and so is an expired
+ * cursor). Its message names the status and the reason, never the token
+ * or the mail's text.
+ *
+ * - A missing scope: {@link isMailScopeMissing}.
+ * - The app being busy or down is a 429 or a 5xx that the call's own
+ *   tries didn't get past.
+ *
+ * Recognized by a registered symbol, not `instanceof`, so a runtime and
+ * the calls that load different copies of this package still agree.
+ */
+export class MailCallError extends Error {
+  readonly [MAIL_CALL_ERROR] = true;
+
+  /**
+   * @param status The app's HTTP status.
+   * @param reason Gmail's `error.errors[0].reason` (else the `reason` of
+   *   its `error.details` ErrorInfo), or Graph's `error.code`, when the
+   *   answer has one.
+   */
+  constructor(
+    readonly status: number,
+    readonly reason?: string,
+  ) {
+    super(`the mail call failed with ${status}${reason === undefined ? '' : ` (${reason})`}`);
+    this.name = 'MailCallError';
+  }
+}
+
+/** Is `value` a {@link MailCallError} (from any copy of this package)? */
+export function isMailCallError(value: unknown): value is MailCallError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { readonly [MAIL_CALL_ERROR]?: unknown })[MAIL_CALL_ERROR] === true
+  );
+}
+
+/** The reasons a 403 gives when the connection's token lacks a scope the call needs. */
+const SCOPE_MISSING_REASONS: ReadonlySet<string> = new Set([
+  // Gmail: `error.errors[0].reason`, and its ErrorInfo's.
+  'insufficientPermissions',
+  'ACCESS_TOKEN_SCOPE_INSUFFICIENT',
+  // Graph: `error.code`.
+  'ErrorAccessDenied',
+]);
+
+/**
+ * Did the app refuse a mail call because the connection lacks a scope it
+ * needs? A 403 with Gmail's `insufficientPermissions` (its ErrorInfo's
+ * `ACCESS_TOKEN_SCOPE_INSUFFICIENT`) or Graph's `ErrorAccessDenied`.
+ * Trying again won't help; connecting again with the scope does.
+ */
+export function isMailScopeMissing(value: unknown): boolean {
+  return (
+    isMailCallError(value) &&
+    value.status === 403 &&
+    value.reason !== undefined &&
+    SCOPE_MISSING_REASONS.has(value.reason)
+  );
+}
+
+/**
+ * One app's mail calls.
+ *
+ * - **Tries:** a call the app is busy for is tried again by this package's
+ *   own rule for every app call (`appFetch`'s, through its loop): a 429,
+ *   Google's rate-limit 403s and a 503 to a GET, up to 3 tries in all,
+ *   after `Retry-After`, else 1 s, then 2 s, and never a wait asked past
+ *   30 s. The caller tries no more.
+ * - **Refused:** a 401 throws `ConnectionRejectedError` (from
+ *   `@kindgi/tools`), so the caller renews the token once and calls again.
+ * - **Failed:** any other answer the result doesn't cover throws
+ *   {@link MailCallError}.
+ * - **Cut off:** a call stopped by `abortSignal` rejects with the signal's
+ *   reason, as `fetch` does: the platform's `TimeoutError` for
+ *   `AbortSignal.timeout()`. It's no `MailCallError`, since no answer came.
  */
 export interface MailFunctions {
   /** A fresh cursor. A catch-up calls it before `since`, so mail that comes in between is in one or the other. */
