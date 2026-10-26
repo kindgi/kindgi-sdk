@@ -2580,7 +2580,7 @@ class ServiceAccountsResource:
     ) -> _models.ServiceAccount:
         """Unregister a service account. `POST /v1/service-accounts/{serviceAccountId}/unregister`
 
-        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.
+        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only. Unregistering a project's own account stops the triggers that run as it until an admin takes each over; the next `runAsProject` makes a new one.
         """
         return self._client._request(
             _OPERATIONS["serviceAccounts.unregister"],
@@ -8873,7 +8873,10 @@ class ProjectsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`"""
+        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
+
+        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        """
         return self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
@@ -9691,7 +9694,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -9890,7 +9893,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -9943,7 +9946,7 @@ class MailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Register a mail trigger. `POST /v1/mail-triggers`
 
-        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.register"],
@@ -10089,7 +10092,7 @@ class MailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
 
-        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.takeOwnership"],
@@ -11912,7 +11915,7 @@ class AsyncServiceAccountsResource:
     ) -> _models.ServiceAccount:
         """Unregister a service account. `POST /v1/service-accounts/{serviceAccountId}/unregister`
 
-        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.
+        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only. Unregistering a project's own account stops the triggers that run as it until an admin takes each over; the next `runAsProject` makes a new one.
         """
         return await self._client._request(
             _OPERATIONS["serviceAccounts.unregister"],
@@ -18227,7 +18230,10 @@ class AsyncProjectsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`"""
+        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
+
+        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        """
         return await self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
@@ -19045,7 +19051,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -19244,7 +19250,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -19297,7 +19303,7 @@ class AsyncMailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Register a mail trigger. `POST /v1/mail-triggers`
 
-        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.register"],
@@ -19443,7 +19449,7 @@ class AsyncMailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
 
-        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.takeOwnership"],

@@ -2346,11 +2346,16 @@ export const ERROR_ENTRIES = {
   },
   'service-account-name-taken': {
     description:
-      'An active service account in this tenant already has that name. Choose another name.',
+      "An active service account in this tenant already has that name. Choose another name. With `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>`: a tenant admin can unregister it.",
     details: [],
   },
   'service-account-unregistered': {
     description: "The service account has been unregistered, so it can't be granted anything.",
+    details: [],
+  },
+  'service-account-project-owned': {
+    description:
+      "The service account is a project's own account, the one the project's shared triggers run as. It has no keys, so none can be minted `for` it. Its grant is fixed, so it can't be granted or ungranted anything. A trigger can't name it in `runAsServiceAccountId`: name it with `runAsProject: true` instead. An app that needs keys needs a service account of its own.",
     details: [],
   },
   'identity-user-email-taken': {
