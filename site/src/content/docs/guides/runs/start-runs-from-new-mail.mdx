@@ -234,8 +234,8 @@ pnpm exec kindgi mail-triggers update <trigger-id> --allow-unattended=acme-shop.
 A trigger on a person's mailbox reads its owner's own mail, so a person
 owns it, and it's **personal**: its runs act as them, with their
 connections. A trigger on the company's mailbox that a service account
-owns is **shared**: its runs act as the account. No change moves the
-owner: only a take-over does.
+owns, the project's own or another, is **shared**: its runs act as the
+account. No change moves the owner: only a take-over does.
 
 - **A personal trigger is its owner's.** Only they or a project admin can
   change, pause, resume or unregister it. Anyone else with `write` on the
@@ -266,14 +266,15 @@ owner: only a take-over does.
   take-ownership <trigger-id>` needs `admin` on the project: "Taking a mail
   trigger over takes a project admin." On a person's mailbox, the trigger
   then reads the new owner's own mailbox, and starts afresh there. On the
-  company's, `--run-as=<service-account-id>` hands it to a service account
-  instead.
+  company's, `--run-as=project` hands it to the project's own account
+  instead, and `--run-as=<service-account-id>` to another service account.
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 
 `kindgi mail-triggers list --table` shows each trigger's `RUNS AS`: its
 owner's name and whether it's personal or shared, such as "Sam Lee
-(personal)", or "no owner (an admin can take it over)".
+(personal)" or "this project (shared)", or "no owner (an admin can take
+it over)".
 
 ## The company's mailbox
 
@@ -289,16 +290,19 @@ and under **For** choose **The company**.
   the company's mail. Register the app for those projects only
   (`--projects` on `kindgi connection-apps add`), which limits people's
   own connections of it to them too.
-- **Have a service account own the trigger,** so it doesn't depend on the
-  admin who made it:
+- **Have the project own the trigger,** so it doesn't depend on the admin
+  who made it:
 
   ```sh
   pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google --as=company \
-    --run-as=<service-account-id> --label="support inbox"
+    --run-as=project --label="support inbox"
   ```
 
-  `--run-as` needs `act_as` on the account, and goes with `--as=company`
-  only. Without it, the trigger is personal to the admin who made it.
+  Its runs act as the project's own account, made the first time. To have
+  another service account own it, name it by id instead
+  (`--run-as=<service-account-id>`), which needs `act_as` on it.
+  `--run-as` goes with `--as=company` only. Without it, the trigger is
+  personal to the admin who made it.
 - **A tool that uses the company's mailbox** is the ready-made tool with
   `as: 'company'`, under its own tool id
   ([Ready-made tools](../../connections/use-a-connection/#ready-made-tools)).
