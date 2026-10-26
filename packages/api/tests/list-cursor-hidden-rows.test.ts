@@ -436,6 +436,14 @@ const ENTRIES: readonly Entry[] = [
       return { bindings: { triggerRegistry: l.binding }, received: l.received };
     },
   },
+  {
+    name: 'mail-triggers',
+    path: '/v1/mail-triggers',
+    bindings: () => {
+      const l = page('list', () => ({ projectId: 'hid-project' }));
+      return { bindings: { triggerRegistry: l.binding }, received: l.received };
+    },
+  },
 ];
 
 const sealer = createAeadCursorSealer({
