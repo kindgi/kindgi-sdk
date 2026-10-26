@@ -516,7 +516,7 @@ then every hour, in the tenants it serves:
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
 | Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), answers to a paused tool call (`wait-token-completed`, `wait-token-discarded`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
-| Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, people's access and connections, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
+| Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, triggers' owners, people's access and connections, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
 
 Run outcomes and guardrail violations are recorded (runtime 0.1.9 or
@@ -549,8 +549,8 @@ describes:
 The changes on legal hold are these kinds:
 
 - **Approvals:** `hitl-decision`, and
-  `trigger-tools-allowed-unattended-set`, a change to a schedule's or
-  webhook trigger's
+  `trigger-tools-allowed-unattended-set`, a change to a schedule's,
+  webhook trigger's or mail trigger's
   [tools allowed unattended](../../guides/approvals/ask-before-a-tool-runs/#tools-allowed-unattended);
 - **Secrets:** `secret-set`, `secret-rotated`, `secret-rotation`,
   `secret-rotation-started`, `secret-rotation-failed`, `secret-revoked`,
@@ -558,6 +558,11 @@ The changes on legal hold are these kinds:
 - **API keys:** `api-key-minted`, `api-key-revoked`;
 - **Service accounts:** `service-account-created`, `service-account-granted`,
   `service-account-ungranted`, `service-account-unregistered`;
+- **Triggers' owners** (runtime 0.2.0 or later): `trigger-owner-set`, a
+  schedule, webhook trigger or mail trigger made to run as a service
+  account, and each take-over; `trigger-changed-for-owner`, a project
+  admin's change to a trigger a person owns
+  ([Shared or personal](../../guides/runs/run-on-a-schedule/#shared-or-personal));
 - **People:** `person-added`, `person-invite-sent`, `person-granted`,
   `person-ungranted`;
 - **Connections:** `connection-created`, `connection-removed`,
