@@ -403,6 +403,105 @@ describe.each(BOTH)('a %s run as its project', (kind) => {
   });
 });
 
+const MAIL = '/v1/mail-triggers';
+
+/** A trigger on the company's Outlook mailbox, or (`person`) the caller's own. */
+const mail = (as: 'company' | 'person', over: Record<string, unknown> = {}) => ({
+  flowId: 'acme.orders',
+  flowVersion: '1.0.0',
+  projectId: PROJECT,
+  label: 'inbox',
+  config: { mailbox: { app: 'microsoft', as } },
+  ...over,
+});
+
+describe('a mail trigger run as its project', () => {
+  test("on the company's mailbox, a project admin's: the project's own account owns it, and a second reuses it", async () => {
+    const h = harness();
+    const first = await h.call('POST', MAIL, mail('company', { runAsProject: true }));
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    const made = h.accounts.projectAccountsMade();
+    expect(made).toHaveLength(1);
+    expect(first.body.owner).toEqual({
+      kind: 'service',
+      id: made[0]?.serviceAccountId,
+      displayName: `project-${PROJECT}`,
+      isProjectAccount: true,
+    });
+    const second = await h.call('POST', MAIL, mail('company', { runAsProject: true }));
+    expect(second.body.owner.id).toBe(first.body.owner.id);
+    expect(h.accounts.projectAccountsMade()).toHaveLength(1);
+    expect(h.ownerSets()[0]).toMatchObject({
+      to: `service:${first.body.owner.id}`,
+      projectAccount: true,
+      by: `user:${GRACE}`,
+    });
+  });
+
+  test("on a person's mailbox it's a 400, at register and at a take-over, and nothing is made", async () => {
+    const h = harness();
+    const named = await h.call('POST', MAIL, mail('person', { runAsProject: true }));
+    expect(named.status).toBe(400);
+    expect(named.body.error.message).toMatch(/a person owns it/);
+    const adas = await h.call('POST', MAIL, mail('person'), 'ada');
+    expect(adas.status, JSON.stringify(adas.body)).toBe(201);
+    const id = adas.body.triggerId as string;
+    const takeOver = await h.call('POST', `${MAIL}/${id}/owner`, { runAsProject: true });
+    expect(takeOver.status).toBe(400);
+    expect(takeOver.body.error.message).toMatch(/a person owns it/);
+    expect((await h.call('GET', `${MAIL}/${id}`)).body.owner).toMatchObject({
+      kind: 'user',
+      id: ADA,
+    });
+    expect(h.accounts.ensured()).toBe(0);
+  });
+
+  test("a take-over with `runAsProject` moves a company-mailbox trigger to the project's account", async () => {
+    const h = harness();
+    const mine = await h.call('POST', MAIL, mail('company'));
+    expect(mine.body.owner).toMatchObject({ kind: 'user', id: GRACE });
+    const id = mine.body.triggerId as string;
+    const res = await h.call('POST', `${MAIL}/${id}/owner`, { runAsProject: true });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const account = h.accounts.activeFor(PROJECT);
+    expect(res.body.owner).toMatchObject({
+      kind: 'service',
+      id: account?.serviceAccountId,
+      isProjectAccount: true,
+    });
+    expect(h.ownerSets().at(-1)).toMatchObject({
+      from: `user:${GRACE}`,
+      to: `service:${account?.serviceAccountId}`,
+      projectAccount: true,
+    });
+  });
+
+  test("the owner moves only by a take-over, and a person's mailbox stays a person's", async () => {
+    const h = harness();
+    const made = await h.call('POST', MAIL, mail('company', { runAsProject: true }));
+    const path = `${MAIL}/${made.body.triggerId as string}`;
+    const named = await h.call('PATCH', path, { runAsProject: true });
+    expect(named.status).toBe(400);
+    expect(named.body.error.message).toMatch(/only by a take-over/);
+    const toPerson = await h.call('PATCH', path, {
+      config: { mailbox: { app: 'google', as: 'person' } },
+    });
+    expect(toPerson.status).toBe(400);
+    expect(toPerson.body.error.message).toMatch(/a person owns it/);
+  });
+
+  test("without an authorization store, a tenant-admin key may; a runtime that can't make the account answers 501", async () => {
+    const open = harness({ authz: false });
+    const root = await open.call('POST', MAIL, mail('company', { runAsProject: true }), 'root');
+    expect(root.status, JSON.stringify(root.body)).toBe(201);
+    expect(root.body.owner).toMatchObject({ isProjectAccount: true });
+    const none = harness({ projectAccounts: false });
+    const res = await none.call('POST', MAIL, mail('company', { runAsProject: true }));
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('trigger-operation-unsupported');
+  });
+});
+
 describe('a schedule with no project', () => {
   test('`runAsProject` is a 400', async () => {
     const h = harness();

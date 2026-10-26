@@ -39,13 +39,16 @@ import {
   type OwnerFacts,
   type TriggerOwnerNames,
   type TriggerOwnerNotices,
+  type TriggerOwnerRequest,
   callerOwns,
   isTriggerAdmin,
   mayChangePersonalTrigger,
+  namesAnOwner,
   noteChangeForOwner,
   ownerJson,
   ownerNamesOf,
   ownerOf,
+  ownerRequestOf,
   ownerRuleRefused,
   recordOwnerSet,
   resolveTriggerOwner,
@@ -93,9 +96,10 @@ export interface MailTriggersRouterOptions {
  *   POST /v1/mail-triggers/:triggerId/owner         the caller becomes the owner
  *
  * A mail trigger is shared or personal, by its owner: a service account
- * owns a shared one, on the company's mailbox; a person owns a personal
- * one. No edit moves the owner; only `POST …/owner` does. Its runs act as
- * its owner, with that owner's connections.
+ * (one named by id, or the project's own) owns a shared one, on the
+ * company's mailbox; a person owns a personal one. No edit moves the
+ * owner; only `POST …/owner` does. Its runs act as its owner, with that
+ * owner's connections.
  *
  * With an authorizer, reads need `read` on the trigger's project, and
  * registering or retargeting needs `execute` on what it runs. A person
@@ -264,19 +268,16 @@ export function mailTriggersRouter(
     if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
       return bad(c, requestId, '`projectId` must be a project id (a UUID)');
     }
-    const runAsRaw = body.runAsServiceAccountId;
-    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
-      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
-    }
-    const personRefusal = personMailboxOwnerProblem(c, mailbox, runAsRaw);
-    if (personRefusal !== undefined) return bad(c, requestId, personRefusal);
-
     // A trigger that names no project goes in the tenant's Default project:
     // checked and stored as that project. With no Default to find, the
     // registry picks it, and only a tenant admin may.
     const project =
       (projectId as string | undefined) ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
+    const ownerRequest = ownerRequestOf(body, project);
+    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
+    const personRefusal = personMailboxOwnerProblem(c, mailbox, ownerRequest);
+    if (personRefusal !== undefined) return bad(c, requestId, personRefusal);
     const refusedRole =
       mailbox.as === 'company'
         ? await notAdmin(c, project, "Watching the company's mailbox")
@@ -311,10 +312,11 @@ export function mailTriggersRouter(
     }
 
     // Who its runs act as: the caller, or on the company's mailbox the
-    // service account named with `runAsServiceAccountId` (gated by `act_as`).
+    // service account named with `runAsServiceAccountId` (gated by `act_as`)
+    // or the project's own account with `runAsProject` (a project admin's).
     const resolved = await resolveTriggerOwner(
       c,
-      { ...(runAsRaw !== undefined && { runAsServiceAccountId: runAsRaw as string }) },
+      ownerRequest,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -337,9 +339,10 @@ export function mailTriggersRouter(
         toWireError({ code: result.error.code, message: result.error.message }, requestId),
       );
     }
-    // A named service-account owner is a delegation: audit it. A plain
-    // register (owner = caller) is the trigger's creation, not a change.
-    if (runAsRaw !== undefined) {
+    // A named service-account owner, or the project's own account, is a
+    // delegation: audit it. A plain register (owner = caller) is the
+    // trigger's creation, not a change.
+    if (namesAnOwner(ownerRequest)) {
       await recordOwnerSet({
         auditEvents,
         tenantId,
@@ -347,6 +350,7 @@ export function mailTriggersRouter(
         triggerId: result.value.triggerId,
         triggerKind: 'mail',
         to: owner,
+        ...(resolved.projectAccount === true && { projectAccount: true }),
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
@@ -436,7 +440,7 @@ export function mailTriggersRouter(
     const parsed = await parseJsonObject(c, requestId);
     if (parsed.kind === 'err') return parsed.response;
     const body = parsed.value;
-    if ('runAsServiceAccountId' in body) {
+    if ('runAsServiceAccountId' in body || 'runAsProject' in body) {
       return bad(c, requestId, OWNER_MOVES_BY_TAKE_OVER);
     }
     const retarget =
@@ -661,7 +665,8 @@ export function mailTriggersRouter(
     const refusedTarget = await targetRefused(c, rec.target, rec.projectId as unknown as string);
     if (refusedTarget !== undefined) return refusedTarget;
     // The caller takes it over, or on the company's mailbox names a service
-    // account with `runAsServiceAccountId` in an optional body (gated by `act_as`).
+    // account with `runAsServiceAccountId` in an optional body (gated by
+    // `act_as`), or the project's own account with `runAsProject`.
     const parsed = await parseJsonObject(c, requestId, { allowEmpty: true });
     if (parsed.kind === 'err') return parsed.response;
     if ('toolsAllowedUnattended' in parsed.value) {
@@ -671,15 +676,13 @@ export function mailTriggersRouter(
         "a take-over keeps the mail trigger's `toolsAllowedUnattended`: change it with PATCH",
       );
     }
-    const runAsRaw = parsed.value.runAsServiceAccountId;
-    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
-      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
-    }
-    const personRefusal = personMailboxOwnerProblem(c, rec.config.mailbox, runAsRaw);
+    const ownerRequest = ownerRequestOf(parsed.value, rec.projectId as unknown as string);
+    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
+    const personRefusal = personMailboxOwnerProblem(c, rec.config.mailbox, ownerRequest);
     if (personRefusal !== undefined) return bad(c, requestId, personRefusal);
     const resolved = await resolveTriggerOwner(
       c,
-      { ...(runAsRaw !== undefined && { runAsServiceAccountId: runAsRaw as string }) },
+      ownerRequest,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -695,6 +698,7 @@ export function mailTriggersRouter(
       triggerKind: 'mail',
       from: rec.owner,
       to: resolved.owner,
+      ...(resolved.projectAccount === true && { projectAccount: true }),
       by: callerRef(c),
       correlationId: requestId,
       log: c.get('log'),
@@ -720,19 +724,20 @@ const ONLY_THE_OWNER_CHOOSES_WHAT_IT_READS =
   "Only the trigger's owner may choose which of their mailboxes it reads, and which folder or Gmail label in it: take it over to watch your own.";
 
 const PERSON_MAILBOX_IS_A_PERSONS =
-  "a trigger on a person's mailbox reads its owner's own mail, so a person owns it: not a service account (`runAsServiceAccountId` goes with the company's mailbox)";
+  "a trigger on a person's mailbox reads its owner's own mail, so a person owns it: not a service account or the project's own account (`runAsServiceAccountId` and `runAsProject` go with the company's mailbox)";
 
 /**
  * Why the trigger's owner can't be who the request makes it: on a person's
- * mailbox, a person, never a service account, named or calling.
+ * mailbox, a person, never a service account (named, the project's own, or
+ * calling).
  */
 function personMailboxOwnerProblem(
   c: Context<AppEnv>,
   mailbox: MailTriggerMailbox,
-  runAsServiceAccountId: unknown,
+  request: TriggerOwnerRequest,
 ): string | undefined {
   if (mailbox.as !== 'person') return undefined;
-  if (runAsServiceAccountId !== undefined || ownerOf(c).kind !== 'user') {
+  if (namesAnOwner(request) || ownerOf(c).kind !== 'user') {
     return PERSON_MAILBOX_IS_A_PERSONS;
   }
   return undefined;
