@@ -10,8 +10,6 @@
  * and `fetch` they're given and keep nothing: the caller keeps the cursor.
  */
 
-import { createHash } from 'node:crypto';
-
 /** A mail address and the name shown with it. */
 export interface MailPerson {
   readonly address: string;
@@ -74,17 +72,9 @@ export interface MailMessage {
 /** The header a reply the agent sends carries its mark in. */
 export const REPLY_REF_HEADER = 'X-Reply-Ref';
 
-/**
- * A run's reply mark, which each reply the run sends carries in
- * {@link REPLY_REF_HEADER}: lowercase hex, the first 32 characters of
- * SHA-256 over `reply-ref:v1:` and the run id. A hash, so the header
- * never shows the run's id.
- */
-export function replyRefOf(runId: string): string {
-  return createHash('sha256').update(`reply-ref:v1:${runId}`).digest('hex').slice(0, 32);
-}
+export { mailTurn, replyRefOf } from './mail-turn.js';
 
-/** Whether a header's value is in a reply mark's form ({@link replyRefOf}'s): 32 lowercase hex characters. */
+/** Whether a header's value is in a reply mark's form (`replyRefOf`'s): 32 lowercase hex characters. */
 export function isReplyRef(value: string): boolean {
   return /^[0-9a-f]{32}$/.test(value);
 }
@@ -217,6 +207,39 @@ export type MailRead =
     }
   /** Gone from the mailbox, or moved out of reach, before it was read. */
   | { readonly kind: 'not-found' };
+
+/** What a mail-started turn is made from: the read, and what its conversation has had. */
+export interface MailTurnInput {
+  readonly read: Extract<MailRead, { kind: 'ok' }>;
+  /** `linked` when the turn continues the thread's conversation. */
+  readonly conversation: 'new' | 'linked';
+  /** The message ids this conversation was given: its record. Empty for a new one. */
+  readonly given: ReadonlySet<string>;
+  /** The ids of this conversation's runs, whose marked replies are dropped. Empty for a new one. */
+  readonly runIds: readonly string[];
+  /** The mailbox's own address: its mail is shown as "(this mailbox)". */
+  readonly mailbox: string;
+  readonly budget: MailTurnBudget;
+}
+
+/** A mail-started turn: the agent's message, a flow target's input, and what it covered. */
+export interface MailTurn {
+  /** The agent's turn message: the thread as text, oldest first, the new mail last. */
+  readonly text: string;
+  /** A flow target's input. `thread` is the carried mail before `mail`, oldest first. */
+  readonly input: {
+    readonly mail: MailMessage;
+    readonly thread: readonly MailMessage[];
+    /** How many mails were left out, as the text's line says. */
+    readonly leftOut: number;
+  };
+  /**
+   * Every message id the turn covered: carried, left out over the budget,
+   * or dropped as the agent's own. None of `given`, and none newer than
+   * the new mail. The fire's start records each.
+   */
+  readonly covered: readonly string[];
+}
 
 const MAIL_CALL_ERROR = Symbol.for('kindgi.connections.mail-call-error');
 
