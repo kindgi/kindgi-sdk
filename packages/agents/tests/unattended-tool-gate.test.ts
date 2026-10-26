@@ -203,6 +203,16 @@ describe('the unattended rule, case by case', () => {
     needsSpec: { connections: { mail: company('microsoft') } },
   };
   const refund = { id: 'pack.refund' };
+  /** A reply as the reply tools declare it: a change that asks when unattended, with the mailbox's own connection. */
+  const reply = (need: ConnectionNeed) => ({
+    id: 'pack.reply',
+    needsApprovalWhenUnattended: true,
+    mutating: true,
+    needsSpec: { connections: { mail: need } },
+  });
+  const personGmailReply = reply(person('google'));
+  const companyOutlookReply = reply(company('microsoft'));
+  const personGoogle: RunMailbox = { app: 'google', as: 'person' };
   const personMailbox: RunMailbox = { app: 'microsoft', as: 'person' };
   const companyGoogle: RunMailbox = { app: 'google', as: 'company' };
   const companyMicrosoft: RunMailbox = { app: 'microsoft', as: 'company' };
@@ -341,6 +351,38 @@ describe('the unattended rule, case by case', () => {
       companySend,
       'mail',
       ['pack.send'],
+      companyMicrosoft,
+      undefined,
+    ],
+    [
+      "a mail's run, a person's Gmail mailbox: an unlisted reply tool waits",
+      personGmailReply,
+      'mail',
+      undefined,
+      personGoogle,
+      'declared',
+    ],
+    [
+      "a mail's run, a person's Gmail mailbox: a listed reply tool runs",
+      personGmailReply,
+      'mail',
+      ['pack.reply'],
+      personGoogle,
+      undefined,
+    ],
+    [
+      "a mail's run, a company Outlook mailbox: an unlisted reply tool waits",
+      companyOutlookReply,
+      'mail',
+      undefined,
+      companyMicrosoft,
+      'declared',
+    ],
+    [
+      "a mail's run, a company Outlook mailbox: a listed reply tool runs",
+      companyOutlookReply,
+      'mail',
+      ['pack.reply'],
       companyMicrosoft,
       undefined,
     ],
