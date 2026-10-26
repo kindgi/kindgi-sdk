@@ -187,6 +187,67 @@ To send an agent to Gemini when other providers are registered too, set
 Or require it, as
 [Choose the model an agent uses](../../agents/choose-a-model/) shows.
 
+## Make it think less
+
+Gemini 3.8 Flash thinks on every call, as much as Google sets unless it's
+given a level, and `low` is the least it takes. The thinking bills as output
+tokens, and it counts against the call's output
+limit too, so a high level with a small `maxOutputTokens` can end with no
+answer.
+
+The provider's `adapter_config.thinkingLevels` sets a level for each model
+it names, as `model=level` pairs separated by commas. The levels are
+Google's four: `minimal`, `low`, `medium` and `high`. A model it doesn't
+name thinks as Google sets by default. Vertex AI refuses `minimal` on
+Gemini 3.8 Flash. In a check on 2026-10-07, the same short verdict took 31
+tokens of thinking at `low`, and 67 without a level.
+
+The preset doesn't take a level, and a registration can't be edited. So
+unregister the preset's provider and register it again from a file. Save
+this as `gemini.json`, with your project in place of `<gcp-project>`:
+
+```json
+{
+  "adapter_id": "@kindgi/adapter-model-gemini",
+  "adapter_config": { "project": "<gcp-project>", "thinkingLevels": "gemini-3.8-flash=low" },
+  "metadata": {
+    "id": "gemini",
+    "region": "global",
+    "defaultModel": "gemini-3.8-flash",
+    "models": [
+      { "name": "gemini-3.8-flash", "contextWindow": 1048576, "maxOutputTokens": 65536,
+        "thinking": { "mode": "adaptive", "lowest": "low" },
+        "features": ["tool-use", "structured-output", "long-context"],
+        "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 } },
+      { "name": "gemini-3.5-flash-lite", "contextWindow": 1048576, "maxOutputTokens": 65536,
+        "thinking": { "mode": "adaptive", "lowest": "minimal" },
+        "features": ["tool-use", "structured-output", "long-context"],
+        "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 } }
+    ]
+  }
+}
+```
+
+```sh
+pnpm exec kindgi providers unregister gemini
+pnpm exec kindgi providers register --spec=@gemini.json
+```
+
+If your pack's config declares the preset, change that entry instead: put a
+`spec` entry with this file's contents in its place, and restart
+`kindgi dev`. It registers the levels itself on every boot, in each worktree
+and on a teammate's machine
+([Declare them in your pack's config](../#declare-them-in-your-packs-config)).
+
+- **A model it names** needs `thinking` in its entry, and a level no lower
+  than that entry's `lowest`. Otherwise the registration is refused, naming
+  the model and `/adapter_config/thinkingLevels`.
+- **A call that asks for the least thinking,** as a judge does, still gets
+  the model's `lowest`.
+- **It needs runtime 0.2.0-rc.1 or later.** An older runtime accepts the key
+  and ignores it. Keys are case-sensitive, and the adapter
+  ignores a key it doesn't know, so a misspelled one is ignored too.
+
 ## On a runtime that keeps tenants apart
 
 A runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` doesn't lend its own Google
