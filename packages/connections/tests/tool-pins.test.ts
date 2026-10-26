@@ -39,9 +39,11 @@ const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
   outlookSend: { '1.0.0': '880f0c0c96a56415630451dabcef11c7063172c62f3b607fd282f551b47cba7b' },
   outlookMessagesList: {
     '1.0.0': '60b02b54dbc3bd8b533b0208e8fad9f3dbe5b74e994da0b18d2a54ef77973861',
+    '1.1.0': '4be0515b14c524185cd503241d64856a4e2b1cdf0184fee2b2de5e7f4dbcfdc4',
   },
   outlookMessageGet: {
     '1.0.0': '8f108ce8482dad5c396bb98a5fd31cb4fae748b5844440025e81716c9feee7ce',
+    '1.1.0': 'e6b0cec491eebd8d33b4eaa44ea20fe73664e67e1257e78be2700d5f9ce4ff77',
   },
   linkedinPost: { '1.0.0': '67bff01e1b26f3bff67d26d4fb568285c797518bbe5dd762691479a389f2e2ca' },
 };

@@ -103,6 +103,7 @@ export async function invokeAgent(
       ...(input.toolsAllowedUnattended !== undefined && {
         toolsAllowedUnattended: input.toolsAllowedUnattended,
       }),
+      ...(input.mailbox !== undefined && { mailbox: input.mailbox }),
       ...(input.dryRun === true && { options: { dryRun: true } }),
       // Authorization — carry principal + authz into the run so every
       // tool invocation inside the agent's turn is checked.
@@ -358,6 +359,10 @@ export function turnInputFromSnapshot(
       snapshot.toolsAllowedUnattended !== null && {
         toolsAllowedUnattended: snapshot.toolsAllowedUnattended,
       }),
+    // The mailbox a mail trigger's run came from, as recorded when it
+    // started: never from whoever resumes it.
+    ...(snapshot.mailbox !== undefined &&
+      snapshot.mailbox !== null && { mailbox: snapshot.mailbox }),
     // No `messageFromEvent`: a replay doesn't park before its turn has
     // stored its message (marked) and built its first model call, and a
     // resumed turn reads that stored mark. If a replay could park sooner,

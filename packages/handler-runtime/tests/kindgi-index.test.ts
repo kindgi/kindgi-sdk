@@ -650,6 +650,35 @@ describe('runIndexer — Zod schemas', () => {
     expect(byId.get('acme.plain')).not.toHaveProperty('needsApprovalWhenUnattended');
   });
 
+  test("a tool's `resultIsOutsideData` is carried into the index, true or false", async () => {
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/mail.mjs': toolModule({ id: 'acme.mail', resultIsOutsideData: true }),
+        'tools/note.mjs': toolModule({ id: 'acme.note', resultIsOutsideData: false }),
+        'tools/plain.mjs': toolModule({ id: 'acme.plain' }),
+      },
+    });
+
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+
+    // Lost here, an agent would read a mail the tool returns as if the
+    // pack had written it.
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    const byId = new Map(
+      (parsed.tools as { id: string; resultIsOutsideData?: boolean }[]).map((t) => [t.id, t]),
+    );
+    expect(byId.get('acme.mail')?.resultIsOutsideData).toBe(true);
+    expect(byId.get('acme.note')?.resultIsOutsideData).toBe(false);
+    expect(byId.get('acme.plain')).not.toHaveProperty('resultIsOutsideData');
+  });
+
   test("a tool's `pauses` is carried into the index; a tool the pack doesn't run can't pause", async () => {
     const fixture = await makeFixture({
       files: {
