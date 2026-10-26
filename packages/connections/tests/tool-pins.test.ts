@@ -21,8 +21,11 @@ const TOOLS = {
   githubLabelsList: (id: string) => githubLabelsList({ id }),
   githubIssuesAddLabels: (id: string) => githubIssuesAddLabels({ id }),
   outlookSend: (id: string) => outlookSend({ id }),
+  'outlookSend as company': (id: string) => outlookSend({ id, as: 'company' }),
   outlookMessagesList: (id: string) => outlookMessagesList({ id }),
+  'outlookMessagesList as company': (id: string) => outlookMessagesList({ id, as: 'company' }),
   outlookMessageGet: (id: string) => outlookMessageGet({ id }),
+  'outlookMessageGet as company': (id: string) => outlookMessageGet({ id, as: 'company' }),
   linkedinPost: (id: string) => linkedinPost({ id }),
 } satisfies Record<string, (id: string) => AnyTool>;
 
@@ -36,7 +39,7 @@ const TOOLS = {
 const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
   gmailSend: { '1.0.0': '553a5e83ef39c6e25c1c8d95640e7ba6f2814318884181eeb3b1a4d634e2ada1' },
   'gmailSend as company': {
-    '1.0.0': '88eb1707a0b132c0b6eb54d4e1f770b6e30f9624efa137c02007e601932b0022',
+    '1.0.0': '1ada941c76049cba0d64e5f391a28f81848b441bb5e27e262f1b6be4db1a0d3a',
   },
   gmailMessagesList: {
     '1.0.0': 'bd8b3e5886fecac4af9a6f1c98598acdf7cd687c98070b00890f211371f9fe58',
@@ -50,11 +53,20 @@ const PINS: Record<keyof typeof TOOLS, Record<string, string>> = {
     '1.0.0': '16695bc00bd696e50c72fe9724c5ff2b790838d58056f80f4c58ee28a60f254c',
   },
   outlookSend: { '1.0.0': '880f0c0c96a56415630451dabcef11c7063172c62f3b607fd282f551b47cba7b' },
+  'outlookSend as company': {
+    '1.0.0': '19cf1fb8f398284be781d9e5b1a5e8456ae736433c3887fa11f614f9121805d3',
+  },
   outlookMessagesList: {
     '1.0.0': '60b02b54dbc3bd8b533b0208e8fad9f3dbe5b74e994da0b18d2a54ef77973861',
   },
+  'outlookMessagesList as company': {
+    '1.0.0': '617d175890f74d86b04038ddac9c5fde82eb440fa143c69bd2600587c6dce09f',
+  },
   outlookMessageGet: {
     '1.0.0': '8f108ce8482dad5c396bb98a5fd31cb4fae748b5844440025e81716c9feee7ce',
+  },
+  'outlookMessageGet as company': {
+    '1.0.0': 'cc767f67f79a7a9cf69c8090c4ada1ff883115a0c97785005a72231b6d3a3ec9',
   },
   linkedinPost: { '1.0.0': '67bff01e1b26f3bff67d26d4fb568285c797518bbe5dd762691479a389f2e2ca' },
 };

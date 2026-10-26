@@ -76,6 +76,11 @@ const SEND_SAYS: Readonly<Record<MailboxOwner, string>> = {
     "Send a plain-text email from the company's Gmail mailbox (the one a tenant admin connected) to the addresses in `to` and `cc`. Gmail adds the From line: the sender is always that mailbox. Returns the sent message's id. In a run no person started, each send waits for a yes.",
 };
 
+const SENDS_AS: Readonly<Record<MailboxOwner, string>> = {
+  person: 'Sends mail as the person.',
+  company: "Sends mail as the company's mailbox.",
+};
+
 const gmailSendSpec = (as: MailboxOwner): Omit<Tool<GmailSendInput, GmailSendOutput>, 'id'> => ({
   description: SEND_SAYS[as],
   version: '1.0.0',
@@ -100,7 +105,7 @@ const gmailSendSpec = (as: MailboxOwner): Omit<Tool<GmailSendInput, GmailSendOut
     {
       kind: 'external-side-effect',
       resource: 'external:gmail',
-      notes: 'Sends mail as the person.',
+      notes: SENDS_AS[as],
     },
     { kind: 'sensitive-data-egress', resource: 'external:gmail' },
   ],

@@ -256,19 +256,20 @@ describe('gmailMessagesList', () => {
 
 describe('Gmail tools for the company mailbox', () => {
   it.each([
-    ['gmailSend', gmailSend, 'gmail.send', "the company's Gmail mailbox"],
-    ['gmailMessagesList', gmailMessagesList, 'gmail.readonly', "the company's Gmail mailbox"],
+    ['gmailSend', gmailSend, 'gmail.send', "Sends mail as the company's mailbox."],
+    ['gmailMessagesList', gmailMessagesList, 'gmail.readonly', undefined],
   ] as const)(
     "%s with as: 'company' needs the company's connection, and says whose",
-    (_name, make, permission, says) => {
+    (_name, make, permission, notes) => {
       const person = make({ id: 'acme.mail' });
       const company = make({ id: 'acme.store-mail', as: 'company' });
       expect(company.needsSpec?.connections).toEqual({
         mail: { app: 'google', permissions: [permission], as: 'company' },
       });
       expect(person.needsSpec?.connections?.mail?.as).toBe('person');
-      expect(company.description).toContain(says);
+      expect(company.description).toContain("the company's Gmail mailbox");
       expect(person.description).not.toContain('company');
+      if (notes !== undefined) expect(toManifest(company).effects?.[0]?.notes).toBe(notes);
       // The same version for both: an id keeps its `as` (tool-pins.test.ts pins each).
       expect(company.version).toBe(person.version);
     },
