@@ -34,6 +34,7 @@ import type { Provider, RegisterProviderInput } from '@kindgi/client';
 import { LOCAL_ENV_NAME } from '@kindgi/secrets-dotenv';
 
 import { stableStringify } from '../build/envelope.js';
+import type { SaidLine } from '../progress-lines.js';
 import {
   PRESET_SETTINGS,
   type PresetSettingKey,
@@ -638,17 +639,11 @@ export interface DescribeInputs {
   readonly envFiles: string;
 }
 
-/** A line of the boot log, and whether it's an error or a warning: said under `--quiet` too. */
-export interface ReconcileLine {
-  readonly text: string;
-  readonly problem: boolean;
-}
-
 /** The boot log's lines for a reconcile; none when the config declares nothing and nothing changed. */
 export function describeReconcile(
   outcomes: readonly ProviderOutcome[],
   inputs: DescribeInputs,
-): readonly ReconcileLine[] {
+): readonly SaidLine[] {
   if (outcomes.length === 0) return [];
   const unchanged = outcomes.filter((o) => o.kind === 'unchanged').map((o) => o.id);
   if (unchanged.length === outcomes.length) {
@@ -661,7 +656,7 @@ export function describeReconcile(
   }
   const unregister = (id: string): string =>
     `${inputs.kindgi('providers', 'unregister', id)}, then restart kindgi dev`;
-  const lines: ReconcileLine[] = [];
+  const lines: SaidLine[] = [];
   const say = (text: string): void => {
     lines.push({ text, problem: false });
   };

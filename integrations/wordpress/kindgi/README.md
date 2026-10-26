@@ -20,7 +20,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 - **WordPress** 6.4 or later.
 - **PHP** 7.4 or later, with sodium. WordPress ships a fallback for PHP builds without ext/sodium.
-- **A Kindgi runtime with site sign-in on:**
+- **Kindgi with site sign-in on:** Kindgi Cloud has it on. A runtime you run needs:
   - `KINDGI_SITE_SIGN_IN=true`;
   - authorization enforced (`KINDGI_OPENFGA_API_URL`);
   - `KINDGI_PUBLIC_URL`.
@@ -30,7 +30,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 1. **Install the plugin.** Download `kindgi-<version>.zip` from the Kindgi SDK's [latest release](https://github.com/kindgi/kindgi-sdk/releases/latest) and upload it under **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before WordPress 6.8); the `.sha256` file next to it checks the download (`sha256sum -c`). Or copy this folder to `wp-content/plugins/kindgi`. Then activate it. From a checkout, `node scripts/wordpress-plugin-zip.mjs <out dir>` builds the same zip.
 2. **Read this site's two addresses** under **Kindgi → Settings**: its origin, and its approvals URL (`…/wp-admin/admin.php?page=kindgi&approval={approvalId}`).
-3. **Register the site in Kindgi**, on the project its staff will use. A tenant admin does this:
+3. **Register the site in Kindgi**, on the project its staff will use. A tenant admin does this. On Kindgi Cloud, that's a workspace admin, with the CLI signed in there with an Admin key for every project it can reach:
 
    ```sh
    kindgi sites register --project=<project-id> --name='Acme store' \
@@ -44,7 +44,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
    - **Who may sign in:** by default, WordPress `administrator` and `shop_manager`. A WooCommerce `customer` never becomes a person in Kindgi.
    - **What they get:** each may ask the project's agents and review approvals as a `standard` reviewer.
    - **Changing it:** set `--allowed-role`, `--role-map` and `--reviewer-ceiling` when registering, or later with `kindgi sites update <site-id>`.
-4. **Connect.** Paste the one-time code under **Kindgi → Settings**, along with the Kindgi URL this server reaches. The plugin makes its signing key and sends Kindgi the public half. Your staff can use the **Kindgi** page from then on.
+4. **Connect.** Paste the one-time code under **Kindgi → Settings**, along with the Kindgi URL this server reaches (`https://platform.kindgi.com` on Kindgi Cloud). The plugin makes its signing key and sends Kindgi the public half. Your staff can use the **Kindgi** page from then on.
    - The URL must be `https://`. An `http://` URL works only to this computer (`localhost`) or from a local or development site (`WP_ENVIRONMENT_TYPE`).
    - It's kept only once Kindgi takes the code, so a typo never breaks a working connection.
 

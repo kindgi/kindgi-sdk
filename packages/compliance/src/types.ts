@@ -97,6 +97,13 @@ export const EVIDENCE_KINDS = [
   // started them. The payload names the trigger, its target and project,
   // and the tool ids before and after — never what a run did.
   'trigger-tools-allowed-unattended-set',
+  // A project admin changed, paused, resumed, fired or deleted a person's
+  // trigger, and it kept its owner: its runs go on acting as that person,
+  // with that person's connections. The payload names the trigger, its
+  // kind, its owner, who did it and what (`change`; on an update the
+  // `fields` changed, and what it runs or reads before and after) — never
+  // an input's value or what a run did.
+  'trigger-changed-for-owner',
   // The order a tenant (or one of its orgs) runs a project through to live
   // was set, changed or cleared. The payload carries the order before and
   // after, each a list of project ids — never anything a project holds.

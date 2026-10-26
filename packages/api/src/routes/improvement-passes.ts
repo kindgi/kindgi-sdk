@@ -224,7 +224,8 @@ export function mountImproveRoute(
     if (nothing !== undefined) {
       return fail(c, 'validation-failed', {
         code: 'validation-failed',
-        message: nothing,
+        message: nothing.message,
+        reason: nothing.reason,
         issues: [],
       });
     }
@@ -525,20 +526,33 @@ async function servingVersion(
   return latest?.version as unknown as string | undefined;
 }
 
+/**
+ * Why a pass of a tier has nothing to work on in a version. `reason` is
+ * the refusal's `details.reason`, for a client to tell the two apart
+ * without reading `message`.
+ */
+interface NothingToTune {
+  readonly reason: 'no-pinned-prompt-block' | 'no-tunable-keys';
+  readonly message: string;
+}
+
 /** Why a pass of this tier has nothing to work on in this version; `undefined` when it has. */
 async function nothingToTune(
   blocks: BlockRegistryBinding,
   tenantId: TenantId,
   version: AgentVersionRecord,
   tier: ImprovementTier | undefined,
-): Promise<string | undefined> {
+): Promise<NothingToTune | undefined> {
   const named = `${version.id as unknown as string} ${version.version as unknown as string}`;
   if (tier === 'prompt') {
     const prompt =
       typeof version.instructions === 'object' ? version.instructions.prompt : undefined;
     return prompt !== undefined && version.pins?.prompts[prompt] !== undefined
       ? undefined
-      : `${named} doesn't take its instructions from a pinned prompt block: there's no template for a prompt pass to draft. Move the instructions into a prompt block and publish the agent again.`;
+      : {
+          reason: 'no-pinned-prompt-block',
+          message: `${named} doesn't take its instructions from a pinned prompt block: there's no template for a prompt pass to draft. Move the instructions into a prompt block and publish the agent again.`,
+        };
   }
   // Why the model-settings block's model keys aren't tried, if they aren't.
   let skipped: string | undefined;
@@ -553,7 +567,10 @@ async function nothingToTune(
     skipped ??= tunable.skipped;
   }
   const why = skipped === undefined ? '' : ` In its model-settings block, ${skipped}.`;
-  return `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.${why}`;
+  return {
+    reason: 'no-tunable-keys',
+    message: `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.${why}`,
+  };
 }
 
 export function serializePass(p: ImprovementPass): Record<string, unknown> {
@@ -810,7 +827,7 @@ function parseThreshold(raw: unknown): ImproveThreshold | string {
     t.runs > t.judgments ||
     t.judges > t.judgments
   ) {
-    return `\`threshold\` is { judgments?, runs?, judges? }: how many trusted "no" judgments since the last pass (default ${d.judgments}), across how many runs (${d.runs}) and from how many judges (${d.judges}); runs and judges at most judgments`;
+    return `\`threshold\` is { judgments?, runs?, judges? }: how many answers marked wrong since the last Improve run (default ${d.judgments}), across how many runs (${d.runs}) and from how many judges (${d.judges}); runs and judges at most judgments`;
   }
   return t as ImproveThreshold;
 }

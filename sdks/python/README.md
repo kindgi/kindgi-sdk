@@ -81,9 +81,16 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   pydantic model, a `TypedDict`, a dataclass, anything pydantic understands —
   or from `input=` / `output=` (a type, or a JSON Schema dict). A dict is
   checked when the tool is defined, as the runtime compiles it, strictly: one
-  the runtime would refuse raises `DefinitionError`. Field aliases are the
-  names on the wire. The input is an object: a model calls a tool with
-  an object of arguments.
+  the runtime would refuse raises `DefinitionError`. So does a `pattern` only
+  JavaScript reads, such as `\p{L}`: the SDK checks data against it with
+  Python's `re`. A schema derived from a type is compiled the same way, so a
+  keyword `json_schema_extra` adds, or a `format` the runtime doesn't know (a
+  `Path` field's `"format": "path"`, `UUID4`'s `"uuid4"`), raises it too; a
+  plain `uuid.UUID` or `str`, or pydantic's `WithJsonSchema`, gives such a
+  field a schema the runtime compiles. In a derived schema, a `\p{L}`
+  pattern doesn't raise: pydantic checks data against it, and reads it.
+  Field aliases are the names on the wire.
+  The input is an object: a model calls a tool with an object of arguments.
 - The description is the docstring (or `description=`); the version is the
   pack's (or `version=`, an exact semver).
 - `mutating=False` declares a tool read-only: it runs in a dry run, and an
@@ -96,6 +103,12 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   A webhook trigger or a schedule whose `toolsAllowedUnattended` names the
   tool (a project admin's to set) lifts that, in its own runs only. A run a
   person starts is unaffected.
+- `result_is_outside_data=True` says the tool's results are text from outside
+  that nobody checked, such as a mail someone sent or a page a search found.
+  An agent reads each result of the tool as data, not instructions, in that
+  turn and in every later turn's history. It changes what the model is told,
+  not what the tool may do: pair it with approvals for anything an agent could
+  do with what it read. Absent means `false`.
 - The handler is `(input)` or `(input, ctx)`, `def` or `async def`. A `def`
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema

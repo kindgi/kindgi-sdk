@@ -158,6 +158,7 @@ import { judgedSuitesRouter } from './routes/judged-suites.js';
 import { judgingRouter } from './routes/judging.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
+import { mailTriggersRouter } from './routes/mail-triggers.js';
 import { mcpRouter } from './routes/mcp.js';
 import { memoryErasuresRouter } from './routes/memory-erasures.js';
 import { memoryRouter } from './routes/memory.js';
@@ -214,6 +215,7 @@ import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolsRouter } from './routes/tools.js';
+import type { TriggerOwnerNotices } from './routes/trigger-owners.js';
 import { usageRouter } from './routes/usage.js';
 import { waitTokensRouter } from './routes/wait-tokens.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
@@ -859,10 +861,19 @@ export interface CreateAppInput {
   /**
    * The trigger kinds whose admin surface mounts with `triggerRegistry`:
    * `cron` → `/v1/schedules`, `event` → `/v1/event-triggers`, `webhook` →
-   * `/v1/webhooks`. Absent: all three. A runtime that fires only some kinds
-   * lists those, so nobody registers a trigger that would never fire.
+   * `/v1/webhooks`, `mail` → `/v1/mail-triggers`. Absent: all four. A
+   * runtime that fires only some kinds lists those, so nobody registers a
+   * trigger that would never fire.
    */
   readonly triggerKinds?: readonly TriggerKind[];
+  /**
+   * Optional. Tells a person when a project admin changes, pauses,
+   * resumes, fires, deletes or takes over a schedule, webhook or mail
+   * trigger they own (the runtime emails them). Called once the change is made,
+   * never awaited; a failure is logged. Absent: the change is only
+   * audited (`trigger-changed-for-owner`).
+   */
+  readonly triggerOwnerNotices?: TriggerOwnerNotices;
   /**
    * Optional. When present, mounts the outbound webhook surface at
    * `/v1/webhook-endpoints/*`: endpoints the platform sends signed
@@ -2080,7 +2091,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       adaptersRouter(input.adapterRegistry, input.adapterFactories, authorizer),
     );
   }
-  // Trigger admin surfaces. Three sibling routers over the same
+  // Trigger admin surfaces. Four sibling routers over the same
   // `TriggerRegistryBinding` — each pins its own kind. The inbound
   // webhook receiver is outside the bearer chain (`/v1/hooks`, below).
   if (input.triggerRegistry !== undefined) {
@@ -2108,6 +2119,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           input.auditEvents,
           itemRights,
           targetTools,
+          input.triggerOwnerNotices,
         ),
       );
     }
@@ -2137,6 +2149,31 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(receiveUrl !== undefined && { receiveUrl }),
           targetTools,
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.triggerOwnerNotices !== undefined && {
+            ownerNotices: input.triggerOwnerNotices,
+          }),
+        }),
+      );
+    }
+    if (kinds.has('mail')) {
+      v1.route(
+        '/mail-triggers',
+        mailTriggersRouter(input.triggerRegistry, {
+          ...(authorizer !== undefined && { authorizer }),
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          names: {
+            ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+            ...(input.serviceAccountBinding !== undefined && {
+              serviceAccounts: input.serviceAccountBinding,
+            }),
+          },
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(itemRights !== undefined && { itemRights }),
+          targetTools,
+          ...(input.triggerOwnerNotices !== undefined && {
+            ownerNotices: input.triggerOwnerNotices,
+          }),
         }),
       );
     }
@@ -2269,6 +2306,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchyBinding,
         authorizer,
         input.identityDirectory,
+        input.serviceAccountBinding,
       ),
     );
   }

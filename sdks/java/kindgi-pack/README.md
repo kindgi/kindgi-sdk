@@ -65,6 +65,13 @@ step can't wait. A webhook trigger or a schedule whose
 that, in its own runs only. A run a person starts is unaffected. Left unset,
 nothing changes.
 
+`resultIsOutsideData(true)` says the tool's results are text from outside that
+nobody checked, such as a mail someone sent or a page a search found. An agent
+reads each result of the tool as data, not instructions, in that turn and in
+every later turn's history. It changes what the model is told, not what the
+tool may do: pair it with approvals for anything an agent could do with what it
+read. Left unset, it counts as `false`.
+
 ## The pack
 
 A pack is a directory with a `kindgi.config.json`, usually the root of your
@@ -146,8 +153,10 @@ keywords tool schemas use, and the indexer refuses a schema with any other
 keyword (`if`, `prefixItems`, a remote `$ref`, …). It also refuses what the
 runtime's strict compile refuses: a keyword with no `type` it applies to
 (`minLength` with no `"type": "string"`), a `type` its context can't be, a
-`required` property nothing defines, an empty `enum`, and references that only
-lead back to themselves.
+`required` property nothing defines, an empty `enum`, references that only
+lead back to themselves, and a `pattern` the runtime's JavaScript `RegExp`
+refuses. A pattern only JavaScript reads, such as `[^]`, is refused too: the
+service checks data against it with Java's `Pattern`.
 
 A JVM language's own types (Scala's `Option`, `Seq`, a case class's defaults)
 come from its layer: it implements `com.kindgi.pack.spi.SchemaTypeAdapter` and

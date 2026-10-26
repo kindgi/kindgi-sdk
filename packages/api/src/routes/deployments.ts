@@ -51,6 +51,7 @@ import {
   publishPackBlocks,
   withPackVersions,
 } from '../deploy-blocks.js';
+import { type PlannedTool, keepPublishedTool, planPackTools } from '../deploy-tools.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import {
   type DeployedAgent,
@@ -157,7 +158,9 @@ import { UUID_RE } from './uuid-param.js';
  *      their `modulePath` is dropped.
  *   5. Upserts — tools + guardrails + agents + flows. Track which were
  *      `ok` (newly registered) vs `already-registered` so rollback only
- *      unwinds our own writes.
+ *      unwinds our own writes. A tool or data block version the registry
+ *      holds is kept only with the pack's definition, checked before the
+ *      first write (`deploy-tools.ts`, `deploy-blocks.ts`).
  *   6. Deployment record via `DeploymentBinding.register`. On failure,
  *      rollback all `ok` upserts and return 500.
  *
@@ -1037,6 +1040,20 @@ export function deploymentsRouter(
       packBlocks = plan.planned;
       blockReads = withPackVersions(bindings.blockRegistry, targetProjectId, packBlocks);
     }
+    // The pack's tools are checked against the registry here too: a
+    // version it holds in this project is kept only with the pack's
+    // definition, and refused with another (`deploy-tools.ts`).
+    let packTools: readonly PlannedTool[] = [];
+    if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
+      const plan = await planPackTools(
+        bindings.toolRegistry,
+        tenantId,
+        targetProjectId,
+        validated.tools,
+      );
+      if (plan.kind === 'refused') return publishRefusedResponse(c, requestId, plan.refusal);
+      packTools = plan.planned;
+    }
     const blockPinsOf =
       bindings.agentRegistry !== undefined &&
       bindings.toolRegistry !== undefined &&
@@ -1082,7 +1099,7 @@ export function deploymentsRouter(
           });
         }
         if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
-          for (const tool of validated.tools) {
+          for (const { tool, state } of packTools) {
             const projectIdForTool = targetProjectId;
             // Where each secret it names is read: decided now, as the deployer
             // may read them, and kept with this version (`secret-scope.ts`).
@@ -1118,6 +1135,10 @@ export function deploymentsRouter(
                 await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
               });
             } else if (outcome.kind === 'already-registered') {
+              // Compared before the first write where the plan could.
+              if (state === 'new' || state === 'publish-decides') {
+                await keepPublishedTool(bindings.toolRegistry, tenantId, tool);
+              }
               await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
             } else {
               throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
@@ -1701,6 +1722,7 @@ function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: Pu
         primitive: cause.primitive,
         id: cause.id,
         ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
+        ...(cause.fields !== undefined && { fields: cause.fields }),
       },
       requestId,
     ),

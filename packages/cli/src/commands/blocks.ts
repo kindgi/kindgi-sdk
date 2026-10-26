@@ -123,7 +123,8 @@ const publish: LeafCommand = {
     project: { type: 'string', description: 'The project the block belongs to. Required.' },
     prompt: {
       type: 'string',
-      description: 'A prompt block: its Liquid template, inline or `@<file>`.',
+      description:
+        'Instructions for an agent (a prompt block): its Liquid template, inline or `@<file>`.',
     },
     settings: {
       type: 'string',

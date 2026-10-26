@@ -282,6 +282,7 @@ def _tool_entry(tool: Tool[..., Any], rel_path: str, config: PackConfig) -> dict
             "effects": [dict(e) for e in tool.effects],
             "mutating": tool.mutating,
             "needsApprovalWhenUnattended": tool.needs_approval_when_unattended,
+            "resultIsOutsideData": tool.result_is_outside_data,
             "needs": None if tool.needs is None else [dict(n) for n in tool.needs],
             "needsSpec": _dict(tool.needs_spec),
             "sandbox": tool.sandbox,

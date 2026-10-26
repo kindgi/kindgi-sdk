@@ -6,7 +6,7 @@ import type { AgentId, FlowId, RunId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import { followRun, runsGetHint } from '../runs/follow.js';
 import {
   type TableSpec,
@@ -141,8 +141,10 @@ const get: LeafCommand = {
         ...tokenLines(id, run.waitingFor?.tokens ?? []),
         ...connectionLines(id, run.waitingFor?.connections ?? []),
       ];
-      const quiet = ctx.globals.format === 'quiet';
-      return { stdout: json.stdout, stderr: quiet ? '' : waits.map((l) => `${l}\n`).join('') };
+      return {
+        stdout: json.stdout,
+        stderr: successNote(ctx.globals.format, waits.map((l) => `${l}\n`).join('')),
+      };
     }),
 };
 
@@ -336,7 +338,7 @@ const start: LeafCommand = {
       // the exit code says it failed, for scripts.
       return {
         stdout: rendered.stdout,
-        stderr: ctx.globals.format === 'quiet' ? '' : `${warnings}${await runFailedLine(run)}`,
+        stderr: `${warnings}${await runFailedLine(run)}`,
         exitCode: 1,
       };
     }),
@@ -367,8 +369,12 @@ async function runFailedLine(run: Run): Promise<string> {
  */
 async function followUntilSettled(ctx: CommandContext, started: Run): Promise<Run> {
   const interrupted = (): void => {
+    // Ctrl+C stopped the wait, not the run: a note; the exit code says it.
     process.stderr.write(
-      `\nStopped waiting. Run ${started.id} goes on: ${runsGetHint(started.id)}\n`,
+      successNote(
+        ctx.globals.format,
+        `\nStopped waiting. Run ${started.id} goes on: ${runsGetHint(started.id)}\n`,
+      ),
     );
     process.exit(130);
   };
@@ -469,11 +475,13 @@ const resume: LeafCommand = {
         answered === undefined ? answer : { ...answer, answered: { waitpointId: answered } },
         ctx.globals.format,
       );
-      const quiet = ctx.globals.format === 'quiet';
       const said = answered === undefined ? '' : `Answered ${answered}.\n`;
       return {
         kind: 'ok',
-        rendered: { stdout: json.stdout, stderr: quiet ? '' : `${said}${runWaitText(answer)}` },
+        rendered: {
+          stdout: json.stdout,
+          stderr: successNote(ctx.globals.format, `${said}${runWaitText(answer)}`),
+        },
         exitCode: RESUME_EXIT_CODES[answer.kind],
       };
     } catch (err) {

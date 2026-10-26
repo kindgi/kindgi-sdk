@@ -455,19 +455,21 @@ export interface ToolManifest {
   readonly mutating?: boolean;
   /**
    * `true` when a person must say yes to every call of this tool in a run
-   * no person started: one a schedule, a webhook, an event or a service
-   * account's key started (`RunStartedBy` other than `person`, or none).
-   * In such a run, an agent's call of the tool waits for a person's yes
-   * whatever the agent's `conversationPolicy.hitl.tools` says (the
+   * no person started: one a schedule, a webhook, an event, a mail or a
+   * service account's key started (`RunStartedBy` other than `person`, or
+   * none). In such a run, an agent's call of the tool waits for a person's
+   * yes whatever the agent's `conversationPolicy.hitl.tools` says (the
    * agent's rules can't lift it), and a flow's tool step that calls it is
-   * refused. A webhook trigger or a schedule whose
+   * refused. A webhook trigger, a schedule or a mail trigger whose
    * `toolsAllowedUnattended` names the tool (a project admin's to set)
    * lifts that, in its own runs only. In a run a person started, the
    * agent's rules decide, as for any tool. Absent = `false`.
    *
-   * A tool that acts with a person's connection (a `needsSpec.connections`
-   * entry `as: 'person'`) and isn't read-only (`mutating: false`) counts as
-   * declaring it, whatever this says: `false` doesn't lift it.
+   * A tool that uses a person's connection (a `needsSpec.connections`
+   * entry `as: 'person'`), reads included, counts as declaring it, whatever
+   * this or `mutating` says: `false` doesn't lift it. In a run a mail
+   * started, so does a tool that isn't read-only (`mutating: false`), and
+   * one that uses a connection of the run's own mailbox.
    *
    * Declare it on a tool that moves money or changes something people
    * rely on, so that an agent reused under a trigger can't run it with no
@@ -486,6 +488,16 @@ export interface ToolManifest {
    * `spec`, nor an MCP tool. Absent = `false`.
    */
   readonly pauses?: boolean;
+  /**
+   * `true` when the tool's results are text from outside that nobody
+   * checked, such as a mail someone sent or a page a search found. An
+   * agent reads each result of the tool as data, not instructions: in an
+   * `<event>` block, and so again in every later turn's history. It
+   * changes what the model is told, not what the tool may do: pair it
+   * with approvals for anything an agent could do with what it read.
+   * Absent = `false`.
+   */
+  readonly resultIsOutsideData?: boolean;
   /** Isolation posture — see `SandboxMode`. */
   readonly sandbox?: SandboxMode;
   /** Memory + CPU caps enforced by the sandbox at dispatch. */

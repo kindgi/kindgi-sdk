@@ -71,6 +71,7 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
+import { RUN_STARTED_BY, RUN_TRIGGER_KINDS } from '@kindgi/runtime';
 import { CORRECTION_ITEM } from '@kindgi/types';
 
 import {
@@ -203,10 +204,10 @@ export const RunTriggerSchema: JsonSchema = {
   additionalProperties: false,
   required: ['triggerId', 'kind', 'fireId'],
   description:
-    "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. The runtime fires schedules only; `event` and `webhook` are kept for event triggers and inbound webhooks, which aren't served yet.",
+    "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook) or `mail` (new mail in a mailbox).",
   properties: {
     triggerId: { type: 'string', format: 'uuid' },
-    kind: { type: 'string', enum: ['schedule', 'event', 'webhook'] },
+    kind: { type: 'string', enum: [...RUN_TRIGGER_KINDS] },
     fireId: {
       type: 'string',
       description: "The fire that started the run: one entry of the trigger's fire history.",
@@ -496,7 +497,12 @@ export const GatePolicySpecSchema: JsonSchema = {
       properties: {
         maxDiverged: { type: 'integer', minimum: 0 },
         maxErrors: { type: 'integer', minimum: 0 },
-        maxRefusedWrites: { type: 'integer', minimum: 0 },
+        maxRefusedWrites: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            "At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.",
+        },
         maxStopped: { type: 'integer', minimum: 0 },
       },
     },
@@ -914,14 +920,14 @@ export const RunSchema: JsonSchema = {
     trigger: { $ref: '#/components/schemas/RunTrigger' },
     startedBy: {
       type: 'string',
-      enum: ['person', 'key', 'schedule', 'webhook', 'event'],
+      enum: [...RUN_STARTED_BY],
       description:
-        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
     },
     actsFor: {
       type: 'string',
       description:
-        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule or a webhook fired (`startedBy` `schedule` or `webhook`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
+        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
     },
     toolsAllowedUnattended: {
       type: 'array',
@@ -2134,6 +2140,11 @@ export const ServiceAccountSchema: JsonSchema = {
       type: 'string',
       format: 'date-time',
       description: 'Set once unregistered: it has no grants, and its keys no longer work.',
+    },
+    projectId: {
+      type: 'string',
+      description:
+        "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.",
     },
   },
 };
@@ -3991,12 +4002,17 @@ export const ToolSchema: JsonSchema = {
     needsApprovalWhenUnattended: {
       type: 'boolean',
       description:
-        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.",
+        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`.",
     },
     pauses: {
       type: 'boolean',
       description:
         "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
+    },
+    resultIsOutsideData: {
+      type: 'boolean',
+      description:
+        "`true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.",
     },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
@@ -4833,8 +4849,9 @@ export const CorrectionSchema: JsonSchema = {
   },
 };
 
-/** One way a candidate's calls differed from a correction; it can quote argument values. */
-const correctionDifference = {
+/** One way a run's calls differed from a correction; it can quote argument values. */
+export const CallDifferenceSchema: JsonSchema = {
+  description: "One way a run's calls differed from a correction; it can quote argument values.",
   oneOf: [
     {
       type: 'object',
@@ -8978,7 +8995,8 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
     refusedWrites: {
       type: 'integer',
       minimum: 0,
-      description: 'Tool calls refused across the cases (what the candidate would have done).',
+      description:
+        "Tool calls the replay refused across the cases (what the candidate would have done). Reads count too, despite the name: the replay refuses a call it can't run live (a write, or a read that needs an approval or reaches outside, say) that has no recording of the same call.",
     },
     errors: { type: 'integer', minimum: 0, description: 'Cases none of whose repetitions ran.' },
     erased: {
@@ -9001,7 +9019,7 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description:
-        "Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.",
+        "Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics.",
     },
     reads: { type: 'string', enum: ['recorded', 'live'] },
     classWeights: {
@@ -9267,7 +9285,7 @@ export const ComparisonCaseResultSchema: JsonSchema = {
             minimum: 1,
             description: 'Which repetition (1-based) these differences are from.',
           },
-          differences: { type: 'array', items: correctionDifference },
+          differences: { type: 'array', items: { $ref: '#/components/schemas/CallDifference' } },
         },
       },
     },
@@ -9278,7 +9296,12 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       items: { type: 'number', minimum: 0 },
     },
     diverged: { type: 'boolean' },
-    refusedWrites: { type: 'integer', minimum: 0 },
+    refusedWrites: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Tool calls the replay refused in this case: the most in any one of its repetitions. Reads count too, despite the name.',
+    },
     noContext: { type: 'boolean' },
     approvalSkipped: { type: 'boolean' },
     error: { type: 'string' },
@@ -9286,7 +9309,7 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['toolId', 'arguments'],
-      description: 'Set when the replay stopped at a refused write: what it would have done.',
+      description: 'Set when the replay stopped at a refused tool call: what it would have done.',
       properties: { toolId: { type: 'string' }, arguments: {}, reason: { type: 'string' } },
     },
     rescored: {
@@ -9358,7 +9381,7 @@ export const EvalRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     cancelReason: {
@@ -13228,7 +13251,7 @@ export const ScheduleRecordSchema: JsonSchema = {
     improve: {
       $ref: '#/components/schemas/ImproveScheduleTarget',
       description:
-        'A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).',
+        'A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options).',
     },
     projectId: {
       type: 'string',
@@ -13238,7 +13261,7 @@ export const ScheduleRecordSchema: JsonSchema = {
     owner: {
       $ref: '#/components/schemas/TriggerOwner',
       description:
-        'Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire.',
+        'Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every fire.',
     },
     cronExpression: {
       type: 'string',
@@ -13310,6 +13333,12 @@ export const TriggerOwnerSchema: JsonSchema = {
       description:
         "The owner's name at the time of the response: the person's display name, or the service account's name. Absent when it can't be read (no directory, a removed account) and from a runtime before Kindgi 0.1.6: show the id then.",
     },
+    isProjectAccount: {
+      type: 'boolean',
+      enum: [true],
+      description:
+        'Set when the owner is the trigger\'s project\'s own service account (`runAsProject`): the trigger is shared, and runs as the project. Show it as "This project". Absent otherwise.',
+    },
   },
 };
 
@@ -13329,7 +13358,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'An improve schedule\'s `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent\'s runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.',
+    "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
   properties: {
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
@@ -13475,7 +13504,12 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.",
+        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "`true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
     config: {
       type: 'object',
@@ -13728,7 +13762,7 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
     owner: {
       $ref: '#/components/schemas/TriggerOwner',
       description:
-        'Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every delivery.',
+        'Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every delivery.',
     },
     input: {
       description:
@@ -13934,7 +13968,12 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.",
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project.",
@@ -13984,13 +14023,18 @@ export const TakeTriggerOwnerBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.",
+    "Who the trigger's runs act as from now: for a trigger whose owner left, or to make one shared or personal. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. With `runAsProject`: the project's own account does. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.",
   properties: {
     runAsServiceAccountId: {
       type: 'string',
       minLength: 1,
       description:
-        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.",
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`).",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
   },
 };
@@ -14027,6 +14071,223 @@ export const WebhookTriggerUnregisterResultSchema: JsonSchema = {
   properties: {
     triggerId: { type: 'string' },
     unregistered: { type: 'boolean' },
+  },
+};
+
+// ---------- mail triggers (a mailbox's new mail starts runs) ----------
+
+export const MailTriggerMailboxSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'as'],
+  description:
+    "The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company's connection of that app; `person`: the trigger owner's own, through their connection).",
+  properties: {
+    app: { type: 'string', enum: ['google', 'microsoft'] },
+    as: { type: 'string', enum: ['company', 'person'] },
+  },
+};
+
+const MAIL_TRIGGER_CONFIG_PROPERTIES: Record<string, JsonSchema> = {
+  mailbox: { $ref: '#/components/schemas/MailTriggerMailbox' },
+  folder: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 512,
+    description:
+      'The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.',
+  },
+  pollSeconds: {
+    type: 'integer',
+    minimum: 30,
+    maximum: 3600,
+    description: 'How often it looks for new mail, in seconds (default 60).',
+  },
+  runsPerHour: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 600,
+    description:
+      "The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.",
+  },
+};
+
+const MAIL_TRIGGER_TARGET_PROPERTIES: Record<string, JsonSchema> = {
+  flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
+  flowVersion: { type: 'string', minLength: 1 },
+  agentId: {
+    type: 'string',
+    minLength: 1,
+    description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+  },
+  agentVersion: { type: 'string', minLength: 1 },
+};
+
+export const MailTriggerRecordSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "A mail trigger: each new mail in its mailbox's folder starts a run of its agent or flow, with the mail as the run's input, as its owner. In such a run, every call that changes something, or uses the run's own mailbox, waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`).",
+  required: [
+    'triggerId',
+    'projectId',
+    'owner',
+    'mailbox',
+    'pollSeconds',
+    'runsPerHour',
+    'label',
+    'status',
+    'lastFiredAt',
+    'createdAt',
+    'updatedAt',
+  ],
+  properties: {
+    triggerId: { type: 'string' },
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project: its runs are this project's.",
+    },
+    owner: {
+      $ref: '#/components/schemas/TriggerOwner',
+      description:
+        "Who its runs act as, with their connections. A service account owns a shared trigger, on the company's mailbox: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). A person owns a personal one: every trigger on a person's mailbox, and one on the company's mailbox registered without either. No edit moves it; only a take-over (`POST …/owner`) does.",
+    },
+    ...MAIL_TRIGGER_CONFIG_PROPERTIES,
+    label: { type: ['string', 'null'] },
+    status: { $ref: '#/components/schemas/TriggerStatus' },
+    statusReason: {
+      type: 'string',
+      description:
+        "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
+    },
+    account: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'label'],
+      description:
+        "The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.",
+      properties: { id: { type: 'string' }, label: { type: 'string' } },
+    },
+    lastPolledAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it last polled the mailbox and got an answer.',
+    },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none.",
+    ),
+    lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const RegisterMailTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the mail, so it takes none. A trigger on a person's mailbox reads the caller's own mail and is theirs: it needs `write` on the project. One on the company's mailbox needs `admin` on the project. Both need `execute` on what it runs.",
+  required: ['config'],
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project. Absent → the tenant's default project.",
+    },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
+    },
+    config: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['mailbox'],
+      properties: MAIL_TRIGGER_CONFIG_PROPERTIES,
+    },
+    label: { type: 'string' },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project.",
+    ),
+  },
+};
+
+export const PatchMailTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its mailbox (replaced whole), folder, pace or label. A personal trigger's change is its owner's or a project admin's; a shared one's, a project admin's; and the company's mailbox, before or after, takes a project admin. The owner stays.",
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    config: {
+      type: 'object',
+      additionalProperties: false,
+      properties: MAIL_TRIGGER_CONFIG_PROPERTIES,
+    },
+    label: { type: ['string', 'null'] },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`.",
+    ),
+  },
+};
+
+export const MailFireSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "One mail a mail trigger found and what came of it. A thread's mail runs one at a time, oldest first.",
+  required: ['fireId', 'triggerId', 'firedAt', 'outcome'],
+  properties: {
+    fireId: { type: 'string' },
+    triggerId: { type: 'string' },
+    firedAt: { type: 'string', format: 'date-time' },
+    outcome: {
+      type: 'string',
+      enum: ['pending', 'started', 'skipped', 'refused', 'failed'],
+      description:
+        "`pending` while its run starts, or while an earlier mail of its thread waits or that mail's run hasn't finished (`detail` starts `thread-busy:`). `skipped`: no run started, as `detail` says: the mail is from the mailbox's own address (`own-address`), an automatic reply (`auto-submitted`), received before the trigger began watching (`before-since`), found in a mailbox that changed account before it was read (`mailbox-changed`), gone by the time it was read (`not-found`), or already had by an earlier run of its thread (`mail-already-given:`); or the poll started afresh (`cursor-reset:`). `refused`: over the trigger's `runsPerHour` (`over-limit:`), the mailbox's connection missing, lapsed or lacking a scope (`connection-missing:` and why), or the app gave the mail no thread (`no-thread-id`); a refused mail doesn't run later. `failed`: the run couldn't start.",
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    detail: {
+      type: 'string',
+      description: 'Why it was skipped, refused or failed, or why a `pending` fire waits.',
+    },
+    countsTowardPause: {
+      type: 'boolean',
+      description:
+        "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:`, `connection-missing:` and `no-thread-id` refusals: the limit passes, connecting again ends a missing connection, and a mail with no thread is the app's doing, not the trigger's. Skips never count.",
+    },
+  },
+};
+
+export const MailFirePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MailFire' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const MailTriggerCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MailTriggerRecord' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
   },
 };
 
@@ -15506,6 +15767,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
   ['JudgedComparisonCost', JudgedComparisonCostSchema],
+  ['CallDifference', CallDifferenceSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],
@@ -15747,6 +16009,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PatchWebhookTriggerBody', PatchWebhookTriggerBodySchema],
   ['TakeTriggerOwnerBody', TakeTriggerOwnerBodySchema],
   ['WebhookTriggerUnregisterResult', WebhookTriggerUnregisterResultSchema],
+  ['MailTriggerMailbox', MailTriggerMailboxSchema],
+  ['MailTriggerRecord', MailTriggerRecordSchema],
+  ['RegisterMailTriggerBody', RegisterMailTriggerBodySchema],
+  ['PatchMailTriggerBody', PatchMailTriggerBodySchema],
+  ['MailFire', MailFireSchema],
+  ['MailFirePage', MailFirePageSchema],
+  ['MailTriggerCollectionPage', MailTriggerCollectionPageSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],
   ['WebhookEndpointFilter', WebhookEndpointFilterSchema],

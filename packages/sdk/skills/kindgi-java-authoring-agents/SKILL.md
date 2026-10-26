@@ -152,10 +152,10 @@ public final class BriefWriter {
   `Map.of("overrides", Map.of("<tool id>", true))`) makes a tool's approval
   need someone other than whoever asked.
 - **`set("budget", …)`:** per turn. `maxSteps` counts model calls (default
-  8); `maxCostUsd`; `maxWallMs` (default 120 000). Exceeding the steps or the
-  cost fails the turn (`budget-exceeded`); running out of wall time aborts
-  it. Leave room for real models: a turn with tool calls can take tens of
-  seconds.
+  8, at most 32); `maxCostUsd`; `maxWallMs` (default 120 000). Exceeding
+  the steps or the cost fails the turn (`budget-exceeded`); running out of
+  wall time aborts it. Leave room for real models: a turn with tool calls
+  can take tens of seconds.
 - **`output(Type.class)`:** a typed answer, with its schema derived from the
   record. The final answer must be JSON matching it. A wrong one goes back
   to the model with the problems (`maxRepairs`, default 1), and then the

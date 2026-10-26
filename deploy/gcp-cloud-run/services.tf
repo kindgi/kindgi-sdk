@@ -160,14 +160,18 @@ resource "google_cloud_run_v2_service" "pack" {
       # Not ready until every module is loaded and every env.required name
       # is set: a revision missing one never takes traffic, and its logs
       # (and /v1/info) name what's missing.
+      # Two minutes in all, asked every 2 s: a started instance takes no
+      # request until the probe passes, so a cold start's first tool call
+      # waits about 1 s for it, where every 5 s made that about 2.5 s. The
+      # timeout stays under the period.
       startup_probe {
         http_get {
           path = "/readyz"
           port = 8080
         }
-        period_seconds    = 5
-        timeout_seconds   = 3
-        failure_threshold = 24
+        period_seconds    = 2
+        timeout_seconds   = 1
+        failure_threshold = 60
       }
       liveness_probe {
         http_get {

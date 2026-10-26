@@ -20,7 +20,8 @@ import org.junit.jupiter.api.Test;
 /**
  * What the validator refuses as the runtime's strict compile refuses it: a keyword with no type it
  * applies to, a type its context can't be, a {@code required} property nothing defines, an empty
- * {@code enum}, and references that only come back to themselves.
+ * {@code enum}, references that only come back to themselves, and a {@code pattern} JavaScript's
+ * {@code RegExp} refuses.
  */
 class SchemaValidatorStrictTest {
   /** The strict-schema test vectors (packages/specs/test-vectors/README.md). */
@@ -143,6 +144,15 @@ class SchemaValidatorStrictTest {
   @Test
   void nullableIsNotAKeywordItTakes() {
     refused("{\"type\": \"string\", \"nullable\": true}", "#: unknown keyword \"nullable\"");
+  }
+
+  @Test
+  void aPatternIsReadAsTheRuntimesJavaScriptReadsIt() {
+    refused("{\"type\": \"string\", \"pattern\": \"(?P<a>.)\"}", "#/pattern: Invalid regular expression: /(?P<a>.)/u: Invalid group");
+    refused("{\"type\": \"string\", \"pattern\": \"a\\\\Z\"}", "#/pattern: Invalid regular expression: /a\\Z/u: Invalid escape");
+    compiles("{\"type\": \"string\", \"pattern\": \"^(?<a>[a-z]+)\\\\k<a>$\"}");
+    // The format's name is checked first.
+    refused("{\"type\": \"string\", \"format\": \"x\", \"pattern\": \"(\"}", "#/format: unknown format \"x\"");
   }
 
   @Test

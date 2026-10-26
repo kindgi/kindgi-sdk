@@ -342,7 +342,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
     };
     expect(error.code).toBe('gate-failed');
     expect(error.message).toContain(
-      'The weighted yes share is 0.8; the policy needs at least 0.9.',
+      'The weighted share marked right is 0.8; the policy needs at least 0.9.',
     );
     expect(error.details).toMatchObject({
       promotionId: 'promo-1',

@@ -355,7 +355,11 @@ export interface ConversationHitlPolicy {
  * timer in `invokeAgent`.
  */
 export interface TurnBudget {
-  /** Maximum model→tool→model iterations per turn. Default 8. */
+  /**
+   * Maximum model→tool→model iterations per turn. Default 8. At most
+   * `AGENT_TURN_LOOP_MAX_ITERATIONS` (32), the most the turn's loop
+   * runs: a higher value acts as 32.
+   */
   readonly maxSteps?: number;
   /** Maximum USD spend per turn, summed over the turn's model calls. */
   readonly maxCostUsd?: number;

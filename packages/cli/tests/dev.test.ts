@@ -24,7 +24,18 @@
  */
 
 import { generateKeyPairSync } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -32,6 +43,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createLogger } from '@kindgi/log';
 
+import { describeDevToken } from '../src/commands/dev.js';
 import { defaultSdkSkillsRoot } from '../src/commands/init.js';
 import { syncSkills } from '../src/commands/skills.js';
 import { LocalPortsRefused } from '../src/dev/blocked.js';
@@ -1278,7 +1290,10 @@ describe('kindgi dev — boot flow (no watch)', () => {
     });
     expect(out.stderr).toContain('Starting Kindgi locally');
     expect(out.stderr).toContain('http://localhost:4000');
-    expect(out.stderr).toContain('kgi_bt_test-token');
+    expect(out.stderr).toContain(
+      "Bearer token       kgi_bt_…   (in full in the pack's .kindgirc.json)\n",
+    );
+    expect(out.stderr).not.toContain('kgi_bt_test-token');
     expect(out.stderr).toContain('1 tools');
     expect(out.stderr).toContain('1 guardrails');
     expect(out.stderr).toContain('1 agents');
@@ -1569,6 +1584,83 @@ describe('kindgi dev — boot flow (no watch)', () => {
   // Since the disk-binding switch, every primitive is served from
   // disk and the CLI never POSTs them — there's no 409 path to test.
   // The fixture's `toolStatus: 409` option is unused.
+});
+
+describe("kindgi dev — the banners' token line", () => {
+  // As kindgi dev makes one: `kgi_bt_` and 43 URL-safe base64 characters.
+  const TOKEN = `kgi_bt_${'q'.repeat(39)}Wz9-`;
+  const SHOWN = "kgi_bt_…Wz9-   (in full in the pack's .kindgirc.json)";
+
+  function withToken(fixtures: Fixtures, token: string): void {
+    vi.spyOn(fixtures.runners, 'startApiServer').mockResolvedValue({ ...fixtures.server, token });
+  }
+
+  test('a token shows as the runtime shows it, its kgi_bt_ prefix and last four, with the file it is in', () => {
+    expect(describeDevToken(TOKEN, '.kindgirc.json')).toBe(SHOWN);
+    // Too short for its last four to say little about it: the prefix alone.
+    expect(describeDevToken('kgi_bt_test-token', '.kindgirc.json')).toBe(
+      "kgi_bt_…   (in full in the pack's .kindgirc.json)",
+    );
+  });
+
+  test('a token pinned in another shape shows its last four at most', () => {
+    expect(describeDevToken('my-own-dev-token-1234', '.kindgirc.json')).toBe(
+      "…1234   (in full in the pack's .kindgirc.json)",
+    );
+    expect(describeDevToken('devtoken', '.kindgirc.json')).toBe(
+      "…   (in full in the pack's .kindgirc.json)",
+    );
+    // Kindgi's shape only up to a space: nothing after it shows.
+    const partly = describeDevToken('kgi_bt_abcdefghijklmnopqrstu secret-tail', '.kindgirc.json');
+    expect(partly).toBe("…tail   (in full in the pack's .kindgirc.json)");
+  });
+
+  test('the --no-watch banner never prints the token, and .kindgirc.json has it in full', async () => {
+    const fixtures = makeFixtures();
+    withToken(fixtures, TOKEN);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain(`    Bearer token       ${SHOWN}\n`);
+    expect(out.stderr).not.toContain(TOKEN);
+    const rc = JSON.parse(await readFile(join(packDir, '.kindgirc.json'), 'utf8'));
+    expect(rc.token).toBe(TOKEN);
+  });
+
+  test('the live "Kindgi is up" block never prints the token either', async () => {
+    const fixtures = makeFixtures();
+    withToken(fixtures, TOKEN);
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      await runCli({ ...baseInputs(fixtures), argv: ['dev', '--no-watch', `--path=${packDir}`] });
+    } finally {
+      spy.mockRestore();
+    }
+    const up = writes.join('').split('✓ Kindgi is up')[1] ?? '';
+    expect(up).toContain(`  Token      ${SHOWN}\n`);
+    expect(writes.join('')).not.toContain(TOKEN);
+  });
+
+  test(".kindgirc.json can't be written: the token line names runtime.env, which has it", async () => {
+    // A folder where the file goes: reading it finds nothing, and writing it fails.
+    await mkdir(join(packDir, '.kindgirc.json'));
+    const fixtures = makeFixtures();
+    withToken(fixtures, TOKEN);
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.stderr).toContain(
+      "    Bearer token       kgi_bt_…Wz9-   (in full in the pack's .kindgi/dev/runtime.env)\n",
+    );
+    expect(out.stderr).not.toContain(TOKEN);
+  });
 });
 
 describe('kindgi dev — the PyPI CLI (kindgi-cli)', () => {
@@ -2326,6 +2418,32 @@ describe("kindgi dev — the pack service's front across boots", () => {
     expect(saved).toMatchObject({ packServicePort: 1, packServiceToken: 'fake-token' });
     expect((await stat(join(packDir, '.kindgirc.json'))).mode & 0o777).toBe(0o600);
   });
+
+  test.skipIf(process.platform === 'win32')(
+    'an old 0644 .kindgirc.json is replaced by a new 0600 file, not written over',
+    async () => {
+      const path = join(packDir, '.kindgirc.json');
+      await writeFile(path, JSON.stringify({ token: 'kgi_bt_test-token' }));
+      await chmod(path, 0o644);
+      // Another program that opened the old file keeps the old file, not the new tokens.
+      const held = await open(path, 'r');
+      try {
+        const out = await runCli({
+          ...baseInputs(makeFixtures()),
+          argv: ['dev', '--no-watch', `--path=${packDir}`],
+        });
+        expect(out.exitCode).toBe(0);
+        expect(JSON.parse(await held.readFile('utf8'))).toEqual({ token: 'kgi_bt_test-token' });
+        expect((await held.stat()).mode & 0o777).toBe(0o644);
+      } finally {
+        await held.close();
+      }
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
+        packServiceToken: 'fake-token',
+      });
+    },
+  );
 
   test('a saved token that is too short is not reused', async () => {
     await writeFile(
@@ -3178,6 +3296,64 @@ describe('kindgi dev — the console (T374)', () => {
     }
   });
 
+  test('--open --quiet: a browser that would not start is still said; one that opened is not', async () => {
+    for (const [answer, said, unsaid] of [
+      [
+        { ok: false, reason: 'xdg-open: ENOENT' },
+        "  ⚠ Couldn't open a browser (xdg-open: ENOENT)",
+        'Opened',
+      ],
+      [{ ok: true }, undefined, 'Opened the console'],
+    ] as const) {
+      const controller = new AbortController();
+      const fixtures = makeFixtures({ consoleMounted: true });
+      const asked: string[] = [];
+      const err = captureStderr();
+      try {
+        const promise = runCli({
+          ...baseInputs(fixtures, {
+            stopSignal: controller.signal,
+            openUrl: async (url) => {
+              asked.push(url);
+              return answer;
+            },
+          }),
+          argv: ['dev', '--open', '--quiet', `--path=${packDir}`],
+        });
+        await vi.waitFor(() => expect(asked).toHaveLength(1), WAIT);
+        controller.abort();
+        expect((await promise).exitCode).toBe(0);
+      } finally {
+        err.restore();
+      }
+      if (said !== undefined) expect(err.writes.join('')).toContain(said);
+      expect(err.writes.join('')).not.toContain(unsaid);
+    }
+  });
+
+  test('--open --quiet on a runtime without a console: that there is nothing to open is still said', async () => {
+    const controller = new AbortController();
+    const fixtures = makeFixtures();
+    const err = captureStderr();
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal }),
+        argv: ['dev', '--open', '--quiet', `--path=${packDir}`],
+      });
+      await vi.waitFor(
+        () =>
+          expect(err.writes.join('')).toContain(
+            '  ⚠ --open: this runtime serves no console, so there is nothing to open.\n',
+          ),
+        WAIT,
+      );
+      controller.abort();
+      expect((await promise).exitCode).toBe(0);
+    } finally {
+      err.restore();
+    }
+  });
+
   test('--open with --no-watch is refused: the runtime stops as kindgi dev exits', async () => {
     const fixtures = makeFixtures({ consoleMounted: true });
     const out = await runCli({
@@ -3354,6 +3530,67 @@ describe('kindgi dev — what --quiet keeps (warnings)', () => {
       const said = await bootSaid(fixtures, flags, { devRunners });
       expect(said).toContain(`⚠ ${notice}`);
       expect(said.split(notice).length - 1).toBe(1);
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
+  });
+
+  test('a .kindgirc.json that --reset could not remove, and could not be written, is said under --quiet too', async () => {
+    // A folder by that name: neither removed as a file nor written over.
+    await mkdir(join(packDir, '.kindgirc.json'));
+    for (const flags of LOUD_AND_QUIET) {
+      const said = await bootSaid(makeFixtures(), ['--reset', ...flags]);
+      expect(said).toMatch(/ {2}⚠ --reset: could not remove \.kindgirc\.json: .+\n/);
+      expect(said).toMatch(
+        / {2}⚠ couldn't write \.kindgirc\.json \(.+\): the CLI in this folder needs --url and --token to reach this runtime\n/,
+      );
+      expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+    }
+  });
+
+  test.skipIf(process.platform === 'win32')(
+    'a .kindgirc.json that links to something other than a file is left as it is, and said as not written, under --quiet too',
+    async () => {
+      // A folder, not the real /dev/null: if the check regressed, a test run as
+      // root would rename a file over the device. Without the check, the
+      // rename over the folder fails with another message.
+      const folder = join(cwd, 'kindgirc-folder');
+      await mkdir(folder);
+      await symlink(folder, join(packDir, '.kindgirc.json'));
+      for (const flags of LOUD_AND_QUIET) {
+        const said = await bootSaid(makeFixtures(), flags);
+        expect(said).toMatch(
+          / {2}⚠ couldn't write \.kindgirc\.json \(.+ isn't a regular file, so it was left as it is\.\): the CLI in this folder needs --url and --token to reach this runtime\n/,
+        );
+        expect(said).not.toContain('readable by its owner only');
+        expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
+      }
+      expect((await lstat(join(packDir, '.kindgirc.json'))).isSymbolicLink()).toBe(true);
+      expect((await stat(folder)).isDirectory()).toBe(true);
+    },
+  );
+
+  test("a saved pack service port that's taken is said under --quiet too", async () => {
+    for (const flags of LOUD_AND_QUIET) {
+      // Each boot saves the port it got: the next one starts from 4242 again.
+      await writeFile(join(packDir, '.kindgirc.json'), JSON.stringify({ packServicePort: 4242 }));
+      const fixtures = makeFixtures();
+      const devRunners: DevRunners = {
+        ...fixtures.runners,
+        createPackService: (serviceOpts) => {
+          const service = fixtures.runners.createPackService(serviceOpts);
+          if (serviceOpts.port === undefined) return service;
+          return {
+            ...service,
+            listen: async () => {
+              throw Object.assign(new Error(`listen EADDRINUSE: :::${serviceOpts.port}`), {
+                code: 'EADDRINUSE',
+              });
+            },
+          };
+        },
+      };
+      const said = await bootSaid(fixtures, flags, { devRunners });
+      expect(said).toContain("  ⚠ the pack service's port 4242 is taken: using another one\n");
       expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
     }
   });

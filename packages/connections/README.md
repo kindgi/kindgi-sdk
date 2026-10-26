@@ -40,7 +40,12 @@ entry.
 Ready-made tools that act with a connection, one subpath per app:
 
 - `@kindgi/connections/google/tools`: `gmailSend` sends a plain-text mail
-  as the person whose Google connection the call has.
+  as the person whose Google connection the call has; `gmailMessagesList`
+  lists or searches their mailbox; `gmailMessageGet` reads one message
+  whole, as a `MailMessage`; and `gmailReply` answers one in its thread.
+- `@kindgi/connections/microsoft/tools`: `outlookSend`,
+  `outlookMessagesList`, `outlookMessageGet` and `outlookReply`, the same
+  for Outlook.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
@@ -60,8 +65,30 @@ export default gmailSend({ id: 'acme.gmail.send' });
 ```
 
 The id is the pack's because a tool id is the tenant's, filed under the
-first project that publishes it. Sending, labelling and posting are
-`mutating`, and wait for a person's yes in a run no person started.
+first project that publishes it. Sending, replying, labelling and
+posting are `mutating`, and wait for a person's yes in a run no person
+started. So does a read with a person's connection, such as a mail read
+without `as: 'company'`, and in a run a mail started, so does a read with
+that mailbox's own connection.
+
+A reply goes to the one address the mail asks for, its Reply-To, else
+its From, and the call's `to` must name it. A Reply-To that names no
+address, such as an empty group, counts as none. A reply to a mail that
+names more than one address, none, one that isn't an address, or the
+mailbox's own is refused, and sends nothing. The sender of a mail chooses
+both headers, so an agent that replies mustn't give out an order's details
+on the From address alone.
+
+A mail tool acts in the person's own mailbox. With `as: 'company'` it uses
+the company's instead, connected by signing in as that mailbox
+(`support@acme.example`). `as` is part of what the tool declares, so an id
+you've published keeps its `as`: give a company mailbox its own tool id
+(`acme.support-mail.list`).
+
+`@kindgi/connections/google/mail` and `@kindgi/connections/microsoft/mail`
+are `googleMail` and `microsoftMail`: the calls a runtime makes to watch a
+mailbox for new mail and read each one, with its thread, for a run
+(`MailFunctions`, from `@kindgi/connections/mail`).
 
 Each calls its app's API with `appFetch(ctx, call)`, from
 `@kindgi/connections/app-fetch`, which a tool of your own can use too. It

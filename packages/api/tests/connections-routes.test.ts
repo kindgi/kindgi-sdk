@@ -327,7 +327,7 @@ describe('GET /v1/connection-entries', () => {
     expect(first).toMatchObject({
       id: 'google',
       name: 'Google',
-      owners: ['member'],
+      owners: ['member', 'company'],
       signIn: { kind: 'oauth2' },
       setupGuide: google.setupGuide,
     });

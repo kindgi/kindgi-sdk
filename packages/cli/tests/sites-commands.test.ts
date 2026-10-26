@@ -120,6 +120,13 @@ describe('kindgi sites register', () => {
     expect(out.stderr).toContain(`\`kindgi sites code ${SITE_ID}\` gives a new one`);
   });
 
+  test('--quiet: the one-time code alone on stdout, and no notes', async () => {
+    const { out } = await sites(['register', ...REQUIRED, '--quiet']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(`${CODE.code}\n`);
+    expect(out.stderr).toBe('');
+  });
+
   test('every setting, in a project given', async () => {
     const roleMapFile = join(cwd, 'roles.json');
     await writeFile(
@@ -196,6 +203,13 @@ describe('kindgi sites: the rest of the group', () => {
     expect(JSON.parse(out.stdout)).toEqual(CODE);
     expect(out.stderr).toContain(`): ${CODE.code}`);
     expect(out.stderr).toContain('under Kindgi → Settings');
+  });
+
+  test('code --quiet: the one-time code alone on stdout, and no notes', async () => {
+    const { out } = await sites(['code', SITE_ID, `--project=${PROJECT}`, '--quiet']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(`${CODE.code}\n`);
+    expect(out.stderr).toBe('');
   });
 
   test('list as a table: each site, its state and its keys; unregistered ones when asked', async () => {

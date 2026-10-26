@@ -52,8 +52,12 @@ function grantWords(g: ServiceAccountGrant): string {
   return `${g.role} on ${g.projectId}`;
 }
 
+/** Its grants in words, after "project's own: <project-id>" on a project's own account. */
 function grantsCell(a: ServiceAccount): string {
-  return a.grants.map(grantWords).join('; ');
+  const grants = a.grants.map(grantWords);
+  return (a.projectId !== undefined ? [`project's own: ${a.projectId}`, ...grants] : grants).join(
+    '; ',
+  );
 }
 
 /** Read the tenant's settings: a service account has it only when granted. */
@@ -138,7 +142,8 @@ const list: LeafCommand = {
 const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: 'One service account, with its grants.',
+  description:
+    "One service account, with its grants, and its `projectId` when it's a project's own account (made by the first trigger run as the project; no keys, and its grant is fixed).",
   usage: 'kindgi service-accounts get <service-account-id>',
   run: (ctx) =>
     runSdk(ctx, 'service-accounts get', async () =>

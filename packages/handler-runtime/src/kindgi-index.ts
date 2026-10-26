@@ -63,6 +63,7 @@ import type { Result } from '@kindgi/types';
 import { parse as parseToml } from 'smol-toml';
 
 import { TEST_FILE_REGEX, globStaticPrefix, globToRegex } from './discovery.js';
+import { serializeCause, stringifyError } from './error-text.js';
 import { compileSchema } from './handler-runner.js';
 import { type IndexedBlock, readPackBlocks } from './pack-blocks.js';
 import { type PackEnvConfig, type PackEnvDeclaration, resolvePackEnv } from './pack-env.js';
@@ -347,6 +348,11 @@ export interface IndexedTool {
    * wait token and may answer `pause`. Absent means `false`.
    */
   readonly pauses?: boolean;
+  /**
+   * The tool's declared `resultIsOutsideData`: an agent reads each of its
+   * results as data, not instructions. Absent means `false`.
+   */
+  readonly resultIsOutsideData?: boolean;
   readonly modulePath: string;
 }
 
@@ -1613,14 +1619,26 @@ function buildTool(
       network: rec.network as Readonly<Record<string, unknown>>,
     }),
     ...(isObject(rec.spec) && { spec: rec.spec as Readonly<Record<string, unknown>> }),
-    ...(typeof rec.mutating === 'boolean' && { mutating: rec.mutating }),
-    ...(typeof rec.needsApprovalWhenUnattended === 'boolean' && {
-      needsApprovalWhenUnattended: rec.needsApprovalWhenUnattended,
-    }),
+    ...toolFlagsOf(rec),
     ...pauses.value,
     modulePath: normalizeModulePath(relPath),
   };
   return { kind: 'ok', value: tool };
+}
+
+/** The tool's declared boolean flags, each only when the manifest sets it. */
+function toolFlagsOf(
+  rec: Readonly<Record<string, unknown>>,
+): Pick<IndexedTool, 'mutating' | 'needsApprovalWhenUnattended' | 'resultIsOutsideData'> {
+  return {
+    ...(typeof rec.mutating === 'boolean' && { mutating: rec.mutating }),
+    ...(typeof rec.needsApprovalWhenUnattended === 'boolean' && {
+      needsApprovalWhenUnattended: rec.needsApprovalWhenUnattended,
+    }),
+    ...(typeof rec.resultIsOutsideData === 'boolean' && {
+      resultIsOutsideData: rec.resultIsOutsideData,
+    }),
+  };
 }
 
 /**
@@ -2107,32 +2125,6 @@ function isObject(v: unknown): v is Readonly<Record<string, unknown>> {
 
 function sortById<T extends { readonly id: string }>(items: readonly T[]): readonly T[] {
   return [...items].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-}
-
-function stringifyError(err: unknown): string {
-  if (err instanceof Error) return `${err.name}: ${err.message}`;
-  return String(err);
-}
-
-function serializeCause(err: unknown): unknown {
-  if (err instanceof Error) {
-    return { name: err.name, message: err.message, stack: err.stack };
-  }
-  if (err === undefined) return null;
-  if (
-    err === null ||
-    typeof err === 'string' ||
-    typeof err === 'number' ||
-    typeof err === 'boolean'
-  ) {
-    return err;
-  }
-  try {
-    JSON.stringify(err);
-    return err;
-  } catch {
-    return String(err);
-  }
 }
 
 function normalizeModulePath(relPath: string): string {

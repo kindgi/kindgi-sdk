@@ -26,11 +26,10 @@ A connection has one owner, and the owner decides which runs can use it:
 The model never picks a connection or an account. Kindgi picks the
 connection from the run, before the call.
 
-A schedule or a webhook runs as whoever created it, or last changed what it
-runs. So when someone else changes what it runs (its flow or agent and
-version, its input, the tools it may use unattended, or a webhook's signing
-secret), its runs act as them from then on, with their connections
-([Who owns it after a change](../runs/run-on-a-schedule/#who-owns-it-after-a-change)).
+A schedule or a webhook runs as its owner. A personal one uses its owner's
+connections, and only they or a project admin can change it. A shared one
+runs as a service account and uses the company's
+([Shared or personal](../runs/run-on-a-schedule/#shared-or-personal)).
 
 ## How it fits together
 

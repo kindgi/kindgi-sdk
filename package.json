@@ -46,7 +46,7 @@
     "tokens:build": "node scripts/check-tokens.mjs --write",
     "ci": "pnpm run lint && pnpm run check:border && pnpm run check:headers && pnpm run check:refs && pnpm run check:readme && pnpm run check:python-version && pnpm run check:jvm-version && pnpm run check:changeset-bumps && pnpm run check:tokens && pnpm run check:webhook-shapes && pnpm run spec:validate && pnpm run build && pnpm run typecheck:all && pnpm run test:all && pnpm run test:scripts && pnpm run check:publish",
     "changeset": "changeset",
-    "version-packages": "changeset version && node scripts/sync-python-version.mjs --release && node scripts/sync-jvm-version.mjs --release && pnpm install --lockfile-only",
+    "version-packages": "changeset version && node scripts/sync-python-version.mjs --release && node scripts/sync-jvm-version.mjs --release && node scripts/sync-docs-line.mjs && pnpm install --lockfile-only",
     "clean": "pnpm -r --parallel run clean && rm -rf node_modules",
     "prepare": "git config core.hooksPath scripts/hooks 2>/dev/null || true"
   },

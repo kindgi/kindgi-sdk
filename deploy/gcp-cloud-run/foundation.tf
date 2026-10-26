@@ -211,10 +211,10 @@ resource "google_cloud_run_v2_service_iam_member" "pack_invokes" {
 }
 
 # ---- images -------------------------------------------------------------------
-# One repository for the runtime image (mirrored from Quay, see the
-# README) and the pack images `kindgi build` pushes: the module's own, or
-# an existing one (var.image_repository). Cloud Run pulls with its service
-# agent; the server reads deployments' images with its own identity
+# One repository for the runtime image (mirrored from registry.kindgi.com,
+# see the README) and the pack images `kindgi build` pushes: the module's
+# own, or an existing one (var.image_repository). Cloud Run pulls with its
+# service agent; the server reads deployments' images with its own identity
 # (KINDGI_IMAGE_REGISTRY_AUTH=google).
 
 locals {

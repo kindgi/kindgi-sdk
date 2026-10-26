@@ -316,7 +316,7 @@
         "maxSteps": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum model→tool→model iterations per turn. Default 8."
+          "description": "Maximum model→tool→model iterations per turn. Default 8. At most 32, the most the turn's loop runs: a higher value acts as 32."
         },
         "maxCostUsd": {
           "type": "number",

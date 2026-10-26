@@ -101,3 +101,26 @@ export interface WebhookTriggerConfig {
    */
   readonly input?: unknown;
 }
+
+/**
+ * A mail trigger's mailbox: the app, and whose connection to it the polls
+ * and the runs read with. `company`: the project's company connection.
+ * `person`: the trigger's owner's own, so it follows the owner.
+ */
+export interface MailTriggerMailbox {
+  readonly app: 'google' | 'microsoft';
+  readonly as: 'company' | 'person';
+}
+
+export interface MailTriggerConfig {
+  readonly mailbox: MailTriggerMailbox;
+  /** A Gmail label id, or an Outlook folder id or well-known name. Absent → the inbox. */
+  readonly folder?: string;
+  /** Seconds between polls (`MAIL_TRIGGER_LIMITS`). Absent → 60. */
+  readonly pollSeconds?: number;
+  /**
+   * Runs it starts an hour at most (`MAIL_TRIGGER_LIMITS`). Absent → 60.
+   * Past it, a mail's fire is refused (`over-limit:`) and never runs.
+   */
+  readonly runsPerHour?: number;
+}
