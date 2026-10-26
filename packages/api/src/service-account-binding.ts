@@ -16,9 +16,10 @@ import type { Cursor, Result, TenantId, Timestamp } from '@kindgi/types';
  * tombstone: its grants go, its keys stop working, and it stays readable.
  *
  * A project may have one account of its own (`projectId` set), made the
- * first time a trigger runs as the project (`projectAccounts`). It runs the
- * project's shared triggers, it has no keys, and its one grant, `editor` on
- * the project, is fixed.
+ * first time a trigger runs as the project (`projectAccounts`). It runs
+ * only the triggers with `runAsProject`, not the project's other shared
+ * triggers. It has no keys, and its one grant, `editor` on the project, is
+ * fixed.
  */
 
 /**
@@ -51,8 +52,8 @@ export interface ServiceAccount {
   /** Set once unregistered: no grants, and its keys no longer work. */
   readonly unregisteredAt?: Timestamp;
   /**
-   * Set on a project's own account. It runs that project's shared
-   * triggers, it has no keys, and its grant is fixed.
+   * Set on a project's own account. It runs only the triggers with
+   * `runAsProject`. It has no keys, and its grant is fixed.
    */
   readonly projectId?: string;
 }

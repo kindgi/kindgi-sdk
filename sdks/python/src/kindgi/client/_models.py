@@ -13448,7 +13448,7 @@ class ServiceAccount(BaseModel):
     """
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
-    Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs that project's shared triggers, it has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.
+    Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.
     """
 
 
