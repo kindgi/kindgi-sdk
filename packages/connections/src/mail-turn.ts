@@ -252,6 +252,8 @@ function sameSubject(a: string, b: string): boolean {
  * a form feed, NEL, and Unicode's line and paragraph separators.
  */
 const LINE_BREAK = /\r\n|[\n\v\f\r\u0085\u2028\u2029]/;
+/** A run of those breaks, as one. */
+const LINE_BREAKS = /(?:\r\n|[\n\v\f\r\u0085\u2028\u2029])+/g;
 
 /**
  * A line that would read as one of this message's own: `---` after
@@ -263,7 +265,7 @@ const FORGED_LINE = /^[\p{Cf}\p{Default_Ignorable_Code_Point}]*---/u;
 
 /** A header's value on one line, cut at `max` characters: a value can hold line breaks. */
 function headerText(text: string, max: number): string {
-  return clipText(text.replace(new RegExp(`(?:${LINE_BREAK.source})+`, 'g'), ' '), max);
+  return clipText(text.replace(LINE_BREAKS, ' '), max);
 }
 
 function count(n: number, what: string): string {
