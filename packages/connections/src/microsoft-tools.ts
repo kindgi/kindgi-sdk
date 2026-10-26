@@ -30,6 +30,7 @@ import {
   person,
   query,
 } from './graph-api.js';
+import { isMailAddress, replyAddress } from './mail-reply.js';
 import { MAIL_MESSAGE, MAIL_PERSON } from './mail-schema.js';
 import { clippedPerson } from './mail-text.js';
 import { MAIL_TURN_BUDGET, type MailMessage } from './mail.js';
@@ -328,6 +329,114 @@ const messageGetSpec = (
   },
 });
 
+export interface OutlookReplyInput {
+  /** The id of the message answered, as outlookMessagesList gives it. */
+  readonly inReplyTo: string;
+  /** The one address the message asks replies to go to: its Reply-To, else its From. */
+  readonly to: string;
+  /** Plain text. */
+  readonly body: string;
+}
+
+export interface OutlookReplyOutput {
+  /** Microsoft took the reply for delivery. It gives no id for it; the reply is in the mailbox's Sent Items. */
+  readonly accepted: true;
+}
+
+const REPLY_SAYS: Readonly<Record<MailboxOwner, string>> = {
+  person:
+    "Reply with plain text to one message in the person's own Outlook mailbox (the Microsoft account they connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Microsoft adds the From line: the sender is always that person. Microsoft gives no id for the reply; it's kept in their Sent Items. In a run no person started, each reply waits for that person's yes.",
+  company:
+    "Reply with plain text to one message in the company's Outlook mailbox (the one a tenant admin connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Microsoft adds the From line: the sender is always that mailbox. Microsoft gives no id for the reply; it's kept in the mailbox's Sent Items. In a run no person started, each reply waits for a yes.",
+};
+
+const outlookReplySpec = (
+  as: MailboxOwner,
+): Omit<Tool<OutlookReplyInput, OutlookReplyOutput>, 'id'> => ({
+  description: REPLY_SAYS[as],
+  version: '1.0.0',
+  input: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['inReplyTo', 'to', 'body'],
+    properties: {
+      inReplyTo: {
+        ...MESSAGE_ID,
+        description: 'The id of the message answered, as outlookMessagesList gives it.',
+      },
+      to: {
+        ...ADDRESS,
+        description:
+          'The one address the message asks replies to go to: its Reply-To, else its From.',
+      },
+      body: { type: 'string', minLength: 1, maxLength: 500_000 },
+    },
+  },
+  output: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['accepted'],
+    properties: { accepted: { const: true } },
+  },
+  effects: [...SEND_EFFECTS[as], { kind: 'reads', resource: 'external:outlook' }],
+  mutating: true,
+  // A reply never goes out unasked in a run a schedule, a webhook or a
+  // service account's key started, as for a send.
+  needsApprovalWhenUnattended: true,
+  network: NETWORK,
+  needsSpec: {
+    connections: { mail: { app: 'microsoft', permissions: ['mail.send', 'mail.read'], as } },
+  },
+  handler: async (input, ctx) => {
+    // The input schema refuses these too; a handler called directly still mustn't use them.
+    if (!GRAPH_ID.test(input.inReplyTo)) {
+      throw new Error("That isn't a message id outlookMessagesList gives.");
+    }
+    if (!isMailAddress(input.to)) throw new Error("`to` isn't an address a reply can go to.");
+    const message = `${GRAPH}/me/messages/${encodeURIComponent(input.inReplyTo)}`;
+    const reply = async (): Promise<OutlookReplyOutput> => {
+      const answered = (await graphJson(
+        sendWith(ctx),
+        'outlook.messages.get',
+        `${message}?${query({ $select: 'from,replyTo' })}`,
+        IMMUTABLE_IDS,
+      )) as RawMessage;
+      // Graph gives both structured; an empty `replyTo` is none.
+      const replyTo = answered.replyTo ?? [];
+      replyAddress(
+        replyTo.length > 0
+          ? { name: 'Reply-To', people: replyTo.map(person) }
+          : { name: 'From', people: answered.from != null ? [person(answered.from)] : [] },
+        input.to,
+        ctx.connections?.mail?.account.label,
+      );
+      const res = await appFetch(ctx, {
+        entry: microsoft,
+        connection: 'mail',
+        // Outlook's own name for the call, whatever the pack's id: the entry's costs use it.
+        toolId: 'outlook.reply',
+        url: `${message}/reply`,
+        method: 'POST',
+        headers: { 'content-type': 'application/json', prefer: IMMUTABLE_IDS },
+        // The JSON form: Graph keeps the message's subject and thread, and
+        // `toRecipients` replaces whom it would answer with the one address.
+        body: JSON.stringify({
+          message: { toRecipients: [recipient(input.to)] },
+          comment: input.body,
+        }),
+      });
+      if (res.status !== 202) {
+        throw new Error(`Outlook didn't send the reply: ${await graphSays(res)}`);
+      }
+      await res.body?.cancel();
+      return { accepted: true };
+    };
+    // Read and sent once per call: a step run again (resumed or retried)
+    // gets the first reply's answer, even if the message is gone since.
+    return ctx.record !== undefined ? ctx.record('sent', reply) : reply();
+  },
+});
+
 /**
  * A tool, under the id the pack names, that sends a plain-text email from
  * the call's Outlook mailbox: the person's own, or the company's with
@@ -357,6 +466,22 @@ export function outlookMessageGet(
   options: MailToolOptions,
 ): Tool<OutlookMessageGetInput, MailMessage> {
   return appTool(messageGetSpec(options.as ?? 'person'), options);
+}
+
+/**
+ * A tool, under the id the pack names, that replies with plain text to a
+ * message in the call's Outlook mailbox, in the message's conversation:
+ * the person's own, or the company's with `as: 'company'`. It works out
+ * its one recipient from the mail itself (Reply-To, else From), not from
+ * a read's lists, which hold the first 20 people, and sends only when the
+ * call's `to` names it. Graph's reply takes no header of ours, so it
+ * carries no run's mark: its thread's next turn gives the agent its own
+ * reply once more, as this mailbox's sent mail.
+ */
+export function outlookReply(
+  options: MailToolOptions,
+): Tool<OutlookReplyInput, OutlookReplyOutput> {
+  return appTool(outlookReplySpec(options.as ?? 'person'), options);
 }
 
 function recipient(address: string): { emailAddress: { address: string } } {

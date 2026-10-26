@@ -41,10 +41,17 @@ Ready-made tools that act with a connection, one subpath per app:
 
 - `@kindgi/connections/google/tools`: `gmailSend` sends a plain-text mail
   as the person whose Google connection the call has; `gmailMessagesList`
-  lists or searches their mailbox; and `gmailMessageGet` reads one message
-  whole, as a `MailMessage`.
+  lists or searches their mailbox; `gmailMessageGet` reads one message
+  whole, as a `MailMessage`; and `gmailReply` answers one in its thread.
 - `@kindgi/connections/microsoft/tools`: `outlookSend`,
-  `outlookMessagesList` and `outlookMessageGet`, the same for Outlook.
+  `outlookMessagesList`, `outlookMessageGet` and `outlookReply`, the same
+  for Outlook.
+
+A reply goes to the one address the mail asks for, its Reply-To, else
+its From, and the call's `to` must name it: a reply to a mail that names
+two addresses, none or the mailbox's own is refused, and sends nothing.
+The sender of a mail chooses both headers, so an agent that replies
+mustn't give out an order's details on the From address alone.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.

@@ -1833,5 +1833,299 @@
         }
       }
     }
+  },
+  "gmailReply": {
+    "version": "1.0.0",
+    "definition": {
+      "id": "acme.gmailreply",
+      "description": "Reply with plain text to one message in the person's own Gmail mailbox (the Google account they connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Gmail adds the From line: the sender is always that person. Returns the reply's id and its thread's. In a run no person started, each reply waits for that person's yes.",
+      "version": "1.0.0",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["inReplyTo", "to", "body"],
+        "properties": {
+          "inReplyTo": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,256}$",
+            "description": "The id of the message answered, as gmailMessagesList gives it."
+          },
+          "to": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "pattern": "^[^\\r\\n,;<>\"]+$",
+            "description": "The one address the message asks replies to go to: its Reply-To, else its From."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500000
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["messageId", "threadId"],
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": [
+        {
+          "kind": "external-side-effect",
+          "resource": "external:gmail",
+          "notes": "Sends mail as the person."
+        },
+        {
+          "kind": "sensitive-data-egress",
+          "resource": "external:gmail"
+        },
+        {
+          "kind": "reads",
+          "resource": "external:gmail"
+        }
+      ],
+      "mutating": true,
+      "needsApprovalWhenUnattended": true,
+      "network": {
+        "kind": "allowlist",
+        "hosts": ["gmail.googleapis.com"]
+      },
+      "needsSpec": {
+        "connections": {
+          "mail": {
+            "app": "google",
+            "permissions": ["gmail.send", "gmail.readonly"],
+            "as": "person"
+          }
+        }
+      }
+    }
+  },
+  "gmailReply as company": {
+    "version": "1.0.0",
+    "definition": {
+      "id": "acme.gmailreply-as-company",
+      "description": "Reply with plain text to one message in the company's Gmail mailbox (the one a tenant admin connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Gmail adds the From line: the sender is always that mailbox. Returns the reply's id and its thread's. In a run no person started, each reply waits for a yes.",
+      "version": "1.0.0",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["inReplyTo", "to", "body"],
+        "properties": {
+          "inReplyTo": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,256}$",
+            "description": "The id of the message answered, as gmailMessagesList gives it."
+          },
+          "to": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "pattern": "^[^\\r\\n,;<>\"]+$",
+            "description": "The one address the message asks replies to go to: its Reply-To, else its From."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500000
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["messageId", "threadId"],
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          }
+        }
+      },
+      "effects": [
+        {
+          "kind": "external-side-effect",
+          "resource": "external:gmail",
+          "notes": "Sends mail as the company's mailbox."
+        },
+        {
+          "kind": "sensitive-data-egress",
+          "resource": "external:gmail"
+        },
+        {
+          "kind": "reads",
+          "resource": "external:gmail"
+        }
+      ],
+      "mutating": true,
+      "needsApprovalWhenUnattended": true,
+      "network": {
+        "kind": "allowlist",
+        "hosts": ["gmail.googleapis.com"]
+      },
+      "needsSpec": {
+        "connections": {
+          "mail": {
+            "app": "google",
+            "permissions": ["gmail.send", "gmail.readonly"],
+            "as": "company"
+          }
+        }
+      }
+    }
+  },
+  "outlookReply": {
+    "version": "1.0.0",
+    "definition": {
+      "id": "acme.outlookreply",
+      "description": "Reply with plain text to one message in the person's own Outlook mailbox (the Microsoft account they connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Microsoft adds the From line: the sender is always that person. Microsoft gives no id for the reply; it's kept in their Sent Items. In a run no person started, each reply waits for that person's yes.",
+      "version": "1.0.0",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["inReplyTo", "to", "body"],
+        "properties": {
+          "inReplyTo": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9=_-]{1,512}$",
+            "description": "The id of the message answered, as outlookMessagesList gives it."
+          },
+          "to": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "pattern": "^[^\\r\\n,;<>\"]+$",
+            "description": "The one address the message asks replies to go to: its Reply-To, else its From."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500000
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["accepted"],
+        "properties": {
+          "accepted": {
+            "const": true
+          }
+        }
+      },
+      "effects": [
+        {
+          "kind": "external-side-effect",
+          "resource": "external:outlook",
+          "notes": "Sends mail as the person."
+        },
+        {
+          "kind": "sensitive-data-egress",
+          "resource": "external:outlook"
+        },
+        {
+          "kind": "reads",
+          "resource": "external:outlook"
+        }
+      ],
+      "mutating": true,
+      "needsApprovalWhenUnattended": true,
+      "network": {
+        "kind": "allowlist",
+        "hosts": ["graph.microsoft.com"]
+      },
+      "needsSpec": {
+        "connections": {
+          "mail": {
+            "app": "microsoft",
+            "permissions": ["mail.send", "mail.read"],
+            "as": "person"
+          }
+        }
+      }
+    }
+  },
+  "outlookReply as company": {
+    "version": "1.0.0",
+    "definition": {
+      "id": "acme.outlookreply-as-company",
+      "description": "Reply with plain text to one message in the company's Outlook mailbox (the one a tenant admin connected), by its id, in the message's conversation. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Microsoft adds the From line: the sender is always that mailbox. Microsoft gives no id for the reply; it's kept in the mailbox's Sent Items. In a run no person started, each reply waits for a yes.",
+      "version": "1.0.0",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["inReplyTo", "to", "body"],
+        "properties": {
+          "inReplyTo": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9=_-]{1,512}$",
+            "description": "The id of the message answered, as outlookMessagesList gives it."
+          },
+          "to": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "pattern": "^[^\\r\\n,;<>\"]+$",
+            "description": "The one address the message asks replies to go to: its Reply-To, else its From."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500000
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["accepted"],
+        "properties": {
+          "accepted": {
+            "const": true
+          }
+        }
+      },
+      "effects": [
+        {
+          "kind": "external-side-effect",
+          "resource": "external:outlook",
+          "notes": "Sends mail as the company's mailbox."
+        },
+        {
+          "kind": "sensitive-data-egress",
+          "resource": "external:outlook"
+        },
+        {
+          "kind": "reads",
+          "resource": "external:outlook"
+        }
+      ],
+      "mutating": true,
+      "needsApprovalWhenUnattended": true,
+      "network": {
+        "kind": "allowlist",
+        "hosts": ["graph.microsoft.com"]
+      },
+      "needsSpec": {
+        "connections": {
+          "mail": {
+            "app": "microsoft",
+            "permissions": ["mail.send", "mail.read"],
+            "as": "company"
+          }
+        }
+      }
+    }
   }
 }

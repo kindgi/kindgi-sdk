@@ -16,7 +16,7 @@ import type { Tool, ToolContext } from '@kindgi/tools';
 import { appFetch } from './app-fetch.js';
 import type { AppSend } from './app-request.js';
 import { type MailToolOptions, type MailboxOwner, appTool } from './app-tool.js';
-import { type GmailMessage, gmailHeader, gmailMessage } from './gmail-mime.js';
+import { type GmailMessage, type GmailPart, gmailHeader, gmailMessage } from './gmail-mime.js';
 import {
   GMAIL,
   GMAIL_ID,
@@ -28,6 +28,7 @@ import {
   receivedAt,
 } from './google-api.js';
 import { google } from './google.js';
+import { isMailAddress, replyAddress, unfold } from './mail-reply.js';
 import { MAIL_MESSAGE, MAIL_PERSON } from './mail-schema.js';
 import {
   clippedPerson,
@@ -35,7 +36,13 @@ import {
   decodeHtmlEntities,
   parseAddressList,
 } from './mail-text.js';
-import { MAIL_TURN_BUDGET, type MailMessage, type MailPerson } from './mail.js';
+import {
+  MAIL_TURN_BUDGET,
+  type MailMessage,
+  type MailPerson,
+  REPLY_REF_HEADER,
+  replyRefOf,
+} from './mail.js';
 
 export type { AppToolOptions, MailToolOptions, MailboxOwner } from './app-tool.js';
 export type { MailMessage, MailPerson } from './mail.js';
@@ -306,6 +313,131 @@ const gmailMessageGetSpec = (
   },
 });
 
+export interface GmailReplyInput {
+  /** The id of the message answered, as gmailMessagesList gives it. */
+  readonly inReplyTo: string;
+  /** The one address the message asks replies to go to: its Reply-To, else its From. */
+  readonly to: string;
+  /** Plain text. */
+  readonly body: string;
+}
+
+export interface GmailReplyOutput {
+  /** Gmail's id for the reply. */
+  readonly messageId: string;
+  /** The thread it went into: the answered message's. */
+  readonly threadId: string;
+}
+
+const REPLY_SAYS: Readonly<Record<MailboxOwner, string>> = {
+  person:
+    "Reply with plain text to one message in the person's own Gmail mailbox (the Google account they connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Gmail adds the From line: the sender is always that person. Returns the reply's id and its thread's. In a run no person started, each reply waits for that person's yes.",
+  company:
+    "Reply with plain text to one message in the company's Gmail mailbox (the one a tenant admin connected), by its id, in the message's thread. The reply goes to the one address the message asks for: its Reply-To, else its From. Name that address in `to`. The call is refused, and sends nothing, when `to` names another address, or when the message's Reply-To (else From) names more than one address, none, or this mailbox's own. Gmail adds the From line: the sender is always that mailbox. Returns the reply's id and its thread's. In a run no person started, each reply waits for a yes.",
+};
+
+/** The headers a reply reads from the message it answers. */
+const REPLY_HEADERS = ['Message-ID', 'References', 'Subject', 'Reply-To', 'From'];
+/** The most ids a reply's `References` keeps: the first, and the newest (RFC 5322 §3.6.4 lets a reply trim it). */
+const REFERENCES_MAX = 20;
+/** The longest message id a reply's headers take, its angle brackets included. */
+const MESSAGE_ID_MAX = 900;
+/** A message id, `<…>`, in printable ASCII. */
+const MESSAGE_ID = /^<[\x21-\x3b\x3d\x3f-\x7e]+>$/;
+/** The longest subject, as gmailSend takes it. */
+const SUBJECT_MAX = 900;
+
+const gmailReplySpec = (as: MailboxOwner): Omit<Tool<GmailReplyInput, GmailReplyOutput>, 'id'> => ({
+  description: REPLY_SAYS[as],
+  version: '1.0.0',
+  input: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['inReplyTo', 'to', 'body'],
+    properties: {
+      inReplyTo: {
+        type: 'string',
+        pattern: GMAIL_ID.source,
+        description: 'The id of the message answered, as gmailMessagesList gives it.',
+      },
+      to: {
+        ...ADDRESS,
+        description:
+          'The one address the message asks replies to go to: its Reply-To, else its From.',
+      },
+      body: { type: 'string', minLength: 1, maxLength: 500_000 },
+    },
+  },
+  output: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['messageId', 'threadId'],
+    properties: { messageId: { type: 'string' }, threadId: { type: 'string' } },
+  },
+  effects: [
+    {
+      kind: 'external-side-effect',
+      resource: 'external:gmail',
+      notes: SENDS_AS[as],
+    },
+    { kind: 'sensitive-data-egress', resource: 'external:gmail' },
+    { kind: 'reads', resource: 'external:gmail' },
+  ],
+  mutating: true,
+  // A reply never goes out unasked in a run a schedule, a webhook or a
+  // service account's key started, as for a send.
+  needsApprovalWhenUnattended: true,
+  network: NETWORK,
+  needsSpec: {
+    connections: {
+      mail: { app: 'google', permissions: ['gmail.send', 'gmail.readonly'], as },
+    },
+  },
+  handler: async (input, ctx) => {
+    // The input schema refuses these too; a handler called directly still mustn't use them.
+    if (!GMAIL_ID.test(input.inReplyTo)) {
+      throw new Error("That isn't a message id gmailMessagesList gives.");
+    }
+    if (!isMailAddress(input.to)) throw new Error("`to` isn't an address a reply can go to.");
+    const reply = async (): Promise<GmailReplyOutput> => {
+      const q = query({ format: 'metadata', metadataHeaders: REPLY_HEADERS });
+      const answered = (await gmailJson(
+        sendWith(ctx),
+        'gmail.messages.get.metadata',
+        `/messages/${input.inReplyTo}?${q}`,
+      )) as GmailMessage;
+      const { threadId, message } = gmailReplyMessage(
+        answered,
+        input,
+        ctx.connections?.mail?.account.label,
+        ctx.runId,
+      );
+      const res = await appFetch(ctx, {
+        entry: google,
+        connection: 'mail',
+        toolId: 'gmail.send',
+        url: SEND_URL,
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          raw: Buffer.from(message, 'utf8').toString('base64url'),
+          threadId,
+        }),
+      });
+      if (!res.ok) throw new Error(`Gmail didn't send the reply: ${await googleSays(res)}`);
+      const sent = (await res.json()) as { readonly id?: unknown; readonly threadId?: unknown };
+      if (typeof sent.id !== 'string') throw new Error('Gmail sent the reply but gave no id.');
+      return {
+        messageId: sent.id,
+        threadId: typeof sent.threadId === 'string' ? sent.threadId : threadId,
+      };
+    };
+    // Read and sent once per call: a step run again (resumed or retried)
+    // gets the first reply's answer, even if the message is gone since.
+    return ctx.record !== undefined ? ctx.record('sent', reply) : reply();
+  },
+});
+
 /**
  * A tool, under the id the pack names, that sends a plain-text email from
  * the call's Google mailbox: the person's own, or the company's with
@@ -333,6 +465,20 @@ export function gmailMessagesList(
  */
 export function gmailMessageGet(options: MailToolOptions): Tool<GmailMessageGetInput, MailMessage> {
   return appTool(gmailMessageGetSpec(options.as ?? 'person'), options);
+}
+
+/**
+ * A tool, under the id the pack names, that replies with plain text to a
+ * message in the call's Google mailbox, in the message's thread: the
+ * person's own, or the company's with `as: 'company'`. It works out its
+ * one recipient from the mail itself (Reply-To, else From), not from a
+ * read's lists, which hold the first 20 people, and sends only when the
+ * call's `to` names it. In a run, the reply carries the run's mark
+ * (`X-Reply-Ref`), so the runtime knows it as the agent's own when it
+ * reads the thread again.
+ */
+export function gmailReply(options: MailToolOptions): Tool<GmailReplyInput, GmailReplyOutput> {
+  return appTool(gmailReplySpec(options.as ?? 'person'), options);
 }
 
 /** A tool's calls to Gmail: with the connection it declared. */
@@ -399,6 +545,112 @@ export function mimeMessage(m: GmailSendInput): string {
     '',
     lines(Buffer.from(m.body, 'utf8').toString('base64'), 76),
   ].join('\r\n');
+}
+
+/**
+ * The reply to `answered` (read with `format=metadata` and
+ * `REPLY_HEADERS`) as RFC 5322 text, and the thread it goes into.
+ * Refused, before anything is sent, as `replyAddress` refuses, and when
+ * the message has no thread, or a value of its that goes into the reply's
+ * headers would carry a line break once unfolded and decoded, or isn't a
+ * message id where one goes. The message's values go in only once
+ * they're safe, as a send's own do:
+ *
+ * - `In-Reply-To` is its `Message-ID`, when it has one.
+ * - `References` is its `References` and its `Message-ID`, cut to 20 ids,
+ *   the first and the newest 19, one id to a line, so no line passes 998
+ *   characters (RFC 5322 §2.1.1). An id over 900 characters is refused.
+ * - The subject is its subject with `Re: ` before it, unless it starts
+ *   with that, cut to 900 characters.
+ * - With a `runId`, `X-Reply-Ref` carries the run's mark (`replyRefOf`).
+ */
+function gmailReplyMessage(
+  answered: GmailMessage,
+  input: GmailReplyInput,
+  own: string | undefined,
+  runId: string | undefined,
+): { readonly threadId: string; readonly message: string } {
+  const threadId = answered.threadId;
+  if (typeof threadId !== 'string' || !GMAIL_ID.test(threadId)) {
+    throw new Error('Gmail gave the message no thread: this tool sent nothing.');
+  }
+  const value = headerValues(answered.payload ?? {});
+  const replyTo = value('Reply-To');
+  replyAddress(
+    replyTo !== undefined
+      ? { name: 'Reply-To', people: parseAddressList(replyTo) }
+      : { name: 'From', people: parseAddressList(value('From') ?? '') },
+    input.to,
+    own,
+  );
+  const { messageId, references } = replyIds(value);
+  const message = [
+    `To: ${input.to}`,
+    `Subject: ${encodedSubject(replySubject(value))}`,
+    ...(messageId !== undefined ? [`In-Reply-To: ${messageId}`] : []),
+    ...(references.length > 0 ? [`References: ${references.join('\r\n ')}`] : []),
+    ...(runId !== undefined ? [`${REPLY_REF_HEADER}: ${replyRefOf(runId)}`] : []),
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    lines(Buffer.from(input.body, 'utf8').toString('base64'), 76),
+  ].join('\r\n');
+  return { threadId, message };
+}
+
+/** A message's header values by name, unfolded; a value with a line break left in it is refused. */
+function headerValues(headers: GmailPart): (name: string) => string | undefined {
+  return (name) => {
+    const raw = gmailHeader(headers, name);
+    if (raw === undefined) return undefined;
+    const unfolded = unfold(raw);
+    if (/[\r\n]/.test(unfolded)) {
+      throw new Error(`The message's ${name} has a line break: this tool sent nothing.`);
+    }
+    return unfolded;
+  };
+}
+
+/** A reply's `In-Reply-To` and `References`, from the message's `Message-ID` and `References`. */
+function replyIds(value: (name: string) => string | undefined): {
+  readonly messageId: string | undefined;
+  readonly references: readonly string[];
+} {
+  const messageId = value('Message-ID')?.trim();
+  const references = (value('References') ?? '').split(/[ \t]+/).filter((id) => id !== '');
+  checkIds('Message-ID', messageId !== undefined ? [messageId] : []);
+  checkIds('References', references);
+  const ids = [...references, ...(messageId !== undefined ? [messageId] : [])];
+  return {
+    messageId,
+    references:
+      ids.length > REFERENCES_MAX ? [ids[0] as string, ...ids.slice(1 - REFERENCES_MAX)] : ids,
+  };
+}
+
+function checkIds(name: string, ids: readonly string[]): void {
+  for (const id of ids) {
+    if (id.length > MESSAGE_ID_MAX) {
+      throw new Error(
+        `The message's ${name} has an id over ${MESSAGE_ID_MAX} characters: this tool sent nothing.`,
+      );
+    }
+    if (!MESSAGE_ID.test(id)) {
+      throw new Error(`The message's ${name} isn't message ids (<…>): this tool sent nothing.`);
+    }
+  }
+}
+
+/** A reply's subject: the message's, decoded, with `Re: ` before it unless it starts with that, cut to 900 characters. */
+function replySubject(value: (name: string) => string | undefined): string {
+  const subject = decodeEncodedWords(value('Subject') ?? '');
+  if (/[\r\n]/.test(subject)) {
+    throw new Error("The message's Subject has a line break: this tool sent nothing.");
+  }
+  return Array.from(/^re:/i.test(subject.trimStart()) ? subject : `Re: ${subject}`)
+    .slice(0, SUBJECT_MAX)
+    .join('');
 }
 
 /**
