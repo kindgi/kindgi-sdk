@@ -11,7 +11,8 @@ export type KernelError =
   | HandlerMissingError
   | StuckRunError
   | RunLeaseLostError
-  | RunExecutingError;
+  | RunExecutingError
+  | RunHeldByParentError;
 
 export interface RunNotFoundError {
   readonly code: 'run-not-found';
@@ -101,4 +102,17 @@ export interface RunExecutingError {
   readonly code: 'run-executing';
   readonly message: string;
   readonly runId: string;
+}
+
+/**
+ * The run is a subflow's child run left for its parent's next resume (a
+ * step in it was left because a read it needs failed): only its parent
+ * resumes it, when the parent itself is resumed. Returned by `resumeRun`
+ * called on the child run directly.
+ */
+export interface RunHeldByParentError {
+  readonly code: 'run-held-by-parent';
+  readonly message: string;
+  readonly runId: string;
+  readonly parentRunId: string;
 }

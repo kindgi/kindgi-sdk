@@ -83,6 +83,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-lease-lost': 409,
   // The wait a token belongs to is over (`details.state`).
   'wait-token-closed': 409,
+  'run-held-by-parent': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
   'idempotency-key-replay-withheld': 409,

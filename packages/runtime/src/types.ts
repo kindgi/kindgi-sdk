@@ -271,10 +271,12 @@ export interface FanoutSettleAllOutput {
 }
 
 /**
- * Journal payload for `subgraph.dispatched`. Emitted before the child
- * kernel run is started, so restarts observe consistent parent-journal
- * state. Carries the child `runId` so replay can resolve back to the
- * exact sub-run (rather than re-dispatching a fresh one).
+ * Journal payload for `subgraph.dispatched`. Emitted once the child run,
+ * started inside the parent's dispatch, has returned: finished, or left
+ * for its parent's next resume. (The child's id is the database's, known
+ * only once it's started.) Carries the child `runId` so a resume of the
+ * parent goes back to the exact child run rather than starting a fresh
+ * one.
  */
 export interface SubflowDispatchedPayload {
   readonly subgraphNodeId: NodeId;
@@ -282,6 +284,13 @@ export interface SubflowDispatchedPayload {
   readonly flowRef: { readonly flowId: string; readonly version: string };
   readonly subInput: unknown;
   readonly depth: number;
+  /**
+   * The loop iteration the subgraph node ran in, when it's in a loop body
+   * (as a body step's `step.*` entries carry it): a resume finds the child
+   * run of that iteration. Absent outside a loop body. Written from runtime
+   * 0.1.12; earlier runtimes never set it.
+   */
+  readonly loopContext?: LoopContext | undefined;
 }
 
 /**
@@ -295,6 +304,13 @@ export interface SubflowCompletedPayload {
   readonly subgraphNodeId: NodeId;
   readonly subRunId: RunId;
   readonly output: unknown;
+  /**
+   * The loop iteration the subgraph node ran in, when it's in a loop body
+   * (as a body step's `step.*` entries carry it): a resume finds the child
+   * run of that iteration. Absent outside a loop body. Written from runtime
+   * 0.1.12; earlier runtimes never set it.
+   */
+  readonly loopContext?: LoopContext | undefined;
 }
 
 /**
@@ -325,6 +341,13 @@ export interface SubflowFailedPayload {
     | 'resolver-missing';
   readonly message: string;
   readonly schemaErrors?: readonly unknown[];
+  /**
+   * The loop iteration the subgraph node ran in, when it's in a loop body
+   * (as a body step's `step.*` entries carry it): a resume finds the child
+   * run of that iteration. Absent outside a loop body. Written from runtime
+   * 0.1.12; earlier runtimes never set it.
+   */
+  readonly loopContext?: LoopContext | undefined;
 }
 
 /**
@@ -339,6 +362,13 @@ export interface SubflowCancelledPayload {
   readonly subgraphNodeId: NodeId;
   readonly subRunId: RunId;
   readonly stopReason: 'cancelled';
+  /**
+   * The loop iteration the subgraph node ran in, when it's in a loop body
+   * (as a body step's `step.*` entries carry it): a resume finds the child
+   * run of that iteration. Absent outside a loop body. Written from runtime
+   * 0.1.12; earlier runtimes never set it.
+   */
+  readonly loopContext?: LoopContext | undefined;
 }
 
 /**
