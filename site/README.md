@@ -41,7 +41,8 @@ its pages, its generated reference and its code are the same commit:
 ```
 /            the newest release (the only one search engines index)
 /vX.Y.Z/     every release
-/vX.Y/       redirects to its line's newest release, page for page (_redirects)
+/vX.Y/       redirects to its line's newest release, page for page (_redirects);
+             a line with only release candidates, to /next/
 /next/       the newest release candidate (`@kindgi/sdk@X.Y.Z-rc.N`) while
              it's newer than every release; gone once its release ships
 /versions.json   what the version menu lists, with each build's exact version

@@ -215,6 +215,7 @@ import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolsRouter } from './routes/tools.js';
+import type { TriggerOwnerNotices } from './routes/trigger-owners.js';
 import { usageRouter } from './routes/usage.js';
 import { waitTokensRouter } from './routes/wait-tokens.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
@@ -865,6 +866,14 @@ export interface CreateAppInput {
    * trigger that would never fire.
    */
   readonly triggerKinds?: readonly TriggerKind[];
+  /**
+   * Optional. Tells a person when a project admin changes, pauses,
+   * resumes, fires, deletes or takes over a schedule or webhook trigger
+   * they own (the runtime emails them). Called once the change is made,
+   * never awaited; a failure is logged. Absent: the change is only
+   * audited (`trigger-changed-for-owner`).
+   */
+  readonly triggerOwnerNotices?: TriggerOwnerNotices;
   /**
    * Optional. When present, mounts the outbound webhook surface at
    * `/v1/webhook-endpoints/*`: endpoints the platform sends signed
@@ -2110,6 +2119,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           input.auditEvents,
           itemRights,
           targetTools,
+          input.triggerOwnerNotices,
         ),
       );
     }
@@ -2139,6 +2149,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(receiveUrl !== undefined && { receiveUrl }),
           targetTools,
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.triggerOwnerNotices !== undefined && {
+            ownerNotices: input.triggerOwnerNotices,
+          }),
         }),
       );
     }

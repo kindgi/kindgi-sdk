@@ -12,16 +12,9 @@ import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
-import type {
-  CronTriggerRecord,
-  TriggerOwner,
-  TriggerRecord,
-  TriggerRegistryBinding,
-  UpdateTriggerError,
-  WebhookTriggerRecord,
-} from '../trigger-binding.js';
+import type { TriggerOwner } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
-import { deniedBy } from './denied.js';
+import { deniedBy, refused } from './denied.js';
 
 /**
  * Where a trigger owner's name is read (`owner.displayName`): the person's
@@ -203,6 +196,12 @@ export async function mayChangePersonalTrigger(
   return isTriggerAdmin(c, authorizer, trigger.projectId);
 }
 
+/** Whether the caller is `owner`: the same kind and id. */
+export function callerOwns(c: Context<AppEnv>, owner: TriggerOwner): boolean {
+  const caller = ownerOf(c);
+  return caller.kind === owner.kind && caller.id === owner.id;
+}
+
 type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
 
 /**
@@ -323,89 +322,226 @@ export async function recordChangeForOwner(args: {
 }
 
 /**
- * The owner an edit moves a trigger to, or `undefined` when it stays. A
- * trigger runs as whoever created it, or last changed what it runs: its
- * target or version, its input, its `toolsAllowedUnattended`, a webhook's
- * signing secret. So when anyone but the person who owns it changes one of
- * those, the editor becomes its owner, as `POST …/owner` would make them,
- * and a person's own connections only serve what that person set it to
- * run. A label, the cron line or a pause doesn't move it, nor does an edit
- * by its owner. A trigger a service account owns keeps its owner; a service
- * account that changes a person's trigger makes it the service account's.
+ * A change a person didn't make to a trigger they own: a project admin's
+ * edit, pause, resume, fire or delete, or a take-over from them. It names
+ * fields, never their values.
  */
-export function ownerAfterEdit(
-  c: Context<AppEnv>,
-  owner: TriggerOwner,
-  changesWhatItRuns: boolean,
-): TriggerOwner | undefined {
-  if (!changesWhatItRuns || owner.kind !== 'user') return undefined;
-  const editor = ownerOf(c);
-  return editor.kind === 'user' && editor.id === owner.id ? undefined : editor;
+export interface TriggerOwnerNotice {
+  readonly tenantId: TenantId;
+  readonly projectId?: ProjectId;
+  readonly triggerId: string;
+  readonly triggerKind: 'cron' | 'webhook' | 'mail';
+  /** The trigger's label, when it has one. */
+  readonly label?: string;
+  /** The person told: the owner, or the former owner after a take-over. */
+  readonly owner: TriggerOwner;
+  /** Who did it: `user:<id>` or `service_account:<id>`. */
+  readonly by: string | undefined;
+  /** When, as an ISO 8601 instant. */
+  readonly at: string;
+  readonly change: TriggerOwnerChange;
+  /**
+   * On `updated`: the wire names of the fields changed. What it runs:
+   * `target` (its flow or agent, or their version), `input`,
+   * `toolsAllowedUnattended`, a webhook's `hmacSecretName`; else `label`, a
+   * schedule's `cronExpression`, `timezone`, `catchUp`, `overlap` and
+   * `startingDeadlineSeconds`, a webhook's `signature`, `deliveryIdHeader`,
+   * `bodyLimitBytes` and `rateLimitPerMinute`. Never their values.
+   */
+  readonly fields?: readonly string[];
 }
 
-/** What {@link editMovingOwner} answers. */
-export type EditMovingOwnerOutcome =
-  | { readonly kind: 'ok'; readonly value: TriggerRecord }
-  | { readonly kind: 'err'; readonly error: { readonly code: string; readonly message: string } }
-  /** The edit moves the owner, and the binding can't (no `setOwner`). */
-  | { readonly kind: 'unsupported' };
+/**
+ * Tells a person what someone else did to a trigger they own (the runtime
+ * emails them). Called once the change has been made, and never awaited:
+ * a slow or failing `tell` neither holds up nor fails the request.
+ */
+export interface TriggerOwnerNotices {
+  tell(notice: TriggerOwnerNotice): void | Promise<void>;
+}
 
 /**
- * Makes an edit, under the owner {@link ownerAfterEdit} names when it
- * names one. That owner is set first, so no fire runs the change as the
- * owner before; when the edit then fails, the owner is put back. An owner
- * that ends up changed is audited as `trigger-owner-set`, by the editor.
+ * Hands `notice` to `notices` without waiting for it, when it's for a
+ * person. A throw or a rejection is logged with the request id and goes no
+ * further.
  */
-export async function editMovingOwner(
+export function tellOwner(
+  c: Context<AppEnv>,
+  notices: TriggerOwnerNotices | undefined,
+  notice: TriggerOwnerNotice,
+): void {
+  if (notices === undefined || notice.owner.kind !== 'user') return;
+  const requestId = c.get('requestId');
+  const log = c.get('log');
+  const failed = (err: unknown) => {
+    log.warn(
+      `trigger ${notice.triggerId}: telling its owner it was ${notice.change} failed (request ${requestId}): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  };
+  try {
+    Promise.resolve(notices.tell(notice)).catch(failed);
+  } catch (err) {
+    failed(err);
+  }
+}
+
+/**
+ * The 403 for a change a trigger's owner rule refuses, recorded with the
+ * authorizer as its own refusals are. On a personal trigger it names the
+ * owner (their name, else their id); on a shared one, or one with no
+ * owner, it says what takes an admin.
+ */
+export async function ownerRuleRefused(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  names: TriggerOwnerNames | undefined,
+  trigger: { readonly projectId: string; readonly owner: TriggerOwner },
+  word: 'schedule' | 'webhook trigger',
+): Promise<Response> {
+  const { projectId, owner } = trigger;
+  let message = `Changing what a shared ${word} runs takes a project admin.`;
+  if (owner.kind === 'user') {
+    const found = await ownerNamesOf(names, c.get('tenantId') as TenantId, [owner]);
+    const who = found.get(ownerKey(owner)) ?? owner.id;
+    message = `This ${word} is personal: only ${who} or a project admin can change it.`;
+  }
+  return refused(c, authorizer, {
+    action: 'admin',
+    resource: ref('project', projectId),
+    message,
+    failing: 'actor',
+  });
+}
+
+/** A schedule or webhook trigger, as the owner rule reads it. */
+export interface OwnedTrigger {
+  readonly tenantId: TenantId;
+  readonly triggerId: string;
+  readonly projectId: string;
+  readonly label: string | null;
+  readonly owner: TriggerOwner;
+}
+
+/**
+ * Nothing when the caller may change `trigger`; else the 403. A personal
+ * trigger is its owner's (holding `write`) or a project admin's to change
+ * ({@link mayChangePersonalTrigger}), for every change: an edit, a pause, a
+ * resume, a fire, a delete. A shared one is the project's writers', but
+ * for what it runs (the route checks that, {@link triggerAdminRefusal}).
+ * Asked after the route's own `write` check, so a caller without it gets
+ * the authorizer's 403 first, which never names the owner.
+ */
+export async function personalTriggerRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  names: TriggerOwnerNames | undefined,
+  trigger: OwnedTrigger,
+  word: 'schedule' | 'webhook trigger',
+): Promise<Response | undefined> {
+  if (trigger.owner.kind !== 'user') return undefined;
+  if (await mayChangePersonalTrigger(c, authorizer, trigger)) return undefined;
+  return ownerRuleRefused(c, authorizer, names, trigger, word);
+}
+
+/**
+ * Nothing when the caller is an admin of `projectId` (the tenant, when
+ * there's none); else the 403. With an authorizer it asks `admin` there,
+ * as {@link isTriggerAdmin} does, and answers its own 403; without one,
+ * only a tenant-admin key is, and `message` says what takes one.
+ */
+export async function triggerAdminRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  projectId: string | undefined,
+  message: string,
+): Promise<Response | undefined> {
+  const resource =
+    projectId === undefined
+      ? ref('tenant', c.get('tenantId') as unknown as string)
+      : ref('project', projectId);
+  if (authorizer !== undefined) return deniedBy(authorizer, c, 'admin', resource);
+  if (await isTenantAdmin(c, authorizer)) return undefined;
+  return refused(c, authorizer, { action: 'admin', resource, message, failing: 'actor' });
+}
+
+/**
+ * After a change to a personal trigger by anyone but its owner (a project
+ * admin): records it ({@link recordChangeForOwner}), then tells the owner
+ * ({@link tellOwner}) without waiting. Nothing for a shared trigger, for
+ * the owner's own change, or for an update that changed no field. The
+ * routes call it; the runtime's own writes (an auto-pause, its fires)
+ * never do.
+ */
+export async function noteChangeForOwner(
   c: Context<AppEnv>,
   args: {
-    readonly binding: Pick<TriggerRegistryBinding, 'setOwner'>;
     readonly auditEvents: EmitAuditEventArgs['auditEvents'];
-    readonly trigger: CronTriggerRecord | WebhookTriggerRecord;
-    readonly to: TriggerOwner | undefined;
-    readonly edit: () => Promise<
-      | { readonly kind: 'ok'; readonly value: TriggerRecord }
-      | { readonly kind: 'err'; readonly error: UpdateTriggerError }
-    >;
+    readonly notices: TriggerOwnerNotices | undefined;
+    readonly trigger: OwnedTrigger;
+    readonly triggerKind: 'webhook' | 'cron';
+    readonly change: Exclude<TriggerOwnerChange, 'taken-over'>;
+    readonly fields?: readonly string[];
+    readonly target?: { readonly before: unknown; readonly after: unknown };
+    readonly hmacSecretName?: { readonly before: string; readonly after: string };
   },
-): Promise<EditMovingOwnerOutcome> {
-  const { binding, auditEvents, trigger, to, edit } = args;
-  if (to === undefined) return edit();
-  if (binding.setOwner === undefined) return { kind: 'unsupported' };
-  const { tenantId, triggerId } = trigger;
-  const moved = await binding.setOwner({ tenantId, triggerId, owner: to });
-  if (moved.kind === 'err') return moved;
-  const audit = (record: TriggerRecord) => {
-    const tools = 'toolsAllowedUnattended' in record ? record.toolsAllowedUnattended : undefined;
-    return recordOwnerSet({
-      auditEvents,
-      tenantId,
-      projectId: trigger.projectId,
-      triggerId: triggerId as unknown as string,
-      triggerKind: trigger.kind === 'webhook' ? 'webhook' : 'cron',
-      from: trigger.owner,
-      to,
-      by: callerRef(c),
-      correlationId: c.get('requestId'),
-      log: c.get('log'),
-      ...(tools !== undefined && { toolsAllowedUnattended: tools }),
-    });
-  };
-  const edited = await edit();
-  if (edited.kind === 'ok') {
-    await audit(edited.value);
-    return edited;
-  }
-  const putBack = await binding.setOwner({ tenantId, triggerId, owner: trigger.owner });
-  if (putBack.kind === 'err') {
-    // The edit failed with the owner already moved: the move stands, so
-    // it's audited, and the edit's own error is the answer.
-    c.get('log').warn(
-      `trigger ${triggerId}: the edit failed and its owner couldn't be put back: ${putBack.error.message}`,
-    );
-    await audit(moved.value);
-  }
-  return edited;
+): Promise<void> {
+  const { auditEvents, notices, trigger, triggerKind, change, fields } = args;
+  if (trigger.owner.kind !== 'user' || callerOwns(c, trigger.owner)) return;
+  if (change === 'updated' && (fields === undefined || fields.length === 0)) return;
+  const by = callerRef(c);
+  const projectId = trigger.projectId as ProjectId;
+  await recordChangeForOwner({
+    auditEvents,
+    tenantId: trigger.tenantId,
+    projectId,
+    triggerId: trigger.triggerId,
+    triggerKind,
+    owner: trigger.owner,
+    by,
+    change,
+    ...(fields !== undefined && { fields }),
+    ...(args.target !== undefined && { target: args.target }),
+    ...(args.hmacSecretName !== undefined && { hmacSecretName: args.hmacSecretName }),
+    correlationId: c.get('requestId'),
+    log: c.get('log'),
+  });
+  tellOwner(c, notices, {
+    tenantId: trigger.tenantId,
+    projectId,
+    triggerId: trigger.triggerId,
+    triggerKind,
+    ...(trigger.label !== null && { label: trigger.label }),
+    owner: trigger.owner,
+    by,
+    at: new Date().toISOString(),
+    change,
+    ...(fields !== undefined && { fields }),
+  });
+}
+
+/**
+ * After a take-over of a personal trigger by anyone but its owner: tells
+ * the former owner its runs no longer act as them. The take-over itself is
+ * audited as `trigger-owner-set` ({@link recordOwnerSet}).
+ */
+export function tellTakenOver(
+  c: Context<AppEnv>,
+  notices: TriggerOwnerNotices | undefined,
+  trigger: OwnedTrigger,
+  triggerKind: 'webhook' | 'cron',
+): void {
+  if (trigger.owner.kind !== 'user' || callerOwns(c, trigger.owner)) return;
+  tellOwner(c, notices, {
+    tenantId: trigger.tenantId,
+    projectId: trigger.projectId as ProjectId,
+    triggerId: trigger.triggerId,
+    triggerKind,
+    ...(trigger.label !== null && { label: trigger.label }),
+    owner: trigger.owner,
+    by: callerRef(c),
+    at: new Date().toISOString(),
+    change: 'taken-over',
+  });
 }
 
 function ownerError(

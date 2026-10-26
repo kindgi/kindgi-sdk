@@ -25,10 +25,17 @@ import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/tes
 
 const TENANT = randomUUID() as TenantId;
 const TOKEN = 'webhooks-routes';
+// The same person with a tenant-admin key: without an authorization store,
+// that is who takes a trigger over.
+const ADMIN_TOKEN = 'webhooks-routes-admin';
 const DEFAULT_PROJECT = '00000000-0000-4000-8000-0000000000d1';
 const OTHER_PROJECT = '00000000-0000-4000-8000-0000000000d2';
 const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId: TENANT, userId: 'user-1' as UserId } : null;
+  token === TOKEN
+    ? { tenantId: TENANT, userId: 'user-1' as UserId }
+    : token === ADMIN_TOKEN
+      ? { tenantId: TENANT, userId: 'user-1' as UserId, scopes: ['tenant-admin'] }
+      : null;
 
 function setup() {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: DEFAULT_PROJECT as never });
@@ -46,10 +53,10 @@ function setup() {
     runHandler: {} as RunHandlerBinding,
     webhookReceiver: { envName: 'test' as EnvName },
   });
-  const call = async (method: string, path: string, body?: unknown) => {
+  const call = async (method: string, path: string, body?: unknown, token = TOKEN) => {
     const res = await app.request(`/v1/webhooks${path}`, {
       method,
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
@@ -263,7 +270,9 @@ describe('reading webhook triggers', () => {
       triggerId: t.triggerId,
       owner: { kind: 'user', id: 'user-left' },
     });
-    const res = await call('POST', `/${t.triggerId}/owner`);
+    // Without an authorization store, a take-over takes a tenant-admin key.
+    expect((await call('POST', `/${t.triggerId}/owner`)).status).toBe(403);
+    const res = await call('POST', `/${t.triggerId}/owner`, undefined, ADMIN_TOKEN);
     expect(res).toMatchObject({ status: 200, body: { owner: { kind: 'user', id: 'user-1' } } });
   });
 });

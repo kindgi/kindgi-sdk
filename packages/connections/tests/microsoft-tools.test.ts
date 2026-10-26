@@ -238,8 +238,9 @@ describe('outlook.messages.list', () => {
   it("reads only, with that person's mail.read", () => {
     expect(list).toMatchObject({
       id: 'acme.outlook.messages.list',
-      version: '1.0.0',
+      version: '1.1.0',
       mutating: false,
+      resultIsOutsideData: true,
       needsSpec: {
         connections: { mail: { app: 'microsoft', permissions: ['mail.read'], as: 'person' } },
       },
@@ -334,6 +335,7 @@ describe('outlook.messages.get', () => {
   it("reads only, with that person's mail.read", () => {
     expect(get).toMatchObject({
       mutating: false,
+      resultIsOutsideData: true,
       needsSpec: {
         connections: { mail: { app: 'microsoft', permissions: ['mail.read'], as: 'person' } },
       },

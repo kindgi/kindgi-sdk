@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { HitlWithdrawnError } from '../guardrails-gate.js';
+
 /**
  * The reviewer's answer at an agent turn's approval gates: the tool-call
  * gate (`dispatch-tools`) and the session gate (`setup`). A gate parks the
@@ -112,12 +114,7 @@ export const APPROVAL_WITHDRAWN_REASON = 'approval-withdrawn';
  * stays `hitl-cancelled`. Every `hitl-*` failure is a person's outcome,
  * not an error. `gate` names what waited, e.g. "the session-HITL gate".
  */
-export function withdrawnGateFailure(
-  reason: string,
-  gate: string,
-):
-  | { readonly code: 'hitl-withdrawn'; readonly message: string; readonly reason: string }
-  | undefined {
+export function withdrawnGateFailure(reason: string, gate: string): HitlWithdrawnError | undefined {
   return reason === APPROVAL_WITHDRAWN_REASON
     ? { code: 'hitl-withdrawn', message: `The approval for ${gate} was withdrawn`, reason }
     : undefined;
