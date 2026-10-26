@@ -1115,8 +1115,6 @@ def test_a_unions_members_are_named_by_their_value_and_their_numbered_names_stay
         "Config6",
         "Config7",
         "Config8",
-        "Config10",
-        "Config11",
         "Content2",
         "Content3",
         "Differences",

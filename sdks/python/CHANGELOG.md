@@ -52,7 +52,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 - `kindgi`: **A union's members are named by the value that tells them
   apart.** The members of five inline unions in `kindgi.client.models` had
-  numbered names, and six other models' numbered names would have shifted
+  numbered names, and four other models' numbered names would have shifted
   into the freed ones. These names change, and no old name is kept:
   - **A union's members, by their discriminator:**
     - `Config`, `Config1`, `Config2` (an MCP endpoint's config: stdio,
@@ -73,8 +73,6 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   - **Named after their field, so no freed name passes to them:**
     - `Config6`, `Config7` (a schedule's config, registering and patching):
       `RegisterScheduleBodyConfig`, `PatchScheduleBodyConfig`.
-    - `Config10`, `Config11` (a mail trigger's config, registering and
-      patching): `RegisterMailTriggerBodyConfig`, `PatchMailTriggerBodyConfig`.
     - `Config8` (a webhook trigger's config, in both bodies): now one class
       per body, `RegisterWebhookTriggerBodyConfig` and
       `PatchWebhookTriggerBodyConfig`. A mapping works for either; an

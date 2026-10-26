@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.14"
+version: "0.4.15"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:

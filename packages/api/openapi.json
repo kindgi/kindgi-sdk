@@ -23960,6 +23960,65 @@
           }
         }
       },
+      "RegisterMailTriggerBodyConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A new mail trigger's mailbox, folder and pace.",
+        "required": [
+          "mailbox"
+        ],
+        "properties": {
+          "mailbox": {
+            "$ref": "#/components/schemas/MailTriggerMailbox"
+          },
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox."
+          },
+          "pollSeconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3600,
+            "description": "How often it looks for new mail, in seconds (default 60)."
+          },
+          "runsPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600,
+            "description": "The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later."
+          }
+        }
+      },
+      "PatchMailTriggerBodyConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A mail trigger's mailbox, folder or pace, to change. An absent field keeps its value.",
+        "properties": {
+          "mailbox": {
+            "$ref": "#/components/schemas/MailTriggerMailbox"
+          },
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` moves to the other app; then it watches that app's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook."
+          },
+          "pollSeconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3600,
+            "description": "How often it looks for new mail, in seconds (default 60)."
+          },
+          "runsPerHour": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600,
+            "description": "The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later."
+          }
+        }
+      },
       "RegisterMailTriggerBody": {
         "type": "object",
         "additionalProperties": false,
@@ -24001,34 +24060,7 @@
             "description": "On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
           },
           "config": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "mailbox"
-            ],
-            "properties": {
-              "mailbox": {
-                "$ref": "#/components/schemas/MailTriggerMailbox"
-              },
-              "folder": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512,
-                "description": "The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox."
-              },
-              "pollSeconds": {
-                "type": "integer",
-                "minimum": 30,
-                "maximum": 3600,
-                "description": "How often it looks for new mail, in seconds (default 60)."
-              },
-              "runsPerHour": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 600,
-                "description": "The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later."
-              }
-            }
+            "$ref": "#/components/schemas/RegisterMailTriggerBodyConfig"
           },
           "label": {
             "type": "string"
@@ -24070,31 +24102,7 @@
             "minLength": 1
           },
           "config": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "mailbox": {
-                "$ref": "#/components/schemas/MailTriggerMailbox"
-              },
-              "folder": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512,
-                "description": "The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox."
-              },
-              "pollSeconds": {
-                "type": "integer",
-                "minimum": 30,
-                "maximum": 3600,
-                "description": "How often it looks for new mail, in seconds (default 60)."
-              },
-              "runsPerHour": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 600,
-                "description": "The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later."
-              }
-            }
+            "$ref": "#/components/schemas/PatchMailTriggerBodyConfig"
           },
           "label": {
             "type": [
