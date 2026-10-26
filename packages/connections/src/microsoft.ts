@@ -4,8 +4,9 @@
 import { defineApp } from './define.js';
 
 /**
- * Microsoft, for a member's own work, school or personal account: mail
- * sent as them through Outlook, their mail read. Each tenant registers its
+ * Microsoft, for a member's own work, school or personal account, or the
+ * company's mailbox (a tenant admin signs in as that mailbox): mail sent
+ * as them through Outlook, their mail read. Each tenant registers its
  * own app in Microsoft Entra (the setup guide says how).
  *
  * - **Sign-in:** OAuth 2.0 with PKCE, in the directory the registration
@@ -45,7 +46,7 @@ export const microsoft = defineApp({
     scopeResource: 'https://graph.microsoft.com/',
     tenant: {},
   },
-  owners: ['member'],
+  owners: ['member', 'company'],
   permissions: {
     'mail.send': { grants: 'Mail.Send', says: 'Send mail as you', changes: true },
     'mail.read': { grants: 'Mail.Read', says: 'Read your mail', changes: false },

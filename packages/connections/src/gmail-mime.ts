@@ -1,0 +1,141 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * A Gmail message's text and attachments, from the MIME parts
+ * `users.messages.get` gives with `format=full`
+ * (developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages#MessagePart):
+ * each part has its `mimeType`, `filename`, `headers`, a `body` whose
+ * `data` is the part's content in base64url (or an `attachmentId` when
+ * Gmail keeps it apart), and `parts` when it's a `multipart/*` container.
+ */
+
+import { decodeBytes, decodeEncodedWords, htmlToText } from './mail-text.js';
+
+/** One MIME part of a Gmail message, as the API gives it. */
+export interface GmailPart {
+  readonly partId?: string | null;
+  readonly mimeType?: string | null;
+  readonly filename?: string | null;
+  readonly headers?: readonly GmailHeader[] | null;
+  readonly body?: {
+    readonly attachmentId?: string | null;
+    readonly size?: number | null;
+    readonly data?: string | null;
+  } | null;
+  readonly parts?: readonly GmailPart[] | null;
+}
+
+export interface GmailHeader {
+  readonly name?: string | null;
+  readonly value?: string | null;
+}
+
+/** An attachment's name, type and size. Its content isn't read. */
+export interface GmailAttachment {
+  readonly name: string;
+  readonly contentType: string;
+  /** In bytes, as Gmail gives it. */
+  readonly size: number;
+}
+
+/** What a text part Gmail keeps apart (with an `attachmentId`, no `data`) reads as. */
+export const PART_NOT_READ = '[Part of this message’s text is too long to read here.]';
+
+/**
+ * The message's text and its attachments.
+ *
+ * - **Text:** in a `multipart/alternative`, the `text/plain` choice, else
+ *   the first other one (`text/html` as plain text); in a
+ *   `multipart/related`, its first part; in any other `multipart/*`, each
+ *   part's text in order, a blank line between. A part with a file name,
+ *   or `Content-Disposition: attachment`, is an attachment, never text.
+ * - **Charset:** each part's `Content-Type` charset, else UTF-8.
+ * - **Attachments:** every attachment part, at any depth. An attached
+ *   message (`message/rfc822`) is one attachment; what's inside isn't read.
+ */
+export function gmailBody(payload: GmailPart): {
+  readonly text: string;
+  readonly attachments: readonly GmailAttachment[];
+} {
+  const attachments: GmailAttachment[] = [];
+  collectAttachments(payload, attachments);
+  return { text: textOf(payload)?.text ?? '', attachments };
+}
+
+/** A header's value, by name in any case: the first one. */
+export function gmailHeader(part: GmailPart, name: string): string | undefined {
+  const wanted = name.toLowerCase();
+  const value = part.headers?.find((h) => h.name?.toLowerCase() === wanted)?.value;
+  return typeof value === 'string' ? value : undefined;
+}
+
+interface PartText {
+  readonly text: string;
+  readonly html: boolean;
+}
+
+function textOf(part: GmailPart): PartText | undefined {
+  if (isAttachment(part)) return undefined;
+  const type = mimeTypeOf(part);
+  if (type === 'text/plain' || type === 'text/html') {
+    const content = contentOf(part);
+    return {
+      text: type === 'text/html' ? htmlToText(content) : content,
+      html: type === 'text/html',
+    };
+  }
+  if (!type.startsWith('multipart/')) return undefined;
+  const texts = (part.parts ?? []).map(textOf).filter((t): t is PartText => t !== undefined);
+  if (type === 'multipart/alternative') return texts.find((t) => !t.html) ?? texts[0];
+  if (type === 'multipart/related') return texts[0];
+  if (texts.length === 0) return undefined;
+  return {
+    text: texts
+      .map((t) => t.text.trim())
+      .filter((t) => t !== '')
+      .join('\n\n'),
+    html: texts.every((t) => t.html),
+  };
+}
+
+function collectAttachments(part: GmailPart, into: GmailAttachment[]): void {
+  if (isAttachment(part)) {
+    const type = mimeTypeOf(part);
+    const name = decodeEncodedWords(part.filename ?? '').trim();
+    into.push({
+      name: name !== '' ? name : type === 'message/rfc822' ? 'message.eml' : 'attachment',
+      contentType: type !== '' ? type : 'application/octet-stream',
+      size: typeof part.body?.size === 'number' ? part.body.size : 0,
+    });
+    return;
+  }
+  for (const child of part.parts ?? []) collectAttachments(child, into);
+}
+
+function isAttachment(part: GmailPart): boolean {
+  if ((part.filename ?? '') !== '') return true;
+  if (mimeTypeOf(part) === 'message/rfc822') return true;
+  const disposition = gmailHeader(part, 'Content-Disposition');
+  return disposition !== undefined && /^\s*attachment\b/i.test(disposition);
+}
+
+function mimeTypeOf(part: GmailPart): string {
+  return (part.mimeType ?? '').trim().toLowerCase();
+}
+
+/** A text part's content, decoded from base64url in its charset. */
+function contentOf(part: GmailPart): string {
+  const data = part.body?.data;
+  if (typeof data !== 'string') {
+    return typeof part.body?.attachmentId === 'string' ? PART_NOT_READ : '';
+  }
+  // Gmail sends base64url; the decoder takes standard base64 too.
+  return decodeBytes(Buffer.from(data, 'base64url'), charsetOf(part));
+}
+
+/** The `charset` parameter of a part's `Content-Type`, quoted or not. */
+function charsetOf(part: GmailPart): string | undefined {
+  const type = gmailHeader(part, 'Content-Type');
+  return type === undefined ? undefined : /;\s*charset\s*=\s*"?([^";\s]+)"?/i.exec(type)?.[1];
+}

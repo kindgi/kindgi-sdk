@@ -15,8 +15,8 @@ describe('the Google entry', () => {
     expect(Object.isFrozen(google)).toBe(true);
   });
 
-  it("is a member's own account, signed in with OAuth and PKCE", () => {
-    expect(google.owners).toEqual(['member']);
+  it("is a member's own account or the company's mailbox, signed in with OAuth and PKCE", () => {
+    expect(google.owners).toEqual(['member', 'company']);
     expect(google.signIn).toMatchObject({
       kind: 'oauth2',
       authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -60,6 +60,26 @@ describe('the Google entry', () => {
       notices: 'google-risc',
     });
   });
+
+  it("paces every call in Gmail's quota units, 6,000 a minute per mailbox", () => {
+    // developers.google.com/workspace/gmail/api/reference/quota (read 2026-10-26).
+    expect(google.rateLimits).toEqual([
+      {
+        per: 'connection',
+        units: 6000,
+        perSeconds: 60,
+        costs: {
+          'gmail.send': 100,
+          'gmail.messages.get': 60,
+          'gmail.messages.get.metadata': 20,
+          'gmail.threads.get': 120,
+          'gmail.messages.list': 5,
+          'gmail.history.list': 2,
+          'gmail.profile.get': 1,
+        },
+      },
+    ]);
+  });
 });
 
 describe('the GitHub entry', () => {
@@ -93,8 +113,8 @@ describe('the Microsoft entry', () => {
     expect(Object.isFrozen(microsoft)).toBe(true);
   });
 
-  it("is a member's own account, signed in with OAuth and PKCE in the registration's directory", () => {
-    expect(microsoft.owners).toEqual(['member']);
+  it("is a member's own account or the company's mailbox, signed in with OAuth and PKCE in the registration's directory", () => {
+    expect(microsoft.owners).toEqual(['member', 'company']);
     expect(microsoft.signIn).toEqual({
       kind: 'oauth2',
       authorizeUrl: 'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize',
