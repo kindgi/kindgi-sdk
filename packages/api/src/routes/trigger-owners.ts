@@ -162,11 +162,12 @@ export function triggerOwnerDeps(
 /**
  * Whether the caller is an admin of a trigger's project, for the checks
  * every trigger kind's routes make: `admin` on the project with an
- * authorization model. WITHOUT one the model can grant nothing, and a check of the model
- * would let every caller through; so the decision falls back to the
- * tenant-admin check, read from the token's scopes, as {@link mayNotActAs}
- * does. Otherwise any member would count as an admin, and could retarget a
- * colleague's trigger, which would go on reading that colleague's mail.
+ * authorization model. WITHOUT one the model can grant nothing, and a
+ * check of the model would let every caller through; so the decision
+ * falls back to the tenant-admin check, read from the token's scopes, as
+ * {@link mayNotActAs} does. Otherwise any member would count as an admin,
+ * and could retarget a colleague's trigger, which would go on reading that
+ * colleague's mail.
  */
 export async function isTriggerAdmin(
   c: Context<AppEnv>,
