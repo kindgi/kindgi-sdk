@@ -466,9 +466,8 @@ pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post
 - **A new owner keeps it.** After a take-over, the trigger's runs call the
   tools it lists as the new owner, with their access, and the CLI says so,
   with the line that clears it. A take-over can't change the list: use
-  `update`. Changing the list makes you the owner when you aren't, as
-  [changing what it runs](../../runs/run-on-a-schedule/#who-owns-it-after-a-change)
-  does.
+  `update`. Changing the list keeps the owner, as every change does
+  ([Shared or personal](../../runs/run-on-a-schedule/#shared-or-personal)).
 - **A schedule pointed at another agent or flow** must name its list
   again, as it is or `none` (`[]` from your app), or the change is refused
   (`400 bad-input`). A new version of the same one keeps the list.
