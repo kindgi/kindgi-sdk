@@ -840,10 +840,15 @@ kindgi key revoke <keyId> [--reason <text>]
 
 Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 (the directory `0700`, `<keyId>.pem` `0600`, `<keyId>.pub.pem` `0644`).
+`~` is `$HOME`, or the system's home folder where `HOME` isn't set.
+`create`, `export`, `list` and `trust` take `--home <dir>` to use
+`<dir>/.kindgi/keys/` instead.
 
 - **`create`** generates a key pair and refuses to overwrite an existing
   one. With `--env`, it prints what to add to that env block in
-  `kindgi.config.ts`, or that the block already names this key.
+  `kindgi.config.ts`, or that the block already names this key. The key's
+  path in that note starts with `~` when the key is under `$HOME`, and is
+  the full path otherwise.
 - **`export`** prints the public key only, never the private one.
 - **`list`** shows each key pair's id, fingerprint and paths.
 - **`trust`** adds a local key's public key to the runtime's trust list
@@ -959,7 +964,9 @@ The API URL and token come from, in order:
 
 `kindgi dev` writes `.kindgirc.json` in the pack. For another API, save the
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
-with `kindgi auth whoami`.
+with `kindgi auth whoami`. Login writes `~/.kindgi/config.json` `0600`, in a
+`~/.kindgi` that's `0700`, and tightens ones an older CLI left looser (not on
+Windows).
 
 **In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
 There, `.kindgirc.json` points every command at the dev runtime, ahead of

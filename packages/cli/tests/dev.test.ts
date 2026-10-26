@@ -24,7 +24,18 @@
  */
 
 import { generateKeyPairSync } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -2408,6 +2419,32 @@ describe("kindgi dev — the pack service's front across boots", () => {
     expect((await stat(join(packDir, '.kindgirc.json'))).mode & 0o777).toBe(0o600);
   });
 
+  test.skipIf(process.platform === 'win32')(
+    'an old 0644 .kindgirc.json is replaced by a new 0600 file, not written over',
+    async () => {
+      const path = join(packDir, '.kindgirc.json');
+      await writeFile(path, JSON.stringify({ token: 'kgi_bt_test-token' }));
+      await chmod(path, 0o644);
+      // Another program that opened the old file keeps the old file, not the new tokens.
+      const held = await open(path, 'r');
+      try {
+        const out = await runCli({
+          ...baseInputs(makeFixtures()),
+          argv: ['dev', '--no-watch', `--path=${packDir}`],
+        });
+        expect(out.exitCode).toBe(0);
+        expect(JSON.parse(await held.readFile('utf8'))).toEqual({ token: 'kgi_bt_test-token' });
+        expect((await held.stat()).mode & 0o777).toBe(0o644);
+      } finally {
+        await held.close();
+      }
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
+        packServiceToken: 'fake-token',
+      });
+    },
+  );
+
   test('a saved token that is too short is not reused', async () => {
     await writeFile(
       join(packDir, '.kindgirc.json'),
@@ -3510,19 +3547,25 @@ describe('kindgi dev — what --quiet keeps (warnings)', () => {
     }
   });
 
-  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
-    'a .kindgirc.json written whose mode could not be changed is said as such, under --quiet too',
+  test.skipIf(process.platform === 'win32')(
+    'a .kindgirc.json that links to something other than a file is left as it is, and said as not written, under --quiet too',
     async () => {
-      // Written through to /dev/null, whose mode only root may change.
-      await symlink('/dev/null', join(packDir, '.kindgirc.json'));
+      // A folder, not the real /dev/null: if the check regressed, a test run as
+      // root would rename a file over the device. Without the check, the
+      // rename over the folder fails with another message.
+      const folder = join(cwd, 'kindgirc-folder');
+      await mkdir(folder);
+      await symlink(folder, join(packDir, '.kindgirc.json'));
       for (const flags of LOUD_AND_QUIET) {
         const said = await bootSaid(makeFixtures(), flags);
         expect(said).toMatch(
-          / {2}⚠ couldn't make \.kindgirc\.json readable by its owner only \(EPERM: .+\): it holds this runtime's tokens, and keeps the mode it had\n/,
+          / {2}⚠ couldn't write \.kindgirc\.json \(.+ isn't a regular file, so it was left as it is\.\): the CLI in this folder needs --url and --token to reach this runtime\n/,
         );
-        expect(said).not.toContain("couldn't write .kindgirc.json");
+        expect(said).not.toContain('readable by its owner only');
         expect(said.includes(BOOT_PROGRESS)).toBe(flags.length === 0);
       }
+      expect((await lstat(join(packDir, '.kindgirc.json'))).isSymbolicLink()).toBe(true);
+      expect((await stat(folder)).isDirectory()).toBe(true);
     },
   );
 
