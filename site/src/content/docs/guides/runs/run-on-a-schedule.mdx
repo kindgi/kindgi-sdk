@@ -150,10 +150,15 @@ it, or the account named with `--run-as`, and no change moves it (runtime
   fields changed, and what the schedule ran before and after, never an
   input's values. A change to its tools allowed unattended keeps its own
   record, `trigger-tools-allowed-unattended-set`. The owner isn't told
-  yet: a later runtime emails them.
+  yet: a later runtime emails them. An app built on `@kindgi/api` can tell
+  them itself, with `createApp`'s `triggerOwnerNotices`: its `tell` is
+  called after each such change, and after a take-over from them, with a
+  `TriggerOwnerNotice` that names the fields changed, never their values.
 - **Only a take-over moves the owner.** `kindgi schedules take-ownership`
-  needs `admin` on the project. A project admin's own take-over makes the
-  schedule personal to them, and one with `--run-as` makes it shared
+  needs `admin` on the project. Anyone else is answered
+  `403 permission-denied`, "Taking a schedule over takes a project admin."
+  A project admin's own take-over makes the schedule personal to them, and
+  one with `--run-as` makes it shared
   ([Run as a service account](#run-as-a-service-account)).
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
@@ -233,7 +238,8 @@ pnpm exec kindgi schedules list --project=<project-id>
 
 Each schedule's `owner` has the owner's name now, `displayName`: the
 person's, or the service account's. When it can't be read, only its `id` is
-there.
+there. The CLI's `RUNS AS` column shows that name, else the id, and whether
+the schedule is personal or shared, such as "Sam Lee (personal)".
 
 With [authorization](../../../deploy/authorization/) on, the list holds the
 schedules in projects you may read, or all of them for a tenant admin. A

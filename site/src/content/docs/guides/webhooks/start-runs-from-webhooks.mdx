@@ -599,10 +599,19 @@ registered it, or the account named with
   changed, the flow version before and after, and the signing secret's
   name before and after, never a value. A change to its tools allowed
   unattended keeps its own record, `trigger-tools-allowed-unattended-set`.
-  The owner isn't told yet: a later runtime emails them.
+  The owner isn't told yet: a later runtime emails them. An app built on
+  `@kindgi/api` can tell them itself, with `createApp`'s
+  `triggerOwnerNotices`: its `tell` is called after each such change, and
+  after a take-over from them, with a `TriggerOwnerNotice` that names the
+  fields changed, never their values.
 - **Only a take-over moves the owner** (`kindgi webhooks take-ownership`,
-  above). A project admin's own take-over makes the trigger personal to
+  above), and it takes a project admin. Anyone else is answered
+  `403 permission-denied`, "Taking a webhook trigger over takes a project
+  admin." A project admin's own take-over makes the trigger personal to
   them, and one with `--run-as` makes it shared.
+- **`kindgi webhooks list` says which:** its `RUNS AS` column shows the
+  owner's name, else its id, and whether the trigger is personal or
+  shared, such as "Sam Lee (personal)".
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 - **A trigger registered with a token the runtime made at startup** is
