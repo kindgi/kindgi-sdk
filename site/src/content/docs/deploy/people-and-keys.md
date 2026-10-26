@@ -568,13 +568,15 @@ runtime can't make a project's own account."
 - **It's named only as the project.** `--run-as=<service-account-id>` with
   its id is refused: a tenant admin is answered `409
   service-account-project-owned`, and anyone else gets the usual `403`.
-- **Its name is `project-<project-id>`.** `kindgi service-accounts list`
-  shows it with "project's own: <project-id>" in its grants, and
-  `kindgi service-accounts get` and the API with its `projectId`. A trigger that runs as it has `isProjectAccount: true` in its
-  `owner`. If a tenant admin already made an account of that name,
-  `--run-as=project` is answered `409 service-account-name-taken`: "An
-  account named `project-<project-id>` is already registered. A tenant admin
-  can unregister it."
+- **Its name is `project-<project-id>`.**
+  `kindgi service-accounts list --table` shows it with
+  `project's own: <project-id>` in its grants. `list` and `get` without
+  it, and the API, show its `projectId`. A trigger that runs as it has
+  `isProjectAccount: true` in its `owner`. If a tenant admin already made
+  an account of that name, `--run-as=project` is answered
+  `409 service-account-name-taken`: "An account named
+  `project-<project-id>` is already registered. A tenant admin can
+  unregister it."
 - **A tenant admin may unregister it.** The project's triggers that run as
   it then stop, until a project admin takes each over. A take-over with
   `--run-as=project` makes the project a new account.
