@@ -1005,8 +1005,8 @@ repository from
    its release notes, and take the new release's digest from its notes.
 2. **Copy the new runtime image** into Artifact Registry by digest, every
    platform included, as in
-   [2. The images into Artifact Registry](#2-the-images-into-artifact-registry).
-   From 0.2.0 on, releases are on `registry.kindgi.com`:
+   [2. The images into Artifact Registry](#2-the-images-into-artifact-registry),
+   from `registry.kindgi.com` (it has 0.1.11 and later):
 
    ```sh
    docker buildx imagetools create --tag "$REPO/runtime:<version>" \
