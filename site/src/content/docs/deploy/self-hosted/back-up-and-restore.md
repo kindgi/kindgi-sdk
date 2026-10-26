@@ -122,7 +122,7 @@ docker run --rm --network kindgi --env-file kindgi.env \
   registry.kindgi.com/kindgi/runtime:<version> check stored-secrets
 ```
 
-`<version>` is the version your server runs. `registry.kindgi.com` has 0.1.11
+`<version>` is the version your server runs. `registry.kindgi.com` has 0.2.0
 and later; for an earlier version, use the image your server already runs.
 
 It decrypts each live version of every stored secret, and prints ids and
@@ -310,7 +310,7 @@ docker run --rm --network kindgi --env-file kindgi.env \
   registry.kindgi.com/kindgi/runtime:<version> erasures replay --from local:/erasure-ledger
 ```
 
-As above, `registry.kindgi.com` has 0.1.11 and later; for an earlier
+As above, `registry.kindgi.com` has 0.2.0 and later; for an earlier
 version, use the image your server already runs.
 
 - **`--from`** takes a directory (`local:<dir>`, mounted into the container
