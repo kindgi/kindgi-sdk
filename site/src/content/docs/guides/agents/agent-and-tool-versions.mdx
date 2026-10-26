@@ -96,8 +96,9 @@ number: the deploy registers the next free version, because
 **A tool's version doesn't move for you.** A tool version keeps the
 definition it was first published with, so code you change under the same
 version would run under the old one. When you change what a tool declares,
-such as its input or output, its needs, `mutating` or its approvals, and keep
-its version, the deploy is refused with `409 tool-already-registered`. The
+such as its description, its input or output, its needs, `mutating` or its
+approvals, and keep its version, the deploy is refused with
+`409 tool-already-registered`. The
 refusal names the fields that differ, and nothing is deployed. Give the tool a
 new version. A range that takes it (`^1.0.0` takes 1.1.0) picks it up in the
 agent's next version, as above. A new image of the same tool keeps its
