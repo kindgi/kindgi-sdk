@@ -10395,6 +10395,264 @@ class WebhookTriggerUnregisterResult(BaseModel):
     unregistered: bool
 
 
+class MailTriggerMailbox(BaseModel):
+    """
+    The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company's connection of that app; `person`: the trigger owner's own, through their connection).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    app: Annotated[Literal["google", "microsoft"] | str, _open.OPEN]
+    as_: Annotated[Annotated[Literal["company", "person"] | str, _open.OPEN], Field(alias="as")]
+
+
+class Account(BaseModel):
+    """
+    The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    label: str
+
+
+class MailTriggerRecord(BaseModel):
+    """
+    A mail trigger: each new mail in its mailbox's folder starts a run of its agent or flow, with the mail as the run's input, as its owner. In such a run, every call that changes something, or uses the run's own mailbox, waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as, with their connections. A service account owns a shared trigger, on the company's mailbox; a person owns a personal one: every trigger on a person's mailbox, and one on the company's mailbox registered without `runAsServiceAccountId`. No edit moves it; only a take-over (`POST …/owner`) does.
+    """
+    mailbox: MailTriggerMailbox
+    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
+    """
+    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    """
+    poll_seconds: Annotated[int, Field(alias="pollSeconds", ge=30, le=3600)]
+    """
+    How often it looks for new mail, in seconds (default 60).
+    """
+    runs_per_hour: Annotated[int, Field(alias="runsPerHour", ge=1, le=600)]
+    """
+    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
+    """
+    label: str | None
+    status: Annotated[Literal["active", "paused"] | str, _open.OPEN]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.
+    """
+    account: Account | None = None
+    """
+    The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.
+    """
+    last_polled_at: Annotated[AwareDatetime | None, Field(alias="lastPolledAt")] = None
+    """
+    When it last polled the mailbox and got an answer.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class Config10(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mailbox: MailTriggerMailbox
+    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
+    """
+    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    """
+    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
+    """
+    How often it looks for new mail, in seconds (default 60).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
+    """
+
+
+class RegisterMailTriggerBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the mail, so it takes none. A trigger on a person's mailbox reads the caller's own mail and is theirs: it needs `write` on the project. One on the company's mailbox needs `admin` on the project. Both need `execute` on what it runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The trigger's project. Absent → the tenant's default project.
+    """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Absent: the caller owns it.
+    """
+    config: Config10
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class Config11(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mailbox: MailTriggerMailbox | None = None
+    folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
+    """
+    The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.
+    """
+    poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
+    """
+    How often it looks for new mail, in seconds (default 60).
+    """
+    runs_per_hour: Annotated[int | None, Field(alias="runsPerHour", ge=1, le=600)] = None
+    """
+    The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.
+    """
+
+
+class PatchMailTriggerBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its mailbox (replaced whole), folder, pace or label. A personal trigger's change is its owner's or a project admin's; a shared one's, a project admin's; and the company's mailbox, before or after, takes a project admin. The owner stays.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    config: Config11 | None = None
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class MailFire(BaseModel):
+    """
+    One mail a mail trigger found and what came of it. A thread's mail runs one at a time, oldest first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fire_id: Annotated[str, Field(alias="fireId")]
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
+    outcome: Annotated[
+        Literal["pending", "started", "skipped", "refused", "failed"] | str, _open.OPEN
+    ]
+    """
+    `pending` while its run starts, or while an earlier mail of its thread waits or that mail's run hasn't finished (`detail` starts `thread-busy:`). `skipped`: no run started, as `detail` says: the mail is from the mailbox's own address (`own-address`), an automatic reply (`auto-submitted`), received before the trigger began watching (`before-since`), found in a mailbox that changed account before it was read (`mailbox-changed`), gone by the time it was read (`not-found`), or already had by an earlier run of its thread (`mail-already-given:`); or the poll started afresh (`cursor-reset:`). `refused`: over the trigger's `runsPerHour` (`over-limit:`), the mailbox's connection missing, lapsed or lacking a scope (`connection-missing:` and why), or the app gave the mail no thread (`no-thread-id`); a refused mail doesn't run later. `failed`: the run couldn't start.
+    """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The run it started.
+    """
+    detail: str | None = None
+    """
+    Why it was skipped, refused or failed, or why a `pending` fire waits.
+    """
+    counts_toward_pause: Annotated[bool | None, Field(alias="countsTowardPause")] = None
+    """
+    Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:`, `connection-missing:` and `no-thread-id` refusals: the limit passes, connecting again ends a missing connection, and a mail with no thread is the app's doing, not the trigger's. Skips never count.
+    """
+
+
+class MailFirePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MailFire]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class MailTriggerCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MailTriggerRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class FlowId(RootModel[str]):
     root: Annotated[str, Field(max_length=200, min_length=1)]
 

@@ -14038,6 +14038,218 @@ export const WebhookTriggerUnregisterResultSchema: JsonSchema = {
   },
 };
 
+// ---------- mail triggers (a mailbox's new mail starts runs) ----------
+
+export const MailTriggerMailboxSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'as'],
+  description:
+    "The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company's connection of that app; `person`: the trigger owner's own, through their connection).",
+  properties: {
+    app: { type: 'string', enum: ['google', 'microsoft'] },
+    as: { type: 'string', enum: ['company', 'person'] },
+  },
+};
+
+const MAIL_TRIGGER_CONFIG_PROPERTIES: Record<string, JsonSchema> = {
+  mailbox: { $ref: '#/components/schemas/MailTriggerMailbox' },
+  folder: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 512,
+    description:
+      'The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.',
+  },
+  pollSeconds: {
+    type: 'integer',
+    minimum: 30,
+    maximum: 3600,
+    description: 'How often it looks for new mail, in seconds (default 60).',
+  },
+  runsPerHour: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 600,
+    description:
+      "The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.",
+  },
+};
+
+const MAIL_TRIGGER_TARGET_PROPERTIES: Record<string, JsonSchema> = {
+  flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
+  flowVersion: { type: 'string', minLength: 1 },
+  agentId: {
+    type: 'string',
+    minLength: 1,
+    description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+  },
+  agentVersion: { type: 'string', minLength: 1 },
+};
+
+export const MailTriggerRecordSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "A mail trigger: each new mail in its mailbox's folder starts a run of its agent or flow, with the mail as the run's input, as its owner. In such a run, every call that changes something, or uses the run's own mailbox, waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`).",
+  required: [
+    'triggerId',
+    'projectId',
+    'owner',
+    'mailbox',
+    'pollSeconds',
+    'runsPerHour',
+    'label',
+    'status',
+    'lastFiredAt',
+    'createdAt',
+    'updatedAt',
+  ],
+  properties: {
+    triggerId: { type: 'string' },
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project: its runs are this project's.",
+    },
+    owner: {
+      $ref: '#/components/schemas/TriggerOwner',
+      description:
+        "Who its runs act as, with their connections. A service account owns a shared trigger, on the company's mailbox; a person owns a personal one: every trigger on a person's mailbox, and one on the company's mailbox registered without `runAsServiceAccountId`. No edit moves it; only a take-over (`POST …/owner`) does.",
+    },
+    ...MAIL_TRIGGER_CONFIG_PROPERTIES,
+    label: { type: ['string', 'null'] },
+    status: { $ref: '#/components/schemas/TriggerStatus' },
+    statusReason: {
+      type: 'string',
+      description:
+        "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
+    },
+    account: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'label'],
+      description:
+        "The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.",
+      properties: { id: { type: 'string' }, label: { type: 'string' } },
+    },
+    lastPolledAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it last polled the mailbox and got an answer.',
+    },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none.",
+    ),
+    lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const RegisterMailTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the mail, so it takes none. A trigger on a person's mailbox reads the caller's own mail and is theirs: it needs `write` on the project. One on the company's mailbox needs `admin` on the project. Both need `execute` on what it runs.",
+  required: ['config'],
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project. Absent → the tenant's default project.",
+    },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Absent: the caller owns it.",
+    },
+    config: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['mailbox'],
+      properties: MAIL_TRIGGER_CONFIG_PROPERTIES,
+    },
+    label: { type: 'string' },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project.",
+    ),
+  },
+};
+
+export const PatchMailTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its mailbox (replaced whole), folder, pace or label. A personal trigger's change is its owner's or a project admin's; a shared one's, a project admin's; and the company's mailbox, before or after, takes a project admin. The owner stays.",
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    config: {
+      type: 'object',
+      additionalProperties: false,
+      properties: MAIL_TRIGGER_CONFIG_PROPERTIES,
+    },
+    label: { type: ['string', 'null'] },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`.",
+    ),
+  },
+};
+
+export const MailFireSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "One mail a mail trigger found and what came of it. A thread's mail runs one at a time, oldest first.",
+  required: ['fireId', 'triggerId', 'firedAt', 'outcome'],
+  properties: {
+    fireId: { type: 'string' },
+    triggerId: { type: 'string' },
+    firedAt: { type: 'string', format: 'date-time' },
+    outcome: {
+      type: 'string',
+      enum: ['pending', 'started', 'skipped', 'refused', 'failed'],
+      description:
+        "`pending` while its run starts, or while an earlier mail of its thread waits or that mail's run hasn't finished (`detail` starts `thread-busy:`). `skipped`: no run started, as `detail` says: the mail is from the mailbox's own address (`own-address`), an automatic reply (`auto-submitted`), received before the trigger began watching (`before-since`), found in a mailbox that changed account before it was read (`mailbox-changed`), gone by the time it was read (`not-found`), or already had by an earlier run of its thread (`mail-already-given:`); or the poll started afresh (`cursor-reset:`). `refused`: over the trigger's `runsPerHour` (`over-limit:`), the mailbox's connection missing, lapsed or lacking a scope (`connection-missing:` and why), or the app gave the mail no thread (`no-thread-id`); a refused mail doesn't run later. `failed`: the run couldn't start.",
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    detail: {
+      type: 'string',
+      description: 'Why it was skipped, refused or failed, or why a `pending` fire waits.',
+    },
+    countsTowardPause: {
+      type: 'boolean',
+      description:
+        "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:`, `connection-missing:` and `no-thread-id` refusals: the limit passes, connecting again ends a missing connection, and a mail with no thread is the app's doing, not the trigger's. Skips never count.",
+    },
+  },
+};
+
+export const MailFirePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MailFire' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const MailTriggerCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MailTriggerRecord' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
 // ---------- outbound webhook endpoints ----------
 
 export const WebhookEventTypeSchema: JsonSchema = {
@@ -15756,6 +15968,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PatchWebhookTriggerBody', PatchWebhookTriggerBodySchema],
   ['TakeTriggerOwnerBody', TakeTriggerOwnerBodySchema],
   ['WebhookTriggerUnregisterResult', WebhookTriggerUnregisterResultSchema],
+  ['MailTriggerMailbox', MailTriggerMailboxSchema],
+  ['MailTriggerRecord', MailTriggerRecordSchema],
+  ['RegisterMailTriggerBody', RegisterMailTriggerBodySchema],
+  ['PatchMailTriggerBody', PatchMailTriggerBodySchema],
+  ['MailFire', MailFireSchema],
+  ['MailFirePage', MailFirePageSchema],
+  ['MailTriggerCollectionPage', MailTriggerCollectionPageSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],
   ['WebhookEndpointFilter', WebhookEndpointFilterSchema],

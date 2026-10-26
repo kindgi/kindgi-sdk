@@ -395,6 +395,19 @@ export type {
   WebhooksClient,
 } from './resources/webhooks.js';
 export type {
+  ListMailFiresFilter,
+  ListMailTriggersFilter,
+  MailFire,
+  MailFirePage,
+  MailTrigger,
+  MailTriggerMailbox,
+  MailTriggerPage,
+  MailTriggersClient,
+  RegisterMailTriggerInput,
+  UnregisterMailTriggerResult,
+  UpdateMailTriggerInput,
+} from './resources/mail-triggers.js';
+export type {
   ListSigningKeysFilter,
   RevokeSigningKeyResult,
   SigningKeyPage,
