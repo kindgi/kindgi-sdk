@@ -460,11 +460,11 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         } catch (cause) {
           if (cause instanceof WaitpointCancelledError) {
             throwAgentTurnFailure(
-              (withdrawnGateFailure(cause.reason, `tool call ${call.name}`) ?? {
+              withdrawnGateFailure(cause.reason, `tool call ${call.name}`) ?? {
                 code: 'hitl-cancelled',
                 message: `Tool-call HITL cancelled for ${call.name}: ${cause.reason}`,
                 reason: cause.reason,
-              }) as never,
+              },
             );
           }
           throw cause;

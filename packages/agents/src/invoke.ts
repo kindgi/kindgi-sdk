@@ -173,7 +173,7 @@ async function rehydrateFromJournal(
       error: {
         code: 'run-journal-unavailable',
         message: `Failed to read the journal of run ${runId as unknown as string}: ${journal.error.message}`,
-      } as never,
+      },
     };
   }
   try {
@@ -224,9 +224,10 @@ export async function resumeAgentTurn(
       error: {
         code: 'agent-version-mismatch',
         message: `Snapshot pinned to ${snapshot.agentId as unknown as string}@${snapshot.agentVersion}; resume called with ${input.agent.id as unknown as string}@${input.agent.version as unknown as string}`,
+        conversationId: snapshot.conversationId,
         expectedVersion: snapshot.agentVersion,
         actualVersion: input.agent.version,
-      } as never,
+      },
     };
   }
 
@@ -299,6 +300,7 @@ export type {
   ModelInvocationError,
   OutputSchemaViolationError,
   RateLimitExceededError,
+  RunJournalUnavailableError,
   RunSnapshotError,
   SemanticUnavailableError,
   ApprovalsPendingLimitError,

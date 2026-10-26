@@ -490,7 +490,7 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'conversationId',
-        meaning: 'the conversation (new turn only)',
+        meaning: 'the conversation',
       },
       {
         key: 'expectedVersion',
