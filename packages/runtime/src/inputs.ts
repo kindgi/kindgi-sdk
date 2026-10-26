@@ -158,24 +158,63 @@ export interface UnattendedRuleTool {
  * it either.
  */
 export function toolNeedsPersonsYesUnattended(tool: UnattendedRuleTool): boolean {
-  if (tool.needsApprovalWhenUnattended === true) return true;
-  return connectionNeedsOf(tool).some((need) => need.as === 'person');
+  const reason = waitReasonOf(tool, undefined, undefined);
+  return reason === 'declared' || reason === 'persons-connection';
+}
+
+/**
+ * Why a call waits for a person's yes in a run no person started
+ * (`unattendedWaitReason`):
+ *
+ * - `declared`: the tool declares `needsApprovalWhenUnattended`;
+ * - `persons-connection`: it uses a person's connection, reads included;
+ * - `mail-change`: a mail started the run, and the tool changes something
+ *   (it isn't `mutating: false`);
+ * - `mail-own-mailbox`: a mail started the run, and the tool uses a
+ *   connection of the run's own mailbox, read-only or not.
+ */
+export type UnattendedWaitReason =
+  | 'declared'
+  | 'persons-connection'
+  | 'mail-change'
+  | 'mail-own-mailbox';
+
+/**
+ * Why a call of `tool` waits for a person's yes because no person is
+ * watching its run (`runIsAttended`), or `undefined` when it doesn't. It
+ * waits, for the first reason that holds, in this order:
+ *
+ * - the tool declares it (`declared`), or uses a person's connection
+ *   (`persons-connection`), in any such run (`toolNeedsPersonsYesUnattended`);
+ * - a mail started the run (`mail`), and the tool changes something
+ *   (`mail-change`: it isn't `mutating: false`), or it uses a connection of
+ *   the run's own `mailbox`, its app and kind (`mail-own-mailbox`; any
+ *   connection, when the run records no mailbox).
+ *
+ * Unless the trigger that started the run lists the tool in its
+ * `toolsAllowedUnattended`: only the runs a webhook, a schedule or a mail
+ * trigger started have a list, and on any other one lifts nothing. The one
+ * rule an agent's tool gate and a flow's tool step both apply, so a
+ * refusal's message names the reason this gives.
+ */
+export function unattendedWaitReason(
+  tool: UnattendedRuleTool,
+  startedBy: RunStartedBy | undefined,
+  toolsAllowedUnattended: readonly string[] | undefined,
+  mailbox?: RunMailbox,
+): UnattendedWaitReason | undefined {
+  if (runIsAttended(startedBy)) return undefined;
+  const reason = waitReasonOf(tool, startedBy, mailbox);
+  if (reason === undefined) return undefined;
+  const listed =
+    (startedBy === 'webhook' || startedBy === 'schedule' || startedBy === 'mail') &&
+    toolsAllowedUnattended?.includes(tool.id) === true;
+  return listed ? undefined : reason;
 }
 
 /**
  * Whether a call of `tool` waits for a person's yes because no person is
- * watching its run (`runIsAttended`), unless the trigger that started the
- * run lists the tool in its `toolsAllowedUnattended`. It waits when:
- *
- * - the tool needs one in any such run (`toolNeedsPersonsYesUnattended`);
- * - or a mail started the run (`mail`), and the tool changes something (it
- *   isn't `mutating: false`), or it uses a connection of the run's own
- *   `mailbox`, its app and kind (any connection, when the run records no
- *   mailbox).
- *
- * Only the runs a webhook, a schedule or a mail trigger started have a
- * list: on any other, one lifts nothing. The one rule an agent's tool gate
- * and a flow's tool step both apply.
+ * watching its run: whether `unattendedWaitReason` gives a reason.
  */
 export function needsPersonsYesUnattended(
   tool: UnattendedRuleTool,
@@ -183,26 +222,24 @@ export function needsPersonsYesUnattended(
   toolsAllowedUnattended: readonly string[] | undefined,
   mailbox?: RunMailbox,
 ): boolean {
-  if (runIsAttended(startedBy)) return false;
-  const needs =
-    toolNeedsPersonsYesUnattended(tool) ||
-    (startedBy === 'mail' && mailRunNeedsPersonsYes(tool, mailbox));
-  if (!needs) return false;
-  const listed =
-    (startedBy === 'webhook' || startedBy === 'schedule' || startedBy === 'mail') &&
-    toolsAllowedUnattended?.includes(tool.id) === true;
-  return !listed;
+  return unattendedWaitReason(tool, startedBy, toolsAllowedUnattended, mailbox) !== undefined;
 }
 
-/** In a run a mail started: a change of anything, or a use of the run's own mailbox. */
-function mailRunNeedsPersonsYes(
+/** The first reason a call of `tool` waits in an unattended run, before the list. */
+function waitReasonOf(
   tool: UnattendedRuleTool,
+  startedBy: RunStartedBy | undefined,
   mailbox: RunMailbox | undefined,
-): boolean {
-  if (tool.mutating !== false) return true;
-  return connectionNeedsOf(tool).some(
+): UnattendedWaitReason | undefined {
+  if (tool.needsApprovalWhenUnattended === true) return 'declared';
+  const needs = connectionNeedsOf(tool);
+  if (needs.some((need) => need.as === 'person')) return 'persons-connection';
+  if (startedBy !== 'mail') return undefined;
+  if (tool.mutating !== false) return 'mail-change';
+  const ownMailbox = needs.some(
     (need) => mailbox === undefined || (need.app === mailbox.app && need.as === mailbox.as),
   );
+  return ownMailbox ? 'mail-own-mailbox' : undefined;
 }
 
 /** A tool's `needsSpec.connections` entries, as the rule reads them. */

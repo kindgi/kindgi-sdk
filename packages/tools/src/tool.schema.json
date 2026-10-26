@@ -70,7 +70,7 @@
     },
     "needsApprovalWhenUnattended": {
       "type": "boolean",
-      "description": "`true` when a person must say yes to every call of this tool in a run no person started (a schedule, a webhook, an event, a mail or a service account's key started it). In such a run an agent's call waits for a person's yes whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it, whatever this or `mutating` says. Absent means `false`. Optional additive field."
+      "description": "`true` when a person must say yes to every call of this tool in a run no person started (a schedule, a webhook, an event, a mail or a service account's key started it). In such a run an agent's call waits for a person's yes whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it, whatever this or `mutating` says. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`. Optional additive field."
     },
     "pauses": {
       "type": "boolean",

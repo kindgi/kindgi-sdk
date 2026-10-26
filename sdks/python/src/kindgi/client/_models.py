@@ -13849,7 +13849,7 @@ class RegisterToolBody(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`.
     """
     pauses: bool | None = None
     """
@@ -16191,7 +16191,7 @@ class Tool(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`.
     """
     pauses: bool | None = None
     """
@@ -16304,7 +16304,7 @@ class ToolVersionRow(BaseModel):
         bool | None, Field(alias="needsApprovalWhenUnattended")
     ] = None
     """
-    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. Absent means `false`.
+    `true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`.
     """
     pauses: bool | None = None
     """
