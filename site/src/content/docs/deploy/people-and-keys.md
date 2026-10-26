@@ -564,7 +564,14 @@ runtime can't make a project's own account."
 
 - **Its grant is fixed:** `editor` on its project, and nothing else, so its
   runs may do what the project's editors may. `grant` and `ungrant` on it
-  are refused, `409 service-account-project-owned`.
+  are refused, `409 service-account-project-owned`. So, with an
+  authorization store, a trigger runs as the project only if the project's
+  editors can run its agent or flow. Setting it to run as the project, or
+  giving it another agent or flow, is otherwise refused, `409
+  trigger-owner-cannot-run-target`: "The project's own account runs only
+  what the project's editors can." Run the trigger as a service account
+  that can, or own it yourself; to change one the project's account owns,
+  a project admin can take it over first.
 - **It has no keys.** A key for it is refused the same way: "A project's
   own account has no keys: give an app a service account of its own."
 - **It's named only as the project.** `--run-as=<service-account-id>` with

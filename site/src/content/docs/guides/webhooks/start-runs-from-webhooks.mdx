@@ -310,8 +310,12 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   ([A project's own account](../../../deploy/people-and-keys/#a-projects-own-account)).
   It takes `admin` on the project. Anyone else with `write` on the project
   is answered `403 permission-denied`, "Running a trigger as the project
-  takes a project admin." From your app, it's `runAsProject: true` on
-  `webhooks.register` (`run_as_project` in Python).
+  takes a project admin." With an authorization store, a flow the
+  project's editors can't run is refused, `409
+  trigger-owner-cannot-run-target`: "The project's own account runs only
+  what the project's editors can: run the trigger as a service account
+  that can, or own it yourself." From your app, it's `runAsProject: true`
+  on `webhooks.register` (`run_as_project` in Python).
 - **`--run-as=<service-account-id>`** makes an account of your own the
   trigger's owner instead, for one used across projects, with other grants,
   or with keys for an app
