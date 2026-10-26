@@ -1,6 +1,6 @@
 ---
 title: Runs
-description: Start runs from the CLI or your app, retry safely, run them on a schedule, follow them live, read their journal, cancel and list them, and see why they failed.
+description: Start runs from the CLI or your app, retry safely, run them on a schedule or from new mail, follow them live, read their journal, cancel and list them, and see why they failed.
 sidebar:
   order: 0
   label: Overview
@@ -19,6 +19,8 @@ model.
   retried request doesn't start a second run.
 - [Run on a schedule](run-on-a-schedule/): an agent or a flow at set times,
   as you, with a history of each time it ran or why it didn't.
+- [Start runs from new mail](start-runs-from-new-mail/): a run for each new
+  mail in a Gmail or Outlook mailbox, one conversation for each thread.
 - [Follow a run's events](follow-a-run/): each step as it starts and ends.
 - [Follow a run from the browser](follow-from-the-browser/): a short-lived,
   read-only token, so a page can show progress without your API token.

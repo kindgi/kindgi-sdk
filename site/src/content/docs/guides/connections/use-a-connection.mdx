@@ -27,12 +27,13 @@ approval.
 For Gmail, Outlook, GitHub and LinkedIn, `@kindgi/connections` has tools a
 pack can include instead of writing its own:
 
-- **`gmailSend`,** from `@kindgi/connections/google/tools`, sends a
-  plain-text mail from the Gmail account of the person the run acts as.
+- **`gmailSend`, `gmailMessagesList` and `gmailMessageGet`,** from
+  `@kindgi/connections/google/tools`, send a plain-text mail from the Gmail
+  account of the person the run acts as, list its messages, newest first or
+  by a search, and read one. The two reads need only `gmail.readonly`.
 - **`outlookSend`, `outlookMessagesList` and `outlookMessageGet`,** from
-  `@kindgi/connections/microsoft/tools`, send a plain-text mail from the
-  Outlook mailbox of the person the run acts as, list its messages, newest
-  first or by a search, and read one.
+  `@kindgi/connections/microsoft/tools`, do the same in the Outlook mailbox
+  of the person the run acts as.
 - **`githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels`,**
   from `@kindgi/connections/github/tools`, list a repository's issues and
   its labels, and add labels it already has to an issue, through your
@@ -56,9 +57,23 @@ project that publishes it, so each pack picks one under its own name. An
 agent lists the tool by that id, as `{ id: 'acme.gmail.send', version:
 '^1.0.0' }`, and its approval settings name it the same way.
 
-Sending mail, adding labels and posting change things, so in a run no
-person started, each of their calls waits for a person's yes. The others
-only read.
+- **The mail tools take `as: 'company'`** to use the company's mailbox
+  instead of the person's own, such as a shop's support address. A tenant
+  admin connects it by signing in as that mailbox
+  ([The company's mailbox](../../runs/start-runs-from-new-mail/#the-companys-mailbox)).
+  `as` is part of what a tool declares, so a tool id you've published keeps
+  its `as`: give the company's mailbox its own id, as in
+  `gmailMessagesList({ id: 'acme.store-mail.list', as: 'company' })`.
+- **A mail read's result is outside text:** the reads set
+  `resultIsOutsideData`, so the agent reads each mail as data, not
+  instructions
+  ([Results from outside](../../tools/read-only-tools/#results-from-outside)).
+  A read gives a `MailMessage` (`@kindgi/connections/mail`), the same shape
+  for Gmail and Outlook.
+- **Sending mail, adding labels and posting change things,** so in a run no
+  person started, each of their calls waits for a person's yes. The others
+  only read, and a read with a person's connection waits there too
+  ([Approvals](#approvals)).
 
 To start from a working pack, `kindgi init <pack-name> --template=follow-up`
 makes one whose agent writes a follow-up mail from your notes and sends it
@@ -416,9 +431,13 @@ approval shows the account it acts as.
   tool that uses a person's connection waits for that person's yes, reads
   included: one with an `as: 'person'` connection waits even when it's
   marked `mutating: false`. The agent's rules can't lift it; only the
-  schedule's or webhook's own list of
+  schedule's, webhook's or mail trigger's own list of
   [tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)
   can.
+- **In a run a mail started,** a call that uses a connection of the run's
+  own mailbox waits too, read-only or not, and so does every call that
+  changes something
+  ([What waits for a yes](../../runs/start-runs-from-new-mail/#what-waits-for-a-yes)).
 
 **For a person's connection, only that person decides.** They need a
 reviewer seat at the approval's rank

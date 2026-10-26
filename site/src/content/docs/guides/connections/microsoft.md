@@ -1,6 +1,6 @@
 ---
 title: Microsoft
-description: Register your company's own Microsoft Entra app with Kindgi, so people can connect their Outlook mail and tools can send and read mail as them.
+description: Register your company's own Microsoft Entra app with Kindgi, so people can connect their Outlook mail, or the company's mailbox, and tools can send and read mail.
 sidebar:
   order: 15
   label: Microsoft
@@ -9,9 +9,12 @@ sidebar:
 When you finish this page, people in your workspace can connect their
 Microsoft work, school or personal account. A tool, such as the ready-made
 [`outlookSend`](../use-a-connection/#ready-made-tools), can then send mail
-as them, after they approve it, and read their mail. They connect through
-an app registered in your organization's Microsoft Entra directory, which
-you register with Kindgi once.
+as them, after they approve it, and read their mail. A tenant admin can
+connect the company's mailbox too, such as a shop's support address, for
+the tools and
+[mail triggers](../../runs/start-runs-from-new-mail/) that use it. They
+connect through an app registered in your organization's Microsoft Entra
+directory, which you register with Kindgi once.
 
 ## Before you start
 
@@ -150,6 +153,15 @@ accounts to use.
 
 The connection shows your Microsoft account, what it allows, and when it
 was last used. Reconnecting later needs the same Microsoft account.
+
+**The company's mailbox** is a tenant admin's to connect. In a project,
+open **Connections**, choose **Connect an app**, pick Microsoft, and under
+**For** choose **The company**. Then sign in to Microsoft as the mailbox
+itself, such as `support@acme.example`, not as yourself. Tools with
+`as: 'company'` use it, in every project the registration allows
+([The company's mailbox](../../runs/start-runs-from-new-mail/#the-companys-mailbox)).
+A shared mailbox, one people open from their own account, isn't
+supported yet.
 
 If you turn it down on Microsoft's page, or go back from it because your
 directory needs an admin's consent first ([Admin consent](#admin-consent)),
