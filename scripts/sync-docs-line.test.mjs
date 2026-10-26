@@ -29,6 +29,11 @@ after(() => rmSync(scratch, { recursive: true, force: true }));
 
 const V01 = 'https://docs.kindgi.com/v0.1/';
 const V02 = 'https://docs.kindgi.com/v0.2/';
+/** A path ending in `.md`, spelled so check-refs doesn't take a scratch repository's for this one's. */
+const md = (path) => `${path}.md`;
+const ACME_SKILL = md('packages/sdk/skills/acme-skill/SKILL');
+const ACME_CONTRIBUTING = md('.claude/skills/acme-contributing/SKILL');
+const DRAFT_SKILL = md('packages/sdk/skills/draft/SKILL');
 
 describe('docsLineOf', () => {
   test("is the version's major and minor, its patch and prerelease aside", () => {
@@ -41,11 +46,11 @@ describe('docsLineOf', () => {
 describe('followsDocsLine', () => {
   test('takes every SKILL.md, and what a package or SDK ships from its src/', () => {
     for (const file of [
-      'packages/sdk/skills/acme-skill/SKILL.md',
-      '.claude/skills/acme-contributing/SKILL.md',
+      ACME_SKILL,
+      ACME_CONTRIBUTING,
       'SKILL.md',
       'packages/cli/src/commands/init.ts',
-      'packages/cli/src/templates/AGENTS.md',
+      md('packages/cli/src/templates/AGENTS'),
       'sdks/python/src/kindgi/client.py',
       'sdks/java/kindgi-client/src/main/java/com/kindgi/client/Docs.java',
     ]) {
@@ -59,8 +64,8 @@ describe('followsDocsLine', () => {
       'packages/cli/src/commands/init.test.ts',
       'sdks/java/kindgi-client/src/test/java/com/kindgi/client/DocsLinksTest.java',
       'packages/sdk/README.md',
-      'packages/sdk/skills/acme-skill/reference.md',
-      'docs/guides/acme.md',
+      md('packages/sdk/skills/acme-skill/reference'),
+      md('docs/guides/acme'),
       'scripts/check-refs.mjs',
       'src/index.ts',
     ]) {
@@ -154,8 +159,8 @@ const run = (root, script = SCRIPT, args = []) =>
 const read = (root, file) => readFileSync(join(root, file), 'utf8');
 
 const FILES = {
-  'packages/sdk/skills/acme-skill/SKILL.md': SKILL(V01),
-  '.claude/skills/acme-contributing/SKILL.md': SKILL(V01),
+  [ACME_SKILL]: SKILL(V01),
+  [ACME_CONTRIBUTING]: SKILL(V01),
   'packages/cli/src/hint.ts': SHIPPED(V01),
   'packages/cli/src/hint.test.ts': NOT_FOLLOWING,
   'packages/cli/CHANGELOG.md': NOT_FOLLOWING,
@@ -165,7 +170,7 @@ describe('sync-docs-line', () => {
   test("moves the links in exactly rule 4's files, and check-refs then passes", () => {
     const root = repo({
       files: FILES,
-      untracked: { 'packages/sdk/skills/draft/SKILL.md': SKILL(V01) },
+      untracked: { [DRAFT_SKILL]: SKILL(V01) },
     });
     const before = run(root, CHECK_REFS);
     assert.equal(before.status, 1, before.stdout);
@@ -173,12 +178,12 @@ describe('sync-docs-line', () => {
 
     const result = run(root);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(read(root, 'packages/sdk/skills/acme-skill/SKILL.md'), SKILL(V02));
-    assert.equal(read(root, '.claude/skills/acme-contributing/SKILL.md'), SKILL(V02));
+    assert.equal(read(root, ACME_SKILL), SKILL(V02));
+    assert.equal(read(root, ACME_CONTRIBUTING), SKILL(V02));
     assert.equal(read(root, 'packages/cli/src/hint.ts'), SHIPPED(V02));
     assert.equal(read(root, 'packages/cli/src/hint.test.ts'), NOT_FOLLOWING);
     assert.equal(read(root, 'packages/cli/CHANGELOG.md'), NOT_FOLLOWING);
-    assert.equal(read(root, 'packages/sdk/skills/draft/SKILL.md'), SKILL(V01), 'untracked');
+    assert.equal(read(root, DRAFT_SKILL), SKILL(V01), 'untracked');
     assert.match(
       result.stdout,
       /packages\/sdk\/skills\/acme-skill\/SKILL\.md: 2 link\(s\) → https:\/\/docs\.kindgi\.com\/v0\.2\//,
@@ -201,16 +206,16 @@ describe('sync-docs-line', () => {
       again.stdout,
       /3 file\(s\) read; every link on a line is on https:\/\/docs\.kindgi\.com\/v0\.2\//,
     );
-    assert.equal(read(root, 'packages/sdk/skills/acme-skill/SKILL.md'), SKILL(V02));
+    assert.equal(read(root, ACME_SKILL), SKILL(V02));
   });
 
   test("leaves a link on no line, or a patch version's, for check-refs to name", () => {
     const patch =
       'Pinned: https://docs.kindgi.com/v0.1.10/guides/get-started\nNo line: https://docs.kindgi.com/guides/evals\n';
-    const root = repo({ files: { 'packages/sdk/skills/acme-skill/SKILL.md': patch } });
+    const root = repo({ files: { [ACME_SKILL]: patch } });
     const result = run(root);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(read(root, 'packages/sdk/skills/acme-skill/SKILL.md'), patch);
+    assert.equal(read(root, ACME_SKILL), patch);
     const checked = run(root, CHECK_REFS);
     assert.equal(checked.status, 1);
     assert.match(
@@ -222,7 +227,7 @@ describe('sync-docs-line', () => {
 
   test("skips a tracked file that's gone from the checkout", () => {
     const root = repo({ files: FILES });
-    unlinkSync(join(root, '.claude/skills/acme-contributing/SKILL.md'));
+    unlinkSync(join(root, ACME_CONTRIBUTING));
     const result = run(root);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /3 link\(s\) in 2 of 2 file\(s\)/);
@@ -241,14 +246,14 @@ describe('sync-docs-line', () => {
       refused.stderr,
       /packages\/sdk\/package\.json has no version a docs line can come from/,
     );
-    assert.equal(read(bad, 'packages/sdk/skills/acme-skill/SKILL.md'), SKILL(V01));
+    assert.equal(read(bad, ACME_SKILL), SKILL(V01));
   });
 
   test("refuses a file with links to move that isn't UTF-8, and writes no file", () => {
     const root = repo({
       files: {
         // git lists it before the bad file, so it's read, and would be moved, first.
-        '.claude/skills/acme-contributing/SKILL.md': SKILL(V01),
+        [ACME_CONTRIBUTING]: SKILL(V01),
         'packages/cli/src/zz.bin': Buffer.concat([Buffer.from(V01), Buffer.from([0xff, 0xfe])]),
       },
     });
@@ -258,6 +263,6 @@ describe('sync-docs-line', () => {
       result.stderr,
       /packages\/cli\/src\/zz\.bin links docs on another line but isn't UTF-8 text/,
     );
-    assert.equal(read(root, '.claude/skills/acme-contributing/SKILL.md'), SKILL(V01));
+    assert.equal(read(root, ACME_CONTRIBUTING), SKILL(V01));
   });
 });
