@@ -579,11 +579,11 @@ describe('the command', () => {
     const f = fixture();
     const { work } = f;
     const docs = [
-      'site/src/content/docs/guides/acme.md',
+      'site/src/content/docs/guides/agents/index.md',
       'site/scripts/reference/entries/errors.mjs',
-      'packages/sdk/skills/acme/SKILL.md',
+      'packages/sdk/skills/kindgi-authoring-agents/SKILL.md',
       'packages/cli/README.md',
-      'docs/ACME.md',
+      'docs/ADDING-A-ROUTE.md',
     ];
     for (const [n, path] of docs.entries()) {
       work.git('checkout', '-q', '-b', `documented-${n}`, 'main');
