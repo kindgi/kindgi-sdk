@@ -55,7 +55,18 @@ case "$*" in
       serviceAccountEmailAddress: (if $sa == "" then null else $sa end),
       databaseVersion: $v, settings: {ipConfiguration: {ipv4Enabled: $pub}}}'
     exit 0 ;;
-  "run jobs create"*) printf '%s\n' "$*" >>"${STUB_JOBS_LOG:-/dev/null}"; exit "${STUB_JOB_CREATE_RC:-0}" ;;
+  "sql ssl server-ca-certs list"*)
+    # gcloud's sslCert objects; each PEM with the whitespace around it the
+    # module's trimspace() drops.
+    cas='[{"kind":"sql#sslCert","cert":"\nCA-ONE\n"},{"kind":"sql#sslCert","cert":"CA-TWO\n"}]'
+    printf '%s' "${STUB_DB_CA-$cas}"
+    exit 0 ;;
+  "run jobs create"*)
+    printf '%s\n' "$*" >>"${STUB_JOBS_LOG:-/dev/null}"
+    for a in "$@"; do
+      case "$a" in --env-vars-file=*) cp "${a#--env-vars-file=}" "${STUB_JOB_ENV_SAW:-/dev/null}" ;; esac
+    done
+    exit "${STUB_JOB_CREATE_RC:-0}" ;;
   "run jobs execute"*) exit "${STUB_CHECK_RC:-0}" ;;
   "sql export sql"*)
     # Counts each try; the first STUB_EXPORT_412 tries are refused as Cloud SQL
@@ -77,14 +88,48 @@ case "${1:-}" in
   output) printf '%s' "${STUB_TF_OUTPUTS:-}"; exit 0 ;;
   console) cat >/dev/null; printf '%s\n' "${STUB_TF_VARS_RAW:-}"; exit 0 ;;
   plan)
+    # The plan file is the plan as `terraform show -json` gives it: the server
+    # (and the pack, with STUB_PACK_BEFORE) at the image the var files set, a
+    # later file over an earlier one and -var over both, as terraform reads
+    # them; STUB_PLAN_CHANGES adds resource changes; STUB_PLAN_KEEP_IMAGE
+    # leaves the server's image as it is.
+    out="" prev="" img="" pack=""
     for a in "$@"; do
       case "$a" in
-        -out=*) : >"${a#-out=}" ;;
-        -var-file=*) cp "${a#-var-file=}" "${STUB_PLAN_SAW:-/dev/null}" ;;
+        -out=*) out="${a#-out=}" ;;
+        -var-file=*)
+          f="${a#-var-file=}"
+          cat "$f" >>"${STUB_PLAN_SAW:-/dev/null}"
+          if [[ $f == *.json ]]; then
+            v="$(jq -r '.server_image // empty' "$f")"; p="$(jq -r '.pack_image // empty' "$f")"
+          else
+            v="$(sed -nE 's/^[[:space:]]*server_image[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' "$f")"
+            p="$(sed -nE 's/^[[:space:]]*pack_image[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/p' "$f")"
+          fi
+          img="${v:-$img}"; pack="${p:-$pack}" ;;
         -var) printf 'plan got -var\n' >>"${STUB_PLAN_SAW:-/dev/null}" ;;
+        server_image=*) if [[ $prev == -var ]]; then img="${a#server_image=}"; fi ;;
       esac
+      prev="$a"
     done
+    if [[ -n ${STUB_PLAN_KEEP_IMAGE:-} ]]; then img="$STUB_RUNNING_IMAGE"; fi
+    if [[ -n $out ]]; then
+      jq -n --arg old "$STUB_RUNNING_IMAGE" --arg new "${img:-$STUB_RUNNING_IMAGE}" \
+        --arg pold "${STUB_PACK_BEFORE:-}" --arg pnew "${pack:-${STUB_PACK_BEFORE:-}}" \
+        --argjson extra "${STUB_PLAN_CHANGES:-[]}" '
+        def svc($n; $addr; $b; $a):
+          {address: $addr, mode: "managed", type: "google_cloud_run_v2_service", name: $n,
+           change: {actions: (if $b == $a then ["no-op"] else ["update"] end),
+             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: [{name: "KINDGI_ENV", value: "dev", value_source: []}]}]}]},
+             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: [{name: "KINDGI_ENV", value: "dev", value_source: []}]}]}]},
+             after_unknown: {template: [{containers: [{env: [{}]}]}]}}};
+        {format_version: "1.2",
+         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new)]
+           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew)] end)
+           + $extra)}' >"$out"
+    fi
     exit "${STUB_PLAN_RC:-0}" ;;
+  show) cat "${3:-}"; exit "${STUB_SHOW_RC:-0}" ;;
   apply) : >"${STUB_MARKER_APPLY:-/dev/null}"; exit "${STUB_APPLY_RC:-0}" ;;
   *) exit 0 ;;
 esac
@@ -129,9 +174,11 @@ vars_raw() { jq -n --arg s "$1" '$s'; }
 mkvars() {
   jq -cn --arg img "$RUNNING_IMAGE" --arg net "${V_NET:-none}" --arg host "${V_HOST:-}" \
     --arg tenancy "${V_TENANCY:-single}" --arg pack "${V_PACK:-}" --arg aad "${V_AAD-1}" \
-    --arg prefix "${V_PREFIX:-kindgi}" --argjson dbi "${V_DBI:-null}" '{
+    --arg prefix "${V_PREFIX:-kindgi}" --argjson dbi "${V_DBI:-null}" \
+    --arg connector "${V_CONNECTOR:-}" --arg private "${V_DB_PRIVATE:-}" '{
     project_id:"demo-proj", region:"northamerica-northeast2", name_prefix:$prefix,
-    network_mode:$net, database_host_instance:(if $host == "" then null else $host end),
+    network_mode:$net, vpc_connector:$connector, database_private_network:$private,
+    database_host_instance:(if $host == "" then null else $host end),
     database_name:"kindgi", secrets_backend:"postgres",
     secrets_aad_key_version:(if $aad == "" then null else $aad end),
     tenancy:$tenancy, server_image:$img, pack_image:$pack, database_instance:$dbi}'
@@ -150,7 +197,8 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
         STUB_EXPORT_RC STUB_EXPORT_412 STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
-        V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI
+        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
+        V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
   VAR_FILE="$CASE_DIR/dev.tfvars"
@@ -161,6 +209,7 @@ reset_env() {
     if [[ -n ${1:-} ]]; then printf 'pack_image   = "%s"\n' "$1"; fi
   } >"$VAR_FILE"
   cp "$VAR_FILE" "$CASE_DIR/original.tfvars"
+  if [[ -n ${1:-} ]]; then export STUB_PACK_BEFORE="$1"; fi
   export STUB_TF_OUTPUTS="$TF_OUTPUTS"
   export STUB_RUNNING_IMAGE="$RUNNING_IMAGE"
   export STUB_SERVICE_JSON="$SERVICE_READY"
@@ -172,18 +221,23 @@ reset_env() {
   export STUB_MARKER_MIRROR="$CASE_DIR/mirrored"
   export STUB_PLAN_SAW="$CASE_DIR/plan-saw"
   export STUB_JOBS_LOG="$CASE_DIR/jobs.log"
+  export STUB_JOB_ENV_SAW="$CASE_DIR/job-env"
   export STUB_CALLS_LOG="$CASE_DIR/calls.log"
   export DOCKER_CONFIG="$CASE_DIR/docker"
   mkdir -p "$DOCKER_CONFIG"
   printf '{"auths":{"registry.kindgi.com":{}}}\n' >"$DOCKER_CONFIG/config.json"
   cp "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"
-  ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs://backups/dev")
+  # 0.2.0 unless a case says otherwise; the default, the newest release the
+  # script knows, has a case of its own.
+  ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs://backups/dev" --to 0.2.0)
 }
 
 run() { # $1 = stdin (the plan confirmation); rest = extra script args
   local confirm="$1"; shift
   export STUB_TF_VARS_RAW; STUB_TF_VARS_RAW="$(vars_raw "$(mkvars)")"
-  "$SCRIPT" "${ARGS[@]}" "$@" >"$OUT" 2>&1 <<<"$confirm"
+  # From the case's directory, as from the module's: what Terraform loads on
+  # its own is looked for there.
+  ( cd "$CASE_DIR" && "$SCRIPT" "${ARGS[@]}" "$@" ) >"$OUT" 2>&1 <<<"$confirm"
   rc=$?
 }
 
@@ -200,11 +254,11 @@ assert_docker_config_unchanged() {
   if cmp -s "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"; then pass; else fail "docker's config changed but shouldn't have"; fi
 }
 # Every call the run made is a read: the deployment's and the registry's, the
-# module's outputs and variables, and a plan with no state lock and no plan
-# file. So nothing writes to the state backend, and nothing else changes.
+# module's outputs and variables, a plan with no state lock, and that plan read
+# back. So nothing writes to the state backend, and nothing else changes.
 assert_reads_only() {
   local other
-  other="$(grep -vE '^(gcloud (run services describe|artifacts docker images list|sql instances describe) |docker buildx imagetools inspect |terraform output -json$|terraform console -var-file=[^ ]+$|terraform plan -var-file=[^ ]+ -var server_image=[^ ]+ -lock=false$)' "$STUB_CALLS_LOG")"
+  other="$(grep -vE '^(gcloud (run services describe|artifacts docker images list|sql instances describe|sql ssl server-ca-certs list) |docker buildx imagetools inspect |terraform output -json$|terraform console( -var-file=[^ ]+)+$|terraform plan( -var-file=[^ ]+)+ -var server_image=[^ ]+ -lock=false -out=[^ ]+$|terraform show -json [^ ]+$)' "$STUB_CALLS_LOG")"
   if [[ -z $other ]]; then pass; else fail "made a call that isn't a read: $other"; fi
 }
 
@@ -220,6 +274,14 @@ assert_out "0.1.8 -> 0.2.0 applied"
 assert_file_has "$VAR_FILE" "server_image = \"$NEW_IMAGE\"  # mirrored 0.1.8" "var-file pins the new image, comment kept"
 assert_file_has "$STUB_PLAN_SAW" "$NEW_IMAGE" "the plan read the new image from the var-file"
 if grep -q "plan got -var" "$STUB_PLAN_SAW"; then fail "plan was given -var"; else pass; fi
+assert_out "plan check: it changes the image(s), and only what the releases crossed change in place."
+# The plan applied is kept next to the var-file's copy, readable by its owner
+# alone, and the run says where.
+kept="$(ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan 2>/dev/null)"
+if [[ -n $kept && -f $kept ]]; then pass; else fail "the plan applied wasn't kept next to the var-file"; fi
+assert_file_has "$OUT" "yes applies exactly this plan, and keeps it as $kept." "the prompt says where the plan goes"
+assert_file_has "$OUT" "the plan applied at $kept." "the end says where the plan is"
+if [[ "$(ls -l "$kept" | cut -c1-10)" == "-rw-------" ]]; then pass; else fail "the kept plan is readable by others: $(ls -l "$kept")"; fi
 if cmp -s "$(ls "$CASE_DIR"/dev.tfvars.pre-upgrade-*)" "$CASE_DIR/original.tfvars"; then pass; else fail "no .pre-upgrade copy of the original"; fi
 if cmp -s "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"; then fail "docker wasn't set up for Artifact Registry"; else pass; fi
 
@@ -261,6 +323,7 @@ assert_out "put back"
 assert_present "$STUB_MARKER_EXPORT" "backup"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
+if ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan >/dev/null 2>&1; then fail "a plan not confirmed was kept"; else pass; fi
 
 # 6. Apply fails: the go-back is printed, the var-file keeps the new image.
 case_start "apply fails"
@@ -273,6 +336,7 @@ assert_out "import sql"
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.1 memory erasures replay erasures-" "the replay runs 0.1.8's CLI line"
 if grep -qF "pre-release" "$OUT"; then fail "a final's go-back has the pre-release note"; else pass; fi
 assert_out "cp $VAR_FILE.pre-upgrade-"
+if grep -qxF "      terraform apply -var-file=$VAR_FILE" "$OUT"; then pass; else fail "the go-back doesn't apply with the var-file alone"; fi
 if grep -q "or set database_name" "$OUT"; then fail "go-back still offers database_name"; else pass; fi
 assert_file_has "$VAR_FILE" "$NEW_IMAGE" "var-file keeps the new image after a failed apply"
 
@@ -369,13 +433,18 @@ assert_rc 1 "drift refused"
 assert_out "Make the var-file match"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 
-# 15. Not the small dev shape.
+# 15. network_mode direct, the database on its public IP: the check jobs
+# leave through the server's subnet, all traffic, and mount the /cloudsql
+# socket, as the server does.
 case_start "network_mode direct"
 reset_env; export STUB_TAGS="0.1.8"; V_NET="direct"
 run "yes"
-assert_rc 1 "other network_mode refused"
-assert_out "network_mode = \"none\""
-assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_rc 0 "direct runs"
+assert_out "network mode    direct"
+assert_file_has "$STUB_JOBS_LOG" "--network=kindgi --subnet=kindgi-run --vpc-egress=all-traffic" "check job leaves through the server's subnet"
+assert_file_has "$STUB_JOBS_LOG" "--set-cloudsql-instances=demo-proj:northamerica-northeast2:kindgi" "check job mounts the socket"
+if grep -q -e "--vpc-connector" -e "--env-vars-file" "$STUB_JOBS_LOG"; then fail "a direct job got a connector or the CAs"; else pass; fi
+assert_present "$STUB_MARKER_APPLY" "apply"
 
 # 16. A var-file from before secrets_aad_key_version: caught before the export.
 case_start "no secrets_aad_key_version"
@@ -471,13 +540,13 @@ assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
 # 24. Past the newest release this script knows: refused before anything is
-# read, mirrored or backed up, though 0.1.9 to 0.2.0 lie on the way.
+# read, mirrored or backed up, though 0.1.9 to 0.3.0 lie on the way.
 case_start "target past the newest known release"
 reset_env; export STUB_TAGS="0.1.8"
-run "yes" --to 0.3.0
+run "yes" --to 0.4.0
 assert_rc 1 "a later target refused"
-assert_out "knows the steps up to 0.2.0"
-assert_out "as of the @kindgi/sdk@0.3.0 tag"
+assert_out "knows the steps up to 0.3.0"
+assert_out "as of the @kindgi/sdk@0.4.0 tag"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_MARKER_EXPORT" "backup"
@@ -486,10 +555,10 @@ assert_varfile_unchanged
 # 25. An rc of a later release counts as that release.
 case_start "rc of a later release"
 reset_env; export STUB_TAGS="0.1.9"
-run "yes" --to 0.3.0-rc.1
+run "yes" --to 0.4.0-rc.1
 assert_rc 1 "a later rc refused"
-assert_out "knows the steps up to 0.2.0"
-assert_out "as of the @kindgi/sdk@0.3.0 tag (before it's out, that release's newest @kindgi/sdk@0.3.0-rc.N tag)"
+assert_out "knows the steps up to 0.3.0"
+assert_out "as of the @kindgi/sdk@0.4.0 tag (before it's out, that release's newest @kindgi/sdk@0.4.0-rc.N tag)"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 
 # 26. 0.1.10 -> 0.2.0: crosses 0.2.0 alone, copies it from registry.kindgi.com.
@@ -599,6 +668,9 @@ assert_out "key as the password; this script copies it from there."
 assert_out "dry run done. Nothing was changed"
 if grep -q "Apply this plan" "$OUT"; then fail "a dry run asked for yes"; else pass; fi
 assert_file_has "$STUB_CALLS_LOG" "terraform plan -var-file=$VAR_FILE -var server_image=$NEW_IMAGE -lock=false" "the plan is given the new image"
+assert_out "plan check: it changes the image(s)"
+assert_file_has "$OUT" "apply exactly that plan, kept as $VAR_FILE.upgrade-<YYYYMMDDTHHMMSSZ>.tfplan" "the kept plan's name"
+if ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan >/dev/null 2>&1; then fail "a dry run left a plan"; else pass; fi
 assert_reads_only
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_JOBS_LOG" "a check job"
@@ -721,10 +793,10 @@ assert_varfile_unchanged
 # names its release's SDK tag, since a server-only release has none.
 case_start "server fix past the newest known release"
 reset_env; export STUB_TAGS="0.2.0"
-run "yes" --to 0.3.0.1
+run "yes" --to 0.4.0.1
 assert_rc 1 "a later server fix refused"
-assert_out "knows the steps up to 0.2.0. 0.3.0.1 is a server fix for 0.3.0: use this script as of the @kindgi/sdk@0.3.0 tag."
-if grep -q "@kindgi/sdk@0.3.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
+assert_out "knows the steps up to 0.3.0. 0.4.0.1 is a server fix for 0.4.0: use this script as of the @kindgi/sdk@0.4.0 tag."
+if grep -q "@kindgi/sdk@0.4.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged
@@ -824,6 +896,225 @@ assert_out "no --pack-dir was given: the pack image is left unchanged"
 assert_out "If a release crossed needs the pack rebuilt (its steps to confirm by hand, above, say so)"
 if grep -q "If 0.1.10 needs" "$OUT"; then fail "the warning names a release"; else pass; fi
 assert_out "0.1.10 -> 0.2.0 applied"
+
+# 48. With no --to, the target is the newest release the script knows, 0.3.0.
+# Its steps print, and its plan may turn on the instance's deletion
+# protection, in place, as they say.
+INSTANCE_PROTECTED="$(jq -cn '[{address: "google_sql_database_instance.kindgi[0]", mode: "managed",
+  type: "google_sql_database_instance", name: "kindgi", index: 0,
+  change: {actions: ["update"],
+    before: {name: "kindgi", settings: [{tier: "db-custom-1-3840", deletion_protection_enabled: false}]},
+    after: {name: "kindgi", settings: [{tier: "db-custom-1-3840", deletion_protection_enabled: true}]},
+    after_unknown: {}}}]')"
+case_start "the default target, 0.3.0"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED"
+ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs://backups/dev")
+run "yes"
+assert_rc 0 "0.2.0 -> 0.3.0 runs"
+assert_out "crossing: 0.3.0$"
+assert_out "turns on Google's deletion protection (deletion_protection_enabled)"
+assert_out "If a plan says the instance must be replaced, answer no: a"
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.3.0 " "0.3.0's tag is read"
+assert_out "plan check: it changes the image(s)"
+assert_out "0.2.0 -> 0.3.0 applied"
+
+# 49. The same change on a server fix, which crosses no release: the plan
+# check names it and stops before it asks, and nothing is applied.
+case_start "a change no release crossed names"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED"
+run "yes" --to 0.2.0.1
+assert_rc 1 "an unnamed change stops it"
+assert_out "PLAN CHECK: the plan changes more than this upgrade does"
+assert_file_has "$OUT" "    google_sql_database_instance.kindgi[0]: changes settings.deletion_protection_enabled" "the change, by its path"
+assert_out "the plan check failed (above), so nothing was applied"
+if grep -q "Apply this plan" "$OUT"; then fail "it asked for yes after the check stopped it"; else pass; fi
+assert_present "$STUB_MARKER_EXPORT" "backup"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+if ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan >/dev/null 2>&1; then fail "a stopped plan was kept"; else pass; fi
+
+# 50. A pack env left off the command: the plan drops the pack's env vars, and
+# the check names each one it drops, never a value. A var it keeps, moved in
+# the list, isn't named.
+PACK_ENV_DROPPED="$(jq -cn --arg img "$OLD_PACK" '
+  {name: "KINDGI_PACK_SERVICE_TOKEN", value: "", value_source: [{secret_key_ref: [{secret: "kindgi-pack-token", version: "latest"}]}]} as $token
+  | [{address: "google_cloud_run_v2_service.pack[0]", mode: "managed", type: "google_cloud_run_v2_service", name: "pack", index: 0,
+     change: {actions: ["update"],
+       before: {template: [{containers: [{image: $img, env: [
+         {name: "SHOP_URL", value: "https://shop.acme.example", value_source: []},
+         $token,
+         {name: "SHOP_API_KEY", value: "", value_source: [{secret_key_ref: [{secret: "acme-shop-key", version: "2"}]}]}]}]}]},
+       after: {template: [{containers: [{image: $img, env: [$token]}]}]},
+       after_unknown: {}}}]')"
+case_start "the plan drops the pack's env"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10" STUB_PLAN_CHANGES="$PACK_ENV_DROPPED"; V_PACK="$OLD_PACK"
+run "yes"
+assert_rc 1 "a plan that drops the pack's env stops"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.SHOP_URL" "SHOP_URL named"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.SHOP_API_KEY" "SHOP_API_KEY named"
+if [[ "$(grep -c "env.SHOP_URL" "$OUT")" == 1 ]]; then pass; else fail "SHOP_URL should be named once"; fi
+if grep -q "KINDGI_PACK_SERVICE_TOKEN" "$OUT"; then fail "a var the plan keeps was named"; else pass; fi
+if grep -q -e "shop.acme.example" -e "acme-shop-key" "$OUT"; then fail "a value was printed"; else pass; fi
+assert_out "give each file the deployment uses its own --var-file"
+assert_present "$STUB_MARKER_EXPORT" "backup"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 51. The same in a dry run: it says a real run would stop there.
+case_start "dry run, the plan drops the pack's env"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10" STUB_PLAN_CHANGES="$PACK_ENV_DROPPED"; V_PACK="$OLD_PACK"
+run "yes" --dry-run
+assert_rc 1 "a dry run whose plan drops the pack's env fails"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.env.SHOP_URL" "SHOP_URL named"
+assert_out "upgrade (dry run): a real run would stop at this plan (above). Nothing was changed."
+assert_reads_only
+assert_absent "$STUB_JOBS_LOG" "a check job"
+assert_varfile_unchanged
+
+# 52. The pack's env in a file of its own, given with a second --var-file:
+# terraform reads both, in order, the run lists both and says which one the
+# image goes in, only that one changes, and the go-back applies with both.
+case_start "two var files"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10" STUB_APPLY_RC=1; V_PACK="$OLD_PACK"
+PACK_ENV_FILE="$CASE_DIR/dev.pack-env.tfvars.json"
+jq -n '{pack_env: {SHOP_URL: "https://shop.acme.example"}, pack_secret_env: {}}' >"$PACK_ENV_FILE"
+cp "$PACK_ENV_FILE" "$CASE_DIR/original-pack-env.json"
+run "yes" --var-file "$PACK_ENV_FILE"
+assert_rc 1 "the apply fails, after both files were read"
+assert_file_has "$STUB_CALLS_LOG" "terraform console -var-file=$VAR_FILE -var-file=$PACK_ENV_FILE" "console reads both"
+assert_file_has "$STUB_CALLS_LOG" "terraform plan -var-file=$VAR_FILE -var-file=$PACK_ENV_FILE -out=" "the plan reads both"
+assert_file_has "$OUT" "var file        $VAR_FILE (the new image goes in here)" "the image's file listed"
+assert_file_has "$OUT" "var file        $PACK_ENV_FILE" "the pack env's file listed"
+if grep -qxF "      terraform apply -var-file=$VAR_FILE -var-file=$PACK_ENV_FILE" "$OUT"; then pass; else fail "the go-back doesn't apply with both var files"; fi
+assert_file_has "$VAR_FILE" "server_image = \"$NEW_IMAGE\"" "the image went into the file that sets it"
+if cmp -s "$PACK_ENV_FILE" "$CASE_DIR/original-pack-env.json"; then pass; else fail "the pack env's file changed"; fi
+
+# 53. Two var files that set server_image: refused before anything is read.
+case_start "two var files set server_image"
+reset_env; export STUB_TAGS="0.1.10"
+OTHER="$CASE_DIR/other.tfvars"; printf 'server_image = "%s"\n' "$RUNNING_IMAGE" >"$OTHER"
+run "yes" --var-file "$OTHER"
+assert_rc 1 "two server_image files refused"
+assert_file_has "$OUT" "both $VAR_FILE and $OTHER set server_image." "both named"
+assert_absent "$STUB_CALLS_LOG" "a call"
+assert_varfile_unchanged
+
+# 54. A pack rebuild writes pack_image beside server_image: a second file that
+# sets it too is refused before anything is mirrored.
+case_start "a second var file sets pack_image, with a pack rebuild"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+PACK_DIR="$CASE_DIR/pack"; mkdir -p "$PACK_DIR"
+OTHER="$CASE_DIR/pack.tfvars"; printf 'pack_image = "%s"\n' "$OLD_PACK" >"$OTHER"
+run "yes" --var-file "$OTHER" --pack-dir "$PACK_DIR"
+assert_rc 1 "a second pack_image refused"
+assert_file_has "$OUT" "$OTHER sets pack_image too" "the second file named"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+# 55. What Terraform loads on its own is listed: terraform.tfvars, an
+# .auto.tfvars.json beside it, and TF_VAR_ names, never their values.
+case_start "what Terraform loads on its own"
+reset_env; export STUB_TAGS="0.1.10"
+printf 'region = "northamerica-northeast2"\n' >"$CASE_DIR/terraform.tfvars"
+printf '{}\n' >"$CASE_DIR/dev.pack-env.auto.tfvars.json"
+export TF_VAR_pack_secret_env='{"SHOP_API_KEY":"acme-shop-key"}'
+run "yes" --dry-run
+unset TF_VAR_pack_secret_env
+assert_rc 0 "a dry run exits 0"
+assert_out "also loaded    terraform.tfvars (Terraform loads it from this directory on its own)"
+assert_out "also loaded    dev.pack-env.auto.tfvars.json (Terraform loads it"
+assert_out "also set       TF_VAR_pack_secret_env (in the environment)"
+if grep -q "acme-shop-key" "$OUT"; then fail "a TF_VAR_ value was printed"; else pass; fi
+
+# 56. connector, a private-IP database: the jobs go through the connector to
+# private ranges, mount no socket, and get the instance's CAs, trimmed and
+# joined as the module joins them. The go-back keeps the URL's host.
+case_start "connector, a private-IP database"
+reset_env; export STUB_TAGS="0.1.10" STUB_DB_PUBLIC=false STUB_APPLY_RC=1
+V_NET="connector"; V_CONNECTOR="projects/demo-proj/locations/northamerica-northeast2/connectors/acme"
+V_DB_PRIVATE="projects/demo-proj/global/networks/acme"
+run "yes"
+assert_rc 1 "the apply fails, after the checks ran"
+assert_out "on instance kindgi (private IP)"
+assert_file_has "$STUB_JOBS_LOG" "--vpc-connector=$V_CONNECTOR --vpc-egress=private-ranges-only" "the jobs go through the connector"
+if grep -q -e "--set-cloudsql-instances" -e "--network=" "$STUB_JOBS_LOG"; then fail "a private-IP job got the socket or a subnet"; else pass; fi
+assert_file_has "$STUB_JOBS_LOG" "--env-vars-file=" "the jobs get an env file"
+if [[ "$(jq -r .KINDGI_DATABASE_SERVER_CA "$STUB_JOB_ENV_SAW" 2>/dev/null)" == $'CA-ONE\nCA-TWO' ]]; then pass
+else fail "the jobs' CAs aren't the instance's, trimmed and joined: $(cat "$STUB_JOB_ENV_SAW" 2>/dev/null)"; fi
+assert_out "and the host, port and sslmode=require of its current version"
+if grep -q "host=/cloudsql" "$OUT"; then fail "the go-back names the socket for a private-IP database"; else pass; fi
+
+# 57. connector, the database on its public IP: the server has no VPC access
+# then, so neither do the jobs; they mount the socket.
+case_start "connector, a public-IP database"
+reset_env; export STUB_TAGS="0.1.10"
+V_NET="connector"; V_CONNECTOR="projects/demo-proj/locations/northamerica-northeast2/connectors/acme"
+run "yes"
+assert_rc 0 "connector runs"
+assert_file_has "$STUB_JOBS_LOG" "--set-cloudsql-instances=demo-proj:northamerica-northeast2:kindgi" "the jobs mount the socket"
+if grep -q -e "--vpc-connector" -e "--network=" -e "--env-vars-file" "$STUB_JOBS_LOG"; then fail "a public-IP job in connector mode got VPC access or the CAs"; else pass; fi
+
+# 58. direct, a private-IP database whose CAs can't be read: it stops before
+# anything is mirrored.
+case_start "a private-IP database lists no CA"
+reset_env; export STUB_TAGS="0.1.10" STUB_DB_PUBLIC=false STUB_DB_CA="[]"
+V_NET="direct"; V_DB_PRIVATE="projects/demo-proj/global/networks/acme"
+run "yes"
+assert_rc 1 "no CA stops it"
+assert_out "couldn't read instance kindgi's server CAs"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+
+# 59. 0.2.0's own in-place changes to the pack pass the check when the run
+# crosses 0.2.0, and stop it when it doesn't.
+PACK_020="$(jq -cn --arg img "$OLD_PACK" '
+  def pack($idle; $boost; $p; $t; $f):
+    {template: [{containers: [{image: $img,
+      resources: [{cpu_idle: $idle, startup_cpu_boost: $boost, limits: {cpu: "1", memory: "1Gi"}}],
+      startup_probe: [{period_seconds: $p, timeout_seconds: $t, failure_threshold: $f, http_get: [{path: "/readyz", port: 8080}]}]}]}]};
+  [{address: "google_cloud_run_v2_service.pack[0]", mode: "managed", type: "google_cloud_run_v2_service", name: "pack", index: 0,
+    change: {actions: ["update"], before: pack(null; false; 5; 3; 24), after: pack(true; true; 2; 1; 60), after_unknown: {}}}]')"
+case_start "0.2.0's in-place changes to the pack, crossing 0.2.0"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10" STUB_PLAN_CHANGES="$PACK_020"; V_PACK="$OLD_PACK"
+run "yes"
+assert_rc 0 "0.2.0's pack changes pass"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+case_start "0.2.0's in-place changes to the pack, on a server fix"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$PACK_020"; V_PACK="$OLD_PACK"
+run "yes" --to 0.2.0.1
+assert_rc 1 "the same changes stop a server fix"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.resources.cpu_idle" "cpu_idle named"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.pack[0]: changes template.containers.startup_probe.period_seconds" "the probe named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 60. A replace stops it, whatever the releases crossed.
+case_start "the plan replaces the instance"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES='[{"address":"google_sql_database_instance.kindgi[0]","mode":"managed","type":"google_sql_database_instance","name":"kindgi","index":0,"change":{"actions":["delete","create"],"before":{"name":"kindgi"},"after":{"name":"kindgi"},"after_unknown":{}}}]'
+run "yes" --to 0.3.0
+assert_rc 1 "a replace stops it"
+assert_file_has "$OUT" "    google_sql_database_instance.kindgi[0]: replaced: deleted and created again" "the replace named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 61. A value known only after the apply counts as a change.
+case_start "a value known only after the apply"
+reset_env; export STUB_TAGS="0.1.10" STUB_PLAN_CHANGES='[{"address":"google_service_account.server","mode":"managed","type":"google_service_account","name":"server","change":{"actions":["update"],"before":{"email":"kindgi-server@demo-proj.iam.gserviceaccount.com"},"after":{},"after_unknown":{"email":true}}}]'
+run "yes"
+assert_rc 1 "an unknown value stops it"
+assert_file_has "$OUT" "    google_service_account.server: changes email" "the unknown named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 62. A plan that leaves the server on its image (a value set after the
+# var-file, say) stops it.
+case_start "the plan keeps the server's image"
+reset_env; export STUB_TAGS="0.1.10" STUB_PLAN_KEEP_IMAGE=1
+run "yes"
+assert_rc 1 "a plan without the new image stops it"
+assert_file_has "$OUT" "PLAN CHECK: the plan doesn't point the server at $NEW_IMAGE (it has $RUNNING_IMAGE)." "the image named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

@@ -814,12 +814,21 @@ A new grant can take a minute or two to apply.
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
   it, `terraform plan` stops and asks for it.
-- **Or upgrade with the module's `upgrade.sh`:** a small dev deployment
-  (`network_mode = "none"`, on runtime 0.1.8 or later) can run it instead,
-  to 0.2.0 or later. It copies the new image from `registry.kindgi.com`, so
-  [log in there](../pull-the-runtime-image/) first. It runs the upgrade
-  checks against the database, then backs the database up, and changes the
-  running deployment only when you type `yes`. If the new revision doesn't
+- **Or upgrade with the module's `upgrade.sh`:** a deployment of the
+  module on runtime 0.1.8 or later, in any `network_mode`, can run it
+  instead, to 0.2.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes
+  `network_mode = "none"` only. It copies the new image from
+  `registry.kindgi.com`, so [log in there](../pull-the-runtime-image/)
+  first. It runs the upgrade checks against the database, then backs the
+  database up, and changes the running deployment only when you type
+  `yes`. Before it asks, it checks the plan: it stops if the plan creates,
+  deletes or replaces anything, or changes anything but the new image and
+  what the releases crossed change in place. So a var file left off the
+  command, whose variables the plan would empty, stops it: give it one
+  `--var-file` for each file your variables are in, since Terraform loads
+  only `terraform.tfvars` and `*.auto.tfvars` (and their `.json`) on its
+  own. `yes` applies exactly that plan, which it keeps next to the
+  var-file's copy. If the new revision doesn't
   come up, it prints the way back rather than rolling back on its own. To
   see what it would do first, add `--dry-run`: it lists every change a real
   run would make, in order, and shows Terraform's plan for the new image,
