@@ -1,5 +1,56 @@
 # @kindgi/handler-runtime
 
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- bf30268: **A pack can bring its data blocks: one JSON file per block in its `blocks/` folder, which `kindgi deploy` publishes with the pack.** Each file holds a block in the shape `kindgi blocks publish @file` takes (`id`, `version`, `kind`, `description`, `content`). A prompt block's template can have a file of its own, named by `content.templateFile` in place of `content.template`: a path from the block's file that stays inside the blocks folder, read into the block when the pack is indexed. The pack config's `discovery.blocks` pattern (`blocks/**/*.json` by default; `[tool.kindgi.discovery]` in a Python pack's `pyproject.toml`) moves the folder. The TypeScript, Python and Java/Scala indexers read the blocks alike, and the pack index gains an optional `blocks` list (pack index schema 1.5.0), absent when a pack has none. `kindgi build` checks each block (its template is Liquid, its values fit its schema) and refuses a pack whose blocks don't hold up, or whose block files look like secrets, naming each file; it refuses a pack whose own indexer is from before blocks (the `kindgi` Python package or `com.kindgi:kindgi-pack`) too, naming the release to upgrade to. `kindgi dev` shows the same problems, reads the folder again as you edit it, and counts the blocks; its runtime reads blocks from the pack's files only (see the next change). The pack conformance suite's fixture pack has two data blocks (`FIXTURE.md`), and the suite checks that an implementation's index lists them, the prompt's template read from its file.
+  
+  `POST /v1/deployments` publishes the pack's blocks into the deploy's project before anything else, as `POST /v1/blocks` publishes a version, and unregisters the ones it published when the deploy fails. A version the runtime holds with the same content is kept. One it holds with other content is refused with `409 block-already-registered`: a version never changes, so give the block a new version. One it holds unregistered is refused the same way, naming each such block with `kindgi blocks reinstate <id> --block-version=<version>`. A deploy never reinstates one itself, as the runtime doesn't record who unregistered it: a person, or a deploy that failed after publishing it. A block whose versions live in another project is refused with `409 block-project-mismatch`. A block that doesn't hold up, or a new version that doesn't follow the block's latest, is `400 deployment-validation-failed`, whose issues' `primitive` takes a new value, `block`; so does the Python client's `DeploymentValidationDetails`. A runtime with no block registry refuses a pack with blocks the same way. An agent pins the pack's own version of each block the pack brings, never a newer one published on the runtime, and the deploy is refused when the agent's range doesn't take the pack's version, naming both; a block the pack doesn't bring pins the newest published version in range, as before.
+  
+  A runtime that does this says so: its `/v1/openapi.json` lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]`, a new open list of names (`DEPLOY_PUBLISHES_PACK_BLOCKS` in `@kindgi/handler-runtime`). `kindgi deploy` reads it only for a pack with blocks, and when the runtime doesn't list it, refuses before it builds or sends the deploy, naming the CLI's release: an earlier runtime would leave the blocks out, and pin the agents' blocks to the versions it already holds.
+- 08dedca: **Pack protocol 2.9.0: a pack tool's connections.** A call's context can carry `connections`, the accounts at other apps the tool declares (`needsSpec.connections`, tool manifest 1.3.0), each with a short-lived token. The pack service hands them to the handler as `ctx.connections`, not enumerable, like `ctx.secrets`, and never logs them. A handler that throws `ConnectionRejectedError` (`@kindgi/tools`, from any copy of it), or an error whose `cause` is one, answers the new error code `connection-rejected` with `connection`, the connection's name, so the runtime can renew that token once and run the call again. `pack-protocol.schema.json` (schema-version 2.9.0) gains both, with an example. A tool that declares no connections gets none.
+- bf30268: **A read-only agent registry can take Improve's candidates.** `RegistryReadOnly` gains an optional `takesCandidates` (`{ undoReason, scopeReason }`). With it, an improvement pass starts, a proposal is evaluated (the version it makes is kept for that), and a promotion request and its check go through to the releases binding. Publishing, deriving, unregistering and reinstating stay refused with the registry's reason. Rolling a scope back, unpinning it and rolling a proposal back are refused with `409 registry-read-only` and `undoReason`, and a pass, a draft or an evaluation for a scope narrower than the tenant with `scopeReason`. Under `kindgi dev`, a runtime that serves the pack's files sets it: making a proposal live writes it into the pack's files, and an undo is done there, with git. The promotion's reference says what such a runtime does: only the whole tenant is made live, and a pack whose files changed since the version was made answers `409 promotion-superseded`, naming the file. `resolveBlockPins` is exported, for such a runtime's pins at load.
+  
+  **`kindgi dev`'s pack service writes a block made live into the pack.** The pack service supervisor gains an optional `writeBlock`, behind `POST /v1/blocks` on its front, token-gated like `/v1/invoke`; without it, the route answers 404. `writePackBlock` (`@kindgi/handler-runtime`) writes a block's new version and content into its own file, found by id among the pack's blocks, and a prompt's template into its template file. It refuses a block that isn't in the pack, content that doesn't fit the block's kind, and a version not past the file's. `kindgi dev` gives the supervisor one, and its log names the file written.
+- 68e0d57: **A pack tool can pause its run until another system answers (pack protocol 2.8.0).**
+  
+  - **Declaring it:** a tool declares `pauses: true`. Its handler gets `ctx.waitToken`, `{ id, url }`: it hands the `url` to the system that will answer, then returns `ctx.pause({ timeoutMs, name })`. That system `POST`s its answer to the link as JSON, with no `Authorization` header: the link is the credential. The answer, valid against the tool's output schema, becomes the call's result. The handler may also answer at once, as any tool does.
+  - **Re-runs:** the token's id is the same every time one attempt of the call runs; a retry of its step gets a new token, and waits afresh. A re-run after a crash gets a new link to the same wait, and either link completes it. Hand on the new one only if the old one never went out, and dedupe on `idempotencyKey`.
+  - **How long:** `timeoutMs` is from 1 ms to 24 days (`MAX_PAUSE_TIMEOUT_MS`), and 24 hours when not given (`DEFAULT_PAUSE_TIMEOUT_MS`). A pause never waits forever. `name` says what the run waits for, in 1 to 200 characters.
+  - **Refusals:**
+    - a tool with a declarative `spec` or an MCP transport can't declare `pauses`: `defineTool` answers `invalid-tool-definition`, and the indexer `manifest-validation-failed`;
+    - a pause outside those bounds is `handler-shape-invalid`;
+    - the new error `pause-not-available`: a call from a runtime that sends no wait token, or a pause from a tool that doesn't declare `pauses`. Reading `ctx.waitToken` throws then, so the tool fails before it hands anything on. Pausing needs a runtime that speaks pack protocol 2.8.0.
+  - **The protocol:** a tool's index entry carries `pauses: true` (pack index 1.6.0, tool manifest 1.2.0), and the call's context then carries `waitToken`. The pack service answers `{ v: 2, kind: 'pause', timeoutMs, name }`, each field only when the tool gave it. A tool that doesn't declare `pauses` never sees the token.
+  - **`@kindgi/handler-runtime`:** `runHandlerOrPause` returns a pause as a third outcome. `runHandler` keeps its two, and reports a pause as `pause-not-available`.
+  - **`@kindgi/tools`, for a runtime that calls tools:**
+    - `invokeToolOrPause` returns `{ kind: 'pause', pause: { tokenId, timeoutMs, name } }` when the tool's handler returns `pauseOutcome(...)`. `invokeTool` reports a pause as `tool-pause-unsupported`, and so does `invokeToolOrPause` for a tool that doesn't declare `pauses`;
+    - a runtime that won't run a pausing call again throws `ToolRerunsExhaustedError` from the handler, and the call fails with `wait-token-reruns-exhausted`;
+    - `wait-token-timed-out` is the error for an answer that didn't come in time;
+    - `ToolContext.attempt` counts the runs of the call's step;
+    - `toolOutputIssues(tool, output)` checks an answer that comes from outside the call, such as another system's answer to a paused call, against the tool's output schema, as a call's output is checked: `{ path, message }` per finding, or `undefined` when it fits;
+    - `PAUSE_TOKEN_PREFIX` (`pause:`) starts the waitpoint id of every pause. The runtime mints these ids, never a handler.
+  - **`@kindgi/handler`:** `NodeContext.attempt` counts the runs of a step, and `WAITPOINT_TIMEOUT_REASON` is the reason a wait that timed out resumes with.
+  - **`@kindgi/api`:** a tool's wire manifest (`Tool`) carries `pauses`.
+  - **Conformance:** the fixture pack gains `conformance.pause`, and targets gain a `pause` feature they may not support yet.
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [87a5290]
+- Updated dependencies [68e0d57]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [68e0d57]
+  - @kindgi/tools@0.2.0-rc.0
+  - @kindgi/env-schema@0.2.0-rc.0
+  - @kindgi/schema@0.2.0-rc.0
+  - @kindgi/flow@0.2.0-rc.0
+  - @kindgi/log@0.2.0-rc.0
+  - @kindgi/sandbox@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

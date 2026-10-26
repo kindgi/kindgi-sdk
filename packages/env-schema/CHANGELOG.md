@@ -1,5 +1,20 @@
 # @kindgi/env-schema
 
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- 68e0d57: **A deployment can show links of its own in the console.** `GET /v1/auth/sign-in-options` gains an optional `links: [{ label, url }]`: the deployment's own links, such as its help desk, status page or data processing terms, for the console to show on every page, the sign-in page too. They come in the order the operator gave, with each label trimmed and each URL as a browser reads it. The answer has no `links` when there are none, and older servers leave it out too.
+  - `createApp`'s new `consoleLinks` sets them. It throws on more than 8 links, on a label that isn't 1 to 40 characters once trimmed, has a control or format character (as a site's display name, `hasHiddenCharacters`) or is another link's once trimmed, and on a URL that isn't an absolute https URL with no username or password.
+  - **Only lookups with an email count toward the sign-in options' rate limit.** A read without an email is answered with the deployment's configuration, the same for everyone, so it isn't counted. The console reads it on every page load for the links, and those reads no longer spend the sign-in page's budget for a client address.
+  - `@kindgi/env-schema` adds `KINDGI_CONSOLE_LINKS`, a JSON object of label to URL, for a runtime to read them from.
+  - The TypeScript and Python clients' sign-in options gain `links`. The OpenAPI document names the item `ConsoleLink`.
+- 68e0d57: **Two server settings that have the runtime check its database server's certificate against a CA you give** (runtime 0.2.0 on):
+  - **`KINDGI_DATABASE_SERVER_CA_PATH`:** a PEM file of the CA certificates the database server's certificate must chain to. Set, every connection uses TLS whatever the URL's `sslmode` says, and the certificate must chain to one of these CAs and be in date. Its name is checked too only with `sslmode=verify-full`. For a database reached by an address its certificate doesn't name, such as Cloud SQL by private IP with its per-instance CA.
+  - **`KINDGI_DATABASE_SERVER_CA`:** the same certificates inline, for platforms that give settings as environment variables. One or the other, not both.
+- 87a5290: Four descriptions now say what the server does. `KINDGI_ERASURE_SHARED_WAIT_MS` is at least 3600000 (an hour), or the server refuses to start. `KINDGI_SESSION_TTL_MS` and `KINDGI_SESSION_IDLE_TIMEOUT_MS` say the server refuses to start below their minimum, and when either is set where nobody can open a browser session (sign-in with identity providers off and console token sign-in off). `KINDGI_SESSION_TTL_MS` below an hour needs `KINDGI_SESSION_IDLE_TIMEOUT_MS` set no longer than it, since the idle default is an hour. `KINDGI_PACK_SERVICE_TOKEN` suggests `openssl rand -hex 32`, as its error message already does, and so do the self-host and rotate-keys guides.
+- 68e0d57: `KINDGI_OPENFGA_API_URL`'s description says what a runtime without it does, instead of saying production must set it. No roles are checked: every key and every sign-in works in every project, and only the tenant admin (the API token or an `admin` key) changes tenant settings. That suits one tenant whose people trust each other. `KINDGI_TENANCY=multi` refuses to start without it.
+
 ## 0.1.10
 
 ### Patch Changes

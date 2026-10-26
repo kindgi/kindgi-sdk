@@ -13,6 +13,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.2.0rc0
+
 - `kindgi`: **a tool's schema derived from a model or a type is checked as
   the runtime compiles it, as one given as a dict is.** `@tool` and
   `http_tool` raise `DefinitionError` for a derived input or output schema

@@ -254,12 +254,12 @@ say there were none.
 
 ## More
 
-- Runs: https://docs.kindgi.com/v0.1/guides/runs/list-runs/ and
-  https://docs.kindgi.com/v0.1/guides/runs/read-the-journal/
-- Approvals: https://docs.kindgi.com/v0.1/guides/approvals/decide-an-approval/
-- Connections: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
-- Memory: https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/
-- Schedules: https://docs.kindgi.com/v0.1/guides/runs/run-on-a-schedule/
-- People and keys: https://docs.kindgi.com/v0.1/deploy/people-and-keys/
-- Cost: https://docs.kindgi.com/v0.1/guides/observability/cost-per-run/
-- Rating answers: https://docs.kindgi.com/v0.1/guides/evals/judge-a-runs-output/
+- Runs: https://docs.kindgi.com/v0.2/guides/runs/list-runs/ and
+  https://docs.kindgi.com/v0.2/guides/runs/read-the-journal/
+- Approvals: https://docs.kindgi.com/v0.2/guides/approvals/decide-an-approval/
+- Connections: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
+- Memory: https://docs.kindgi.com/v0.2/guides/agents/give-an-agent-memory/
+- Schedules: https://docs.kindgi.com/v0.2/guides/runs/run-on-a-schedule/
+- People and keys: https://docs.kindgi.com/v0.2/deploy/people-and-keys/
+- Cost: https://docs.kindgi.com/v0.2/guides/observability/cost-per-run/
+- Rating answers: https://docs.kindgi.com/v0.2/guides/evals/judge-a-runs-output/

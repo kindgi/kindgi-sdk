@@ -255,8 +255,8 @@ tool's code, and the large-refund tool still always asks.
 - Experts record corrections in the console, or with
   `kindgi judgments add --run=<run-id> --item=<key> --no --reason=<text>`.
 - The guide for a person:
-  <https://docs.kindgi.com/v0.1/guides/evals/fix-what-experts-corrected/>
+  <https://docs.kindgi.com/v0.2/guides/evals/fix-what-experts-corrected/>
 - Letting Improve try wordings:
-  <https://docs.kindgi.com/v0.1/guides/evals/improve-an-agent/>
+  <https://docs.kindgi.com/v0.2/guides/evals/improve-an-agent/>
 - Changing a setting or a prompt by hand:
-  <https://docs.kindgi.com/v0.1/guides/evals/change-a-prompt-or-setting/>
+  <https://docs.kindgi.com/v0.2/guides/evals/change-a-prompt-or-setting/>

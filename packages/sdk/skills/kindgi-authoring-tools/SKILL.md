@@ -124,7 +124,7 @@ The output side is the reverse: the advertised output schema requires every fiel
 ctx.log?.info('refund issued', { orderId, amountCents });
 ```
 
-Put values in `fields`, never in the message. Log ids, amounts and outcomes, never what a person typed (a refund's reason, a message, an address): the log is read by whoever operates the runtime, not only by the person the data is about. Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#log-from-a-tool
+Put values in `fields`, never in the message. Log ids, amounts and outcomes, never what a person typed (a refund's reason, a message, an address): the log is read by whoever operates the runtime, not only by the person the data is about. Docs: https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#log-from-a-tool
 
 ### Configuration and secrets
 
@@ -202,7 +202,7 @@ const defined = defineTool({
 - **Unattended runs:** in a run no person started, a tool that uses an `as: 'person'` connection waits for that person's yes, unless it's marked `mutating: false` (mark read-only tools so). The agent's `conversationPolicy.hitl` can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below).
 - **In a unit test:** `ctx.connections` is optional in the type; build a context with `toolContextForTest({ connections: { mail: { accessToken: 'test', account: { id: '1', label: 'ana@acme.com' }, … } } })` (`@kindgi/sdk/define`).
 
-Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
 
 ## Declarative HTTP spec
 
@@ -273,9 +273,9 @@ In a run a person started (signed in, or with their own API key), the agent's ru
   needsApprovalWhenUnattended: true,
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.2/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
-A step can run more than once (resumed after an approval, retried after a failure, run again after a crash), so a tool that writes uses `ctx.idempotencyKey`: the same every time this call runs, different for every other call. Pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column) or look for it there first, and a refund never goes out twice. Not `ctx.requestId`: a model's call id is only unique within one of its answers. The key is absent outside a run and from a runtime before 0.1.6. Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+A step can run more than once (resumed after an approval, retried after a failure, run again after a crash), so a tool that writes uses `ctx.idempotencyKey`: the same every time this call runs, different for every other call. Pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column) or look for it there first, and a refund never goes out twice. Not `ctx.requestId`: a model's call id is only unique within one of its answers. The key is absent outside a run and from a runtime before 0.1.6. Docs: https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 
 ## Tool id convention
 
@@ -414,7 +414,7 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `kindgi.config.ts`: `dev: { sandbox: { allowRead: ['~/.aws'] } }`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.2/guides/secrets/dev-sandbox/).
 
 12. **Importing a Next.js module that has `import 'server-only'`.** Outside
     Next.js that line stops the module from loading, so the tool fails
@@ -469,7 +469,7 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc — every field on `DefineToolSpec` / `ToolManifest`
   documents purpose, when to set it, and gotchas.
-- API reference: https://docs.kindgi.com/v0.1/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
+- API reference: https://docs.kindgi.com/v0.2/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
 - Common patterns: check the `sample` template (`kindgi init
   --template=sample`) for working examples of both authoring modes.
 
