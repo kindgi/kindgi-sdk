@@ -104,9 +104,10 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   unregistered (runtime 0.1.9 or later): take the schedule over, or
   delete it.
 - **A schedule made with a token the runtime made at startup** is personal
-  to that start's user. Without `KINDGI_API_TOKEN`, each start makes a new
-  token, with a new user, so the schedule stays with a user later starts
-  no longer use. Make such schedules shared with `--run-as`, or set
+  to that start's user. Without `KINDGI_API_TOKEN` or
+  `KINDGI_SEED_USER_ID`, each start makes a new token, with a new user, so
+  the schedule stays with a user later starts no longer use. Make such
+  schedules shared with `--run-as`, or set
   `KINDGI_API_TOKEN` or `KINDGI_SEED_USER_ID`, so the token's user stays
   the same across restarts
   ([Point the runtime at it](../../../deploy/authorization/#point-the-runtime-at-it)).
@@ -130,14 +131,16 @@ it, or the account named with `--run-as`, and no change moves it (runtime
 
 - **A personal schedule is its owner's.** Only they or a project admin can
   change it, pause or resume it, run it now or unregister it. Anyone else
-  is answered `403 permission-denied`, with its owner's name, such as
-  "This schedule is personal: only Sam Lee or a project admin can change
-  it." The owner still needs `write` on the project, and its tools allowed
-  unattended always take a project admin.
+  with `write` on the project is answered `403 permission-denied`, with its
+  owner's name, such as "This schedule is personal: only Sam Lee or a
+  project admin can change it." The owner still needs `write` on the
+  project, and its tools allowed unattended always take a project admin.
 - **What a shared schedule runs takes a project admin:** its agent or flow
-  and version, its input, and its tools allowed unattended. Anyone else is
-  answered `403 permission-denied`, "Changing what a shared schedule runs
-  takes a project admin." Its label, its cron line and timezone, its
+  and version, its input, and its tools allowed unattended. Anyone else
+  with `write` on the project is answered `403 permission-denied`,
+  "Changing what a shared schedule runs takes a project admin." So a
+  deploy job's key that moves a shared schedule to a new version needs
+  `admin` on the project too. Its label, its cron line and timezone, its
   catch-up, overlap and deadline policies, and pausing, resuming, running
   it now or unregistering it take `write` on the project, as before.
 - **A project admin's change to a personal schedule keeps its owner,** so
