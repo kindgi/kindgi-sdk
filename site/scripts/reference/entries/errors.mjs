@@ -604,15 +604,28 @@ export const ERROR_ENTRIES = {
   },
   'tool-already-registered': {
     description:
-      "The tool id and version you're publishing already exist. Published versions are immutable, so publish under a new version number.",
+      "The tool id and version you're publishing already exist. Published versions are immutable, so publish under a new version number. On a deployment, the runtime holds a version of the pack's tool, active or unregistered, with another definition: give the tool a new version in the pack. The message names the fields that differ.",
     details: [
       {
         key: 'toolId',
-        meaning: "the tool's id",
+        meaning: "the tool's id (single publish)",
       },
       {
         key: 'version',
-        meaning: 'the version that is already registered',
+        meaning: 'the version that is already registered (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`tool`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused tool, as `id@version`',
+      },
+      {
+        key: 'fields',
+        meaning:
+          "on a deployment: the fields of the tool's definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack",
       },
     ],
   },
