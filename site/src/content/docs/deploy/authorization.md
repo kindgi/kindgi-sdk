@@ -480,7 +480,7 @@ of the project:
   `…/memberships/<user-id>`. One without `joinedAt` has no membership behind
   it, such as the creator of a project an older runtime made.
 - **A project made with a service account's key has no creator** (runtime
-  0.1.9 or later). It lists only who was given access to it, and the
+  0.3.0 or later). It lists only who was given access to it, and the
   tenant's admins (and its org's, if it's in one). One an older runtime made
   lists `00000000-0000-0000-0000-000000000000` as its owner, an id no person
   has: `kindgi-runtime tenants repair --all` (or `--tenant <id>`) takes it
