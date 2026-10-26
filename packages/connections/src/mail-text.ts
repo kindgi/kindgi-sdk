@@ -300,19 +300,56 @@ const ENTITIES: ReadonlyMap<string, string> = new Map(
  * and tags left out, and character references decoded. A link to a web
  * page keeps its address after its text, `<…>`, as {@link cleanUrl}
  * gives it, unless the text shows it already; any other link keeps its
- * text only. Linear in the input's length.
+ * text only. A line inside a `blockquote` starts with `> `, one for each
+ * level up to 8, as a mail client quotes. Linear in the input's length.
  */
 export function htmlToText(html: string): string {
-  let text = withoutComments(html);
+  let text = withoutComments(html.replaceAll(QUOTE_START, '').replaceAll(QUOTE_END, ''));
   for (const name of DROPPED) text = withoutElement(text, name);
   // Whitespace in HTML is one space, wherever it is.
   text = tagsAsText(text.replace(/[ \t\r\n\f]+/g, ' '));
-  return decodeHtmlEntities(text)
-    .split('\n')
-    .map((line) => line.replace(/ {2,}/g, ' ').trim())
+  return quotedLines(text)
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/** Where a `blockquote` starts and ends in the text from the tags; neither is left in the HTML. */
+const QUOTE_START = '\u0001';
+const QUOTE_END = '\u0002';
+/** The most `> ` a line is marked with, however deep its quotes go. */
+const QUOTE_DEPTH_MAX = 8;
+
+/**
+ * The text's lines, tidied, each in a quote marked `> ` per level, and
+ * their character references decoded: after the quotes are known, so no
+ * reference can open or close one.
+ */
+function quotedLines(text: string): string[] {
+  const lines: string[] = [];
+  let depth = 0;
+  for (const raw of text.split('\n')) {
+    const from = depth;
+    depth = depthAfter(raw, depth);
+    const marks = '> '.repeat(Math.min(Math.max(from, depth), QUOTE_DEPTH_MAX));
+    const own = raw.replaceAll(QUOTE_START, '').replaceAll(QUOTE_END, '');
+    for (const piece of decodeHtmlEntities(own).split('\n')) {
+      const line = piece.replace(/ {2,}/g, ' ').trim();
+      lines.push(line === '' ? '' : `${marks}${line}`);
+    }
+  }
+  return lines;
+}
+
+/** How many quotes are open after `line`, `depth` before it. */
+function depthAfter(line: string, depth: number): number {
+  if (!line.includes(QUOTE_START) && !line.includes(QUOTE_END)) return depth;
+  let open = depth;
+  for (const c of line) {
+    if (c === QUOTE_START) open++;
+    else if (c === QUOTE_END && open > 0) open--;
+  }
+  return open;
 }
 
 /** Each tag as the line break or space it makes, else nothing; a `<` that starts no tag stays. */
@@ -395,6 +432,7 @@ function tagAsText(inner: string): string {
   const tag = (m[2] as string).toLowerCase();
   const end = m[1] === '/';
   if (tag === 'li') return end ? '' : '\n- ';
+  if (tag === 'blockquote') return end ? `${QUOTE_END}\n` : `\n${QUOTE_START}`;
   if (tag === 'td' || tag === 'th') return end ? '' : ' ';
   return BLOCKS.has(tag) ? '\n' : '';
 }

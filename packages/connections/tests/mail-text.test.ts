@@ -176,6 +176,32 @@ describe('htmlToText', () => {
     expect(htmlToText('<a href="https://acme.example/x">the order')).toBe('the order');
   });
 
+  it('marks each quoted line with "> ", one per level, and leaves a blank quoted line blank', () => {
+    const html = `<div dir="ltr"><p>Yes, Thursday works.</p></div>
+      <div class="gmail_quote"><div>On Mon, 20 Oct 2026 at 14:03, Acme Support &lt;support@acme.example&gt; wrote:</div>
+      <blockquote class="gmail_quote" style="margin:0 0 0 .8ex"><p>Can you come on Thursday?</p><p>&nbsp;</p>
+      <blockquote type="cite"><p>The order is late.</p></blockquote><p>Best, Acme</p></blockquote></div>`;
+    expect(htmlToText(html)).toBe(
+      [
+        'Yes, Thursday works.',
+        '',
+        'On Mon, 20 Oct 2026 at 14:03, Acme Support <support@acme.example> wrote:',
+        '',
+        '> Can you come on Thursday?',
+        '',
+        '> > The order is late.',
+        '',
+        '> Best, Acme',
+      ].join('\n'),
+    );
+  });
+
+  it('marks quotes by the tags alone: never by a character reference, never past 8 levels', () => {
+    expect(htmlToText('a&#1;b<br>&#2;c<br>\u0001d')).toBe('a\u0001b\n\u0002c\nd');
+    const deep = htmlToText(`${'<blockquote>x'.repeat(50_000)}`);
+    expect(deep.split('\n').at(-1)).toBe(`${'> '.repeat(8)}x`);
+  });
+
   it('drops a script with no end tag to the end', () => {
     expect(htmlToText('<p>kept</p><SCRIPT type="x">gone')).toBe('kept');
   });
