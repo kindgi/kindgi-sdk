@@ -145,6 +145,11 @@ describe('a tool that stores files', () => {
     expect(received[0]?.headers['kindgi-file-name']).toBe('Rechnung%20M%C3%A4rz%0D%0A.pdf');
   });
 
+  test('a lone surrogate in the name goes as U+FFFD; a pair stays one character', async () => {
+    await filesOf(fileContext()).store({ ...invoice, name: 'a\ud800b\ud83d\ude00.pdf' });
+    expect(received[0]?.headers['kindgi-file-name']).toBe('a%EF%BF%BDb%F0%9F%98%80.pdf');
+  });
+
   test.each([
     ['no type', ''],
     ['a line break', 'application/pdf\r\nx-acme: 1'],

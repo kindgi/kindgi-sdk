@@ -126,7 +126,7 @@ class FileStore:
             "headers": {
                 "authorization": f"Bearer {self._token}",
                 "content-type": _sendable_type(content_type),
-                "kindgi-file-name": quote(name, safe=""),
+                "kindgi-file-name": quote(_well_formed(name), safe=""),
             },
             "content": bytes(content),
         }
@@ -153,6 +153,12 @@ def _is_http_url(url: str) -> bool:
     except ValueError:
         return False
     return parts.scheme in ("http", "https") and parts.netloc != ""
+
+
+def _well_formed(text: str) -> str:
+    """`text` with each lone surrogate as U+FFFD, as JavaScript's `toWellFormed` gives it: a name
+    from JSON can hold one, and UTF-8 can't encode it. A pair of surrogates stays one character."""
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
 
 
 def _sendable_type(content_type: str) -> str:

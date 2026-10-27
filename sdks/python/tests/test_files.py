@@ -159,6 +159,13 @@ def test_the_name_is_percent_encoded_and_a_type_a_header_cant_carry_is_octet_str
     ] * 3
 
 
+def test_a_lone_surrogate_in_the_name_goes_as_u_fffd_and_a_pair_stays_one_character(
+    link: Link,
+) -> None:
+    _store(link).store(name="a\ud800b\ud83d\ude00.pdf", content_type="application/pdf", data=b"x")
+    assert link.received[0]["headers"]["kindgi-file-name"] == "a%EF%BF%BDb%F0%9F%98%80.pdf"
+
+
 @pytest.mark.parametrize("reason", ["type", "size", "limit"])
 def test_answers_why_nothing_was_stored(link: Link, reason: str) -> None:
     link.answer = (200, {"notStored": reason})
