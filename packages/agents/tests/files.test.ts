@@ -147,6 +147,8 @@ function filesBinding(allowed: readonly string[], stores: FileStoreAnswer[] = []
       stored.push({ call, file });
       return stores.shift() ?? { file: fileValue(allowed[0] ?? 'art-0') };
     },
+    shown: async () => {},
+    refuse: async () => {},
   };
   return { files, admitted, read, stored };
 }

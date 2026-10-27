@@ -59,6 +59,21 @@ export interface FileBinding {
     call: { readonly callKey: string; readonly toolId: string },
     file: FileToStore,
   ): Promise<FileStoreAnswer>;
+  /**
+   * A call that carried these files answered: its model was shown them.
+   * That only decides which files a later `refuse` marks. Marking one
+   * already marked changes nothing.
+   */
+  shown(artifactIds: readonly string[]): Promise<void>;
+  /**
+   * A call that carried these images and PDFs was refused as an invalid
+   * request, and the same call without them answered. The runtime marks
+   * the ones no answered call has shown, or all of them when each one was
+   * shown before (another model refused what an earlier one read). Later
+   * turns are given a marked file as `notShown: 'refused'`, so it isn't
+   * sent again. Marking one already marked changes nothing.
+   */
+  refuse(artifactIds: readonly string[]): Promise<void>;
 }
 
 /**
@@ -106,17 +121,31 @@ export function agentSeesFiles(agent: Pick<Agent, 'capabilities'>): boolean {
  * the model reads a line naming it, as an agent did before files. Only the
  * call's copy is marked: the journal and the conversation keep the plain
  * reference, and a later version of the agent that needs `vision` is shown
- * the file.
+ * the file. Each image and PDF in `refused` (the turn's model couldn't read
+ * a call carrying it) is `notShown: 'refused'` the same way, for the rest
+ * of the turn.
  */
 export function messagesForCall(
   messages: readonly ModelMessage[],
   seesFiles: boolean,
+  refused: ReadonlySet<string> = new Set(),
 ): readonly ModelMessage[] {
-  if (seesFiles) return messages;
+  if (seesFiles && refused.size === 0) return messages;
+  const reasonOf = (file: MessageFile): 'model' | 'refused' | undefined => {
+    if (!isUnseen(file)) return undefined;
+    if (!seesFiles) return 'model';
+    return refused.has(file.artifactId) ? 'refused' : undefined;
+  };
   return messages.map((message) =>
-    message.files === undefined || !message.files.some(isUnseen)
+    message.files === undefined || !message.files.some((file) => reasonOf(file) !== undefined)
       ? message
-      : { ...message, files: message.files.map((file) => (isUnseen(file) ? unseen(file) : file)) },
+      : {
+          ...message,
+          files: message.files.map((file) => {
+            const notShown = reasonOf(file);
+            return notShown === undefined ? file : { ...file, notShown };
+          }),
+        },
   );
 }
 
@@ -140,15 +169,15 @@ export function callFiles(
 
 /** An image or a PDF with no reason yet not to be shown. */
 function isUnseen(file: MessageFile): boolean {
-  return (
-    file.notShown === undefined &&
-    ((IMAGE_FILE_TYPES as readonly string[]).includes(file.contentType) ||
-      (DOCUMENT_FILE_TYPES as readonly string[]).includes(file.contentType))
-  );
+  return file.notShown === undefined && isImageOrPdf(file);
 }
 
-function unseen(file: MessageFile): MessageFile {
-  return { ...file, notShown: 'model' };
+/** An image or a PDF: a file a call sends as itself, never as text. */
+export function isImageOrPdf(file: Pick<MessageFile, 'contentType'>): boolean {
+  return (
+    (IMAGE_FILE_TYPES as readonly string[]).includes(file.contentType) ||
+    (DOCUMENT_FILE_TYPES as readonly string[]).includes(file.contentType)
+  );
 }
 
 /** A file the turn admitted, as the value a conversation keeps. */

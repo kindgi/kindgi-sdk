@@ -217,6 +217,29 @@ describe('rehydrateTurnContext', () => {
       totalCostUsd: expect.closeTo(0.03),
     });
     expect(ctx.lastProvider).toEqual({ id: 'second', model: 'second-model' });
+    expect(ctx.refusedFiles).toBeUndefined();
+    expect(ctx.filesRetried).toBeUndefined();
+  });
+
+  test('a step retried without its files: the resumed turn leaves them out, and retries no more', async () => {
+    const ctx = resumedTurn([provider('first'), provider('second')]);
+    const retried = completed(
+      'model-call',
+      {
+        step: 2,
+        iterationUsage: { promptTokens: 20, completionTokens: 3, costUsd: 0.02 },
+        provider: { id: 'second', model: 'second-model' },
+        warnings: [{ code: 'file-refused', message: 'without "photo-1.jpg"' }],
+        refused: ['art-1'],
+      },
+      1,
+    );
+    expect(await rehydrateTurnContext(ctx, 'run-1', [...parkedJournal.slice(0, -1), retried])).toBe(
+      true,
+    );
+    expect(ctx.refusedFiles).toEqual(new Set(['art-1']));
+    expect(ctx.filesRetried).toBe(true);
+    expect(ctx.modelWarnings?.get('file-refused')).toBe('without "photo-1.jpg"');
   });
 
   test("binds the resumed run's files by the run's id; a turn left to setup is bound there", async () => {
@@ -225,6 +248,8 @@ describe('rehydrateTurnContext', () => {
       admit: async () => [],
       read: async () => undefined,
       store: async () => ({ notStored: 'limit' }),
+      shown: async () => {},
+      refuse: async () => {},
     };
     const files: FileBindings = {
       forRun: (r) => {

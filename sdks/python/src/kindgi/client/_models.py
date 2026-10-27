@@ -3707,13 +3707,14 @@ class FileValue(BaseModel):
     """
     not_shown: Annotated[
         Annotated[
-            Literal["type", "size", "model", "limit", "store", "gone", "changed"] | str, _open.OPEN
+            Literal["type", "size", "model", "limit", "store", "gone", "changed", "refused"] | str,
+            _open.OPEN,
         ]
         | None,
         Field(alias="notShown"),
     ] = None
     """
-    Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked).
+    Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached).
     """
 
 

@@ -166,6 +166,17 @@ export interface TurnContext {
    */
   files?: FileBinding;
   /**
+   * The images and PDFs the turn's model couldn't read: a call carrying
+   * them was refused, and the same call without them answered. Each later
+   * call of the turn reads a line in each one's place. Set by `model-call`,
+   * and restored on a resume from its step's `refused`.
+   */
+  refusedFiles?: Set<string>;
+  /** Whether the turn has retried a call without its files: once a turn at most. */
+  filesRetried?: boolean;
+  /** The files the turn has told its binding the model was shown (`FileBinding.shown`). */
+  shownFiles?: Set<string>;
+  /**
    * The persisted provenance snapshot (post `persist-provenance`).
    * Present only when the builder was wired AND persistence succeeded.
    */
