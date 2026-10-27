@@ -112,6 +112,38 @@ test('_redirects: each line path goes to its newest release, page for page', () 
   );
 });
 
+test('_redirects: a line with only pre-releases goes to /next/, page for page, with a 302', () => {
+  assert.equal(
+    redirects(plan(tags('0.1.9', '0.1.10', '0.1.11-rc.0', '0.2.0-rc.0'))),
+    '/v0.2 /next/ 302\n/v0.2/* /next/:splat 302\n/v0.1 /v0.1.10/ 301\n/v0.1/* /v0.1.10/:splat 301\n',
+  );
+});
+
+test("_redirects: once the line's release ships, its 301 takes the path, and no 302 is left", () => {
+  assert.equal(
+    redirects(plan(tags('0.1.10', '0.2.0-rc.0', '0.2.0-rc.1', '0.2.0'))),
+    '/v0.2 /v0.2.0/ 301\n/v0.2/* /v0.2.0/:splat 301\n/v0.1 /v0.1.10/ 301\n/v0.1/* /v0.1.10/:splat 301\n',
+  );
+});
+
+test('_redirects: a pre-release of a line that has a release leaves its line on the release', () => {
+  for (const versions of [
+    ['0.1.10', '0.1.11-rc.0'],
+    ['0.1.10', '0.2.0', '0.2.1-rc.0'],
+  ]) {
+    const p = plan(tags(...versions));
+    assert.notEqual(p.next, undefined);
+    assert.doesNotMatch(redirects(p), / 302\n/);
+  }
+});
+
+test("_redirects: the next line's pre-release gets its own 302", () => {
+  assert.equal(
+    redirects(plan(tags('0.1.10', '0.2.0-rc.1', '0.2.0', '0.3.0-rc.0'))),
+    '/v0.3 /next/ 302\n/v0.3/* /next/:splat 302\n/v0.2 /v0.2.0/ 301\n/v0.2/* /v0.2.0/:splat 301\n/v0.1 /v0.1.10/ 301\n/v0.1/* /v0.1.10/:splat 301\n',
+  );
+});
+
 test('_headers: every Markdown page is noindex, and the Markdown and text files say UTF-8', () => {
   assert.equal(
     headers(),

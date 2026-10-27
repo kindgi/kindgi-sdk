@@ -490,7 +490,7 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'conversationId',
-        meaning: 'the conversation (new turn only)',
+        meaning: 'the conversation',
       },
       {
         key: 'expectedVersion',
@@ -604,15 +604,28 @@ export const ERROR_ENTRIES = {
   },
   'tool-already-registered': {
     description:
-      "The tool id and version you're publishing already exist. Published versions are immutable, so publish under a new version number.",
+      "The tool id and version you're publishing already exist. Published versions are immutable, so publish under a new version number. On a deployment, the runtime holds a version of the pack's tool, active or unregistered, with another definition: give the tool a new version in the pack. The message names the fields that differ.",
     details: [
       {
         key: 'toolId',
-        meaning: "the tool's id",
+        meaning: "the tool's id (single publish)",
       },
       {
         key: 'version',
-        meaning: 'the version that is already registered',
+        meaning: 'the version that is already registered (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`tool`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused tool, as `id@version`',
+      },
+      {
+        key: 'fields',
+        meaning:
+          "on a deployment: the fields of the tool's definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack",
       },
     ],
   },
@@ -2333,11 +2346,21 @@ export const ERROR_ENTRIES = {
   },
   'service-account-name-taken': {
     description:
-      'An active service account in this tenant already has that name. Choose another name.',
+      "An active service account in this tenant already has that name. Choose another name. With `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>`: a tenant admin can unregister it.",
     details: [],
   },
   'service-account-unregistered': {
     description: "The service account has been unregistered, so it can't be granted anything.",
+    details: [],
+  },
+  'trigger-owner-cannot-run-target': {
+    description:
+      "A trigger's owner can't run what the trigger starts: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule. Checked only with an authorization store, at two points. When a schedule, webhook or mail trigger names a service account to run as (`runAsServiceAccountId`), on create or take-over: give the account the editor role on the target's project, or name another account. When it's to run as the project's own account (`runAsProject`), which runs only what the project's editors can: run it as a service account that can, or own it yourself. And when a schedule's or mail trigger's target changes, since its owner stays: the owner, a service account or a person, must be able to run the new one (not checked when you're the owner, or when the owner was unregistered or removed). A tenant admin can give an account the role (not the project's own account, whose role is fixed), or a project admin can take the trigger over first. The message names the owner and the target.",
+    details: [],
+  },
+  'service-account-project-owned': {
+    description:
+      "The service account is a project's own account, the account a trigger with `runAsProject` runs as. It has no keys, so none can be minted `for` it. Its grant is fixed, so it can't be granted or ungranted anything. A trigger can't name it in `runAsServiceAccountId`: name it with `runAsProject: true` instead. An app that needs keys needs a service account of its own.",
     details: [],
   },
   'identity-user-email-taken': {

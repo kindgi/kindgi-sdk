@@ -100,6 +100,7 @@ case "$*" in
     printf '{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"%s","size":1609}\n' "${STUB_RELEASE_DIGEST:-}"; exit 0 ;;
   "buildx imagetools create"*)
     printf '%s\n' "$*" >>"${STUB_DOCKER_LOG:-/dev/null}"
+    printf 'stub: imagetools create\n' >&2
     : >"${STUB_MARKER_MIRROR:-/dev/null}"; exit "${STUB_MIRROR_RC:-0}" ;;
   *) exit 0 ;;
 esac
@@ -267,9 +268,10 @@ reset_env; export STUB_TAGS="0.1.8" STUB_APPLY_RC=1
 run "yes"
 assert_rc 1 "apply failure"
 assert_out "To go back"
-assert_out "memory erasures export"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.1 memory erasures export --out=erasures-" "the export runs 0.1.8's CLI line"
 assert_out "import sql"
-assert_out "memory erasures replay"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.1 memory erasures replay erasures-" "the replay runs 0.1.8's CLI line"
+if grep -qF "pre-release" "$OUT"; then fail "a final's go-back has the pre-release note"; else pass; fi
 assert_out "cp $VAR_FILE.pre-upgrade-"
 if grep -q "or set database_name" "$OUT"; then fail "go-back still offers database_name"; else pass; fi
 assert_file_has "$VAR_FILE" "$NEW_IMAGE" "var-file keeps the new image after a failed apply"
@@ -281,6 +283,33 @@ run "yes"
 assert_rc 1 "unhealthy start"
 assert_out "did not become ready"
 assert_out "fresh database"
+
+# 7a. The go-back names the CLI of the release the run started from: a server
+# fix for 0.2.0 is on the 0.2 line.
+case_start "go-back from a server fix"
+reset_env; export STUB_SERVICE_JSON="$SERVICE_STUCK"
+run "yes" --from 0.2.0.1 --to 0.2.0.2
+assert_rc 1 "unhealthy start"
+assert_out "did not become ready"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures export --out=erasures-" "the export runs 0.2.0.1's CLI line"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures replay erasures-" "the replay runs 0.2.0.1's CLI line"
+if grep -qF "@kindgi/cli@0.1" "$OUT"; then fail "the go-back from 0.2.0.1 names the 0.1 CLI"; else pass; fi
+if grep -qF "pre-release" "$OUT"; then fail "a server fix's go-back has the pre-release note"; else pass; fi
+
+# 7b. From an rc, the 0.2 line finds no CLI until 0.2.0 is out: a note right
+# under the export says so.
+case_start "go-back from an rc"
+reset_env; export STUB_TAGS="0.2.0-rc.0" STUB_APPLY_RC=1
+run "yes"
+assert_rc 1 "apply failure"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures export --out=erasures-" "the export runs the rc's CLI line"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures replay erasures-" "the replay runs the rc's CLI line"
+note="$(grep -A4 -F "memory erasures export" "$OUT" | tail -n 4)"
+if [[ $note == "    This deployment runs a pre-release, 0.2.0-rc.0. Until 0.2.0 is out,
+    npx finds no @kindgi/cli@0.2: in this step and in step 7, name the
+    CLI's own pre-release instead, as @kindgi/cli@0.2.0-rc.N
+    (npm view @kindgi/cli versions lists them)." ]]; then pass
+else fail "the pre-release note isn't right under the export: $note"; fi
 
 # 8. Host instance not Postgres 16: refused before anything is mirrored.
 case_start "host instance not pg16"
@@ -484,6 +513,11 @@ if grep -q "autoCloseAfterInactiveSeconds" "$OUT"; then fail "0.1.10's steps sho
 assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0 " "the release tag is read on registry.kindgi.com"
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.2.0@$NEW_DIGEST" "the mirror copies from registry.kindgi.com"
 if grep -q "quay.io" "$STUB_DOCKER_LOG"; then fail "an image was read from quay.io"; else pass; fi
+assert_file_has "$OUT" "This copies the runtime through this machine, down from registry.kindgi.com and up to Artifact Registry. It takes both platforms (linux/amd64 and linux/arm64), so your copy keeps the release digest." "what the copy is"
+assert_file_has "$OUT" "On a slow uplink it can take most of an hour; it says when it's done." "how long the copy can take"
+said="$(grep -o -F -e "Mirroring runtime 0.2.0 into" -e "This copies the runtime" -e "it says when it's done." -e "stub: imagetools create" -e "mirrored to $NEW_IMAGE" "$OUT" | tr '\n' '|')"
+if [[ $said == "Mirroring runtime 0.2.0 into|This copies the runtime|it says when it's done.|stub: imagetools create|mirrored to $NEW_IMAGE|" ]]; then pass
+else fail "the copy's time isn't said between the step line and the copy, in order: $said"; fi
 assert_out "0.1.10 -> 0.2.0 applied"
 
 # 27. 0.1.10 -> an rc of 0.2.0: its steps are included, and it gets to the mirror.
@@ -550,6 +584,7 @@ assert_out "DRY RUN. It reads only"
 assert_file_has "$STUB_CALLS_LOG" "docker buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0 " "the release digest is read"
 assert_file_has "$OUT" "2. add gcloud as the credential helper for northamerica-northeast2-docker.pkg.dev in your docker config" "the docker config"
 assert_file_has "$OUT" "add the image tag $REPO/runtime:0.2.0 to Artifact Registry" "the mirror"
+assert_file_has "$OUT" "   (both platforms, through this machine; on a slow uplink it can take most of an hour)" "the mirror's time"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-pk  (check provider-keys)" "the provider-keys job"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ss  (check secret-scopes)" "the secret-scopes job"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-mhc  (check mcp-header-credentials)" "the mcp-header-credentials job"

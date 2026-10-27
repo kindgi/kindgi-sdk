@@ -308,12 +308,15 @@ describe('webhook triggers: the project decides, as for schedules', () => {
     expect((await both.call('PATCH', `/${T_THEIRS}`, { label: 'x' })).status).toBe(403);
   });
 
-  test('taking ownership needs `admin` on the project and `execute` on the flow', async () => {
-    const adminOnly = webhookHarness([ADMIN_P]);
-    expect((await adminOnly.call('POST', `/${T_MINE}/owner`)).status).toBe(403);
-    expect(adminOnly.asked).toEqual([ADMIN_P, EXECUTE_MINE]);
-    const both = webhookHarness([ADMIN_P, EXECUTE_MINE]);
-    expect((await both.call('POST', `/${T_MINE}/owner`)).status).toBe(200);
+  test('taking ownership needs `write` and `admin` on the project and `execute` on the flow', async () => {
+    const noWrite = webhookHarness([ADMIN_P, EXECUTE_MINE]);
+    expect((await noWrite.call('POST', `/${T_MINE}/owner`)).status).toBe(403);
+    expect(noWrite.asked).toEqual([WRITE_P]);
+    const noExecute = webhookHarness([WRITE_P, ADMIN_P]);
+    expect((await noExecute.call('POST', `/${T_MINE}/owner`)).status).toBe(403);
+    expect(noExecute.asked).toEqual([WRITE_P, ADMIN_P, EXECUTE_MINE]);
+    const all = webhookHarness([WRITE_P, ADMIN_P, EXECUTE_MINE]);
+    expect((await all.call('POST', `/${T_MINE}/owner`)).status).toBe(200);
     const writer = webhookHarness([WRITE_P, EXECUTE_MINE]);
     expect((await writer.call('POST', `/${T_MINE}/owner`)).status).toBe(403);
   });
@@ -352,19 +355,19 @@ describe('webhook triggers: naming a service account as owner needs `act_as` on 
   });
 
   test('take-over: `act_as` withheld is a 403; held, the account owns it', async () => {
-    const withheld = webhookHarness([ADMIN_P, EXECUTE_MINE]);
+    const withheld = webhookHarness([WRITE_P, ADMIN_P, EXECUTE_MINE]);
     const refused = await withheld.call('POST', `/${T_MINE}/owner`, { runAsServiceAccountId: BOT });
     expect(refused.status).toBe(403);
     expect(withheld.asked).toContain(ACT_AS_BOT);
 
-    const held = webhookHarness([ADMIN_P, EXECUTE_MINE, ACT_AS_BOT]);
+    const held = webhookHarness([WRITE_P, ADMIN_P, EXECUTE_MINE, ACT_AS_BOT]);
     const ok = await held.call('POST', `/${T_MINE}/owner`, { runAsServiceAccountId: BOT });
     expect(ok.status).toBe(200);
     expect(await ownerOf(ok)).toMatchObject({ kind: 'service', id: BOT });
   });
 
   test("a take-over body that isn't a JSON object with a service-account id is a 400", async () => {
-    const h = webhookHarness([ADMIN_P, EXECUTE_MINE]);
+    const h = webhookHarness([WRITE_P, ADMIN_P, EXECUTE_MINE]);
     const raw = (rawBody: string) =>
       h.app.request(`/v1/webhooks/${T_MINE}/owner`, {
         method: 'POST',

@@ -86,6 +86,7 @@ export type {
   OutputSchemaViolationError,
   RateLimitExceededError,
   ResumeAgentTurnInput,
+  RunJournalUnavailableError,
   RunSnapshotError,
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
@@ -105,7 +106,10 @@ export {
   resolveGuardrails,
 } from './guardrails-gate.js';
 export type {
+  HitlCancelledError,
+  HitlRejectedError,
   HitlRequiredError,
+  HitlWithdrawnError,
   GuardrailViolationError,
   GuardrailsBindings,
   SessionGateResult,

@@ -15,7 +15,7 @@ description: >
   with the person.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.1"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -97,6 +97,7 @@ decided one opens its own page.
 | Guardrails | `guardrails`, one: `guardrails/<guardrailId>` | each rule's settings, the agents it checks, what it caught |
 | Flows | `flows`, one: `flows/<flowId>` | the flows and their steps |
 | Schedules | `schedules`, one: `schedules/<triggerId>` | when each runs next, and its past runs |
+| Mail triggers | `mail-triggers`, one: `mail-triggers/<triggerId>` | the mailbox each watches and what it starts; its latest mails, and the run each started |
 | Conversations | `conversations`, one: `conversations/<conversationId>` | each conversation's turns |
 | Cost | `cost` | what the project's model calls cost, by agent, model, flow or kind |
 | Quality | `quality` | answers waiting to be rated, rating rules, trends |
@@ -224,6 +225,17 @@ say there were none.
   `status`, and its answer, `output.response.content`.
 - In the console: `schedules/<triggerId>`, and the run's `runs/<runId>`.
 
+**"What did the support inbox do with that mail?"**
+- In the CLI: `kindgi mail-triggers list` finds the trigger; `kindgi
+  mail-triggers fires <triggerId>` lists each new mail it found, newest
+  first, with its `outcome` (`started`, `pending`, `skipped`, `refused` or
+  `failed`), a `detail` saying why, and the `runId` it started. A
+  `refused` mail never runs: staff handle it in the mailbox.
+- In the console: `mail-triggers/<triggerId>` lists its latest mails, up
+  to 50, what happened to each, and the run it started; an older one is
+  in the CLI's `fires`. `runs?trigger=<triggerId>` is every run it
+  started. The run is `runs/<runId>`.
+
 **"Is Kindgi healthy?"**
 - In the CLI: `kindgi health` (`"ok": true` when the server answers) and
   `kindgi doctor` (each part, with a fix for any that fail).
@@ -260,6 +272,7 @@ say there were none.
 - Connections: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
 - Memory: https://docs.kindgi.com/v0.2/guides/agents/give-an-agent-memory/
 - Schedules: https://docs.kindgi.com/v0.2/guides/runs/run-on-a-schedule/
+- Mail triggers: https://docs.kindgi.com/v0.2/guides/runs/start-runs-from-new-mail/
 - People and keys: https://docs.kindgi.com/v0.2/deploy/people-and-keys/
 - Cost: https://docs.kindgi.com/v0.2/guides/observability/cost-per-run/
 - Rating answers: https://docs.kindgi.com/v0.2/guides/evals/judge-a-runs-output/

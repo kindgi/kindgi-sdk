@@ -4,15 +4,16 @@
 #
 # Upgrade a small dev Kindgi deployment (network_mode = "none") to a newer
 # runtime, in order: check, back up, upgrade. It never changes the running
-# deployment before you type "yes" at the plan, and it never rolls back by
-# itself — if the new revision doesn't come up it prints the commands to go
-# back and stops. With --dry-run it changes nothing: it lists, in order, what a
-# real run would change.
+# deployment before you type "yes" at the plan, and "yes" applies exactly the
+# saved plan it showed. It never rolls back by itself — if the new revision
+# doesn't come up it prints the commands to go back and stops. With --dry-run
+# it changes nothing: it lists, in order, what a real run would change.
 #
 # Scope: the small dev shape from README "A small dev deployment" — no VPC, and
 # a public-IP Cloud SQL instance reached over /cloudsql. Any other network_mode
 # is out of scope (the pre-upgrade check job would need VPC egress); the script
-# says so and stops.
+# says so and stops. Upgrade those by hand: README "Upgrading", and the docs'
+# Cloud Run page, "Upgrade by hand".
 #
 # Run it from this module directory, after `terraform init`, as the identity
 # that deploys the module (it reads the running service and the module's state,
@@ -42,7 +43,11 @@
 #
 #   --var-file         The tfvars the deployment already uses (.tfvars or
 #                      .tfvars.json), with server_image on one line. Read for
-#                      its variables and passed to `terraform plan`/`apply`.
+#                      its variables and passed to `terraform plan`. Terraform
+#                      also reads terraform.tfvars and every *.auto.tfvars in
+#                      this folder by itself, .json forms included: keep the
+#                      pack's env in <env>.pack-env.auto.tfvars.json, since a
+#                      file named otherwise is left out of the plan.
 #   --runtime-digest   The release digest of the runtime being upgraded to,
 #                      from its release notes (sha256:…). Checked against the
 #                      release's tag, then mirrored into the deployment's
@@ -137,6 +142,10 @@ is_server_fix() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]]; }
 # The release a version belongs to, whose @kindgi/sdk@ tag has the upgrade.sh
 # for it: X.Y.Z for X.Y.Z, X.Y.Z-rc.N and X.Y.Z.N.
 release_of() { [[ $1 =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"; }
+# The release line a version belongs to, X.Y: the CLI of a final is
+# @kindgi/cli@X.Y, as the CLI names itself (publishedCliSpec, in
+# packages/cli/src/package-manager.ts).
+line_of() { [[ $1 =~ ^([0-9]+\.[0-9]+)\. ]] && printf '%s' "${BASH_REMATCH[1]}"; }
 
 # The var-file's value for one variable, or nothing unless the file sets it
 # exactly once, on one line, as  name = "value"  (or as a string in .json).
@@ -179,6 +188,19 @@ varfile_set() {
 print_go_back() {
   local fresh="${DATABASE_NAME}_r$(date -u +%Y%m%d)"
   local ledger="erasures-$(date -u +%F).json"
+  # Both CLI commands talk to the release the run started from: the export to
+  # the server serving now, the replay to the old image put back (step 6 below).
+  local cli="@kindgi/cli@$(line_of "$CURRENT")" rc_note=""
+  # A range never matches a pre-release, so on an rc, @kindgi/cli@X.Y finds no
+  # version until X.Y.Z is out. The rc's own number doesn't name the CLI: the
+  # runtime and the SDK number their rcs separately. Only a deployment that was
+  # never moved to its final reads as an rc here.
+  if [[ $CURRENT == *-rc.* ]]; then
+    rc_note=$'\n'"    This deployment runs a pre-release, ${CURRENT}. Until $(release_of "$CURRENT") is out,"
+    rc_note+=$'\n'"    npx finds no ${cli}: in this step and in step 7, name the"
+    rc_note+=$'\n'"    CLI's own pre-release instead, as @kindgi/cli@$(release_of "$CURRENT")-rc.N"
+    rc_note+=$'\n'"    (npm view @kindgi/cli versions lists them)."
+  fi
   cat <<EOT >&2
 
 ======================================================================
@@ -191,31 +213,43 @@ To go back:
  1. First, export the erasure ledger from the server serving now. It holds
     every erasure so far, including any made after the backup. With the
     CLI signed in to ${SERVER_URL}:
-      npx --yes @kindgi/cli@0.1 memory erasures export --out=${ledger}
+      npx --yes ${cli} memory erasures export --out=${ledger}${rc_note}
     If no server answers, the backup's own ledger is all there is: an
     erasure made after ${STAMP} can't be replayed.
 
- 2. A fresh database on the same instance:
+ 2. Before the database changes, put the old image(s) back and save the
+    plan, then read it:
+      cp ${VARFILE_BACKUP} ${VAR_FILE}
+      (umask 077 && terraform plan -var-file=${VAR_FILE} -out=back.tfplan)
+    The plan holds your variables' values, secret ones too: umask 077 keeps
+    it readable by you alone, and step 6 deletes it.
+    The server runs its migrations each time an instance of it starts. An
+    instance of the new version that starts after step 5 and before the
+    apply would migrate the fresh database too, so apply right after step 5.
+
+ 3. A fresh database on the same instance:
       gcloud sql databases create ${fresh} --instance=${DB_INSTANCE} --project=${PROJECT}
 
- 3. Import the backup into it (the instance's service account already has
+ 4. Import the backup into it (the instance's service account already has
     objectAdmin on gs://${BUCKET_ONLY}, from the backup step):
       gcloud sql import sql ${DB_INSTANCE} ${EXPORT_URI} \\
         --database=${fresh} --user=kindgi --project=${PROJECT}
 
- 4. Point the server at the fresh database: add a new version of the secret
+ 5. Point the server at the fresh database: add a new version of the secret
     ${DB_URL_SECRET}, with host=/cloudsql/${SQL_CONNECTION_NAME} and dbname
     ${fresh}. Set the password as in README step 3, never in a command's
     arguments. (Don't change database_name instead: the module would drop
     the migrated database, then fail to create ${fresh}.)
 
- 5. Put the old image(s) back and apply. The new revision reads the new
+ 6. Right away, apply the saved plan. The new revision reads the new
     secret version when it starts:
-      cp ${VARFILE_BACKUP} ${VAR_FILE}
-      terraform apply -var-file=${VAR_FILE}
+      terraform apply back.tfplan
+      rm back.tfplan
+    If Terraform refuses the plan as stale, plan again as in step 2 and
+    apply at once.
 
- 6. Before anyone uses it, replay the erasures:
-      npx --yes @kindgi/cli@0.1 memory erasures replay ${ledger}
+ 7. Before anyone uses it, replay the erasures:
+      npx --yes ${cli} memory erasures replay ${ledger}
     A replay matches only when the server has KINDGI_ERASURE_LEDGER_KEY
     (server_secret_env); without it, every erasure comes back unmatched.
     With secrets_backend = "postgres", also run the old image's
@@ -625,6 +659,7 @@ if [[ $DRY_RUN == true ]]; then
   info "   (gcloud auth configure-docker; no change if it's there already)"
   info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to Artifact Registry"
   info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
+  info "   (both platforms, through this machine; on a slow uplink it can take most of an hour)"
   info "2. create, run and then delete ${#CHECKS[@]} Cloud Run jobs with the new image, one per check:"
   for check in "${CHECKS[@]}"; do
     info "     $(check_job_name "$check" "<HHMMSS>")  (check $check)"
@@ -664,8 +699,14 @@ fi
 # the read-only check job (and step 5) can pull it (Cloud Run can't pull from
 # a registry that takes a password, like registry.kindgi.com). The mirror keeps
 # the release digest. This adds an image; it serves nothing until step 5.
+# The copy goes through this machine, every layer down and back up, and takes
+# both platforms: copying only linux/amd64 would make a new index with a digest
+# of its own, not the release digest step 5 pins. On a slow uplink that's most
+# of an hour.
 step "Mirroring runtime ${TARGET} into Artifact Registry"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet >/dev/null 2>&1 || true
+info "This copies the runtime through this machine, down from ${RUNTIME_REPO%%/*} and up to Artifact Registry. It takes both platforms (linux/amd64 and linux/arm64), so your copy keeps the release digest."
+info "On a slow uplink it can take most of an hour; it says when it's done."
 docker buildx imagetools create --tag "${IMAGE_REPOSITORY}/runtime:${TARGET}" \
   "${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}" \
   || die "couldn't mirror ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST} into ${IMAGE_REPOSITORY}. Are you logged in to registry.kindgi.com (docker login registry.kindgi.com --username kindgi), and can you push to Artifact Registry?"

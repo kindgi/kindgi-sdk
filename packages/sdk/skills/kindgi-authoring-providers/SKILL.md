@@ -597,6 +597,7 @@ its own credentials to tenant configuration.
         "contextWindow": 1048576,
         "features": ["tool-use", "structured-output", "long-context"],
         "maxOutputTokens": 65536,
+        "thinking": { "mode": "adaptive", "lowest": "low" },
         "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 }
       },
       {
@@ -604,6 +605,7 @@ its own credentials to tenant configuration.
         "contextWindow": 1048576,
         "features": ["tool-use", "structured-output", "long-context"],
         "maxOutputTokens": 65536,
+        "thinking": { "mode": "adaptive", "lowest": "minimal" },
         "cost": { "promptUsdPer1kTokens": 0.0003, "completionUsdPer1kTokens": 0.0025 }
       }
     ]
@@ -629,6 +631,14 @@ its own credentials to tenant configuration.
   completionUsdPer1kTokens }` in a model's `cost`) switches the whole call
   to the higher rates past the threshold; `cachedPromptMultiplier` (default 0.25) prices cached
   prompt tokens.
+- `thinking` is how the model thinks, as the preset has it. `lowest` is
+  the least level it takes, which a judge's call asks for.
+- To make a model think less, set `adapter_config.thinkingLevels`, a level
+  for each model it names: `"thinkingLevels": "gemini-3.8-flash=low"`. The
+  levels are `minimal`, `low`, `medium` and `high`. A named model needs
+  `thinking` in its entry and a level no lower than its `lowest`, or the
+  registration is refused. A model it doesn't name thinks as Google sets.
+  It takes effect from the 0.2.0-rc.1 adapter on; an older one ignores it.
 
 **Step 3 — register and check:**
 ```sh

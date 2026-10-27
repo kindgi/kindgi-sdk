@@ -304,7 +304,28 @@ describe('kindgi webhooks: the rest of the group', () => {
     expect(calls).toEqual([['list', { projectId: 'p-1', status: 'active' }]]);
     expect(out.stdout).toContain('acme.refund-review@1.0.0');
     expect(out.stdout).toContain('base64 X-WC-Webhook-Signature');
-    expect(out.stdout).toContain('Ada Lovelace');
+    expect(out.stdout).toContain('RUNS AS');
+    expect(out.stdout).toContain('Ada Lovelace (personal)');
+  });
+
+  test('list: a shared trigger names its service account; one with no owner says an admin can take it over', async () => {
+    const shared = await webhooks(['list', '--table'], {
+      trigger: { ...TRIGGER, owner: { kind: 'service', id: 'sa-1', displayName: 'acme-bot' } },
+    });
+    expect(shared.out.stdout).toContain('acme-bot (shared)');
+    const none = await webhooks(['list', '--table'], {
+      trigger: { ...TRIGGER, owner: { kind: 'service', id: 'unknown' } },
+    });
+    expect(none.out.stdout).toContain('no owner (an admin can take it over)');
+    expect(none.out.stdout).not.toContain('(shared)');
+    const project = await webhooks(['list', '--table'], {
+      trigger: {
+        ...TRIGGER,
+        owner: { kind: 'service', id: 'sa-2', displayName: 'project-p-1', isProjectAccount: true },
+      },
+    });
+    expect(project.out.stdout).toContain('this project (shared)');
+    expect(project.out.stdout).not.toContain('project-p-1');
   });
 
   test('pause says the events of a paused trigger are dropped', async () => {
@@ -360,6 +381,22 @@ describe('kindgi webhooks: the rest of the group', () => {
 
     const take = await webhooks(['take-ownership', ID, `--run-as=${BOT}`]);
     expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
+  });
+
+  test("--run-as=project names the project's own account on register and take-over", async () => {
+    const reg = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      '--run-as=project',
+    ]);
+    expect(reg.out.exitCode, reg.out.stderr).toBe(0);
+    expect(reg.calls[0]).toMatchObject(['register', { runAsProject: true }]);
+    expect(reg.calls[0]?.[1]).not.toHaveProperty('runAsServiceAccountId');
+
+    const take = await webhooks(['take-ownership', ID, '--run-as=project']);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsProject: true }]]);
   });
 
   test('--allow-unattended: repeatable on register and update; `none` clears on update only', async () => {

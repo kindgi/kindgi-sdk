@@ -95,6 +95,19 @@ A skipped, refused or repeated delivery's body is never kept.
   under the audit's retention. A request to an unknown trigger is in the
   server's log, under your log retention.
 
+### Mail triggers' fires
+
+A [mail trigger](../../guides/runs/start-runs-from-new-mail/)'s fires, one
+for each mail it found, are kept for 30 days too, whatever the policies
+say, and longer while a fire's run isn't finished, such as one waiting
+for a person's yes. A fire keeps the mail's and its thread's ids, never
+the mail. The mail and its thread are the run's input, kept and removed
+with the run under `run` retention. For an agent, they're also turns of
+its conversation, under `conversation` retention once the conversation
+is deleted. As in a webhook's event, the people in a mail aren't Kindgi
+identities, so erasing a person in Kindgi doesn't find them in a run's
+input.
+
 ## 1. Set a policy
 
 A policy says how long one domain's deleted records are kept. It's a policy
@@ -516,7 +529,7 @@ then every hour, in the tenants it serves:
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
 | Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), answers to a paused tool call (`wait-token-completed`, `wait-token-discarded`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
-| Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, people's access and connections, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
+| Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, triggers' owners, people's access and connections, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
 
 Run outcomes and guardrail violations are recorded (runtime 0.1.9 or
@@ -549,15 +562,22 @@ describes:
 The changes on legal hold are these kinds:
 
 - **Approvals:** `hitl-decision`, and
-  `trigger-tools-allowed-unattended-set`, a change to a schedule's or
-  webhook trigger's
-  [tools allowed unattended](../../guides/approvals/ask-before-a-tool-runs/#tools-allowed-unattended);
+  `trigger-tools-allowed-unattended-set`, a change to the
+  [tools allowed unattended](../../guides/approvals/ask-before-a-tool-runs/#tools-allowed-unattended)
+  of a schedule, webhook trigger or
+  [mail trigger](../../guides/runs/start-runs-from-new-mail/);
 - **Secrets:** `secret-set`, `secret-rotated`, `secret-rotation`,
   `secret-rotation-started`, `secret-rotation-failed`, `secret-revoked`,
   `secret-hard-revoked`;
 - **API keys:** `api-key-minted`, `api-key-revoked`;
 - **Service accounts:** `service-account-created`, `service-account-granted`,
   `service-account-ungranted`, `service-account-unregistered`;
+- **Triggers' owners** (runtime 0.2.0 or later): `trigger-owner-set`, a
+  schedule, webhook trigger or
+  [mail trigger](../../guides/runs/start-runs-from-new-mail/) made to run
+  as a service account, and each take-over; `trigger-changed-for-owner`, a
+  project admin's change to a trigger a person owns
+  ([Shared or personal](../../guides/runs/run-on-a-schedule/#shared-or-personal));
 - **People:** `person-added`, `person-invite-sent`, `person-granted`,
   `person-ungranted`;
 - **Connections:** `connection-created`, `connection-removed`,

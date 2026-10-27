@@ -47,6 +47,9 @@ function authorizerGranting(allowed: readonly string[], checked: string[]): Auth
       return next();
     },
     can: async () => false,
+    canFor: async () => {
+      throw new Error('unused');
+    },
     check: async () => {
       throw new Error('not used by these routes');
     },

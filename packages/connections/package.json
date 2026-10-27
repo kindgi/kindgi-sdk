@@ -36,6 +36,11 @@
       "import": "./dist/google-tools.js",
       "default": "./dist/google-tools.js"
     },
+    "./google/mail": {
+      "types": "./dist/google-mail.d.ts",
+      "import": "./dist/google-mail.js",
+      "default": "./dist/google-mail.js"
+    },
     "./github/tools": {
       "types": "./dist/github-tools.d.ts",
       "import": "./dist/github-tools.js",
@@ -51,6 +56,11 @@
       "import": "./dist/microsoft-tools.js",
       "default": "./dist/microsoft-tools.js"
     },
+    "./microsoft/mail": {
+      "types": "./dist/microsoft-mail.d.ts",
+      "import": "./dist/microsoft-mail.js",
+      "default": "./dist/microsoft-mail.js"
+    },
     "./linkedin": {
       "types": "./dist/linkedin.d.ts",
       "import": "./dist/linkedin.js",
@@ -65,6 +75,11 @@
       "types": "./dist/app-fetch.d.ts",
       "import": "./dist/app-fetch.js",
       "default": "./dist/app-fetch.js"
+    },
+    "./mail": {
+      "types": "./dist/mail.d.ts",
+      "import": "./dist/mail.js",
+      "default": "./dist/mail.js"
     }
   },
   "files": ["dist", "src", "README.md"],

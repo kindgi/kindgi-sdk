@@ -79,10 +79,11 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
     }
 
     const isEvent = turnMessageIsEvent(ctx.input);
-    // A pausing tool's answer comes from outside in the middle of the turn,
-    // so the rule is there from the turn's start, and the same on replay.
+    // A pausing tool's answer, or an outside-data tool's result, comes in
+    // the middle of the turn, so the rule is there from the turn's start,
+    // and the same on replay.
     const readsEvent =
-      isEvent || offersPausingTool(ctx) || history.some((m) => m.fromEvent === true);
+      isEvent || offersOutsideDataTool(ctx) || history.some((m) => m.fromEvent === true);
     const system = [
       rendered,
       ...(memoryMessage !== undefined ? [MEMORY_DATA_RULE] : []),
@@ -112,16 +113,22 @@ function offersTools(ctx: TurnContext): boolean {
   return (ctx.tools?.definitions.length ?? 0) > 0;
 }
 
-/** Whether a tool the turn offers may wait for another system's answer (`Tool.pauses`). */
-function offersPausingTool(ctx: TurnContext): boolean {
-  return [...(ctx.tools?.byName.values() ?? [])].some(({ tool }) => tool.pauses === true);
+/**
+ * Whether a tool the turn offers may answer with outside data: another
+ * system's answer (`Tool.pauses`), or results that are (`Tool.resultIsOutsideData`).
+ */
+function offersOutsideDataTool(ctx: TurnContext): boolean {
+  return [...(ctx.tools?.byName.values() ?? [])].some(
+    ({ tool }) => tool.pauses === true || tool.resultIsOutsideData === true,
+  );
 }
 
 function conversationToModelMessage(msg: ConversationMessage): ModelMessage {
   if (msg.role === 'tool') {
     return {
       role: 'tool',
-      // Another system's answer to a paused call stays data.
+      // Another system's answer to a paused call, or an outside-data
+      // tool's result, stays data.
       content: toolResultForModel(msg.content, msg.fromEvent === true),
       ...(msg.toolCall !== undefined && { toolCallId: msg.toolCall.invocationId }),
     };

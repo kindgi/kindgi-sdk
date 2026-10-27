@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { ConnectionRejectedError, type ToolContext } from '@kindgi/tools';
+import type { ToolContext } from '@kindgi/tools';
 
-import type { AppEntry, AppRateLimit } from './types.js';
+import { appRequest } from './app-request.js';
+import type { AppEntry } from './types.js';
 
 /** One call to an app's API, made with a connection the tool declared. */
 export interface AppCall {
@@ -22,24 +23,6 @@ export interface AppCall {
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;
 }
-
-/** Tries of one call when the app says it's busy, the first included. */
-const MAX_TRIES = 3;
-/** The first wait when the app gives no time; it doubles each try. */
-const BACKOFF_MS = 1_000;
-/** The longest wait between tries: an app that asks for longer gets its answer back. */
-const MAX_WAIT_MS = 30_000;
-/** Rate-limit buckets kept in this process, so a long-lived one doesn't grow without end. */
-const MAX_BUCKETS = 10_000;
-
-interface Bucket {
-  units: number;
-  atMs: number;
-  /** When the bucket is full again if nothing takes from it: it can be dropped then. */
-  fullAtMs: number;
-}
-
-const buckets = new Map<string, Bucket>();
 
 /**
  * Calls an app's API with the connection the tool declared as
@@ -78,165 +61,14 @@ export async function appFetch(
       `The connection "${call.connection}" is to ${connection.appName}, not ${call.entry.name}.`,
     );
   }
-  const method = call.method ?? 'GET';
-  for (let attempt = 1; ; attempt++) {
-    await take(call.entry, connection.connectionId, call.toolId, ctx.abortSignal);
-    const res = await fetch(call.url, {
-      method,
-      headers: withToken(call.headers, connection.accessToken),
-      ...(call.body !== undefined && { body: call.body }),
-      signal: ctx.abortSignal,
-    });
-    if (res.status === 401) {
-      await res.body?.cancel();
-      throw new ConnectionRejectedError(
-        call.connection,
-        `${call.entry.name} refused the connection's token.`,
-      );
-    }
-    if (attempt >= MAX_TRIES || !(await busy(res, method))) return res;
-    const waitMs = retryAfterMs(res) ?? BACKOFF_MS * 2 ** (attempt - 1);
-    if (waitMs > MAX_WAIT_MS) return res;
-    await res.body?.cancel();
-    await sleep(waitMs, ctx.abortSignal);
-  }
-}
-
-/**
- * The call's headers with the connection's token as the only `Authorization`:
- * a caller's own, in any case, would be sent joined to it.
- */
-function withToken(
-  headers: Readonly<Record<string, string>> | undefined,
-  token: string,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(headers ?? {}))
-    if (name.toLowerCase() !== 'authorization') out[name] = value;
-  out.authorization = `Bearer ${token}`;
-  return out;
-}
-
-/** The app asks for the call again later, and nothing was done. */
-async function busy(res: Response, method: string): Promise<boolean> {
-  if (res.status === 429) return true;
-  if (res.status === 503) return method === 'GET';
-  if (res.status !== 403) return false;
-  // GitHub answers a spent rate limit with a 403 that says so in its headers.
-  if (res.headers.has('retry-after') || res.headers.get('x-ratelimit-remaining') === '0')
-    return true;
-  // Google says so in the 403's body, read from a copy so that any other 403 reaches the tool unread.
-  const body = await res
-    .clone()
-    .text()
-    .catch(() => '');
-  return googleRateLimited(body);
-}
-
-/** Google's 403 reasons for a rate limit that waiting ends (a daily quota isn't one). */
-const GOOGLE_RATE_LIMITS: ReadonlySet<string> = new Set([
-  'rateLimitExceeded',
-  'userRateLimitExceeded',
-]);
-
-function googleRateLimited(body: string): boolean {
-  try {
-    const errors = (JSON.parse(body) as { error?: { errors?: unknown } } | null)?.error?.errors;
-    return (
-      Array.isArray(errors) &&
-      errors.some((e: { reason?: unknown } | null) => {
-        const reason = e?.reason;
-        return typeof reason === 'string' && GOOGLE_RATE_LIMITS.has(reason);
-      })
-    );
-  } catch {
-    return false;
-  }
-}
-
-/** How long the app asks to wait: `Retry-After` (seconds or a date), else GitHub's reset time. */
-function retryAfterMs(res: Response): number | undefined {
-  const after = res.headers.get('retry-after');
-  if (after !== null) {
-    const seconds = Number(after);
-    if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-    const at = Date.parse(after);
-    if (Number.isFinite(at)) return Math.max(0, at - Date.now());
-  }
-  if (res.headers.get('x-ratelimit-remaining') === '0') {
-    const reset = Number(res.headers.get('x-ratelimit-reset'));
-    if (Number.isFinite(reset) && reset > 0) return Math.max(0, reset * 1000 - Date.now());
-  }
-  return undefined;
-}
-
-/** Takes the call's cost from each of the entry's buckets for this connection, waiting as needed. */
-async function take(
-  entry: AppEntry,
-  connectionId: string,
-  toolId: string,
-  signal: AbortSignal,
-): Promise<void> {
-  for (const [i, limit] of (entry.rateLimits ?? []).entries()) {
-    // A call that costs more than the bucket holds could never go: it takes a full bucket.
-    const cost = Math.min(limit.costs?.[toolId] ?? 1, limit.units);
-    if (cost === 0) continue;
-    const key = `${entry.id}\u0000${connectionId}\u0000${i}`;
-    for (;;) {
-      const b = refilled(key, limit, Date.now());
-      if (b.units >= cost) {
-        b.units -= cost;
-        b.fullAtMs = b.atMs + msFor(limit.units - b.units, limit);
-        break;
-      }
-      await sleep(Math.ceil(msFor(cost - b.units, limit)), signal);
-    }
-  }
-}
-
-function msFor(units: number, limit: AppRateLimit): number {
-  return (units * limit.perSeconds * 1000) / limit.units;
-}
-
-function refilled(key: string, limit: AppRateLimit, nowMs: number): Bucket {
-  const b = buckets.get(key);
-  if (b !== undefined) {
-    b.units = Math.min(
-      limit.units,
-      b.units + ((nowMs - b.atMs) * limit.units) / (limit.perSeconds * 1000),
-    );
-    b.atMs = nowMs;
-    return b;
-  }
-  if (buckets.size >= MAX_BUCKETS) prune(nowMs);
-  const fresh: Bucket = { units: limit.units, atMs: nowMs, fullAtMs: nowMs };
-  buckets.set(key, fresh);
-  return fresh;
-}
-
-/** Drops buckets that are full again (as good as new), else the oldest. */
-function prune(nowMs: number): void {
-  for (const [key, b] of buckets) if (b.fullAtMs <= nowMs) buckets.delete(key);
-  for (const key of buckets.keys()) {
-    if (buckets.size < MAX_BUCKETS) break;
-    buckets.delete(key);
-  }
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(signal.reason);
-      return;
-    }
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
+  return appRequest(
+    {
+      connection: call.connection,
+      connectionId: connection.connectionId,
+      token: connection.accessToken,
+      fetch,
+      abortSignal: ctx.abortSignal,
+    },
+    call,
+  );
 }

@@ -316,12 +316,15 @@ running the older version on it.
   runtime 0.1.8 or later): the Cloud Run module's `./upgrade.sh`, as of the
   `@kindgi/sdk@<version>` tag of the release you're upgrading to, since it
   knows the steps up to its own release. Run `./upgrade.sh --dry-run` first:
-  it changes nothing, and lists what a real run would change. The module
-  README's Upgrading section has the rest:
+  it changes nothing, and lists what a real run would change. Its plan also
+  reads every `*.auto.tfvars.json` in the module's folder (the pack's env),
+  and `yes` applies exactly the saved plan it showed. The module README's
+  Upgrading section has the rest:
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
-- **Any other Cloud Run deployment, or one on Azure Container Apps:** the
-  "Operate it" section of its page,
-  https://docs.kindgi.com/v0.2/deploy/self-hosted/cloud-run/#operate-it or
+- **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
+  Run page's "Upgrade by hand" section says:
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/cloud-run/#upgrade-by-hand
+- **On Azure Container Apps:** the "Operate it" section of its page,
   https://docs.kindgi.com/v0.2/deploy/self-hosted/azure-container-apps/#operate-it.
 - **Otherwise:** the operate page's upgrade steps,
   https://docs.kindgi.com/v0.2/deploy/self-hosted/operate/#upgrade-the-runtime.

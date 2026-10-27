@@ -734,6 +734,9 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
     const silent: Authorizer = {
       authorize: () => async () => undefined,
       can: async () => false,
+      canFor: async () => {
+        throw new Error('unused');
+      },
       check: async () => {
         throw new Error('unused');
       },

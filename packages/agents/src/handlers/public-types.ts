@@ -11,6 +11,7 @@ import type {
   ParentRunRef,
   RunBinding,
   RunIdempotencyKey,
+  RunMailbox,
   RunReplayRef,
   RunStartedBy,
   RunTriggerRef,
@@ -99,19 +100,27 @@ export interface InvokeAgentInput {
    * How the turn's run started (`RunStartedBy`); its run records it. Only
    * `person` counts as attended: in any other turn, or one without it, a
    * tool that declares `needsApprovalWhenUnattended` waits for a person's
-   * yes whatever the agent's approval rules say, and a turn a webhook or
-   * an event started reads its message as data (`<event>`).
+   * yes whatever the agent's approval rules say, and a turn a webhook, an
+   * event or a mail started reads its message as data (`<event>`).
    */
   readonly startedBy?: RunStartedBy;
   /**
    * The tools, by id, whose `needsApprovalWhenUnattended` doesn't hold in
    * this turn though no person started its run: the
-   * `toolsAllowedUnattended` of the webhook or schedule that started it,
-   * recorded with the run (`RunFlowInput.toolsAllowedUnattended`). Only
-   * that wait is lifted: the tenant's floor and the agent's own rules
+   * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
+   * started it, recorded with the run (`RunFlowInput.toolsAllowedUnattended`).
+   * Only that wait is lifted: the tenant's floor and the agent's own rules
    * still apply. Set by the runtime from the run, never from a request.
    */
   readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The mailbox the turn's mail came from, on a turn a mail trigger
+   * started (`RunFlowInput.mailbox`): a call with a connection of its app
+   * and kind waits for a person's yes, read-only or not, unless the
+   * trigger lists the tool. Set by the runtime from the run, never from a
+   * request.
+   */
+  readonly mailbox?: RunMailbox;
   /**
    * The turn's message is an event's, though no webhook or event starts
    * this run: a replay of a run one started sets it (its turn, or a flow's

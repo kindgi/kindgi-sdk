@@ -10,6 +10,8 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **a tool can say `resultIsOutsideData`.** `Tool.define(...).resultIsOutsideData(true)` (Scala: `.resultIsOutsideData(true)`) says the tool's results are text from outside that nobody checked, such as a mail someone sent or a page a search found. An agent reads each result of the tool as data, not instructions, in that turn and in every later turn's history. It changes what the model is told, not what the tool may do: pair it with approvals for anything an agent could do with what it read. The pack's index carries it; left out, nothing changes.
+
 ## 0.2.0-rc.0
 
 - `kindgi-pack`, `kindgi-pack-scala`: **a tool can be an HTTP request, declared as data.** `Tool.define(...).http(spec)` (Scala: `.http(spec)`) finishes a tool with an `HttpToolSpec` — method, URL template, headers, authorization by secret reference, request body and success-status range — in place of a handler. The Kindgi runtime makes the request; calling the tool in the JVM throws. `{placeholders}` in the URL's path and query, and in a text body, are filled from the input's fields, never from the host. The same declarative form as the TypeScript `kind: 'http'` tool spec and Python's `http_tool`.

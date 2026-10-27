@@ -50,6 +50,11 @@ export {
   type UsageState,
 } from './usage.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
+export type {
+  TriggerOwnerChange,
+  TriggerOwnerNotice,
+  TriggerOwnerNotices,
+} from './routes/trigger-owners.js';
 export {
   FULL_SYSTEM_CAPABILITY,
   SYSTEM_PRINCIPAL_ALLOWED_ROUTES,
@@ -289,6 +294,7 @@ export type {
   ServiceAccountGrant,
   ServiceAccountGrantTarget,
   ServiceAccountListInput,
+  ServiceAccountProjectAccounts,
   ServiceAccountRef,
 } from './service-account-binding.js';
 export type {

@@ -72,7 +72,7 @@ terraform apply -var-file=dev.tfvars \
 
 ## 2. Images into the registry
 
-Copy the runtime's **whole multi-platform index** by digest: a `docker pull` / `push` from an arm64 machine copies only arm64, and Container Apps needs amd64.
+Copy the runtime's **whole multi-platform index** by digest: a `docker pull` / `push` from an arm64 machine copies only arm64, and Container Apps needs amd64. The copy goes through the machine you run it on and takes both platforms, so on a slow uplink it can take most of an hour.
 
 ```sh
 ACR=$(terraform output -raw image_registry)
