@@ -25,10 +25,17 @@ import type { AppEnv } from '../src/types.js';
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
 const TOKEN = 'schedules-token';
+// The same person with a tenant-admin key: without an authorization store,
+// that is who takes a schedule over.
+const ADMIN_TOKEN = 'schedules-admin-token';
 const PROJECT = randomUUID() as ProjectId;
 const auth = { authorization: `Bearer ${TOKEN}` };
 const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId } : null;
+  token === TOKEN
+    ? { tenantId, userId }
+    : token === ADMIN_TOKEN
+      ? { tenantId, userId, scopes: ['tenant-admin'] }
+      : null;
 const runHandler = {} as RunHandlerBinding;
 
 const send = (method: string, body?: unknown): RequestInit => ({
@@ -407,7 +414,12 @@ describe("a schedule's life", () => {
     expect(page.data.map((f) => f.manual ?? false)).toEqual([true, false]);
     expect(page.data[1]).toMatchObject({ outcome: 'started', missedCount: 9 });
 
-    const owned = await built.request(`/v1/schedules/${id}/owner`, send('POST'));
+    // Without an authorization store, a take-over takes a tenant-admin key.
+    expect((await built.request(`/v1/schedules/${id}/owner`, send('POST'))).status).toBe(403);
+    const owned = await built.request(`/v1/schedules/${id}/owner`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
     expect(owned.status).toBe(200);
     expect(await owned.json()).toMatchObject({ owner: { kind: 'user', id: userId } });
   });
@@ -445,12 +457,14 @@ describe('mounting', () => {
     expect((await built.request('/v1/schedules', send('GET'))).status).toBe(200);
     expect((await built.request('/v1/event-triggers', send('GET'))).status).toBe(404);
     expect((await built.request('/v1/webhooks', send('GET'))).status).toBe(404);
+    expect((await built.request('/v1/mail-triggers', send('GET'))).status).toBe(404);
   });
 
-  test('without triggerKinds, all three mount, as before', async () => {
+  test('without triggerKinds, all four mount', async () => {
     const { built } = app();
     expect((await built.request('/v1/event-triggers', send('GET'))).status).toBe(200);
     expect((await built.request('/v1/webhooks', send('GET'))).status).toBe(200);
+    expect((await built.request('/v1/mail-triggers', send('GET'))).status).toBe(200);
   });
 });
 
@@ -463,6 +477,9 @@ describe('what each route asks the authorizer', () => {
         return next();
       },
       can: async () => false,
+      canFor: async () => {
+        throw new Error('unused');
+      },
       check: async () => {
         throw new Error('unused');
       },
@@ -555,7 +572,7 @@ describe('what each route asks the authorizer', () => {
     ['POST', '/unregister', undefined, ['write']],
     ['GET', '/fires', undefined, ['read']],
     ['POST', '/run-now', undefined, ['write']],
-    ['POST', '/owner', undefined, ['admin', 'execute flow:acme.nightly']],
+    ['POST', '/owner', undefined, ['write', 'admin', 'execute flow:acme.nightly']],
   ])('%s %s → %j', async (method, path, body, expected) => {
     const { r, id, checked } = await mounted();
     checked.length = 0;
@@ -580,6 +597,7 @@ describe('the list holds only schedules whose project the caller may read', () =
     return {
       authorize: () => async (_c, next) => next(),
       can: async () => false,
+      canFor: async () => true,
       check: async () => {
         throw new Error('unused');
       },

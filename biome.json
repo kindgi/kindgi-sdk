@@ -22,6 +22,7 @@
       "sdks/java/kindgi-pack/src/test/resources/derive/golden.json",
       "packages/specs/test-vectors/regexp-syntax/answers.json",
       "packages/specs/test-vectors/strict-schemas/answers.json",
+      "packages/connections/tests/tool-definitions.json",
       "pnpm-lock.yaml",
       "**/.astro/**",
       "**/*.astro"

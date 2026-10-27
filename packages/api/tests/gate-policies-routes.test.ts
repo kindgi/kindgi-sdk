@@ -268,6 +268,9 @@ describe('authorization: writes need admin on the tenant; reads need read on the
         return next();
       },
       can,
+      canFor: async () => {
+        throw new Error('unused');
+      },
       check: async () => {
         throw new Error('unused');
       },

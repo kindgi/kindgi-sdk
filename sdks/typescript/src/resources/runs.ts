@@ -417,7 +417,7 @@ export interface RunFailure {
  */
 export interface RunTrigger {
   readonly triggerId: string;
-  readonly kind: 'schedule' | 'event' | 'webhook';
+  readonly kind: 'schedule' | 'event' | 'webhook' | 'mail';
   readonly fireId: string;
   /** A schedule's fire: the occurrence the run is for. */
   readonly scheduledFor?: Timestamp;

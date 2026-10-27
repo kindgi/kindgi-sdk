@@ -224,6 +224,15 @@ say there were none.
   `status`, and its answer, `output.response.content`.
 - In the console: `schedules/<triggerId>`, and the run's `runs/<runId>`.
 
+**"What did the support inbox do with that mail?"**
+- In the CLI: `kindgi mail-triggers list` finds the trigger; `kindgi
+  mail-triggers fires <triggerId>` lists each new mail it found, newest
+  first, with its `outcome` (`started`, `pending`, `skipped`, `refused` or
+  `failed`), a `detail` saying why, and the `runId` it started. A
+  `refused` mail never runs: staff handle it in the mailbox.
+- In the console: no page shows mail triggers yet; the run is
+  `runs/<runId>`.
+
 **"Is Kindgi healthy?"**
 - In the CLI: `kindgi health` (`"ok": true` when the server answers) and
   `kindgi doctor` (each part, with a fix for any that fail).

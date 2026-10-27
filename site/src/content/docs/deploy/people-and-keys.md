@@ -92,6 +92,11 @@ with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
 - **Roles aren't checked.** A project role you record, and a service
   account's grants, give nothing more here. Making a person a tenant admin
   answers `501 person-grants-unsupported`.
+- **Schedules and webhook triggers keep to their owners** (runtime 0.2.0 or
+  later). Only a tenant admin changes, pauses, fires or unregisters someone
+  else's personal one, changes what a shared one runs, sets one's tools
+  allowed unattended, or takes one over
+  ([Shared or personal](../../guides/runs/run-on-a-schedule/#shared-or-personal)).
 
 [Run with authorization](../authorization/) when people need different
 access, or more than one person needs to be a tenant admin.
@@ -542,6 +547,49 @@ grant it.
 `kindgi service-accounts unregister <service-account-id>` takes its grants
 away, and its keys stop working.
 
+### A project's own account
+
+A project can have one service account of its own (runtime 0.2.0 or
+later). It runs only the triggers set to run as the project: shared
+schedules, webhook triggers and mail triggers on a company mailbox. A
+shared trigger that names a service account runs as that one instead.
+The project's account is made the first time a trigger is set to run as
+the project, when one is created or taken over
+with `--run-as=project` (`runAsProject: true` in the API), which takes
+`admin` on the project
+([Run as a service account](../../guides/runs/run-on-a-schedule/#run-as-a-service-account)).
+A project that never does that has none. A runtime that can't make one
+answers `--run-as=project` with `501 trigger-operation-unsupported`: "This
+runtime can't make a project's own account."
+
+- **Its grant is fixed:** `editor` on its project, and nothing else, so its
+  runs may do what the project's editors may. `grant` and `ungrant` on it
+  are refused, `409 service-account-project-owned`.
+- **It has no keys.** A key for it is refused the same way: "A project's
+  own account has no keys: give an app a service account of its own."
+- **It's named only as the project.** `--run-as=<service-account-id>` with
+  its id is refused: a tenant admin is answered `409
+  service-account-project-owned`, and anyone else gets the usual `403`.
+- **Its name is `project-<project-id>`.**
+  `kindgi service-accounts list --table` shows it with
+  `project's own: <project-id>` in its grants. `list` and `get` without
+  it, and the API, show its `projectId`. A trigger that runs as it has
+  `isProjectAccount: true` in its `owner`. If a tenant admin already made
+  an account of that name, `--run-as=project` is answered
+  `409 service-account-name-taken`: "An account named
+  `project-<project-id>` is already registered. A tenant admin can
+  unregister it."
+- **A tenant admin may unregister it.** The project's triggers that run as
+  it then stop, until a project admin takes each over. A take-over with
+  `--run-as=project` makes the project a new account.
+- **Deleting the project unregisters it.**
+- **Without an authorization store,** running a trigger as the project
+  takes a tenant-admin key, and its grant is kept as a record only: each
+  fire or delivery checks only that the account is registered.
+
+For an account used across projects, with other grants, or with keys for
+an app, make one of your own, as above.
+
 ## Who sees the tenant's people
 
 Only a tenant admin lists them. Anyone else gets:
@@ -751,7 +799,9 @@ Each change is kept as evidence: `person-added`, `person-granted`,
 `person-capabilities-revoked`, `api-key-minted`,
 `api-key-revoked`, `service-account-created`, `service-account-granted`,
 `service-account-ungranted` and `service-account-unregistered`. A key's
-secret is never in one.
+secret is never in one. A project's own account is made with one
+`service-account-created`, which has its `projectId` and
+`projectAccount: true`, and no separate `service-account-granted`.
 
 ## Next
 

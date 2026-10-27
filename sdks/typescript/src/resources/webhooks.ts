@@ -92,7 +92,9 @@ export interface WebhooksClient {
   /**
    * The caller becomes the trigger's owner: its runs act as the caller
    * from the next delivery. Pass `{ runAsServiceAccountId }` to make a
-   * service account the owner instead (needs `act_as` on the account).
+   * service account the owner instead (needs `act_as` on the account), or
+   * `{ runAsProject: true }` to make the project's own account the owner
+   * (made the first time).
    *
    * @wire POST /v1/webhooks/:triggerId/owner
    */

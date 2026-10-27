@@ -574,6 +574,14 @@ uv run kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_999
   "failureMessage": "handler-error: Tool \"my-pack.lookup-order\" handler threw: handler-throw: Handler for tool \"my-pack.lookup-order\" threw: Error: No order ord_9999",
 ```
 
+In TypeScript, the message goes on to say what caused the error, as Node
+writes it, up to three causes. A `fetch` that failed says why, where it
+said only `fetch failed`:
+`TypeError: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)`.
+The message is masked, its causes included: a Kindgi token, and a URL's
+secret query value such as `?token=` or `X-Amz-Signature=`, show as
+`[redacted]`.
+
 What the handler returns is checked against the output schema too; a return
 value that doesn't fit fails with `output-validation-failed`.
 
