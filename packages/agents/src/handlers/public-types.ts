@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Principal } from '@kindgi/authz';
-import type { FileValue, ProviderRegistry, TenantPolicy, UsageSink } from '@kindgi/capabilities';
+import type { ProviderRegistry, TenantPolicy, UsageSink } from '@kindgi/capabilities';
 import type { EmbeddingProviderRegistry } from '@kindgi/embedding';
 import type { GuardrailOutcomeSink } from '@kindgi/guardrails';
 import type { MemoryQueryBinding, MemoryRememberBinding } from '@kindgi/memory';
@@ -20,6 +20,7 @@ import type { ConnectionResolver, ToolRegistry, ToolSecretRef } from '@kindgi/to
 import type {
   AgentVersionVia,
   EnvName,
+  FileValue,
   LiveScope,
   OrgId,
   ProjectId,

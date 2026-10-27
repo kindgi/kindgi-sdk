@@ -14,7 +14,6 @@
 import { describe, expect, test } from 'vitest';
 
 import type {
-  FileValue,
   MessageFile,
   ModelCallInput,
   ModelCallResult,
@@ -29,6 +28,7 @@ import { defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
 import type {
   ConversationId,
+  FileValue,
   NodeId,
   ProjectId,
   ProvenanceId,

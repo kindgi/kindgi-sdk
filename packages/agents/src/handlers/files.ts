@@ -3,14 +3,13 @@
 
 import {
   DOCUMENT_FILE_TYPES,
-  type FileValue,
   IMAGE_FILE_TYPES,
   type MessageFile,
   type ModelInfo,
   type ModelMessage,
   filesForCall,
-  isFileValue,
 } from '@kindgi/capabilities';
+import { type FileValue, isFileValue } from '@kindgi/types';
 
 import type { Agent } from '../types.js';
 

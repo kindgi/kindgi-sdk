@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Capability, FileValue } from '@kindgi/capabilities';
+import type { Capability } from '@kindgi/capabilities';
 import type { Fact, MemoryScope, RecalledMessage } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
-import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
+import type {
+  Brand,
+  ConversationId,
+  FileValue,
+  ProjectId,
+  Semver,
+  TenantId,
+  Timestamp,
+} from '@kindgi/types';
 
 import type { AgentDerivation, AgentPins } from './pins.js';
 

@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { FileValue } from '@kindgi/capabilities';
 import type { RunBinding } from '@kindgi/runtime';
-import type { ListScope, ProjectId, Result, ScopeSegment, Semver, TenantId } from '@kindgi/types';
+import type {
+  FileValue,
+  ListScope,
+  ProjectId,
+  Result,
+  ScopeSegment,
+  Semver,
+  TenantId,
+} from '@kindgi/types';
 
 import type { AgentError } from './errors.js';
 import type {
