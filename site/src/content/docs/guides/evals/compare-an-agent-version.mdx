@@ -430,7 +430,8 @@ tool with the same arguments.
   result of a tool whose
   [results are from outside](../../tools/read-only-tools/#results-from-outside),
   the replay's model reads the past run's result the same way. On an earlier
-  runtime it reads as it came.
+  runtime it reads as it came. In a flow run, that holds for its agent steps
+  when the flow run was first judged on runtime 0.3.0 or later.
 
 **The replay runs** are ordinary runs, marked with `replayOf`, the past run,
 and `evalRunId`. Lists of runs leave them out. `kindgi runs list
