@@ -19,12 +19,17 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 
-import { BUILT_IN_CHECK_IDS, GUARDRAIL_POINTS as POINTS } from '@kindgi/guardrails';
+import {
+  BUILT_IN_CHECK_IDS,
+  GUARDRAIL_POINTS as POINTS,
+  guardrailPointIssues as pointIssues,
+} from '@kindgi/guardrails';
 
 import {
   GUARDRAIL_POINTS,
   RESERVED_CHECK_IDS,
   SCOPE_TOOL,
+  guardrailPointIssues,
   main,
   readBundleMap,
   runIndexer,
@@ -416,6 +421,21 @@ describe("a guardrail's point", () => {
     expect(SCOPE_TOOL.source).toBe(schema.$defs.Scope.properties.tools.items.pattern);
   });
 
+  test("guardrailPointIssues is @kindgi/guardrails' guardrailPointIssues", () => {
+    const guardrails = [
+      { at: 'before-tool', action: { 'on-violation': 'escalate' } },
+      { at: 'after-tool', action: { 'on-violation': 'compensate' }, scope: { tools: ['acme.*'] } },
+      { at: 'model-step', action: { 'on-violation': 'compensate' }, scope: { tools: ['acme.*'] } },
+      { action: { 'on-violation': 'escalate' }, scope: { tools: ['acme.woo.refund'] } },
+      { at: 'before-tool', action: { 'on-violation': 'retry' }, scope: { tools: ['acme.*'] } },
+    ];
+    for (const guardrail of guardrails) {
+      expect(guardrailPointIssues(guardrail)).toEqual(
+        pointIssues(guardrail as Parameters<typeof pointIssues>[0]),
+      );
+    }
+  });
+
   test('at and sees are carried, with the points of the check the guardrail ships', async () => {
     const report = await index(
       guardrailModule({
@@ -436,12 +456,14 @@ describe("a guardrail's point", () => {
     });
   });
 
-  test('a check the module exports under the guardrail\'s check id gives its points', async () => {
+  test("a check the module exports under the guardrail's check id gives its points", async () => {
     const report = await index({
       module: {
-        default: (guardrailModule({ check: 'acme.checks.args', at: 'model-step' }).module as {
-          default: unknown;
-        }).default,
+        default: (
+          guardrailModule({ check: 'acme.checks.args', at: 'model-step' }).module as {
+            default: unknown;
+          }
+        ).default,
         check: { id: 'acme.checks.args', evaluate, points: ['model-step'] },
       },
     });
@@ -488,6 +510,41 @@ describe("a guardrail's point", () => {
       "a check's points that name one twice",
       { check: { id: 'acme.checks.odd', evaluate, points: ['model-step', 'model-step'] } },
       'check "acme.checks.odd" \'points\' must name one or more of before-tool, after-tool, model-step, final-answer, each once',
+    ],
+    // What a deploy refuses, in its words and paths.
+    [
+      "'escalate' before a tool call",
+      { at: 'before-tool', action: { 'on-violation': 'escalate' } },
+      'guardrail acme.grounded: /action/on-violation: "escalate" is recorded at the final answer only, not at "before-tool"',
+    ],
+    [
+      "'compensate' after a tool call",
+      { at: 'after-tool', action: { 'on-violation': 'compensate' } },
+      'guardrail acme.grounded: /action/on-violation: "compensate" is recorded at the final answer only, not at "after-tool"',
+    ],
+    [
+      "'escalate' on a model reply",
+      { at: 'model-step', action: { 'on-violation': 'escalate' } },
+      'guardrail acme.grounded: /action/on-violation: "escalate" is recorded at the final answer only, not at "model-step"',
+    ],
+    [
+      'scope.tools on a model reply',
+      { at: 'model-step', scope: { tools: ['acme.woo.*'] } },
+      'guardrail acme.grounded: /scope/tools: scope.tools is for "before-tool" and "after-tool", not "model-step"',
+    ],
+    [
+      'scope.tools at the final answer',
+      { scope: { tools: ['acme.woo.*'] } },
+      'guardrail acme.grounded: /scope/tools: scope.tools is for "before-tool" and "after-tool", not "final-answer"',
+    ],
+    [
+      'both at once',
+      {
+        at: 'model-step',
+        action: { 'on-violation': 'compensate' },
+        scope: { tools: ['acme.woo.*'] },
+      },
+      'guardrail acme.grounded: /action/on-violation: "compensate" is recorded at the final answer only, not at "model-step"; /scope/tools: scope.tools is for "before-tool" and "after-tool", not "model-step"',
     ],
     ...(
       [
