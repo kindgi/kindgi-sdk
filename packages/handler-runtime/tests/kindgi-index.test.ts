@@ -24,6 +24,7 @@ import { BUILT_IN_CHECK_IDS, GUARDRAIL_POINTS as POINTS } from '@kindgi/guardrai
 import {
   GUARDRAIL_POINTS,
   RESERVED_CHECK_IDS,
+  SCOPE_TOOL,
   main,
   readBundleMap,
   runIndexer,
@@ -405,6 +406,16 @@ describe("a guardrail's point", () => {
     expect(GUARDRAIL_POINTS).toEqual(POINTS);
   });
 
+  test("SCOPE_TOOL is the guardrail schema's scope.tools pattern", async () => {
+    const schema = JSON.parse(
+      await fs.readFile(
+        createRequire(import.meta.url).resolve('@kindgi/specs/guardrail.schema.json'),
+        'utf8',
+      ),
+    ) as { $defs: { Scope: { properties: { tools: { items: { pattern: string } } } } } };
+    expect(SCOPE_TOOL.source).toBe(schema.$defs.Scope.properties.tools.items.pattern);
+  });
+
   test('at and sees are carried, with the points of the check the guardrail ships', async () => {
     const report = await index(
       guardrailModule({
@@ -471,8 +482,27 @@ describe("a guardrail's point", () => {
     [
       "a check's points that aren't points",
       { check: { id: 'acme.checks.odd', evaluate, points: ['before-handoff'] } },
-      'check "acme.checks.odd" \'points\' must name one or more of before-tool, after-tool, model-step, final-answer',
+      'check "acme.checks.odd" \'points\' must name one or more of before-tool, after-tool, model-step, final-answer, each once',
     ],
+    [
+      "a check's points that name one twice",
+      { check: { id: 'acme.checks.odd', evaluate, points: ['model-step', 'model-step'] } },
+      'check "acme.checks.odd" \'points\' must name one or more of before-tool, after-tool, model-step, final-answer, each once',
+    ],
+    ...(
+      [
+        ['no tools', []],
+        ["a '*' not at the end", ['acme.*.refund']],
+        ['an empty id', ['']],
+      ] as const
+    ).map(
+      ([how, tools]) =>
+        [
+          `scope.tools with ${how}`,
+          { at: 'before-tool', scope: { tools } },
+          "'scope.tools' must name one or more tool ids, each with at most a trailing '*'",
+        ] as const,
+    ),
   ] as const)('%s: refused', async (_what, overrides, message) => {
     const report = await index(guardrailModule(overrides));
     expect(report.fileErrors).toEqual([

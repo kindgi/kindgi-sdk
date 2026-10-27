@@ -292,6 +292,21 @@ describe('built-in checks at their points', () => {
     expect(result.passed).toBe(true);
   });
 
+  test('output-matches passes a reply with no text, one that only asks for calls', async () => {
+    const callsOnly = trace({
+      at: 'model-step',
+      step: { text: '', toolCalls: [call('lookup')] },
+    });
+    expect(await run('output-matches', { pattern: 'ORDER-\\d+' }, callsOnly)).toEqual({
+      passed: true,
+    });
+    expect((await run('output-matches', { pattern: '^$', negate: true }, callsOnly)).passed).toBe(
+      true,
+    );
+    // An empty answer is judged as before.
+    expect((await run('output-matches', { pattern: 'ORDER-\\d+' }, trace())).passed).toBe(false);
+  });
+
   test('forbidden-substring reads a result: a string as is, JSON, or an error message', async () => {
     const config = { patterns: ['secret'] };
     const at = (result: RunTrace['result']) =>
@@ -406,5 +421,15 @@ describe('validateGuardrail at a point', () => {
     expect(validateGuardrailSpec(declaration({ at: 'before-handoff' as never })).kind).toBe('err');
     expect(validateGuardrailSpec(declaration({ sees: 'everything' as never })).kind).toBe('err');
     expect(validateGuardrailSpec(declaration({ sees: 'conversation' })).kind).toBe('ok');
+  });
+
+  test('the schema refuses a scope.tools that would match no call', () => {
+    const scoped = (tools: string[]) =>
+      validateGuardrailSpec(declaration({ at: 'before-tool', scope: { tools } })).kind;
+    expect(scoped([])).toBe('err');
+    expect(scoped(['acme.*.refund'])).toBe('err');
+    expect(scoped(['acme.woo.**'])).toBe('err');
+    expect(scoped([''])).toBe('err');
+    expect(scoped(['acme.woo.*', 'acme.mail.send'])).toBe('ok');
   });
 });

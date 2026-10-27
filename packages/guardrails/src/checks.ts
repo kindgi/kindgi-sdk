@@ -176,7 +176,8 @@ const maxToolCalls: CheckFunction = async (config, trace) => {
  * if `negate: true`). Config: `{ pattern: string, flags?: string, negate?: boolean }`.
  *
  * At `'model-step'` it reads the reply's text, and at `'after-tool'` the
- * call's result (`textAt`).
+ * call's result (`textAt`). A reply with no text, one that only asks for
+ * calls, has nothing to match and passes.
  */
 const outputMatches: CheckFunction = async (config, trace) => {
   const pattern = typeof config.pattern === 'string' ? config.pattern : '';
@@ -186,6 +187,7 @@ const outputMatches: CheckFunction = async (config, trace) => {
     return { passed: false, reason: 'pattern config is required' };
   }
   const text = textAt(trace) ?? '';
+  if (trace.at === 'model-step' && text.length === 0) return { passed: true };
   const noun = textNoun(trace);
   const matched = patternOf(config, 'pattern', pattern, flags).test(text);
   const passed = negate ? !matched : matched;

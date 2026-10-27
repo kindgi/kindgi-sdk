@@ -76,14 +76,9 @@ export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
  *   (`RunTrace.step`).
  * - `'final-answer'`: the answer that would be stored (`RunTrace.output`).
  */
-export type GuardrailPoint = 'before-tool' | 'after-tool' | 'model-step' | 'final-answer';
-
-export const GUARDRAIL_POINTS: readonly GuardrailPoint[] = [
-  'before-tool',
-  'after-tool',
-  'model-step',
-  'final-answer',
-];
+export const GUARDRAIL_POINTS = ['before-tool', 'after-tool', 'model-step', 'final-answer'] as const;
+/** One of `GUARDRAIL_POINTS`. */
+export type GuardrailPoint = (typeof GUARDRAIL_POINTS)[number];
 
 /**
  * What a guardrail's check sees of the conversation: `'turn'`, this
@@ -122,7 +117,8 @@ export interface Scope {
   /**
    * At `'before-tool'` and `'after-tool'`: the tools whose calls it
    * checks, by id. A trailing `*` matches every id with that prefix
-   * (`'acme.woo.*'`). Absent: every tool.
+   * (`'acme.woo.*'`), and a `*` anywhere else is refused, as an empty
+   * list is. Absent: every tool.
    */
   readonly tools?: readonly string[];
 }

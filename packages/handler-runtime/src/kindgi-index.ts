@@ -1752,6 +1752,12 @@ export const GUARDRAIL_POINTS: readonly string[] = [
 ];
 
 /**
+ * A `scope.tools` entry: a tool id, or a prefix with a trailing `*` (the guardrail schema's
+ * pattern; a test holds the two equal).
+ */
+export const SCOPE_TOOL = /^[^*]*\*?$/;
+
+/**
  * The points the guardrail's own check runs at: the check object it names, or the one its
  * module exports under its `check` id. Undefined when the module ships none (a built-in).
  */
@@ -1773,11 +1779,12 @@ function packCheckPoints(
   if (
     !Array.isArray(points) ||
     points.length === 0 ||
-    !points.every((p) => typeof p === 'string' && GUARDRAIL_POINTS.includes(p))
+    !points.every((p) => typeof p === 'string' && GUARDRAIL_POINTS.includes(p)) ||
+    new Set(points).size !== points.length
   ) {
     return {
       kind: 'err',
-      error: `check "${checkId}" 'points' must name one or more of ${GUARDRAIL_POINTS.join(', ')}`,
+      error: `check "${checkId}" 'points' must name one or more of ${GUARDRAIL_POINTS.join(', ')}, each once`,
     };
   }
   return { kind: 'ok', value: points as string[] };
@@ -1851,6 +1858,20 @@ function buildGuardrail(
   }
   if (rec.sees !== undefined && rec.sees !== 'turn' && rec.sees !== 'conversation') {
     return manifestErr(relPath, `'sees' must be 'turn' or 'conversation'`);
+  }
+  const scopeTools = isObject(rec.scope) ? rec.scope.tools : undefined;
+  if (
+    scopeTools !== undefined &&
+    !(
+      Array.isArray(scopeTools) &&
+      scopeTools.length > 0 &&
+      scopeTools.every((t) => typeof t === 'string' && t.length > 0 && SCOPE_TOOL.test(t))
+    )
+  ) {
+    return manifestErr(
+      relPath,
+      `'scope.tools' must name one or more tool ids, each with at most a trailing '*'`,
+    );
   }
   const points = packCheckPoints(rec, module_, checkId ?? rec.id);
   if (points.kind === 'err') return manifestErr(relPath, points.error);
