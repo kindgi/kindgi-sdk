@@ -136,6 +136,18 @@ describe('fileParts', () => {
     expect(readFile).not.toHaveBeenCalled();
   });
 
+  test("a file the model couldn't read when it was attached is a line, and nothing is read", async () => {
+    const readFile = store({ photo: JPEG });
+    const [parts] = await fileParts([user([{ ...photo, notShown: 'refused' }])], {
+      readFile,
+      ...ALL,
+    });
+    expect(texts(parts ?? [])).toEqual([
+      'File "photo.jpg" (image/jpeg, 8 bytes): not shown: the model couldn\'t read it when it was attached.',
+    ]);
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
   test('type, size, store, gone and changed each give their line', async () => {
     const heic = file('heic', 'image/heic', new Uint8Array(10), { name: 'IMG_1.HEIC' });
     const big = file('big', 'image/png', JPEG, {
