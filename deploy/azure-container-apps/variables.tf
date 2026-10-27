@@ -71,7 +71,7 @@ variable "seed_tenant_id" {
 }
 
 variable "seed_user_id" {
-  description = "KINDGI_SEED_USER_ID: the first admin user. Keep it for the deployment's life."
+  description = "KINDGI_SEED_USER_ID, a UUID: the first admin user. Keep it for the deployment's life."
   type        = string
 }
 
