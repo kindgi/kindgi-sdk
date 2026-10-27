@@ -29,7 +29,8 @@ which gives every id the new pack's id.
 shows how.
 
 A copy runs on a runtime that runs each deployment as a service of its
-own, as one serving many tenants does. A runtime with one pack service,
+own (`KINDGI_PACK_ROUTING=per-deployment`, which only a runtime serving
+many tenants can set). A runtime with one pack service,
 such as a self-host serving one tenant, runs only the pack it was given,
 so a copy's code wouldn't run there. There, a second project gets the same
 items through an environment order: put both projects in one order
