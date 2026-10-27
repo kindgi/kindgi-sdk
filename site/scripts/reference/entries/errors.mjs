@@ -709,7 +709,7 @@ export const ERROR_ENTRIES = {
   },
   'environment-takes-promotions': {
     description:
-      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. Nothing is written.",
+      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. A tool's pin for a later environment is refused too: a tool's pin acts when an agent or flow version is made, which is in the first environment, so pin the tool there. Nothing is written.",
     details: [
       {
         key: 'firstProjectId',
@@ -782,7 +782,7 @@ export const ERROR_ENTRIES = {
   },
   'tool-not-pinnable': {
     description:
-      "The tool follows its server (a tool an MCP endpoint's catalog lists) or the runtime (a tool the runtime ships), so a pin couldn't keep it still. Reference it with a version range instead.",
+      "The tool follows its server (a tool an MCP endpoint's catalog lists: its metadata has the catalog's `kindgi.mcp` key) or the runtime (a tool the runtime ships), so a pin couldn't keep it still. Reference it with a version range instead.",
     details: [
       {
         key: 'toolId',

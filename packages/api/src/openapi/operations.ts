@@ -1689,6 +1689,21 @@ const FLOW_PINS: PinKindSpec = {
   pin409: '',
 };
 
+const TOOL_PINS: PinKindSpec = {
+  noun: 'tool',
+  tag: 'tools',
+  idParam: ToolIdPathParam,
+  openapiBase: '/v1/tools/{toolId}',
+  honoBase: '/v1/tools/:toolId',
+  acts: "An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version.",
+  latest:
+    'else the newest active version, the one a flow version made now would lock its tool step to.',
+  pin400:
+    " Or `tool-not-pinnable`: the tool follows its server (an MCP endpoint's catalog lists it; its metadata has the catalog's `kindgi.mcp` key) or the runtime (a tool the runtime ships), so a pin couldn't keep it still; reference it with a range.",
+  pin409:
+    " Or `environment-takes-promotions`: the project is a later environment of an environment order, where no agent or flow version is made, so a pin there would never act; pin the tool in the order's first environment (`details.firstProjectId`).",
+};
+
 /** The five pin operations of a flow or a tool (`routes/pinned-versions.ts`). */
 function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
   const { noun, tag, idParam } = kind;
@@ -4149,7 +4164,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterFlowResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `flow-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
     },
@@ -4296,7 +4311,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterToolResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse('No tool at that (id, version) under this tenant.'),
     },
@@ -4324,6 +4339,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+
+  ...pinnedVersionOperations(TOOL_PINS),
 
   // ---------- guardrails ----------
   {

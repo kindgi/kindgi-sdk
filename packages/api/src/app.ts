@@ -1756,6 +1756,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.environmentOrders,
         itemRights,
         itemServing,
+        input.pinnedVersions,
       ),
     );
   }
@@ -1773,6 +1774,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               tools: input.toolRegistry,
               agents: input.agentRegistry,
               ...(input.agentReleases !== undefined && { live: input.agentReleases.live }),
+              ...(input.pinnedVersions !== undefined && { pinned: input.pinnedVersions }),
             }
           : undefined,
         input.referenceScope,
@@ -1837,6 +1839,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
         ...(itemRights !== undefined && { itemRights }),
         ...(itemServing !== undefined && { itemServing }),
+        ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+        ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
       }),
     );
   }
@@ -2469,6 +2473,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
           ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
+          ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
           // A promotion asked to make its carried agents live pins each in
           // the target through the same gate a live route uses.
           ...(input.agentReleases !== undefined && {

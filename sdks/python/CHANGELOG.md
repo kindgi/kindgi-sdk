@@ -21,6 +21,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   and `history`, sync and async. A run says how its version was chosen, in
   `flow_version_via` (`explicit`, `pinned` or `latest`) and, for a pin,
   `flow_pinned_scope`.
+- `kindgi`: **`client.tools.pinned` pins a tool's version per project, org or
+  tenant.** An agent or flow version made in a project a pin covers locks the
+  tool at the pinned version (an agent's tool range, when the pinned version
+  is in it), so a new tool version can be published without reaching what's
+  made there. The same five calls as `client.flows.pinned`, sync and async.
 
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a

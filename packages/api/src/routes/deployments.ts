@@ -41,7 +41,13 @@ import type {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
-import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
+import {
+  type ToolPinLookup,
+  type UnpinnableRef,
+  publishDeployedAgent,
+  resolveAgentPins,
+  toolPinLookup,
+} from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { type BlockPins, type BlockVersionReads, resolveBlockPins } from '../block-pins.js';
 import { canonicalJson } from '../canonical-json.js';
@@ -78,6 +84,7 @@ import type { AgentReleaseBindings, LiveVersionBinding } from '../live-version-b
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
+import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import {
@@ -243,6 +250,12 @@ export interface DeploymentsRouterBindings {
    * version pins the one live for the deploy's project, else the latest.
    */
   readonly liveVersions?: LiveVersionBinding;
+  /**
+   * The tools' pinned versions: each tool a deployed agent or flow runs
+   * pins the version pinned for the deploy's project (an agent's, when
+   * it's in the reference's range), else as without it.
+   */
+  readonly pinnedVersions?: PinnedVersionBinding;
   /** Data blocks: an agent's block references are pinned at deploy with its tools. */
   readonly blockRegistry?: BlockRegistryBinding;
   /**
@@ -1193,12 +1206,15 @@ export function deploymentsRouter(
             }
           }
         }
+        // Each tool's pin for the project, looked up once for the deploy.
+        const toolPins = toolPinLookup(bindings.pinnedVersions, targetProjectId);
         if (bindings.agentRegistry !== undefined && targetProjectId !== undefined) {
           deployedAgents.push(
             ...(await registerAgents({
               agents: bindings.agentRegistry,
               tools: bindings.toolRegistry,
               blockPins: blockPinsOf,
+              toolPins,
               tenantId,
               projectId: targetProjectId,
               defined: validated.agents,
@@ -1215,6 +1231,7 @@ export function deploymentsRouter(
               tools: bindings.toolRegistry,
               agents: bindings.agentRegistry,
               ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
+              toolPins,
               tenantId,
               projectId: targetProjectId,
               defined: validated.flows,
@@ -2483,12 +2500,14 @@ async function registerAgents(input: {
   readonly tools: ToolRegistryBinding | undefined;
   /** Each agent's data-block pins (`pinBlocks`); undefined without a tool registry. */
   readonly blockPins: readonly BlockPins[] | undefined;
+  /** The tools' pins for the deploy's project, shared with its flows. */
+  readonly toolPins: ToolPinLookup | undefined;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Agent[];
   readonly rolled: RollbackAction[];
 }): Promise<DeployedAgent[]> {
-  const { agents, tools, blockPins, tenantId, projectId, rolled } = input;
+  const { agents, tools, blockPins, toolPins, tenantId, projectId, rolled } = input;
   // Signed deploys have no per-request principal — pass parent-only
   // tuples (no owner grant). Tenant admins keep access via
   // `admin from parent` cascade.
@@ -2510,7 +2529,7 @@ async function registerAgents(input: {
     return input.defined.map(deployedPrimitive);
   }
 
-  const pinsOf = await pinAgents(tools, blockPins, tenantId, input.defined);
+  const pinsOf = await pinAgents(tools, blockPins, tenantId, input.defined, toolPins);
   const deployed: DeployedAgent[] = [];
   for (const [i, agent] of input.defined.entries()) {
     const pins = pinsOf[i] as AgentPins;
@@ -2550,12 +2569,14 @@ async function registerFlows(input: {
   readonly tools: ToolRegistryBinding | undefined;
   readonly agents: AgentRegistryBinding | undefined;
   readonly live?: LiveVersionBinding;
+  /** The tools' pins for the deploy's project, shared with its agents. */
+  readonly toolPins: ToolPinLookup | undefined;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Flow[];
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
-  const { flows, tools, agents, live, tenantId, projectId, rolled } = input;
+  const { flows, tools, agents, live, toolPins, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
@@ -2580,6 +2601,7 @@ async function registerFlows(input: {
     tenantId,
     input.defined,
     live !== undefined ? { binding: live, projectId } : undefined,
+    toolPins,
   );
   const deployed: DeployedFlow[] = [];
   for (const [i, flow] of input.defined.entries()) {
@@ -2606,11 +2628,12 @@ async function pinFlows(
   tenantId: TenantId,
   defined: readonly Flow[],
   live: FlowPinsLive | undefined,
+  toolPins: ToolPinLookup | undefined,
 ): Promise<FlowPins[]> {
   const pins: FlowPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
   for (const [i, flow] of defined.entries()) {
-    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live);
+    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live, toolPins);
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
       continue;
@@ -2647,6 +2670,7 @@ async function pinAgents(
   blockPins: readonly BlockPins[],
   tenantId: TenantId,
   defined: readonly Agent[],
+  toolPins: ToolPinLookup | undefined,
 ): Promise<AgentPins[]> {
   const pins: AgentPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
@@ -2657,6 +2681,7 @@ async function pinAgents(
       agent,
       undefined,
       blockPins[i] as BlockPins,
+      toolPins,
     );
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);

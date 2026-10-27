@@ -481,10 +481,39 @@ function notPinnable(c: Ctx, requestId: string, toolId: string) {
     toWireError(
       {
         code: 'tool-not-pinnable',
-        message: `Tool "${toolId}" follows its server or the runtime, so a pin couldn't keep it still: reference it with a version range instead. Nothing was pinned.`,
+        message: `Tool "${toolId}" follows its server (an MCP catalog's tool, its metadata under "kindgi.mcp") or the runtime, so a pin couldn't keep it still: reference it with a version range instead. Nothing was pinned.`,
         toolId,
       },
       requestId,
+    ),
+  );
+}
+
+/**
+ * `409 flow-version-pinned` / `tool-version-pinned`: an unregister of a
+ * version some scope pins (the registry's `pinned`), naming those scopes.
+ */
+export function versionPinnedResponse(
+  c: Ctx,
+  kind: PinnedItemKind,
+  itemId: string,
+  version: string,
+  scopes: readonly PinScope[],
+): Response {
+  const code = kind === 'flow' ? 'flow-version-pinned' : 'tool-version-pinned';
+  c.status(statusFor(code) as never);
+  return c.json(
+    toWireError(
+      {
+        code,
+        message: `${itemId} ${version} is pinned in ${
+          scopes.length === 1 ? 'a scope' : `${scopes.length} scopes`
+        }: move those pins to another version, or unpin them, first, then unregister it.`,
+        [kind === 'flow' ? 'flowId' : 'toolId']: itemId,
+        version,
+        scopes: scopes.map(pinScopeToWire),
+      },
+      c.get('requestId'),
     ),
   );
 }

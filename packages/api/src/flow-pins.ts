@@ -8,7 +8,12 @@ import { latestVersion } from '@kindgi/tools';
 import type { Cursor, FlowId, ProjectId, TenantId, ToolId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
-import { type UnpinnableRef, activeToolVersions } from './agent-pins.js';
+import {
+  type ToolPinLookup,
+  type UnpinnableRef,
+  activeToolVersions,
+  pinnedToolVersion,
+} from './agent-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
 import type { FlowRegistryBinding, FlowVersionRecord } from './flow-binding.js';
 import type { LiveVersionBinding } from './live-version-binding.js';
@@ -31,7 +36,9 @@ export interface FlowPinsLive {
 /**
  * Pin a flow version when it's published, to what a run would have bound
  * then, so every run of the version uses those: each tool it runs to its
- * latest active version, and each agent it runs at no named version to
+ * version pinned for the flow's project, with `toolPins` (the project, then
+ * its org, then the tenant), else its latest active version; and each
+ * agent it runs at no named version to
  * the version a run that names none gets in the flow's project. That's
  * the agent's live version there (project, then its org, then the
  * tenant), with `live`, else its latest. A gated agent's flow runs what
@@ -46,6 +53,7 @@ export async function resolveFlowPins(
   tenantId: TenantId,
   flow: Flow,
   live?: FlowPinsLive,
+  toolPins?: ToolPinLookup,
 ): Promise<FlowPinsOutcome> {
   const refs = flowRefs(flow);
   const pinned: { tools: Record<string, string>; agents: Record<string, string> } = {
@@ -54,8 +62,10 @@ export async function resolveFlowPins(
   };
   const issues: UnpinnableRef[] = [];
   for (const id of refs.tools) {
-    const latest = latestVersion(await activeToolVersions(tools, tenantId, id as ToolId));
-    if (latest !== undefined) pinned.tools[id] = latest;
+    const active = await activeToolVersions(tools, tenantId, id as ToolId);
+    const version =
+      (await pinnedToolVersion(toolPins, tenantId, id, active)) ?? latestVersion(active);
+    if (version !== undefined) pinned.tools[id] = version;
     else
       issues.push({
         path: '/nodes',

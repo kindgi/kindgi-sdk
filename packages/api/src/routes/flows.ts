@@ -8,7 +8,7 @@ import { type Flow, type FlowError, flowPinsDigest, loadFlow } from '@kindgi/flo
 import type { Cursor, FlowId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
-import type { UnpinnableRef } from '../agent-pins.js';
+import { type UnpinnableRef, toolPinLookup } from '../agent-pins.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -41,6 +41,7 @@ import {
   isPinWrite,
   mountPinnedVersionRoutes,
   pinRightsMiddleware,
+  versionPinnedResponse,
 } from './pinned-versions.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
@@ -542,6 +543,9 @@ export function flowsRouter(
     const version = c.req.param('version');
 
     const outcome = await binding.unregister({ tenantId, flowId, version });
+    if (!outcome.unregistered && outcome.pinned !== undefined && outcome.pinned.length > 0) {
+      return versionPinnedResponse(c, 'flow', flowId, version, outcome.pinned);
+    }
     if (!outcome.unregistered) {
       c.status(statusFor('flow-not-found') as never);
       return c.json(
@@ -662,6 +666,8 @@ export interface FlowPinning {
   readonly agents: AgentRegistryBinding;
   /** The agents' live versions: an agent step pins the one live for the flow's project. */
   readonly live?: LiveVersionBinding;
+  /** The tools' pinned versions: a tool step pins the one pinned for the flow's project. */
+  readonly pinned?: PinnedVersionBinding;
 }
 
 /** The flow with its pins, or the references with no published version; as it is without `pinning`. */
@@ -681,6 +687,7 @@ async function pinFlow(
     tenantId,
     flow,
     pinning.live !== undefined ? { binding: pinning.live, projectId } : undefined,
+    toolPinLookup(pinning.pinned, projectId),
   );
   if (resolved.kind === 'unpinnable') return resolved;
   return {

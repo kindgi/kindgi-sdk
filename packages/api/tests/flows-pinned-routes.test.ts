@@ -4,8 +4,9 @@
 /**
  * The flows router with pinned versions: the pin routes mount only with
  * `pinnedVersions`; changing a pin needs `pin` on the flow and reading one
- * needs `read`; and the flow registry answers what the pin routes ask
- * (registered, gone, an active version, the newest version).
+ * needs `read`; the flow registry answers what the pin routes ask
+ * (registered, gone, an active version, the newest version); and
+ * unregistering a pinned version is `409 flow-version-pinned`.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -15,7 +16,7 @@ import { describe, expect, test } from 'vitest';
 
 import { ref } from '@kindgi/authz';
 import type { Flow } from '@kindgi/flow';
-import type { FlowId, Semver, TenantId, Timestamp } from '@kindgi/types';
+import type { FlowId, PinScope, Semver, TenantId, Timestamp } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -63,17 +64,26 @@ function flowAt(version: string, unregisteredAt?: string): FlowVersionRecord {
   } as unknown as Flow as FlowVersionRecord;
 }
 
-/** A flow with these versions (the last one newest); `retired` → none active, the head kept. */
+/**
+ * A flow with these versions (the last one newest); `retired` → none
+ * active, the head kept. Unregistering a version in `pinnedIn` is refused
+ * with those scopes.
+ */
 function flowRegistry(
   versions: readonly FlowVersionRecord[],
   retired = false,
+  pinnedIn?: readonly PinScope[],
 ): FlowRegistryBinding {
   const active = versions.filter((v) => v.unregisteredAt === undefined);
   return {
     list: unused,
     listVersions: unused,
     publish: unused,
-    unregister: unused,
+    async unregister() {
+      return pinnedIn !== undefined
+        ? { unregistered: false, pinned: pinnedIn }
+        : { unregistered: true };
+    },
     reinstateVersion: unused,
     async get({ flowId }: { flowId: FlowId }) {
       return flowId === FLOW && !retired ? (active.at(-1) ?? null) : null;
@@ -199,6 +209,22 @@ describe('what the flow registry answers', () => {
     );
     expect(unknown.status).toBe(404);
     expect(binding.calls).toEqual([]);
+  });
+
+  test('unregistering a pinned version is 409 flow-version-pinned, naming the scopes', async () => {
+    const projectId = randomUUID();
+    const res = await app(
+      flowRegistry([flowAt('1.0.0')], false, [{ kind: 'project', projectId: projectId as never }]),
+      pins(),
+    ).request(`/v1/flows/${FLOW}/versions/1.0.0/unregister`, { method: 'POST', headers: auth });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: { code: string; details: unknown } };
+    expect(body.error.code).toBe('flow-version-pinned');
+    expect(body.error.details).toEqual({
+      flowId: FLOW,
+      version: '1.0.0',
+      scopes: [{ kind: 'project', projectId }],
+    });
   });
 
   test('an unpin with no pin of its own is 409 not-pinned', async () => {

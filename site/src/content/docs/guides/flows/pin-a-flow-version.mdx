@@ -22,8 +22,9 @@ meanwhile runs only when a run names it.
   uses `acme.process-order` from [Write a flow](../write-a-flow/), at
   1.0.0, and publishes a 1.1.0.
 - **A project's id:** `kindgi projects list` lists them.
-- **For your app:** Node 22.12 or later, or Python 3.11 or later, with Kindgi
-  0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For your app:** Node 22.12 or later, Python 3.11 or later, or Java 17 or
+  later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Which version a run takes
 
@@ -124,6 +125,109 @@ tried = kindgi.runs.start(
 )
 print(held.flow_version, held.flow_version_via)
 print(tried.flow_version, tried.flow_version_via)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/PinAFlow.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.PinScopeProject;
+import com.kindgi.client.models.PinVersionBody;
+import com.kindgi.client.models.PinnedVersionResolution;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartRunBody;
+import com.kindgi.client.resources.FlowsPinnedResolveParams;
+import java.util.Map;
+import java.util.UUID;
+
+public final class PinAFlow {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    UUID projectId = UUID.fromString(args[0]);
+    String flow = "acme.process-order";
+
+    // Hold the project's runs on 1.0.0.
+    kindgi.flows().pinned().pin(flow, PinVersionBody.builder()
+        .version("1.0.0")
+        .scope(PinScopeProject.builder().projectId(projectId).build())
+        .reason("1.0.0 is the version we checked")
+        .build());
+
+    // Which version would a run there take, and why?
+    PinnedVersionResolution inUse = kindgi.flows().pinned().resolve(flow,
+        FlowsPinnedResolveParams.builder().projectId(projectId).build());
+    System.out.println(inUse.version() + " " + inUse.via() + " "
+        + (inUse.pinnedScope() == null ? null : inUse.pinnedScope().kind()));
+
+    // A run that names no version takes the pin; one that names 1.1.0 tries it.
+    Run held = kindgi.runs().start(StartRunBody.WithFlow.builder()
+        .flow(flow)
+        .projectId(projectId)
+        .input(Map.of("orderId", "A-100"))
+        .build());
+    Run tried = kindgi.runs().start(StartRunBody.WithFlow.builder()
+        .flow(flow)
+        .flowVersion("1.1.0")
+        .projectId(projectId)
+        .input(Map.of("orderId", "A-100"))
+        .build());
+    System.out.println(held.flowVersion() + " " + held.flowVersionVia());
+    System.out.println(tried.flowVersion() + " " + tried.flowVersionVia());
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/PinAFlow.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{PinScopeProject, PinVersionBody, StartRunBody}
+import com.kindgi.client.resources.FlowsPinnedResolveParams
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object PinAFlow {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    val projectId = UUID.fromString(args(0))
+    val flow = "acme.process-order"
+
+    // Hold the project's runs on 1.0.0.
+    kindgi.flows().pinned().pin(flow, PinVersionBody.builder()
+      .version("1.0.0")
+      .scope(PinScopeProject.builder().projectId(projectId).build())
+      .reason("1.0.0 is the version we checked")
+      .build())
+
+    // Which version would a run there take, and why?
+    val inUse = kindgi.flows().pinned().resolve(flow,
+      FlowsPinnedResolveParams.builder().projectId(projectId).build())
+    println(s"${inUse.version} ${inUse.via} ${Option(inUse.pinnedScope).map(_.kind).orNull}")
+
+    // A run that names no version takes the pin; one that names 1.1.0 tries it.
+    val held = kindgi.runs().start(StartRunBody.WithFlow.builder()
+      .flow(flow)
+      .projectId(projectId)
+      .input(Map("orderId" -> "A-100").asJava)
+      .build())
+    val tried = kindgi.runs().start(StartRunBody.WithFlow.builder()
+      .flow(flow)
+      .flowVersion("1.1.0")
+      .projectId(projectId)
+      .input(Map("orderId" -> "A-100").asJava)
+      .build())
+    println(s"${held.flowVersion} ${held.flowVersionVia}")
+    println(s"${tried.flowVersion} ${tried.flowVersionVia}")
+  }
+}
 ```
 
 </TabItem>
