@@ -37,9 +37,10 @@ export function replyRefOf(runId: string): string {
  * count as left out too. A mail's lines besides its text are bounded:
  * the first 20 people of each of To, Cc and Reply-To and the first 20
  * attachments, then how many more, and each name or subject cut at 200
- * characters. The new mail always goes in, so only a `turnChars` under
- * its lines (at most about 37,000 characters besides its id) is passed,
- * by them alone.
+ * characters. An earlier mail that lists attachments names its id, as
+ * the new mail does. The new mail always goes in, so only a `turnChars`
+ * under its lines (at most about 37,000 characters besides its id) is
+ * passed, by them alone.
  */
 export function mailTurn(input: MailTurnInput): MailTurn {
   const { read, given, budget } = input;
@@ -140,9 +141,13 @@ function leftOutLine(n: number): string {
   return `--- ${count(n, 'mail')} left out ---`;
 }
 
-/** An earlier mail's lines: who it's from and when, then its text. */
+/**
+ * An earlier mail's lines: who it's from and when, then its text. One that
+ * lists attachments names its id too, for the attachment tools.
+ */
 function mailLines(m: MailMessage, mailbox: string, subject: string): string[] {
-  return [`--- ${about(m, mailbox, subject)}`, ...mailText(m)];
+  const id = m.attachments.length > 0 ? `id ${m.id}: ` : '';
+  return [`--- ${id}${about(m, mailbox, subject)}`, ...mailText(m)];
 }
 
 /** The new mail's lines: its id too, and its To, Cc and Reply-To. */
@@ -195,7 +200,8 @@ function recipients(mail: MailMessage): string {
 /**
  * A mail's own text, its lines that would read as this message's own
  * `---` lines set in by a space (invisible format characters before the
- * `---` count for nothing), then its attachments.
+ * `---` count for nothing), then its attachments, numbered from 1 as the
+ * attachment tools take them.
  */
 function mailText(m: MailMessage): string[] {
   const empty = m.body.trim() === '';
@@ -204,7 +210,7 @@ function mailText(m: MailMessage): string[] {
   if (m.bodyCut) lines.push('[the rest of this mail is cut]');
   const more = Math.max(m.attachments.length - LIST_MAX, 0) + (m.attachmentsLeftOut ?? 0);
   if (m.attachments.length > 0 || more > 0) {
-    const listed = m.attachments.slice(0, LIST_MAX).map(attachmentText);
+    const listed = m.attachments.slice(0, LIST_MAX).map((a, i) => `${i + 1}. ${attachmentText(a)}`);
     lines.push(`Attachments: ${listText(listed, more)}`);
   }
   return lines;

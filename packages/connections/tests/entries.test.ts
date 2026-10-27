@@ -72,6 +72,7 @@ describe('the Google entry', () => {
           'gmail.send': 100,
           'gmail.messages.get': 60,
           'gmail.messages.get.metadata': 20,
+          'gmail.attachments.get': 5,
           'gmail.threads.get': 120,
           'gmail.messages.list': 5,
           'gmail.history.list': 2,
@@ -175,6 +176,7 @@ describe('the Microsoft entry', () => {
         costs: {
           'outlook.messages.list': 0,
           'outlook.messages.get': 0,
+          'outlook.attachments.get': 0,
           'outlook.messages.delta': 0,
           'outlook.folders.get': 0,
         },

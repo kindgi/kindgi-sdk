@@ -21,8 +21,8 @@ import { defineApp } from './define.js';
  *   when no other connection of theirs uses that grant.
  * - **Rate limit:** 6,000 units a minute per connection, in Gmail's quota
  *   units: a send costs 100, reading a message 60 (20 for its headers or
- *   its date only), a thread 120, a message list 5, the mailbox's history 2 and its
- *   profile 1.
+ *   its date only), a thread 120, a message list 5, an attachment 5, the
+ *   mailbox's history 2 and its profile 1.
  */
 export const google = defineApp({
   id: 'google',
@@ -65,6 +65,7 @@ export const google = defineApp({
         'gmail.send': 100,
         'gmail.messages.get': 60,
         'gmail.messages.get.metadata': 20,
+        'gmail.attachments.get': 5,
         'gmail.threads.get': 120,
         'gmail.messages.list': 5,
         'gmail.history.list': 2,

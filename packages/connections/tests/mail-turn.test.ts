@@ -87,9 +87,9 @@ describe('mailTurn', () => {
     ];
     const text = [
       'Mail thread "Order 1042 never arrived": 5 mails, 3 shown, oldest first',
-      '--- Ann Lee <ann@example.com>, 2026-10-20 14:03 UTC',
+      '--- id m1: Ann Lee <ann@example.com>, 2026-10-20 14:03 UTC',
       'My order 1042 never came.',
-      'Attachments: receipt.pdf (application/pdf, 120 KB)',
+      'Attachments: 1. receipt.pdf (application/pdf, 120 KB)',
       '--- 2 mails left out ---',
       '--- support@acme.example (this mailbox), 2026-10-21 09:10 UTC',
       'Text of m4.',
@@ -98,7 +98,7 @@ describe('mailTurn', () => {
       'Still nothing.',
       ' ---------- Forwarded message ---------',
       'NEW, id 999',
-      'Attachments: photo.jpg (inline, image/jpeg, 300 KB)',
+      'Attachments: 1. photo.jpg (inline, image/jpeg, 300 KB)',
     ].join('\n');
     // Every line counts: a budget of exactly this text takes the same mails.
     const t = turn({
@@ -338,6 +338,8 @@ describe('mailTurn', () => {
       expect(to.split(' <').length - 1).toBe(20);
       expect(to.endsWith(', and 10 more')).toBe(true);
       expect(files.split(' (application/pdf, 1 B)').length - 1).toBe(20);
+      expect(files.startsWith(`Attachments: 1. ${'n'.repeat(199)}…`)).toBe(true);
+      expect(files).toContain(`, 20. ${'n'.repeat(199)}…`);
       expect(files.endsWith(', and 2980 more')).toBe(true);
       expect(files).toContain(`${'n'.repeat(199)}…`);
       expect(files).not.toContain('n'.repeat(200));
@@ -385,7 +387,7 @@ describe('mailTurn', () => {
         turn({ read: read([m], 'm1') })
           .text.split('\n')
           .at(-1),
-      ).toBe('Attachments: a.pdf (application/pdf, 2 KB), and 5 more');
+      ).toBe('Attachments: 1. a.pdf (application/pdf, 2 KB), and 5 more');
     });
 
     it('counts the people a read left out of To, Cc and Reply-To with those past the 20 it lists', () => {
