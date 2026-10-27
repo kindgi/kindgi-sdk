@@ -18,7 +18,9 @@ import { type Flow, type FlowNode, isFanoutNode, isLoopNode } from './types.js';
  * then, and each agent that names no version to its version live for
  * that project, else its latest. Every run of that flow version uses
  * those versions, so a new tool or agent version reaches the flow only
- * through a new flow version.
+ * through a new flow version. The one exception: an agent step in a run
+ * whose segment a gate policy for that agent covers runs the agent's
+ * version live for that segment.
  *
  * Set by the runtime at publish, never authored. A flow version
  * published before pins existed has none: each run of it binds each
