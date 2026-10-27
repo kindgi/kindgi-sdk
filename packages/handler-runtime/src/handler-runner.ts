@@ -39,11 +39,22 @@ import {
   isZodSchema,
   parseWithSchema,
 } from '@kindgi/schema';
-import { type ToolConnection, connectionRejectionOf, withoutConnectionTokens } from '@kindgi/tools';
+import {
+  type FileStore,
+  type ToolConnection,
+  connectionRejectionOf,
+  withoutConnectionTokens,
+} from '@kindgi/tools';
 import type { Result } from '@kindgi/types';
 
 import { serializeCause, stringifyError } from './error-text.js';
-import { MAX_PAUSE_NAME_LENGTH, MAX_PAUSE_TIMEOUT_MS, type WaitTokenRef } from './protocol.js';
+import { fileStoreOf, fileUploadOf } from './file-upload.js';
+import {
+  type FileUploadRef,
+  MAX_PAUSE_NAME_LENGTH,
+  MAX_PAUSE_TIMEOUT_MS,
+  type WaitTokenRef,
+} from './protocol.js';
 import { withoutSecrets } from './secret-redaction.js';
 
 /**
@@ -98,6 +109,22 @@ export interface HandlerContext {
    */
   readonly pause?: (options?: PauseOptions) => PauseAnswer;
   /**
+   * Only for a tool that declares `storesFiles`: the call's file store
+   * (protocol 2.10.0). `store` sends a file's bytes to the runtime, which
+   * checks and stores them, and answers the file value to return in the
+   * result's top-level `files`, or why it stored nothing. Absent when the
+   * runtime sent no file upload (one from before 2.10.0, one with no file
+   * store, or a call with no `idempotencyKey`). Never on the wire; the
+   * runner adds it.
+   */
+  readonly files?: FileStore;
+  /**
+   * The call's file upload as the runtime sent it (protocol 2.10.0). The
+   * runner keeps it from the handler, which gets `files` instead. Not
+   * enumerable, like `secrets`.
+   */
+  readonly fileUpload?: FileUploadRef;
+  /**
    * Never on the wire; the pack service adds it: aborted when the call
    * is cancelled or passes its deadline. Handlers that do slow I/O
    * should pass it on so they stop promptly.
@@ -128,6 +155,12 @@ export interface ToolInvocationSpec {
    * carried a token.
    */
   readonly pauses?: boolean;
+  /**
+   * The tool declares `storesFiles`: its handler gets `ctx.files` when the
+   * call carried a file upload. A tool without it gets no `files`, and
+   * no handler ever gets the upload itself.
+   */
+  readonly storesFiles?: boolean;
 }
 
 /** What a pausing handler passes to `ctx.pause`. */
@@ -511,22 +544,41 @@ function noWaitToken(toolId: string): PauseNotAvailableError {
   );
 }
 
+/** What the runner decides for each call: never passed through from the caller. */
+const CALL_KEYS: ReadonlySet<string> = new Set(['waitToken', 'pause', 'fileUpload', 'files']);
+
 /**
  * The context a handler gets. A tool that declares `pauses` gets the
- * call's `waitToken` and `pause`; any other tool gets neither, even when
- * the call carried a token. The caller's context isn't changed; its
- * properties, non-enumerable ones too (`secrets`, `connections`, `log`), are kept.
+ * call's `waitToken` and `pause`; a tool that declares `storesFiles` gets
+ * `files` when the call carried a file upload; any other tool gets none of
+ * them, even when the call carried a token. No handler gets the upload
+ * itself. The caller's context isn't changed; its properties,
+ * non-enumerable ones too (`secrets`, `connections`, `log`), are kept.
  */
 function callContext(ctx: HandlerContext, tool: ToolInvocationSpec): HandlerContext {
-  const { waitToken } = ctx;
-  if (tool.pauses !== true && waitToken === undefined) return ctx;
+  const own = Object.getOwnPropertyDescriptors(ctx);
+  if (tool.pauses !== true && !Object.keys(own).some((key) => CALL_KEYS.has(key))) return ctx;
   const descriptors = Object.fromEntries(
-    Object.entries(Object.getOwnPropertyDescriptors(ctx)).filter(
-      ([key]) => key !== 'waitToken' && key !== 'pause',
-    ),
+    Object.entries(own).filter(([key]) => !CALL_KEYS.has(key)),
   );
   const out = Object.defineProperties({}, descriptors) as HandlerContext;
-  if (tool.pauses !== true) return out;
+  const upload = tool.storesFiles === true ? fileUploadOf(ctx.fileUpload) : undefined;
+  if (upload !== undefined) {
+    Object.defineProperty(out, 'files', {
+      value: fileStoreOf(upload, ctx.abortSignal),
+      enumerable: true,
+    });
+  }
+  if (tool.pauses === true) withPause(out, ctx.waitToken, tool);
+  return out;
+}
+
+/** `waitToken` and `pause` on a pausing tool's context, read from the call's token. */
+function withPause(
+  out: HandlerContext,
+  waitToken: WaitTokenRef | undefined,
+  tool: ToolInvocationSpec,
+): void {
   if (waitToken === undefined) {
     Object.defineProperty(out, 'waitToken', {
       get: () => {
@@ -549,7 +601,6 @@ function callContext(ctx: HandlerContext, tool: ToolInvocationSpec): HandlerCont
       });
     },
   });
-  return out;
 }
 
 /**
@@ -815,12 +866,15 @@ async function defaultImportHandler(modulePath: string): Promise<HandlerModule> 
 }
 
 /**
- * A thrown value with the call's connection tokens and secrets replaced
- * by `[redacted]`, at any depth (`withoutConnectionTokens`,
- * `withoutSecrets`).
+ * A thrown value with the call's connection tokens, secrets and file
+ * upload token replaced by `[redacted]`, at any depth
+ * (`withoutConnectionTokens`, `withoutSecrets`).
  */
 function withoutCallValues(cause: unknown, ctx: HandlerContext): unknown {
-  const secrets = ctx.secrets === undefined ? [] : Object.values(ctx.secrets);
+  const secrets = [
+    ...(ctx.secrets === undefined ? [] : Object.values(ctx.secrets)),
+    ...(ctx.fileUpload === undefined ? [] : [ctx.fileUpload.token]),
+  ];
   return withoutSecrets(withoutConnectionTokens(cause, [ctx.connections]), secrets);
 }
 

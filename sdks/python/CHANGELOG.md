@@ -13,6 +13,19 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a tool can store the files it fetches.** `@tool(stores_files=True)`
+  gives each call `ctx.files`: `ctx.files.store(name=…, content_type=…, data=…)`
+  (`store_async` from an async handler) stores a file, such as a mail's
+  attachment, as a file the call's run owns. The runtime checks the bytes and
+  answers the file's value, which the tool returns in its result's top-level
+  `files`, and an agent is shown the file; or it answers why nothing was stored
+  (`type`, `size`, or `limit` past 10 files a call). The same bytes again in the
+  same call answer the first file. The pack service posts the bytes to the
+  call's upload link, and the handler never sees the link or its token. A call
+  from a runtime before pack protocol 2.10.0 carries no upload, and
+  `ctx.files` is `None`. The pack's index carries it as `storesFiles`, and
+  the client's `Tool` gains `stores_files`.
+
 - `kindgi`: **a conversation's messages carry their files.** The client's
   `ConversationMessage` gains `files`: the stored files the message names, each
   a `FileValue` (`artifact_id`, `name`, `content_type`, `size`, `sha256`), as

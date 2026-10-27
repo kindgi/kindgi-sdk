@@ -23,7 +23,9 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { type IncomingHttpHeaders, createServer } from 'node:http';
 import { createRequire } from 'node:module';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -70,8 +72,11 @@ export interface PackServiceTarget {
  * - `pause`: a tool that declares `pauses` gets the call's wait token and
  *   may answer with a pause (pack protocol 2.8.0); the fixture pack has
  *   `conformance.pause`.
+ * - `files`: a tool that declares `storesFiles` gets a file store that posts
+ *   to the call's upload link, and its handler never sees the link or the
+ *   token (pack protocol 2.10.0); the fixture pack has `conformance.store`.
  */
-export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter' | 'pause';
+export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter' | 'pause' | 'files';
 
 /** Root of a fixture pack shipped with this package (`node-pack`, `python-pack`). */
 export function fixturePackDir(name: string): string {
@@ -94,6 +99,8 @@ export const FIXTURE_TOOL_IDS = [
 ] as const;
 /** The fixture pack's pausing tool, for a target that supports `pause`. */
 export const FIXTURE_PAUSE_TOOL_ID = 'conformance.pause';
+/** The fixture pack's tool that stores files, for a target that supports `files`. */
+export const FIXTURE_FILES_TOOL_ID = 'conformance.store';
 export const FIXTURE_CHECK_IDS = [
   'conformance.checks.min-length',
   'conformance.checks.throws',
@@ -419,6 +426,47 @@ function untilHeld(service: RunningService, release: string): Promise<string> {
   );
 }
 
+/**
+ * A call's upload link for the `files` cases: answers `answer`, and keeps
+ * each request it receives.
+ */
+interface UploadLink {
+  readonly url: string;
+  readonly received: {
+    readonly method: string | undefined;
+    readonly headers: IncomingHttpHeaders;
+    readonly body: string;
+  }[];
+  answer: { readonly status: number; readonly body: unknown };
+  close(): Promise<void>;
+}
+
+async function uploadLink(): Promise<UploadLink> {
+  const received: UploadLink['received'] = [];
+  const link = {
+    url: '',
+    received,
+    answer: { status: 200, body: {} } as { readonly status: number; readonly body: unknown },
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      received.push({
+        method: req.method,
+        headers: req.headers,
+        body: Buffer.concat(chunks).toString(),
+      });
+      res.writeHead(link.answer.status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(link.answer.body));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  link.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/file-uploads`;
+  return link;
+}
+
 function toolCall(
   id: string,
   input: unknown,
@@ -475,6 +523,8 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       blocks?: Record<string, unknown>[];
     };
     let service: RunningService;
+    /** The call's upload link for the `files` cases. */
+    let link: UploadLink | undefined;
 
     const response = (answer: Answer): Record<string, unknown> => {
       expect(answer.status).toBe(200);
@@ -489,10 +539,12 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       indexText = await readFile(indexPath, 'utf8');
       index = JSON.parse(indexText) as typeof index;
       service = await startService(target, indexPath);
+      if (target.unsupported?.includes('files') !== true) link = await uploadLink();
     });
 
     afterAll(async () => {
       await service?.terminate();
+      await link?.close();
       if (workDir !== '') await rm(workDir, { recursive: true, force: true });
     });
 
@@ -508,6 +560,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(index.publishedAt).toBe(PINS.publishedAt);
         const toolIds: string[] = [...FIXTURE_TOOL_IDS];
         if (target.unsupported?.includes('pause') !== true) toolIds.push(FIXTURE_PAUSE_TOOL_ID);
+        if (target.unsupported?.includes('files') !== true) toolIds.push(FIXTURE_FILES_TOOL_ID);
         expect(index.tools.map((t) => t.id)).toEqual(toolIds.sort());
         expect(index.tools.every((t) => t.version === '1.0.0')).toBe(true);
         expect(index.guardrails.map((g) => g.checkId ?? g.id).sort()).toEqual([
@@ -1367,6 +1420,103 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           code: 'handler-shape-invalid',
           toolId: FIXTURE_PAUSE_TOOL_ID,
         });
+      });
+    });
+
+    describe.skipIf(target.unsupported?.includes('files') === true)('stores files', () => {
+      // Pack protocol 2.10.0: the call's file upload, as the runtime sends it to a tool that
+      // stores files. The link is this suite's own server, which keeps what it receives.
+      const token = 'kgi_fu_conformance-token';
+      const stored = {
+        type: 'kindgi.file',
+        artifactId: 'art-conformance',
+        name: 'invoice.txt',
+        contentType: 'text/plain',
+        size: 4,
+        sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+      };
+      const served = (): UploadLink => {
+        if (link === undefined) throw new Error('the upload link is not running');
+        return link;
+      };
+      const storeCall = (ctx: object = { ...CTX, fileUpload: { url: served().url, token } }) =>
+        toolCall(
+          FIXTURE_FILES_TOOL_ID,
+          { name: 'Rechnung März.txt', contentType: 'text/plain', text: 'test' },
+          { ctx },
+        );
+
+      test('the index says which tool stores files', () => {
+        const storing = index.tools.filter((t) => t.storesFiles !== undefined).map((t) => t.id);
+        expect(storing).toEqual([FIXTURE_FILES_TOOL_ID]);
+      });
+
+      test('a store posts the bytes with the token, and the handler gets what the runtime answered', async () => {
+        served().answer = { status: 200, body: { file: stored } };
+        const from = served().received.length;
+        const answer = response(await invoke(service, storeCall()));
+        expect(answer).toEqual({
+          v: 2,
+          kind: 'result',
+          output: { stored: true, answer: { file: stored } },
+        });
+        const [received] = served().received.slice(from);
+        expect(received?.method).toBe('POST');
+        expect(received?.headers.authorization).toBe(`Bearer ${token}`);
+        expect(received?.headers['content-type']).toBe('text/plain');
+        expect(received?.headers['kindgi-file-name']).toBe('Rechnung%20M%C3%A4rz.txt');
+        expect(received?.body).toBe('test');
+      });
+
+      test('a store that keeps nothing answers why', async () => {
+        served().answer = { status: 200, body: { notStored: 'limit' } };
+        const answer = response(await invoke(service, storeCall()));
+        expect(answer).toEqual({
+          v: 2,
+          kind: 'result',
+          output: { stored: true, answer: { notStored: 'limit' } },
+        });
+      });
+
+      test("a refused store fails the call, and the token isn't in the error", async () => {
+        served().answer = {
+          status: 409,
+          body: { error: { code: 'file-upload-closed', message: 'closed' } },
+        };
+        const answer = response(await invoke(service, storeCall()));
+        expect(answer).toMatchObject({
+          v: 2,
+          kind: 'error',
+          code: 'handler-throw',
+          toolId: FIXTURE_FILES_TOOL_ID,
+        });
+        expect(JSON.stringify(answer)).toContain('file-upload-closed');
+        expect(JSON.stringify(answer)).not.toContain(token);
+      });
+
+      test('a call from a runtime that sends no upload: no store', async () => {
+        const from = served().received.length;
+        const answer = response(await invoke(service, storeCall(CTX)));
+        expect(answer).toEqual({ v: 2, kind: 'result', output: { stored: false } });
+        expect(served().received.length).toBe(from);
+      });
+
+      test("a tool that doesn't declare storesFiles gets no store, even when the call carries an upload", async () => {
+        const answer = response(
+          await invoke(
+            service,
+            toolCall(
+              'conformance.context',
+              {},
+              {
+                ctx: { ...CTX, fileUpload: { url: served().url, token } },
+              },
+            ),
+          ),
+        );
+        expect(answer).toMatchObject({ v: 2, kind: 'result' });
+        expect((answer as { output: Record<string, unknown> }).output).not.toHaveProperty('files');
+        expect(JSON.stringify(answer)).not.toContain(token);
       });
     });
 

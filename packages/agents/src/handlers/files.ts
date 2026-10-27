@@ -9,6 +9,7 @@ import {
   type ModelMessage,
   filesForCall,
 } from '@kindgi/capabilities';
+import type { FileStore, FileStoreAnswer, FileToStore, Tool } from '@kindgi/tools';
 import { type FileValue, isFileValue } from '@kindgi/types';
 
 import type { Agent } from '../types.js';
@@ -36,6 +37,34 @@ export interface FileBinding {
    * rule refuses it.
    */
   read(artifactId: string): Promise<Uint8Array | undefined>;
+  /**
+   * Store a file a tool's call fetched (`Tool.storesFiles`), as a file the
+   * turn's run owns: the runtime checks the bytes and answers the file
+   * value, or why nothing was stored. `callKey` is the call's
+   * `idempotencyKey`: the same bytes again for the same call, a re-run of
+   * it included, answer the first file, and a call stores at most
+   * `MAX_STORED_FILES_PER_CALL` (`limit` past them).
+   */
+  store(
+    call: { readonly callKey: string; readonly toolId: string },
+    file: FileToStore,
+  ): Promise<FileStoreAnswer>;
+}
+
+/**
+ * The call's file store (`ToolContext.files`): for a tool that declares
+ * `storesFiles`, on a call with an idempotency key, which the dedupe and
+ * the count go by. None otherwise, and a file the tool fetches is
+ * `notShown: 'store'`.
+ */
+export function callFileStore(
+  files: FileBinding | undefined,
+  tool: Pick<Tool, 'id' | 'storesFiles'>,
+  callKey: string | undefined,
+): FileStore | undefined {
+  if (files === undefined || tool.storesFiles !== true || callKey === undefined) return undefined;
+  const call = { callKey, toolId: tool.id as unknown as string };
+  return Object.freeze({ store: (file: FileToStore) => files.store(call, file) });
 }
 
 /**

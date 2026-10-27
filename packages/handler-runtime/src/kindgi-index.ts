@@ -349,6 +349,11 @@ export interface IndexedTool {
    */
   readonly pauses?: boolean;
   /**
+   * The tool's declared `storesFiles` (schema-version 1.7.0+): each call
+   * gets a file upload, and its handler `files.store`. Absent means `false`.
+   */
+  readonly storesFiles?: boolean;
+  /**
    * The tool's declared `resultIsOutsideData`: an agent reads each of its
    * results as data, not instructions. Absent means `false`.
    */
@@ -1588,8 +1593,8 @@ function buildTool(
   if (inputWire.kind === 'err') return inputWire;
   const outputWire = resolveSchema(rec, 'output', 'outputZod', relPath, converter);
   if (outputWire.kind === 'err') return outputWire;
-  const pauses = pausesOf(rec, relPath);
-  if (pauses.kind === 'err') return pauses;
+  const handlerFlags = handlerFlagsOf(rec, relPath);
+  if (handlerFlags.kind === 'err') return handlerFlags;
 
   const tool: IndexedTool = {
     id: rec.id,
@@ -1615,7 +1620,7 @@ function buildTool(
     }),
     ...(isObject(rec.spec) && { spec: rec.spec as Readonly<Record<string, unknown>> }),
     ...toolFlagsOf(rec),
-    ...pauses.value,
+    ...handlerFlags.value,
     modulePath: normalizeModulePath(relPath),
   };
   return { kind: 'ok', value: tool };
@@ -1637,22 +1642,29 @@ function toolFlagsOf(
 }
 
 /**
- * The tool's `pauses`, as the index carries it. Only the pack service's
- * own run of a handler can answer `pause`: the runtime runs a declarative
- * spec itself, and an MCP server can't.
+ * The tool's `pauses` and `storesFiles`, as the index carries them. Only
+ * the pack service's own run of a handler can answer `pause` or store a
+ * file: the runtime runs a declarative spec itself, and an MCP server
+ * can't do either.
  */
-function pausesOf(
+function handlerFlagsOf(
   rec: Readonly<Record<string, unknown>>,
   relPath: string,
-): Result<{ readonly pauses?: true }, IndexerError> {
-  if (rec.pauses !== true) return { kind: 'ok', value: {} };
-  if (isObject(rec.spec) || rec.transport === 'mcp') {
+): Result<{ readonly pauses?: true; readonly storesFiles?: true }, IndexerError> {
+  const pauses = rec.pauses === true;
+  const storesFiles = rec.storesFiles === true;
+  if ((pauses || storesFiles) && (isObject(rec.spec) || rec.transport === 'mcp')) {
     return manifestErr(
       relPath,
-      `'pauses: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't pause`,
+      pauses
+        ? `'pauses: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't pause`
+        : `'storesFiles: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't store files`,
     );
   }
-  return { kind: 'ok', value: { pauses: true } };
+  return {
+    kind: 'ok',
+    value: { ...(pauses && { pauses: true }), ...(storesFiles && { storesFiles: true }) },
+  };
 }
 
 /**

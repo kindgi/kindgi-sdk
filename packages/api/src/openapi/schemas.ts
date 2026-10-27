@@ -3999,6 +3999,11 @@ export const ToolSchema: JsonSchema = {
       description:
         "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
     },
+    storesFiles: {
+      type: 'boolean',
+      description:
+        "`true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
+    },
     resultIsOutsideData: {
       type: 'boolean',
       description:
@@ -13912,6 +13917,32 @@ export const WaitTokenAcceptedSchema: JsonSchema = {
   properties: { status: { type: 'string', enum: ['accepted'] } },
 };
 
+export const FileUploadAnswerSchema: JsonSchema = {
+  description:
+    "What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['file'],
+      properties: { file: { $ref: '#/components/schemas/FileValue' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['notStored'],
+      properties: {
+        notStored: {
+          type: 'string',
+          enum: ['type', 'size', 'limit'],
+          description:
+            "Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files). The tool returns it as the file's `notShown` reason.",
+        },
+      },
+    },
+  ],
+};
+
 export const WebhookReceiptSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -16051,6 +16082,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookFire', WebhookFireSchema],
   ['WebhookFirePage', WebhookFirePageSchema],
   ['WaitTokenAccepted', WaitTokenAcceptedSchema],
+  ['FileUploadAnswer', FileUploadAnswerSchema],
   ['WebhookReceipt', WebhookReceiptSchema],
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],
   ['RegisterWebhookTriggerBody', RegisterWebhookTriggerBodySchema],

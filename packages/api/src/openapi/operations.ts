@@ -10901,6 +10901,54 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+  {
+    method: 'post',
+    honoPath: '/v1/file-uploads',
+    openapiPath: '/v1/file-uploads',
+    operationId: 'fileUploads.store',
+    senderOnly:
+      "A pack service stores a file for a tool's call with the upload the call carries (pack protocol 2.10.0); a Kindgi client stores files with `POST /v1/artifacts`.",
+    summary: "Store a file for a pack tool's call",
+    description:
+      "A pack tool that declares `storesFiles` gets a file upload with each call, and its pack service posts each file the tool stores here. No API key: `Authorization: Bearer` carries the call's upload token (`kgi_fu_…`), which names one call of one run, stores files for that call only and reads nothing. The body is the file's bytes, at most 10 MB read; `Content-Type` is the type its source declares, and `Kindgi-File-Name` its name, percent-encoded UTF-8 (an empty name is stored as `unnamed`). The runtime checks the bytes, and only they decide the type. The stored file is owned by the call's run, in its project. The same bytes again in the same call, a re-run of it included, answer the first file. A call stores at most 10 files. The upload closes when the call answers, when its time passes, or when its run ends.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'Kindgi-File-Name',
+        in: 'header',
+        required: false,
+        description: "The file's name, percent-encoded UTF-8. Absent or empty: `unnamed`.",
+        schema: { type: 'string' },
+      },
+    ],
+    requestBody: {
+      required: true,
+      description: "The file's bytes, with the type its source declares as `Content-Type`.",
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '200': {
+        description:
+          "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files).",
+        schema: ref('FileUploadAnswer'),
+      },
+      '400': ErrorResponse('`bad-input`: `Kindgi-File-Name` is not percent-encoded UTF-8.'),
+      '404': ErrorResponse(
+        '`file-upload-not-found`: no upload matches the bearer (none sent, an unknown token and a wrong secret alike), or this runtime stores no files.',
+      ),
+      '409': ErrorResponse(
+        '`file-upload-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was stored. Told only for a token that matches.',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was stored. `Retry-After` says when to store the file again.',
+      ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so nothing was stored. `Retry-After` says when to store the file again.",
+      ),
+    },
+  },
 
   // ---------- webhook endpoints (outbound) ----------
   {

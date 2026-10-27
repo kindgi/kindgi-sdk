@@ -25,7 +25,7 @@ import type {
 import type { NodeContext } from '@kindgi/handler';
 import { type ProvenanceBuilder, newBuilder } from '@kindgi/provenance';
 import { defineTool } from '@kindgi/tools';
-import type { AnyTool } from '@kindgi/tools';
+import type { AnyTool, FileStoreAnswer, FileToStore, ToolContext } from '@kindgi/tools';
 import type {
   ConversationId,
   FileValue,
@@ -122,10 +122,15 @@ function fileValue(artifactId: string): FileValue {
 
 const BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x61, 0x63, 0x6d, 0x65]);
 
-/** A files binding that admits the ids in `allowed`, by its own record, and logs its calls. */
-function filesBinding(allowed: readonly string[]) {
+/**
+ * A files binding that admits the ids in `allowed`, by its own record, and
+ * logs its calls. A store answers `stores`' next answer, or the first
+ * allowed id's value.
+ */
+function filesBinding(allowed: readonly string[], stores: FileStoreAnswer[] = []) {
   const admitted: string[][] = [];
   const read: string[] = [];
+  const stored: { readonly call: unknown; readonly file: FileToStore }[] = [];
   const files: FileBinding = {
     admit: async (values) => {
       admitted.push(values.map((v) => v.artifactId));
@@ -137,8 +142,12 @@ function filesBinding(allowed: readonly string[]) {
       read.push(artifactId);
       return allowed.includes(artifactId) ? BYTES : undefined;
     },
+    store: async (call, file) => {
+      stored.push({ call, file });
+      return stores.shift() ?? { file: fileValue(allowed[0] ?? 'art-0') };
+    },
   };
-  return { files, admitted, read };
+  return { files, admitted, read, stored };
 }
 
 const kctx = (dryRun = false) =>
@@ -447,6 +456,125 @@ describe("a tool result's files", () => {
     expect(stored).not.toHaveProperty('files');
     expect(stored?.content).toEqual(result);
     expect(message).not.toHaveProperty('files');
+  });
+});
+
+describe('a tool that stores files', () => {
+  const attachment: FileToStore = {
+    name: 'invoice.pdf',
+    contentType: 'application/pdf',
+    bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+  };
+
+  /** One call of a tool that stores `attachment` when it can, and says what its context held. */
+  async function called(options: {
+    readonly storesFiles?: boolean;
+    readonly binding?: FileBinding;
+    readonly stepScope?: string;
+  }) {
+    const seen: { files?: boolean; idempotencyKey?: string } = {};
+    const defined = defineTool<Record<string, unknown>, Record<string, unknown>>({
+      id: 'acme.mail.attachment-get' as ToolId,
+      description: "Fetches a mail's attachment.",
+      version: '1.0.0',
+      input: { type: 'object', properties: {}, additionalProperties: false },
+      output: { type: 'object', additionalProperties: true },
+      effects: [],
+      ...(options.storesFiles !== undefined && { storesFiles: options.storesFiles }),
+      handler: async (_input: Record<string, unknown>, ctx: ToolContext) => {
+        seen.files = ctx.files !== undefined;
+        if (ctx.idempotencyKey !== undefined) seen.idempotencyKey = ctx.idempotencyKey;
+        const answer = await ctx.files?.store(attachment);
+        return answer === undefined
+          ? { notShown: 'store' }
+          : 'file' in answer
+            ? { files: [answer.file] }
+            : { notShown: answer.notStored };
+      },
+    });
+    if (defined.kind === 'err') throw new Error(defined.error.message);
+    const tool = defined.value as unknown as AnyTool;
+    const appended: AppendMessageInput[] = [];
+    const agent = { id: 'acme.refund-desk', version: '1.0.0' } as unknown as Agent;
+    const ctx = {
+      input: { tenantId, projectId, conversationId, agent },
+      bindings: {
+        conversationBinding: {
+          appendMessage: async (input: AppendMessageInput) => {
+            appended.push(input);
+            return { kind: 'ok', value: { ...input, sequence: appended.length, createdAt: at } };
+          },
+        },
+        ...(options.binding !== undefined && { files: options.binding }),
+      },
+      tools: {
+        definitions: [],
+        byName: new Map([[tool.id, { tool, resolvedVersion: '1.0.0', requestedRange: '^1.0.0' }]]),
+      },
+      turnAbort: new AbortController(),
+      appended: [],
+      hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
+    } as unknown as TurnContext;
+    const out = (await buildDispatchToolsHandler(ctx)(
+      {
+        step: 1,
+        finishReason: 'tool-use',
+        message: {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'call-1', name: 'acme.mail.attachment-get', arguments: {} }],
+        },
+        iterationUsage: { promptTokens: 0, completionTokens: 0 },
+        provider: { id: 'p', model: 'm' },
+        nextMessages: [],
+      },
+      testNodeContext({
+        runId,
+        ...(options.stepScope !== undefined && { stepScope: options.stepScope }),
+      }),
+    )) as { readonly nextMessages: readonly ModelMessage[] };
+    return { seen, message: out.nextMessages.find((m) => m.role === 'tool') };
+  }
+
+  test("stores for its call, by the call's idempotency key; the stored file is shown", async () => {
+    const binding = filesBinding(['art-1']);
+    const { seen, message } = await called({
+      storesFiles: true,
+      binding: binding.files,
+      stepScope: 'loop:1',
+    });
+    expect(seen.files).toBe(true);
+    expect(seen.idempotencyKey).toBeDefined();
+    expect(binding.stored).toEqual([
+      {
+        call: { callKey: seen.idempotencyKey, toolId: 'acme.mail.attachment-get' },
+        file: attachment,
+      },
+    ]);
+    expect(message?.files).toEqual([recordOf('art-1')]);
+  });
+
+  test("a store the runtime refuses answers why, for the tool's own `notShown`", async () => {
+    const binding = filesBinding(['art-1'], [{ notStored: 'limit' }]);
+    const { message } = await called({ storesFiles: true, binding: binding.files, stepScope: 's' });
+    expect(message?.content).toBe(JSON.stringify({ notShown: 'limit' }));
+    expect(message).not.toHaveProperty('files');
+  });
+
+  test.each([
+    ["a tool that doesn't declare storesFiles", { storesFiles: false, stepScope: 's' }],
+    ['a call with no idempotency key (no step scope)', { storesFiles: true }],
+  ])('%s gets no files, and stores nothing', async (_label, options) => {
+    const binding = filesBinding(['art-1']);
+    const { seen } = await called({ ...options, binding: binding.files });
+    expect(seen.files).toBe(false);
+    expect(binding.stored).toEqual([]);
+  });
+
+  test('no files binding: no files', async () => {
+    const { seen, message } = await called({ storesFiles: true, stepScope: 's' });
+    expect(seen.files).toBe(false);
+    expect(message?.content).toBe(JSON.stringify({ notShown: 'store' }));
   });
 });
 

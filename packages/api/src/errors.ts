@@ -74,6 +74,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'flow-not-found': 404,
   // No wait token matches the link (an unknown token and a wrong secret alike).
   'wait-token-not-found': 404,
+  // No file upload matches the bearer (no token, an unknown one and a wrong secret alike).
+  'file-upload-not-found': 404,
   // 409 — conflict
   'already-terminal': 409,
   'fact-changed': 409,
@@ -83,6 +85,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-lease-lost': 409,
   // The wait a token belongs to is over (`details.state`).
   'wait-token-closed': 409,
+  // A file upload whose call has answered, whose time has passed, or whose run has ended.
+  'file-upload-closed': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
   'idempotency-key-replay-withheld': 409,

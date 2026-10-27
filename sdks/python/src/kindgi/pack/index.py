@@ -290,6 +290,7 @@ def _tool_entry(tool: Tool[..., Any], rel_path: str, config: PackConfig) -> dict
             "network": _dict(tool.network),
             "spec": _dict(tool.spec),
             "pauses": True if tool.pauses else None,
+            "storesFiles": True if tool.stores_files else None,
             "modulePath": rel_path,
         }
     )

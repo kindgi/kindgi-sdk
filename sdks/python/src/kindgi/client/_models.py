@@ -10388,6 +10388,40 @@ class WaitTokenAccepted(BaseModel):
     status: Literal["accepted"]
 
 
+class FileUploadAnswer1(BaseModel):
+    """
+    What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    file: FileValue
+
+
+class FileUploadAnswer2(BaseModel):
+    """
+    What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    not_stored: Annotated[Literal["type", "size", "limit"], Field(alias="notStored")]
+    """
+    Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files). The tool returns it as the file's `notShown` reason.
+    """
+
+
+class FileUploadAnswer(RootModel[FileUploadAnswer1 | FileUploadAnswer2]):
+    root: FileUploadAnswer1 | FileUploadAnswer2
+    """
+    What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).
+    """
+
+
 class WebhookReceipt(BaseModel):
     """
     What the receiver did with a delivery.
@@ -14191,6 +14225,10 @@ class RegisterToolBody(BaseModel):
     """
     `true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
+    stores_files: Annotated[bool | None, Field(alias="storesFiles")] = None
+    """
+    `true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
     `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
@@ -16537,6 +16575,10 @@ class Tool(BaseModel):
     """
     `true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
+    stores_files: Annotated[bool | None, Field(alias="storesFiles")] = None
+    """
+    `true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
     `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
@@ -16649,6 +16691,10 @@ class ToolVersionRow(BaseModel):
     pauses: bool | None = None
     """
     `true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    stores_files: Annotated[bool | None, Field(alias="storesFiles")] = None
+    """
+    `true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """

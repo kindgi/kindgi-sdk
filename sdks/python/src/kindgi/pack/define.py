@@ -143,6 +143,9 @@ class Tool(Generic[P, R]):
     pauses: bool = False
     """`True`: each call gets a wait token (`ctx.wait_token`), and the handler may return
     `ctx.pause()` to make the run wait for another system's answer."""
+    stores_files: bool = False
+    """`True`: each call gets a file store (`ctx.files`), and the handler may store files it
+    fetches, at most 10 a call, and return them in its result's top-level `files`."""
     module: str = ""
     _input_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
     _output_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
@@ -181,6 +184,7 @@ def tool(
     limits: Mapping[str, Any] | None = None,
     network: Mapping[str, Any] | None = None,
     pauses: bool = False,
+    stores_files: bool = False,
 ) -> Callable[[Callable[P, R]], Tool[P, R]]:
     """Declare a tool. The handler is `(input)` or `(input, ctx: ToolContext)`, sync or async.
 
@@ -196,6 +200,10 @@ def tool(
     `ctx.wait_token.url` to that system and returns `ctx.pause()`; the answer that system
     posts becomes the call's result. Annotate the return as `Answer | PauseAnswer`: the
     output schema is `Answer`'s.
+
+    `stores_files=True` lets a call store files it fetches, such as a mail's attachments:
+    `ctx.files.store(name=…, content_type=…, data=…)` answers the stored file's value, which
+    the handler returns in its result's top-level `files`, and an agent is shown the file.
     """
     annotation_scope = _caller_locals()
 
@@ -245,6 +253,7 @@ def tool(
             limits=limits,
             network=network,
             pauses=pauses,
+            stores_files=stores_files,
             module=handler.__module__,
             _input_adapter=_adapter(input_type),
             _output_adapter=_adapter(output_type),

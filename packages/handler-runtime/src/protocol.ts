@@ -63,12 +63,30 @@ export interface PackCallContext {
    * before 2.8.0 ignores it.
    */
   readonly waitToken?: WaitTokenRef;
+  /**
+   * Where a tool that declares `storesFiles` sends the files it stores
+   * (protocol 2.10.0): sent only for such a tool, when the runtime has a
+   * file store and the call has an `idempotencyKey`. Like `secrets`, never
+   * logged. The runner keeps it from the handler, which gets `files`. A
+   * pack service from before 2.10.0 ignores it.
+   */
+  readonly fileUpload?: FileUploadRef;
 }
 
 /** A wait token: its id, and the link the other system posts its answer to. */
 export interface WaitTokenRef {
   readonly id: string;
   readonly url: string;
+}
+
+/**
+ * A call's file upload (protocol 2.10.0): the link the runner posts each
+ * stored file's bytes to, and the token it sends in `Authorization`. For
+ * this call only, until its deadline or its answer.
+ */
+export interface FileUploadRef {
+  readonly url: string;
+  readonly token: string;
 }
 
 /** The longest a pause may wait: 24 days, in milliseconds (protocol 2.8.0). */

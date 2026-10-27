@@ -21,5 +21,7 @@ export default {
     ...(ctx.settings !== undefined && { settings: ctx.settings }),
     ...(ctx.connections !== undefined &&
       Object.keys(ctx.connections).length > 0 && { connections: ctx.connections }),
+    // A tool that doesn't declare `storesFiles` never gets a file store.
+    ...(ctx.files !== undefined && { files: true }),
   }),
 };

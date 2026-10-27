@@ -100,7 +100,7 @@ if (!(await available('uv'))) {
   ]);
   const packDir = fixturePackDir('python-pack');
   // Fixture files written with a newer SDK's features: 0.1.1 can't load them.
-  const newerThan011 = new Set(['tools/pause.py']);
+  const newerThan011 = new Set(['tools/pause.py', 'tools/store.py']);
   describeCallContextCompatibility({
     name: 'python 0.1.1',
     packDir,

@@ -411,8 +411,8 @@ function finalizeDefinition<
       },
     };
   }
-  const unpausable = pauseRefusal(spec, declarativeSpec);
-  if (unpausable !== undefined) return { kind: 'err', error: unpausable };
+  const handlerOnly = handlerOnlyRefusal(spec, declarativeSpec);
+  if (handlerOnly !== undefined) return { kind: 'err', error: handlerOnly };
   let effectiveHandler = authorHandler as
     | ((input: THandlerIn, ctx: ToolContext) => Promise<THandlerOut>)
     | undefined;
@@ -482,22 +482,34 @@ function finalizeDefinition<
 }
 
 /**
- * Why a tool can't declare `pauses: true`, if it can't: only a pack's own
- * run of a handler can answer with a pause. The runtime runs a declarative
- * spec itself, and an MCP server can't.
+ * Why a tool can't declare `pauses: true` or `storesFiles: true`, if it
+ * can't. Only a handler can answer with a pause or store a file: the
+ * runtime runs a declarative spec itself, and an MCP server can't do
+ * either.
  */
-function pauseRefusal(spec: object, declarativeSpec: ToolSpec | undefined): ToolError | undefined {
-  const declared = spec as { readonly pauses?: unknown; readonly transport?: unknown };
-  if (declared.pauses !== true) return undefined;
+function handlerOnlyRefusal(
+  spec: object,
+  declarativeSpec: ToolSpec | undefined,
+): ToolError | undefined {
+  const declared = spec as {
+    readonly pauses?: unknown;
+    readonly storesFiles?: unknown;
+    readonly transport?: unknown;
+  };
   if (declarativeSpec === undefined && declared.transport !== 'mcp') return undefined;
+  const flag =
+    declared.pauses === true ? 'pauses' : declared.storesFiles === true ? 'storesFiles' : undefined;
+  if (flag === undefined) return undefined;
   return {
     code: 'invalid-tool-definition',
     message:
-      "`pauses: true` needs a handler the pack runs: a tool with a declarative `spec` or an MCP transport can't pause.",
+      flag === 'pauses'
+        ? "`pauses: true` needs a handler the pack runs: a tool with a declarative `spec` or an MCP transport can't pause."
+        : "`storesFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't store files.",
     issues: [
       {
         path: declarativeSpec !== undefined ? '/spec' : '/transport',
-        message: 'pauses needs an imperative handler',
+        message: `${flag} needs an imperative handler`,
       },
     ],
   };

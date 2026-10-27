@@ -41,6 +41,7 @@ import type { EvalCaseStoreBinding } from './eval-case-binding.js';
 import type { EvalRunBinding } from './eval-run-binding.js';
 import type { EvalSuiteRegistryBinding } from './eval-suite-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
+import type { FileUploadBinding } from './file-upload-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
 import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { RunHandlerBinding } from './handler-binding.js';
@@ -148,6 +149,7 @@ import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
+import { fileUploadsRouter } from './routes/file-uploads.js';
 import { flowsRouter } from './routes/flows.js';
 import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
@@ -474,6 +476,15 @@ export interface CreateAppInput {
    * `webhookReceiver` says (its defaults when it's absent).
    */
   readonly waitTokens?: WaitTokenBinding;
+  /**
+   * Files a pack tool that declares `storesFiles` stores for its call:
+   * `POST /v1/file-uploads`, with the call's upload token as the bearer
+   * (no API key). Absent: the route answers `404 file-upload-not-found`.
+   * The Kindgi runtime supplies one. The route limits requests per client,
+   * telling clients apart and counting where `webhookReceiver` says (its
+   * defaults when it's absent).
+   */
+  readonly fileUploads?: FileUploadBinding;
   /**
    * Optional. When present, mounts the reviewer roster sub-resource
    * at `/v1/approvals/reviewers` — list / get / register / unregister.
@@ -2639,6 +2650,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     waitTokensRouter({
       ...(input.waitTokens !== undefined && { binding: input.waitTokens }),
       runHandler: input.runHandler,
+      ...(input.webhookReceiver?.clientAddress !== undefined && {
+        clientAddress: input.webhookReceiver.clientAddress,
+      }),
+      ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+        rateLimitStore: input.webhookReceiver.rateLimitStore,
+      }),
+    }),
+  );
+  // A pack service stores a file for a tool's call: outside the bearer
+  // chain (mounted ahead of `/v1`), since its bearer is the call's upload
+  // token, not an API key. Always mounted, so a runtime that stores no
+  // files answers a clear 404.
+  app.route(
+    '/v1/file-uploads',
+    fileUploadsRouter({
+      ...(input.fileUploads !== undefined && { binding: input.fileUploads }),
       ...(input.webhookReceiver?.clientAddress !== undefined && {
         clientAddress: input.webhookReceiver.clientAddress,
       }),

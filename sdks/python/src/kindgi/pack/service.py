@@ -504,7 +504,11 @@ class PackService:
         # The handler's records are its own (`pack.tool`), shown, never acted on.
         pauses = entry.get("pauses") is True
         ctx = ToolContext.from_wire(
-            message.ctx, cancellation, call_log.child(subsystem="pack.tool"), pauses=pauses
+            message.ctx,
+            cancellation,
+            call_log.child(subsystem="pack.tool"),
+            pauses=pauses,
+            stores_files=entry.get("storesFiles") is True,
         )
         try:
             result = await self._call(

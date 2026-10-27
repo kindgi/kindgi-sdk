@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from ..log import Logger, noop_logger
+from .files import FileStore, file_store_from_wire
 
 if TYPE_CHECKING:
     from .define import Tool
@@ -261,6 +262,13 @@ class ToolContext:
     (`ctx.connections["mail"].access_token`). Empty when the tool declares none, and from a
     runtime before protocol 2.9.0. Never in the context's `repr`. When the app refuses a token
     (a 401), raise `ConnectionRejected("mail")`."""
+    files: FileStore | None = field(default=None, repr=False)
+    """The call's file store, for a tool that declares `stores_files=True`:
+    `ctx.files.store(name=…, content_type=…, data=…)` (`store_async` from an async handler)
+    stores a file the tool fetched as a file the call's run owns, and answers its value, to
+    return in the result's top-level `files`, or why nothing was stored. `None` for a tool that
+    doesn't declare it, and from a runtime before pack protocol 2.10.0: return the file's
+    `notShown` as `store` then."""
     _wait_token: WaitToken | None = field(default=None, repr=False)
 
     @property
@@ -323,9 +331,11 @@ class ToolContext:
         log: Logger = noop_logger,
         *,
         pauses: bool = False,
+        stores_files: bool = False,
     ) -> ToolContext:
         """The context for a protocol v2 `ctx` (`tenantId`, `runId`, …). Its `waitToken` is kept
-        only for a tool that `pauses`."""
+        only for a tool that `pauses`, and its `fileUpload`, as `files`, only for a tool that
+        `stores_files`."""
 
         def mapping(key: str) -> Mapping[str, Any]:
             value = ctx.get(key)
@@ -351,6 +361,7 @@ class ToolContext:
             cancellation=cancellation,
             log=log,
             connections=_connections(ctx.get("connections")),
+            files=file_store_from_wire(ctx) if stores_files else None,
             _wait_token=wait_token_from_wire(ctx) if pauses else None,
         )
 

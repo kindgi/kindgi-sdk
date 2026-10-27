@@ -265,6 +265,7 @@
           "fact-not-found": 404,
           "flow-not-found": 404,
           "wait-token-not-found": 404,
+          "file-upload-not-found": 404,
           "already-terminal": 409,
           "fact-changed": 409,
           "legal-hold": 409,
@@ -272,6 +273,7 @@
           "run-already-terminal": 409,
           "run-lease-lost": 409,
           "wait-token-closed": 409,
+          "file-upload-closed": 409,
           "idempotency-key-body-mismatch": 409,
           "idempotency-key-in-flight": 409,
           "idempotency-key-replay-withheld": 409,
@@ -8260,6 +8262,10 @@
             "type": "boolean",
             "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
+          "storesFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
           "resultIsOutsideData": {
             "type": "boolean",
             "description": "`true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`."
@@ -8381,6 +8387,10 @@
           "pauses": {
             "type": "boolean",
             "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
+          "storesFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
           "resultIsOutsideData": {
             "type": "boolean",
@@ -8559,6 +8569,10 @@
           "pauses": {
             "type": "boolean",
             "description": "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
+          },
+          "storesFiles": {
+            "type": "boolean",
+            "description": "`true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`."
           },
           "resultIsOutsideData": {
             "type": "boolean",
@@ -23591,6 +23605,41 @@
             ]
           }
         }
+      },
+      "FileUploadAnswer": {
+        "description": "What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file"
+            ],
+            "properties": {
+              "file": {
+                "$ref": "#/components/schemas/FileValue"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "notStored"
+            ],
+            "properties": {
+              "notStored": {
+                "type": "string",
+                "enum": [
+                  "type",
+                  "size",
+                  "limit"
+                ],
+                "description": "Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files). The tool returns it as the file's `notShown` reason."
+              }
+            }
+          }
+        ]
       },
       "WebhookReceipt": {
         "type": "object",
@@ -62330,6 +62379,113 @@
           "content": {
             "application/json": {
               "schema": {}
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/file-uploads": {
+      "post": {
+        "operationId": "fileUploads.store",
+        "summary": "Store a file for a pack tool's call",
+        "tags": [
+          "runs"
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUploadAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad-input`: `Kindgi-File-Name` is not percent-encoded UTF-8.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`file-upload-not-found`: no upload matches the bearer (none sent, an unknown token and a wrong secret alike), or this runtime stores no files.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`file-upload-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was stored. Told only for a token that matches.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was stored. `Retry-After` says when to store the file again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so nothing was stored. `Retry-After` says when to store the file again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A pack tool that declares `storesFiles` gets a file upload with each call, and its pack service posts each file the tool stores here. No API key: `Authorization: Bearer` carries the call's upload token (`kgi_fu_…`), which names one call of one run, stores files for that call only and reads nothing. The body is the file's bytes, at most 10 MB read; `Content-Type` is the type its source declares, and `Kindgi-File-Name` its name, percent-encoded UTF-8 (an empty name is stored as `unnamed`). The runtime checks the bytes, and only they decide the type. The stored file is owned by the call's run, in its project. The same bytes again in the same call, a re-run of it included, answer the first file. A call stores at most 10 files. The upload closes when the call answers, when its time passes, or when its run ends.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "Kindgi-File-Name",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "The file's name, percent-encoded UTF-8. Absent or empty: `unnamed`."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The file's bytes, with the type its source declares as `Content-Type`.",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
             }
           }
         },

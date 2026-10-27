@@ -293,6 +293,7 @@ export function createPackService(options: PackServiceOptions): PackService {
         inputSchema: tool.input,
         outputSchema: tool.output,
         ...(tool.pauses === true && { pauses: true }),
+        ...(tool.storesFiles === true && { storesFiles: true }),
       },
       input: message.input,
       ctx: handlerContext(message.ctx, signal, callLog),
@@ -616,19 +617,22 @@ function toolKey(id: string, version: string | undefined): string {
 }
 
 /**
- * The context a handler gets: the call's own (`PackCallContext`) and its
- * abort signal, with `log`, `secrets` and `connections` there but not
- * enumerable, so printing, spreading or serializing a context never shows
- * a secret or a token.
+ * The context the runner gets: the call's own (`PackCallContext`) and its
+ * abort signal, with `log`, `secrets`, `connections` and `fileUpload` there
+ * but not enumerable, so printing, spreading or serializing a context never
+ * shows a secret or a token. The runner keeps `fileUpload` from the handler.
  */
 function handlerContext(wire: PackCallContext, signal: AbortSignal, log: Logger): HandlerContext {
-  const { secrets, connections, ...rest } = wire;
+  const { secrets, connections, fileUpload, ...rest } = wire;
   const ctx = { ...rest, abortSignal: signal };
   if (secrets !== undefined) {
     Object.defineProperty(ctx, 'secrets', { value: secrets, enumerable: false });
   }
   if (connections !== undefined) {
     Object.defineProperty(ctx, 'connections', { value: connections, enumerable: false });
+  }
+  if (fileUpload !== undefined) {
+    Object.defineProperty(ctx, 'fileUpload', { value: fileUpload, enumerable: false });
   }
   Object.defineProperty(ctx, 'log', { value: log, enumerable: false });
   return ctx as HandlerContext;
