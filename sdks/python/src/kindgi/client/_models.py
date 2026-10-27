@@ -217,128 +217,8 @@ class PinActor(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["user", "service"]
+    kind: Annotated[Literal["user", "service"] | str, _open.OPEN]
     id: str
-
-
-class PinnedVersionResolution(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    item_id: Annotated[str, Field(alias="itemId")]
-    """
-    The flow or tool.
-    """
-    version: str
-    """
-    The version in use there (semver): what a run that names no flow version takes, or what the next agent or flow version made there locks for a tool.
-    """
-    via: Literal["pinned", "latest"]
-    """
-    A pin chose it, or nothing is pinned on the way up and it is the newest version (for a flow, the newest the project reaches; for a tool, the newest active one).
-    """
-    pinned_scope: Annotated[
-        PinScopeTenant | PinScopeOrg | PinScopeProject | None,
-        Field(alias="pinnedScope", discriminator="kind"),
-    ] = None
-    """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
-    """
-
-
-class PinnedVersion(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    item_id: Annotated[str, Field(alias="itemId")]
-    scope: Annotated[PinScopeTenant | PinScopeOrg | PinScopeProject, Field(discriminator="kind")]
-    """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
-    """
-    version: str
-    change_id: Annotated[UUID, Field(alias="changeId")]
-    """
-    The change that set it.
-    """
-    set_at: Annotated[AwareDatetime, Field(alias="setAt")]
-    set_by: Annotated[PinActor, Field(alias="setBy")]
-
-
-class PinnedVersionList(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[PinnedVersion]
-
-
-class PinnedVersionChange(BaseModel):
-    """
-    One change of a scope's pin, kept for good: what was pinned before, what is after, who asked and why.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    item_id: Annotated[str, Field(alias="itemId")]
-    scope: Annotated[PinScopeTenant | PinScopeOrg | PinScopeProject, Field(discriminator="kind")]
-    """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
-    """
-    action: Literal["pin", "unpin"]
-    from_version: Annotated[str | None, Field(alias="fromVersion")]
-    """
-    The scope's own pin before; null when it had none.
-    """
-    to_version: Annotated[str | None, Field(alias="toVersion")]
-    """
-    The scope's own pin after; null after an unpin.
-    """
-    requested_by: Annotated[PinActor, Field(alias="requestedBy")]
-    reason: str | None = None
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-
-
-class PinnedVersionChangePage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[PinnedVersionChange]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-
-
-class PinVersionBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    version: str
-    """
-    The version to pin (registered, active).
-    """
-    scope: Annotated[PinScopeTenant | PinScopeOrg | PinScopeProject, Field(discriminator="kind")]
-    """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
-    """
-    reason: Annotated[str | None, Field(max_length=2000)] = None
-
-
-class UnpinVersionBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    scope: Annotated[PinScopeTenant | PinScopeOrg | PinScopeProject, Field(discriminator="kind")]
-    """
-    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
-    """
-    reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
 class GateCheck(BaseModel):
@@ -700,7 +580,7 @@ class StartRunBody2(BaseModel):
     """
     flow_version: Annotated[str | None, Field(alias="flowVersion")] = None
     """
-    Semver; omit → latest.
+    Semver; omit → the version pinned for the run's project (the project, its org, then the tenant), else the newest it reaches.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -12935,6 +12815,21 @@ class NetworkPolicyUnrecognized(BaseModel):
     """
 
 
+class PinScopeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
 class ProjectAccessPathUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
@@ -13226,6 +13121,142 @@ class PromotionPage(BaseModel):
     data: list[Promotion]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class PinnedVersionResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    item_id: Annotated[str, Field(alias="itemId")]
+    """
+    The flow or tool.
+    """
+    version: str
+    """
+    The version in use there (semver): what a run that names no flow version takes, or what the next agent or flow version made there locks for a tool.
+    """
+    via: Annotated[Literal["pinned", "latest"] | str, _open.OPEN]
+    """
+    A pin chose it, or nothing is pinned on the way up and it is the newest version (for a flow, the newest the project reaches; for a tool, the newest active one).
+    """
+    pinned_scope: Annotated[
+        Annotated[
+            PinScopeTenant | PinScopeOrg | PinScopeProject | PinScopeUnrecognized,
+            _open.OpenUnion("kind", PinScopeUnrecognized),
+        ]
+        | None,
+        Field(alias="pinnedScope"),
+    ] = None
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+
+
+class PinnedVersion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    item_id: Annotated[str, Field(alias="itemId")]
+    scope: Annotated[
+        PinScopeTenant | PinScopeOrg | PinScopeProject | PinScopeUnrecognized,
+        _open.OpenUnion("kind", PinScopeUnrecognized),
+    ]
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+    version: str
+    change_id: Annotated[UUID, Field(alias="changeId")]
+    """
+    The change that set it.
+    """
+    set_at: Annotated[AwareDatetime, Field(alias="setAt")]
+    set_by: Annotated[PinActor, Field(alias="setBy")]
+
+
+class PinnedVersionList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[PinnedVersion]
+
+
+class PinnedVersionChange(BaseModel):
+    """
+    One change of a scope's pin, kept for good: what was pinned before, what is after, who asked and why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    item_id: Annotated[str, Field(alias="itemId")]
+    scope: Annotated[
+        PinScopeTenant | PinScopeOrg | PinScopeProject | PinScopeUnrecognized,
+        _open.OpenUnion("kind", PinScopeUnrecognized),
+    ]
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+    action: Annotated[Literal["pin", "unpin"] | str, _open.OPEN]
+    from_version: Annotated[str | None, Field(alias="fromVersion")]
+    """
+    The scope's own pin before; null when it had none.
+    """
+    to_version: Annotated[str | None, Field(alias="toVersion")]
+    """
+    The scope's own pin after; null after an unpin.
+    """
+    requested_by: Annotated[PinActor, Field(alias="requestedBy")]
+    reason: str | None = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+
+
+class PinnedVersionChangePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[PinnedVersionChange]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class PinVersionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The version to pin (registered, active).
+    """
+    scope: Annotated[
+        PinScopeTenant | PinScopeOrg | PinScopeProject | PinScopeUnrecognized,
+        _open.OpenUnion("kind", PinScopeUnrecognized),
+    ]
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
+
+
+class UnpinVersionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: Annotated[
+        PinScopeTenant | PinScopeOrg | PinScopeProject | PinScopeUnrecognized,
+        _open.OpenUnion("kind", PinScopeUnrecognized),
+    ]
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
 class GatePolicy(BaseModel):
@@ -16452,6 +16483,24 @@ class Run(BaseModel):
     """
     Semver.
     """
+    flow_version_via: Annotated[
+        Annotated[Literal["explicit", "pinned", "latest"] | str, _open.OPEN] | None,
+        Field(alias="flowVersionVia"),
+    ] = None
+    """
+    How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the tenant; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.
+    """
+    flow_pinned_scope: Annotated[
+        Annotated[
+            PinScopeTenant | PinScopeOrg | PinScopeProject | PinScopeUnrecognized,
+            _open.OpenUnion("kind", PinScopeUnrecognized),
+        ]
+        | None,
+        Field(alias="flowPinnedScope"),
+    ] = None
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
     status: Annotated[
         Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | str,
         _open.OPEN,
@@ -16548,6 +16597,24 @@ class Datum(BaseModel):
     flow_version: Annotated[str, Field(alias="flowVersion")]
     """
     Semver.
+    """
+    flow_version_via: Annotated[
+        Annotated[Literal["explicit", "pinned", "latest"] | str, _open.OPEN] | None,
+        Field(alias="flowVersionVia"),
+    ] = None
+    """
+    How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the tenant; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.
+    """
+    flow_pinned_scope: Annotated[
+        Annotated[
+            PinScopeTenant | PinScopeOrg | PinScopeProject | PinScopeUnrecognized,
+            _open.OpenUnion("kind", PinScopeUnrecognized),
+        ]
+        | None,
+        Field(alias="flowPinnedScope"),
+    ] = None
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
     """
     status: Annotated[
         Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | str,

@@ -527,6 +527,7 @@
   "PinScopeOrg": ["PinScopeOrg"],
   "PinScopeProject": ["PinScopeProject"],
   "PinScopeTenant": ["PinScopeTenant"],
+  "PinScopeUnrecognized": ["PinScopeUnrecognized"],
   "PinVersionBody": ["PinVersionBody"],
   "PinnedVersion": ["PinnedVersion"],
   "PinnedVersionChange": ["PinnedVersionChange"],

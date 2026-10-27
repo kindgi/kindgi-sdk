@@ -29,6 +29,14 @@ export type {
   UnpinLiveInput,
 } from './resources/agents.js';
 export type {
+  PinHistoryPage,
+  PinMutationOptions,
+  PinVersionInput,
+  PinnedVersionsClient,
+  PinnedWhere,
+  UnpinVersionInput,
+} from './resources/pinned-versions.js';
+export type {
   GatePoliciesClient,
   GatePolicyFilter,
   GatePolicyVersionsClient,
@@ -302,6 +310,13 @@ export type {
   GatePolicyRef,
   GatePolicyResolution,
   GatePolicySpec,
+  PinActor,
+  PinScope,
+  PinnedVersion,
+  PinnedVersionChange,
+  PinnedVersionChangePage,
+  PinnedVersionList,
+  PinnedVersionResolution,
   Promotion,
   PromotionCheck,
   PromotionPage,

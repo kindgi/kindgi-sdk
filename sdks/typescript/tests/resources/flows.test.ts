@@ -187,3 +187,76 @@ describe('flows.define — projectId (POST /v1/flows requires it)', () => {
     expect(JSON.parse(req.body ?? '{}')).toEqual({ ...WIRE_GRAPH, projectId: 'proj-1' });
   });
 });
+
+describe('flows.pinned', () => {
+  const PROJECT_ID = '0b0e9c62-0d6c-4d39-9b1e-6c1a5f6c2d11';
+  const ORG_ID = '5f0d1a3c-7c8e-4a51-8d0c-2a9f3b7e4c22';
+  const change = {
+    id: 'c-1',
+    kind: 'flow',
+    itemId: 'acme.ticket-triage',
+    scope: { kind: 'project', projectId: PROJECT_ID },
+    action: 'pin',
+    fromVersion: null,
+    toVersion: '1.0.0',
+    requestedBy: { kind: 'user', id: 'u-1' },
+    createdAt: '2026-10-27T05:00:00.000Z',
+  };
+  const client = (stub: ReturnType<typeof jsonFetch>) =>
+    createClient({ apiUrl: 'https://api.example.com', auth: AUTH, fetch: stub.fetch });
+
+  it('resolve sends the project and the org', async () => {
+    const stub = jsonFetch({ itemId: 'acme.ticket-triage', version: '1.0.0', via: 'latest' });
+    const resolved = await client(stub).flows.pinned.resolve('acme.ticket-triage', {
+      projectId: PROJECT_ID,
+      orgId: ORG_ID,
+    });
+    expect(resolved.via).toBe('latest');
+    const url = new URL(stub.calls[0]!.url);
+    expect(url.pathname).toBe('/v1/flows/acme.ticket-triage/pinned');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ projectId: PROJECT_ID, orgId: ORG_ID });
+  });
+
+  it('list GETs /pinned-versions; history pages /pin-history', async () => {
+    const listed = jsonFetch({ data: [] });
+    await client(listed).flows.pinned.list('acme.ticket-triage');
+    expect(listed.calls[0]!.url).toBe(
+      'https://api.example.com/v1/flows/acme.ticket-triage/pinned-versions',
+    );
+    const paged = jsonFetch({ data: [change], hasMore: false });
+    await client(paged).flows.pinned.history('acme.ticket-triage', { limit: 5, cursor: 'k' });
+    const url = new URL(paged.calls[0]!.url);
+    expect(url.pathname).toBe('/v1/flows/acme.ticket-triage/pin-history');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ limit: '5', cursor: 'k' });
+  });
+
+  it('pin and unpin POST the scope, with an idempotency key', async () => {
+    const pinned = jsonFetch(change);
+    const made = await client(pinned).flows.pinned.pin(
+      'acme.ticket-triage',
+      { version: '1.0.0', scope: { kind: 'project', projectId: PROJECT_ID }, reason: 'hold' },
+      { idempotencyKey: 'idem-1' },
+    );
+    expect(made.toVersion).toBe('1.0.0');
+    const req = pinned.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/flows/acme.ticket-triage/pinned/pin');
+    expect(req.headers['idempotency-key']).toBe('idem-1');
+    expect(JSON.parse(req.body ?? '{}')).toEqual({
+      version: '1.0.0',
+      scope: { kind: 'project', projectId: PROJECT_ID },
+      reason: 'hold',
+    });
+    const unpinned = jsonFetch({
+      ...change,
+      action: 'unpin',
+      fromVersion: '1.0.0',
+      toVersion: null,
+    });
+    await client(unpinned).flows.pinned.unpin('acme.ticket-triage', { scope: { kind: 'tenant' } });
+    const unpin = unpinned.calls[0]!;
+    expect(unpin.url).toBe('https://api.example.com/v1/flows/acme.ticket-triage/pinned/unpin');
+    expect(unpin.headers['idempotency-key']).toBeUndefined();
+    expect(JSON.parse(unpin.body ?? '{}')).toEqual({ scope: { kind: 'tenant' } });
+  });
+});

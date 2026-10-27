@@ -1,0 +1,191 @@
+---
+title: Pin a flow's version
+description: Keep a flow's runs on the version you checked while you publish and try a newer one, for a project, an org or the whole tenant; move or remove the pin, and read its history.
+sidebar:
+  order: 10
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide pins a flow at a version, tries a newer version without putting it
+in use, moves the pin, and reads the history.
+
+A run that names no flow version takes the newest version its project
+reaches, so a version you publish is in use at once. A **pin** holds the flow
+at a version you choose, for a project, an org or the whole tenant. Runs there
+take the pinned version until you move the pin, and a version you publish
+meanwhile runs only when a run names it.
+
+## Before you start
+
+- **A flow with a published version,** on a runtime 0.2.0 or later. This
+  guide uses `acme.process-order` from [Write a flow](../write-a-flow/), at
+  1.0.0, and publishes a 1.1.0.
+- **A project's id:** `kindgi projects list` lists them.
+- **For your app:** Node 22.12 or later, or Python 3.11 or later, with Kindgi
+  0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+
+## Which version a run takes
+
+A run that names its version (`flowVersion`) runs that version. A run that
+names none takes the first of these:
+
+1. The project's own pin.
+2. The pin of the project's org.
+3. The tenant's pin.
+4. With none of those, the newest version the project reaches.
+
+A pin counts only while its version is registered and active. A pin whose
+version doesn't reach the run's project is passed over, and the run takes the
+newest version the project reaches. A version reaches the project it was made
+in, and a project a deployment shipped it to.
+
+A run keeps the version it started with, also when it resumes. A pin doesn't
+change what a version's steps run: each tool and agent step runs the version
+it was locked to when the flow version was published.
+
+## Try a new version without putting it in use
+
+1. **Pin the version in use,** 1.0.0, for the project.
+2. **Publish the new version,** 1.1.0, as you published 1.0.0. Runs in the
+   project still take 1.0.0.
+3. **Try it by naming it:** a run with `flowVersion` 1.1.0 runs it; every
+   other run there still takes 1.0.0.
+4. **Move the pin** to 1.1.0 once it does what you want. Runs take it from the
+   next run.
+
+Ask your coding agent: "I want to pin my flow's version in a project, then try
+a new version there without putting it in use." For reference, the script
+looks like this, with the project's id as its argument, after step 2:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// pin-a-flow.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const projectId = process.argv[2];
+const flow = 'acme.process-order';
+
+// Hold the project's runs on 1.0.0.
+await kindgi.flows.pinned.pin(flow, {
+  version: '1.0.0',
+  scope: { kind: 'project', projectId },
+  reason: '1.0.0 is the version we checked',
+});
+
+// Which version would a run there take, and why?
+const inUse = await kindgi.flows.pinned.resolve(flow, { projectId });
+console.log(inUse.version, inUse.via, inUse.pinnedScope?.kind);
+
+// A run that names no version takes the pin; one that names 1.1.0 tries it.
+const held = await kindgi.runs.start({ flow, projectId, input: { orderId: 'A-100' } });
+const tried = await kindgi.runs.start({
+  flow,
+  flowVersion: '1.1.0',
+  projectId,
+  input: { orderId: 'A-100' },
+});
+console.log(held.flowVersion, held.flowVersionVia);
+console.log(tried.flowVersion, tried.flowVersionVia);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# pin_a_flow.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+project_id = sys.argv[1]
+flow = "acme.process-order"
+
+# Hold the project's runs on 1.0.0.
+kindgi.flows.pinned.pin(
+    flow,
+    version="1.0.0",
+    scope={"kind": "project", "project_id": project_id},
+    reason="1.0.0 is the version we checked",
+)
+
+# Which version would a run there take, and why?
+in_use = kindgi.flows.pinned.resolve(flow, project_id=project_id)
+print(in_use.version, in_use.via, in_use.pinned_scope.kind if in_use.pinned_scope else None)
+
+# A run that names no version takes the pin; one that names 1.1.0 tries it.
+held = kindgi.runs.start(flow=flow, project_id=project_id, input={"orderId": "A-100"})
+tried = kindgi.runs.start(
+    flow=flow, flow_version="1.1.0", project_id=project_id, input={"orderId": "A-100"}
+)
+print(held.flow_version, held.flow_version_via)
+print(tried.flow_version, tried.flow_version_via)
+```
+
+</TabItem>
+</Tabs>
+
+It prints the version a run there would take, then the version each run ran
+and how it was chosen:
+
+```text
+1.0.0 pinned project
+1.0.0 pinned
+1.1.0 explicit
+```
+
+To move the pin, pin 1.1.0 for the same scope. Pinning the version the scope
+already pins changes nothing.
+
+## Pin for an org or the whole tenant
+
+A pin's `scope` is `{ kind: 'project', projectId }`, `{ kind: 'org', orgId }`
+or `{ kind: 'tenant' }`. An org's pin covers its projects that have no pin of
+their own, and the tenant's pin covers every project that has neither.
+
+In a tenant with environment orders (the projects a version goes through on
+its way to production, such as staging, then production), a flow in an order
+can't be pinned for an org or the tenant: such a pin would act in every
+environment of the order at once. The pin is refused with
+`409 pin-scope-spans-environments`; pin it for each project instead. A pin
+for a later environment of an order is fine: runs there take it.
+
+## Remove a pin
+
+`kindgi.flows.pinned.unpin(flow, { scope })` removes the scope's own pin. The
+scope then follows the next scope up, and with no pin above it, the newest
+version its projects reach. A scope with no pin of its own answers
+`409 not-pinned`.
+
+A pinned version can't be unregistered: unregistering it answers
+`409 flow-version-pinned`, with the scopes that pin it in `details.scopes`.
+Move or remove those pins first.
+
+## Read the pins and their history
+
+`kindgi.flows.pinned.list(flow)` lists every scope with a pin: its version,
+when it was set and by whom. `kindgi.flows.pinned.history(flow)` lists every
+pin and unpin, newest first: the scope, the version before and after, who
+asked, and their reason.
+
+Deleting an org removes its pins and records an unpin for each, by the
+deletion. Deleting a project removes its pins.
+
+## Who can pin
+
+Pinning and unpinning need `pin` on the flow, which its admins have. For a
+flow more than one project serves (an environment order carries it to later
+environments), a project's pin needs `admin` on that project, and an org's or
+the tenant's pin `admin` on each of the flow's projects. Reading the pins
+needs `read` on the flow.
+
+## Next
+
+- [Start a run](../../runs/start-a-run/): name a version with `flowVersion`.
+- [Write a flow](../write-a-flow/): publish a new version.
+- The API reference has each route, and the
+  [errors reference](../../../reference/errors/) each refusal.

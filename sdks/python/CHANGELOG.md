@@ -13,6 +13,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
+  tenant.** A run that names no flow version takes the version pinned for its
+  project (the project's own pin, then its org's, then the tenant's), else the
+  newest version the project reaches, so a new version can be published and
+  tried by naming it without going into use. `resolve`, `list`, `pin`, `unpin`
+  and `history`, sync and async. A run says how its version was chosen, in
+  `flow_version_via` (`explicit`, `pinned` or `latest`) and, for a pin,
+  `flow_pinned_scope`.
+
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a
   mail someone sent or a page a search found. An agent reads each result of the

@@ -1027,6 +1027,13 @@ export const RunSchema: JsonSchema = {
     projectId: { type: 'string', format: 'uuid' },
     flowId: { type: 'string' },
     flowVersion: { type: 'string', description: 'Semver.' },
+    flowVersionVia: {
+      type: 'string',
+      enum: ['explicit', 'pinned', 'latest'],
+      description:
+        "How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the tenant; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.",
+    },
+    flowPinnedScope: { $ref: '#/components/schemas/PinScope' },
     status: RunStatusSchema,
     dryRun: { type: 'boolean' },
     createdAt: { type: 'string', format: 'date-time' },
@@ -1187,7 +1194,11 @@ export const StartRunBodySchema: JsonSchema = {
       required: ['flow', 'input'],
       properties: {
         flow: { type: 'string', description: 'FlowId.' },
-        flowVersion: { type: 'string', description: 'Semver; omit → latest.' },
+        flowVersion: {
+          type: 'string',
+          description:
+            "Semver; omit → the version pinned for the run's project (the project, its org, then the tenant), else the newest it reaches.",
+        },
         projectId: {
           type: 'string',
           format: 'uuid',

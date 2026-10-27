@@ -1779,6 +1779,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.environmentOrders,
         itemRights,
         itemServing,
+        input.pinnedVersions,
       ),
     );
   }

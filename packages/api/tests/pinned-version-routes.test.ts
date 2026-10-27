@@ -16,15 +16,18 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
-import type { EnvironmentOrderBinding } from '../src/environment-orders-binding.js';
+import type {
+  EnvironmentOrderBinding,
+  EnvironmentOrderKey,
+} from '../src/environment-orders-binding.js';
 import type { ItemCheck, ItemRights } from '../src/item-rights.js';
 import type { Authorizer } from '../src/middleware/authorize.js';
 import type {
-  PinnedVersionChange,
-  PinnedVersionError,
   PinVersionInput,
   PinnedResolveInput,
   PinnedVersionBinding,
+  PinnedVersionChange,
+  PinnedVersionError,
   UnpinVersionInput,
 } from '../src/pinned-version-binding.js';
 import type { ReferenceScopeBinding } from '../src/reference-scope.js';
@@ -40,7 +43,7 @@ import type { AppEnv } from '../src/types.js';
 /**
  * The pinned-version routes, mounted alone on a bare app: a fake binding
  * records each call and answers what a test sets up; a fake item stands in
- * for the flow or tool registry. The checks run in the design's order:
+ * for the flow or tool registry. A pin's checks run in this order:
  * rights, the scope, the item, reach, a tool's environment, the width.
  */
 
@@ -143,11 +146,16 @@ function fakeRights(how: {
   checks?: ItemCheck[];
   refuse?: boolean;
 }): ItemRights {
-  return {
+  const rights: Pick<ItemRights, 'multi' | 'spannedOrder' | 'visibleVersions' | 'enforce'> = {
     multi: async () => how.projects as readonly ProjectId[] | undefined,
     spannedOrder: async () =>
       how.inOrder === true
-        ? { parent: { kind: 'tenant' }, projects: [PROJECT as ProjectId], position: 0 }
+        ? {
+            orderId: 'order-1' as EnvironmentOrderKey,
+            parent: { kind: 'tenant' },
+            projects: [PROJECT as ProjectId],
+            position: 0,
+          }
         : undefined,
     visibleVersions: async (_c, _k, _id, _p, rows) => [...rows],
     enforce: async (c, _k, _id, _p, check) => {
@@ -156,7 +164,8 @@ function fakeRights(how: {
       c.status(403);
       return c.json({ error: { code: 'forbidden' } });
     },
-  } as unknown as ItemRights;
+  };
+  return rights as unknown as ItemRights;
 }
 
 function authorizer(checked: string[], allow = true): Authorizer {
@@ -239,6 +248,34 @@ describe('GET /:id/pinned', () => {
     const res = await app.request(`/${ITEM}/pinned?projectId=${PROJECT}`);
     expect(await res.json()).toEqual({ itemId: ITEM, version: '2.0.0', via: 'latest' });
     expect(asked).toEqual([PROJECT]);
+  });
+
+  test('a flow’s pin whose version doesn’t reach the project is passed over, as a run passes it', async () => {
+    const asked: unknown[] = [];
+    const referenceScope: ReferenceScopeBinding = {
+      reachable: async (input) => {
+        asked.push(input);
+        return false;
+      },
+    };
+    const pinned = { version: '1.0.0' as Semver, scope: { kind: 'tenant' } as const };
+    const flow = mounted('flow', fakeItem('flow', { latest: async () => '0.9.0' }), {
+      referenceScope,
+    });
+    flow.state.resolved = pinned;
+    const passed = await flow.app.request(`/${ITEM}/pinned?projectId=${PROJECT}`);
+    expect(await passed.json()).toEqual({ itemId: ITEM, version: '0.9.0', via: 'latest' });
+    expect(asked).toEqual([
+      { tenantId, fromProjectId: PROJECT, ref: { kind: 'flow', id: ITEM, version: '1.0.0' } },
+    ]);
+    // With no project, and for a tool, the pin is taken as found.
+    const noProject = await flow.app.request(`/${ITEM}/pinned`);
+    expect(((await noProject.json()) as { via: string }).via).toBe('pinned');
+    const tool = mounted('tool', fakeItem('tool'), { referenceScope });
+    tool.state.resolved = pinned;
+    const toolPin = await tool.app.request(`/${ITEM}/pinned?projectId=${PROJECT}`);
+    expect(((await toolPin.json()) as { via: string }).via).toBe('pinned');
+    expect(asked).toHaveLength(1);
   });
 
   test('no version at all is the item’s 404; a malformed id is a 400', async () => {

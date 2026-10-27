@@ -19,10 +19,10 @@ import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, pinChangeRefusal, pinWidthRefusal } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type {
-  PinnedVersionChange,
-  PinnedVersionError,
   PinnedVersion,
   PinnedVersionBinding,
+  PinnedVersionChange,
+  PinnedVersionError,
 } from '../pinned-version-binding.js';
 import {
   type ReferenceScopeBinding,
@@ -135,6 +135,24 @@ export function mountPinnedVersionRoutes(
       await deps.itemRights.visibleVersions(c, kind, itemId, projects, versions, (v) => v),
     );
   }
+  /**
+   * Whether the pin `GET …/pinned` found is the one a run in `projectId`
+   * takes: a flow's pinned version must reach the project, else the run
+   * passes the pin over for the newest version the project reaches. A
+   * tool's pin, and a lookup with no project, take the pin as found.
+   */
+  async function pinRuns(
+    tenantId: TenantId,
+    itemId: string,
+    version: Semver,
+    projectId: ProjectId | undefined,
+  ): Promise<boolean> {
+    if (kind !== 'flow' || projectId === undefined) return true;
+    const outOfScope = await referencesOutOfScope(deps.referenceScope, tenantId, projectId, [
+      { path: '/projectId', kind, id: itemId, version: version as unknown as string },
+    ]);
+    return outOfScope === undefined;
+  }
   const named = (p: PinnedVersionChange): string[] =>
     [p.fromVersion, p.toVersion].filter((v): v is Semver => v !== null).map(String);
 
@@ -152,7 +170,7 @@ export function mountPinnedVersionRoutes(
       ...(projectId !== undefined && { projectId }),
       ...(orgId !== undefined && { orgId }),
     });
-    if (resolved !== null) {
+    if (resolved !== null && (await pinRuns(tenantId, itemId, resolved.version, projectId))) {
       const version = resolved.version as unknown as string;
       if (!(await seen(c, itemId, [version])).has(version))
         return notFound(c, requestId, kind, itemId);
@@ -210,7 +228,7 @@ export function mountPinnedVersionRoutes(
   });
 
   /**
-   * Rule 3 of a pin (the design's §8.3): the item is registered and not
+   * The third check of a pin: the item is registered and not
    * gone, it can be pinned, and the version is registered and active.
    */
   async function itemRefusal(
@@ -232,7 +250,7 @@ export function mountPinnedVersionRoutes(
   }
 
   /**
-   * Rules 4 to 6 of a pin (the design's §8.3): a project scope must reach
+   * The fourth to sixth checks of a pin: a project scope must reach
    * the item (a flow: the version); a tool pins only where versions are
    * made; and a pin wider than one project is refused for an item in an
    * environment order.

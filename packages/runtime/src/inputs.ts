@@ -7,8 +7,10 @@ import type { HandlerRegistry } from '@kindgi/handler';
 import type {
   AgentVersionVia,
   ConversationId,
+  FlowVersionVia,
   LiveScope,
   NodeId,
+  PinScope,
   ProjectId,
   Result,
   RunId,
@@ -350,6 +352,14 @@ export interface RunFlowInput {
    */
   readonly versions?: FlowVersionOverrides;
   /**
+   * How the caller chose the run's flow version: named (`explicit`), the
+   * version pinned for the run's project (`pinned`, with the pin's scope
+   * in `flowPinnedScope`), or the newest the project reaches (`latest`).
+   * Recorded with the run and never changed. Absent: not recorded.
+   */
+  readonly flowVersionVia?: FlowVersionVia;
+  readonly flowPinnedScope?: PinScope;
+  /**
    * The run's segment path (ordered, coarse to fine), which picks live agent
    * versions; a child run inherits its parent's.
    */
@@ -444,6 +454,9 @@ export interface StartRunParams {
   readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */
   readonly versions?: FlowVersionOverrides;
+  /** How the run's flow version was chosen; see `RunFlowInput.flowVersionVia`. */
+  readonly flowVersionVia?: FlowVersionVia;
+  readonly flowPinnedScope?: PinScope;
   /** The run's segment path; see `RunFlowInput.segments`. */
   readonly segments?: readonly ScopeSegment[];
   /** Who starts the run; stored with it, see `RunFlowInput.principal`. */
