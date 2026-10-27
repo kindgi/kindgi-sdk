@@ -40,7 +40,7 @@ import type { OnTurnEvent } from '../streaming.js';
 import type { TemplateRenderer } from '../template-renderer.js';
 import type { Agent, ConversationId } from '../types.js';
 
-import type { FileBinding } from './files.js';
+import type { FileBindings } from './files.js';
 import type { ReplayBinding } from './replay.js';
 import type { TurnMemoryBinding } from './turn-memory.js';
 
@@ -269,11 +269,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly turnMemory?: TurnMemoryBinding;
   /**
-   * The turn's stored files: the run's rule for which files its model may
-   * be shown, and their bytes for each model call. Bound per turn. Absent:
-   * no file is shown, and a tool result's file values stay plain JSON.
+   * The turn's stored files: for the turn's run, the run's rule for which
+   * files its model may be shown, and their bytes for each model call.
+   * Absent: no file is shown, and a tool result's file values stay plain
+   * JSON.
    */
-  readonly files?: FileBinding;
+  readonly files?: FileBindings;
   /**
    * Where the turn records what each guardrail's check came to (passed,
    * violated, blocked or errored), before it acts on them: a blocked turn

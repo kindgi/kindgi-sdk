@@ -24,6 +24,7 @@ import type {
   RetrievedFact,
 } from '../types.js';
 
+import type { FileBinding } from './files.js';
 import type { HitlBindings, InvokeAgentBindings, InvokeAgentInput } from './public-types.js';
 import type { TurnBlocks } from './resolve-blocks.js';
 import type { ToolErrorPolicy } from './tool-errors.js';
@@ -158,6 +159,12 @@ export interface TurnContext {
    * `persist-provenance` for `emit` + `keyProvider` details).
    */
   provenanceBindings?: ProvenanceBindings;
+  /**
+   * The turn's run's stored files (`bindings.files.forRun`), set with the
+   * provenance builder once the run has its id. Undefined when the caller
+   * didn't wire them.
+   */
+  files?: FileBinding;
   /**
    * The persisted provenance snapshot (post `persist-provenance`).
    * Present only when the builder was wired AND persistence succeeded.

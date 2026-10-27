@@ -53,6 +53,7 @@ import {
 import { buildModelCallHandler } from '../src/handlers/model-call.js';
 import { buildPersistUserMessageHandler } from '../src/handlers/persist-user-message.js';
 import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
+import { buildSetupHandler } from '../src/handlers/setup.js';
 import type { TurnMemoryBinding } from '../src/handlers/turn-memory.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import type { Agent, ConversationMessage } from '../src/types.js';
@@ -205,9 +206,9 @@ describe("a run's input files", () => {
             return { kind: 'ok', value: { ...message, sequence: 0, createdAt: at } };
           },
         },
-        ...(options.bound && { files: binding.files }),
       } as unknown as InvokeAgentBindings,
       appended: [],
+      ...(options.bound && { files: binding.files }),
     } as unknown as TurnContext;
     await buildPersistUserMessageHandler(ctx)(undefined, kctx(options.dryRun));
     return { appended, message: ctx.userMessage, admitted: binding.admitted };
@@ -243,6 +244,59 @@ describe("a run's input files", () => {
   });
 });
 
+describe("a turn's run's files", () => {
+  test("setup binds them by the run's id, beside the provenance builder", async () => {
+    const asked: unknown[] = [];
+    const { files: run } = filesBinding(['art-1']);
+    const desk = {
+      id: 'acme.refund-desk',
+      version: '1.0.0',
+      name: 'Refund desk',
+      conversationPolicy: { hitl: { afterTurns: 2 } },
+    } as unknown as Agent;
+    const ctx = {
+      input: { tenantId, projectId, conversationId, agent: desk },
+      bindings: {
+        runSnapshotBinding: { write: async () => ({ kind: 'ok', value: undefined }) },
+        conversationBinding: {
+          getConversation: async () => ({
+            kind: 'ok',
+            value: {
+              id: conversationId,
+              agentId: desk.id,
+              agentVersion: desk.version,
+              turnCount: 3,
+            },
+          }),
+        },
+        hitl: { enqueue: async () => {} },
+        files: {
+          forRun: (r: unknown) => {
+            asked.push(r);
+            return run;
+          },
+        },
+      },
+    } as unknown as TurnContext;
+    // The session gate parks the turn, after setup has bound them.
+    const parked = await buildSetupHandler(ctx)(
+      {},
+      testNodeContext({
+        runId: 'run-2' as RunId,
+        waitForToken: (async () => {
+          throw new Error('parked');
+        }) as NodeContext['waitForToken'],
+      }),
+    ).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(parked).toEqual(new Error('parked'));
+    expect(asked).toEqual([{ runId: 'run-2', tenantId }]);
+    expect(ctx.files).toBe(run);
+  });
+});
+
 describe("a turn's first messages", () => {
   async function first(options: {
     readonly history?: readonly ConversationMessage[];
@@ -255,7 +309,6 @@ describe("a turn's first messages", () => {
         conversationBinding: {
           readMessages: async () => ({ kind: 'ok', value: options.history ?? [] }),
         },
-        ...(options.binding !== undefined && { files: options.binding }),
       } as unknown as InvokeAgentBindings,
       turnAbort: new AbortController(),
       startedAt: Date.now(),
@@ -272,6 +325,7 @@ describe("a turn's first messages", () => {
         ...(options.files !== undefined && { files: options.files }),
       },
       tools: { definitions: [], byName: new Map() },
+      ...(options.binding !== undefined && { files: options.binding }),
     } as unknown as TurnContext;
     const out = (await buildBuildInitialMessagesHandler(ctx)(undefined, kctx())) as {
       readonly nextMessages: readonly ModelMessage[];
@@ -380,7 +434,6 @@ describe("a tool result's files", () => {
             return { kind: 'ok', value: { ...input, sequence: appended.length, createdAt: at } };
           },
         },
-        ...(binding !== undefined && { files: binding }),
       },
       tools: {
         definitions: [],
@@ -389,6 +442,7 @@ describe("a tool result's files", () => {
       turnAbort: new AbortController(),
       appended: [],
       hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
+      ...(binding !== undefined && { files: binding }),
     } as unknown as TurnContext;
     const out = (await buildDispatchToolsHandler(ctx)(
       {
@@ -489,7 +543,6 @@ describe('a model call with files', () => {
       input: { tenantId, projectId, agent: options.agent, conversationId, userMessage: 'Look.' },
       bindings: {
         turnMemory,
-        ...(options.binding !== undefined && { files: options.binding }),
         onEvent: async () => {},
       } as unknown as InvokeAgentBindings,
       turnAbort: new AbortController(),
@@ -505,6 +558,7 @@ describe('a model call with files', () => {
         provenance: options.provenance,
         toolResultIds: [],
       }),
+      ...(options.binding !== undefined && { files: options.binding }),
     } as unknown as TurnContext;
     const run = async (nextMessages: readonly ModelMessage[]) =>
       (await buildModelCallHandler(ctx)({ nextMessages }, kctx())) as {
