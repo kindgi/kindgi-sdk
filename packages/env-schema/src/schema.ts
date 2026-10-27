@@ -1044,6 +1044,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_FILE_MEMORY_MIB',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. With artifacts on (`KINDGI_ARTIFACTS`), the memory, in MiB, the server keeps for the bytes of files its agents read. Each model call holds room for the files it reads, 3 × each one's size (2 × for one the cache keeps), until it ends. A call that finds no room within 15 seconds is sent with a line in each file's place, and the server logs a warning (`file-memory-no-room`); a later call is shown them again. Default: 512, or a quarter of the server's memory (its container's limit, when one is set) when that's less, and never below 35, the room one model call's files take at their limit. A value that isn't a whole number from 35 to 1048576 stops the server at boot, naming this variable (exit code 2).",
+    example: '512',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_FILE_CACHE_MIB',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. How much of `KINDGI_FILE_MEMORY_MIB`, in MiB, keeps the bytes of files model calls have read, so a later call reads them from memory rather than from the artifact store. A model call that needs the room takes it back, least recently read first. 0 keeps none. Default: half of `KINDGI_FILE_MEMORY_MIB`. A value that isn't a whole number from 0 to `KINDGI_FILE_MEMORY_MIB` stops the server at boot, naming this variable (exit code 2).",
+    example: '256',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_TEMPLATE_RENDER_WORKERS',
     description:
       "Used from runtime 0.1.9; earlier runtimes ignore it. How many worker processes the server renders a turn's instruction template in, off the thread that runs the turn. Default 1 on a runtime serving many tenants (`KINDGI_TENANCY=multi`): one worker process, started at the first render and shared across turns; a higher count lets several templates render at once. Default 0 on a runtime serving one: the template renders in the server process, as before, and no worker starts. A runtime serving one tenant gives a render no time limit: with workers turned on there, a render that never ends holds its worker until a restart, and the turns after it wait for a free worker. Each worker holds about 67 MiB at rest, and up to its heap cap (`KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB`) under load. A value that isn't a whole number of at least 0 stops the server at boot, naming this variable (exit code 2).",

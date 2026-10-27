@@ -98,6 +98,7 @@ export type {
   ConnectionCallCode,
   FileBinding,
   FileBindings,
+  FileHold,
   UnresolvedToolError,
 } from './invoke.js';
 export {

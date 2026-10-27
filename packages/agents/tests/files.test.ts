@@ -48,8 +48,10 @@ import {
   TOOL_RESULT_FILES,
   admitHistoryFiles,
   agentSeesFiles,
+  asFileValue,
   filesLeftOut,
   messagesForCall,
+  sentAsImageOrPdf,
 } from '../src/handlers/files.js';
 import { buildModelCallHandler } from '../src/handlers/model-call.js';
 import { buildPersistUserMessageHandler } from '../src/handlers/persist-user-message.js';
@@ -549,6 +551,30 @@ describe("a tool result's files", () => {
   });
 });
 
+describe("a file's forms", () => {
+  const TEXT = { size: 5, sha256: sha(7), cut: false };
+  const SMALL = { contentType: 'image/jpeg', size: 10, sha256: sha(8) } as const;
+
+  test('a file sent as an image or a PDF: its rendition, or itself with no text in its place', () => {
+    expect(sentAsImageOrPdf(recordOf('art-1'))).toBe(true);
+    expect(sentAsImageOrPdf(recordOf('doc-2'))).toBe(true);
+    expect(sentAsImageOrPdf({ ...recordOf('doc-2'), extracted: TEXT })).toBe(false);
+    expect(sentAsImageOrPdf(recordOf('txt-3'))).toBe(false);
+    const heic = { ...recordOf('art-4'), contentType: 'image/heic' };
+    expect(sentAsImageOrPdf(heic)).toBe(false);
+    expect(sentAsImageOrPdf({ ...heic, rendition: SMALL })).toBe(true);
+    // With both, its text is sent.
+    expect(sentAsImageOrPdf({ ...heic, rendition: SMALL, extracted: TEXT })).toBe(false);
+  });
+
+  test('a file kept as a value keeps no form', () => {
+    expect(asFileValue({ ...recordOf('art-1'), rendition: SMALL, extracted: TEXT })).toEqual({
+      type: 'kindgi.file',
+      ...recordOf('art-1'),
+    });
+  });
+});
+
 describe('a model call with files', () => {
   const ANSWER: ModelCallResult = {
     message: { role: 'assistant', content: 'It is broken.' },
@@ -564,6 +590,7 @@ describe('a model call with files', () => {
     readonly vision?: boolean;
     readonly binding?: FileBinding;
     readonly provenance?: ProvenanceBuilder;
+    readonly dryRun?: boolean;
   }) {
     const sent: ModelCallInput[] = [];
     const charges: number[] = [];
@@ -606,7 +633,7 @@ describe('a model call with files', () => {
       ...(options.binding !== undefined && { files: options.binding }),
     } as unknown as TurnContext;
     const run = async (nextMessages: readonly ModelMessage[]) =>
-      (await buildModelCallHandler(ctx)({ nextMessages }, kctx())) as {
+      (await buildModelCallHandler(ctx)({ nextMessages }, kctx(options.dryRun))) as {
         readonly nextMessages: readonly ModelMessage[];
         readonly files?: readonly { artifactId: string; sha256: string }[];
       };
@@ -663,16 +690,79 @@ describe('a model call with files', () => {
   });
 
   test("the turn's memory charge adds 3 × the bytes of the files the call reads", async () => {
-    const files = [recordOf('art-1'), recordOf('doc-2'), recordOf('txt-3')];
-    const seen = call({ agent: seeing, binding: filesBinding([]).files });
+    const ids = ['art-1', 'doc-2', 'txt-3'];
+    const files = ids.map(recordOf);
+    const seen = call({ agent: seeing, binding: filesBinding(ids).files });
     await seen.run(withFiles(files));
     const all = 1001 + 2000 + 300;
     expect(seen.charges).toEqual([4 * sizeOf(seen.sent[0]?.messages ?? []) + 3 * all]);
 
     // A model without `vision` reads the text file only.
-    const textOnly = call({ agent: seeing, vision: false, binding: filesBinding([]).files });
+    const textOnly = call({ agent: seeing, vision: false, binding: filesBinding(ids).files });
     await textOnly.run(withFiles(files));
     expect(textOnly.charges).toEqual([4 * sizeOf(textOnly.sent[0]?.messages ?? []) + 3 * 300]);
+  });
+
+  /** A binding that admits each file with `form` made of it, and logs each call's `seesFiles` and each read's form. */
+  function formsBinding(form: Pick<MessageFile, 'rendition' | 'extracted'>) {
+    const calls: (boolean | undefined)[] = [];
+    const reads: [string, string | undefined][] = [];
+    const files: FileBinding = {
+      admit: async (values, forCall) => {
+        calls.push(forCall?.seesFiles);
+        return values.map((v) => ({ ...recordOf(v.artifactId), ...form }));
+      },
+      read: async (artifactId, asked) => {
+        reads.push([artifactId, asked]);
+        return undefined;
+      },
+      shown: async () => {},
+      refuse: async () => {},
+    };
+    return { files, calls, reads };
+  }
+
+  const TEXT = { size: 5, sha256: sha(7), cut: false };
+  const SMALL = { contentType: 'image/jpeg', size: 10, sha256: sha(8) } as const;
+
+  test("the call's copy carries each file's form, asked for the call; the step output keeps the plain reference", async () => {
+    const binding = formsBinding({ extracted: TEXT });
+    const c = call({ agent: blind, binding: binding.files });
+    const messages = withFiles([recordOf('doc-2')]);
+    const out = await c.run(messages);
+    expect(binding.calls).toEqual([false]);
+    // Its text is sent in its place, so it isn't a `model` line.
+    expect(c.sent[0]?.messages[1]?.files).toEqual([{ ...recordOf('doc-2'), extracted: TEXT }]);
+    expect(out.nextMessages).toEqual(messages);
+    await c.sent[0]?.readFile?.('doc-2', 'extracted');
+    expect(binding.reads).toContainEqual(['doc-2', 'extracted']);
+  });
+
+  test('a file the rule no longer admits when the call is sent is a `gone` line', async () => {
+    const c = call({ agent: seeing, binding: filesBinding([]).files });
+    await c.run(withFiles([recordOf('art-1')]));
+    expect(c.sent[0]?.messages[1]?.files?.[0]?.notShown).toBe('gone');
+  });
+
+  test('a dry run asks for no form', async () => {
+    const binding = filesBinding(['art-1']);
+    await call({ agent: seeing, binding: binding.files, dryRun: true }).run(
+      withFiles([recordOf('art-1')]),
+    );
+    expect(binding.admitted).toEqual([]);
+  });
+
+  test("the memory charge counts a form's bytes in its file's place", async () => {
+    const c = call({ agent: seeing, binding: formsBinding({ rendition: SMALL }).files });
+    await c.run(withFiles([recordOf('art-1')]));
+    expect(c.charges).toEqual([4 * sizeOf(c.sent[0]?.messages ?? []) + 3 * SMALL.size]);
+  });
+
+  test('a file with both forms is charged its text, the form that is sent', async () => {
+    const both = formsBinding({ rendition: SMALL, extracted: TEXT });
+    const c = call({ agent: seeing, binding: both.files });
+    await c.run(withFiles([recordOf('art-1')]));
+    expect(c.charges).toEqual([4 * sizeOf(c.sent[0]?.messages ?? []) + 3 * TEXT.size]);
   });
 
   test('over the per-call cap, the newest files are read', async () => {

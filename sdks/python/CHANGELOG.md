@@ -17,6 +17,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `ConversationMessage` gains `files`: the stored files the message names, each
   a `FileValue` (`artifact_id`, `name`, `content_type`, `size`, `sha256`), as
   `conversations.messages` returns them. It's `None` on a message with none.
+  A file's `not_shown` is `reading` when what the model is sent in its place,
+  an image or a text made from it, isn't made yet.
 
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a

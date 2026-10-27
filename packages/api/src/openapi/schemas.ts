@@ -72,7 +72,7 @@ import {
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
 import { RUN_STARTED_BY, RUN_TRIGGER_KINDS } from '@kindgi/runtime';
-import { CORRECTION_ITEM } from '@kindgi/types';
+import { CORRECTION_ITEM, FILE_NOT_SHOWN_REASONS } from '@kindgi/types';
 
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
@@ -4422,9 +4422,9 @@ export const FileValueSchema: JsonSchema = {
     },
     notShown: {
       type: 'string',
-      enum: ['type', 'size', 'model', 'limit', 'store', 'gone', 'changed', 'refused'],
+      enum: [...FILE_NOT_SHOWN_REASONS],
       description:
-        "Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached).",
+        "Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached), `reading` (what the model is sent in its place, an image or a text made from it, isn't made yet).",
     },
   },
 };

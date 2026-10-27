@@ -11,6 +11,7 @@ export const FILE_NOT_SHOWN_REASONS = [
   'gone',
   'changed',
   'refused',
+  'reading',
 ] as const;
 
 export type FileNotShownReason = (typeof FILE_NOT_SHOWN_REASONS)[number];
@@ -40,7 +41,9 @@ export interface FileValue {
    * agent or its model doesn't take images and documents), `limit` (over a
    * call's or a list's limits), `store` (no file store), `gone` (no
    * longer stored), `changed` (not the bytes that were checked),
-   * `refused` (the model couldn't read it when it was attached).
+   * `refused` (the model couldn't read it when it was attached),
+   * `reading` (what the model is sent in its place, an image or a text
+   * made from it, isn't made yet).
    */
   readonly notShown?: FileNotShownReason;
 }
