@@ -90,7 +90,8 @@
 #   --to               The target runtime version, 0.2.0 or later (default
 #                      0.3.0). An rc such as 0.3.0-rc.0 works too, and so does
 #                      a server-only release such as 0.2.0.1: a server fix for
-#                      0.2.0, with no SDK release of its own. Earlier
+#                      0.2.0, with no SDK release of its own. A preview
+#                      (0.3.0-preview.2, say) is never a target. Earlier
 #                      releases aren't on registry.kindgi.com: for those, use
 #                      this script as of the @kindgi/sdk@0.1.10 tag. This
 #                      script knows the steps up to 0.3.0; for a later
@@ -101,9 +102,11 @@
 #                      Below 0.3.0, the plan still makes this module's
 #                      changes up to 0.3.0, with the older runtime; that
 #                      release's tag keeps the module at its own.
-#   --from             Assert the current version (0.1.10, say, or 0.2.0.1)
+#   --from             Assert the current version (0.1.10, say, 0.2.0.1, or a
+#                      preview from the runtime's main such as 0.3.0-preview.2)
 #                      when it can't be read from the deployment (no version
-#                      tag on the running image).
+#                      tag on the running image). A preview is read from its
+#                      tag too, and upgrades to its release's rcs or final.
 #   --pack-dir         Rebuild and push the pack from here with `kindgi build`
 #                      (only if the deployment has a pack service). Without it,
 #                      the runtime is upgraded alone and the pack is left as is.
@@ -160,27 +163,32 @@ require_cmd() {
   done
 }
 
-# A version as a plain base-10 integer for comparison: an rc ranks below its
-# final, and a server-only release X.Y.Z.N above it, in order of N:
-# 0.2.0-rc.1 -> 200000001, 0.2.0 -> 200050000, 0.2.0.1 -> 200050001. Each of
-# X, Y and Z is below 1000, an rc's number and N below 50000. 10# keeps a
-# zero-padded component from being read as octal.
+# A version as a plain base-10 integer for comparison: a preview ranks below
+# its release's rcs, an rc below its final, and a server-only release X.Y.Z.N
+# above it, in order of N: 0.3.0-preview.2 -> 300000002, 0.3.0-rc.1 ->
+# 300025001, 0.3.0 -> 300050000, 0.3.0.1 -> 300050001. Each of X, Y and Z is
+# below 1000, a preview's and an rc's number below 25000, and N below 50000.
+# 10# keeps a zero-padded component from being read as octal.
 ver_num() {
   local v="${1%%-*}" tail=50000 a b c n
-  if [[ $1 =~ -rc\.([0-9]+)$ ]]; then tail=$((10#${BASH_REMATCH[1]})); fi
+  if [[ $1 =~ -preview\.([0-9]+)$ ]]; then tail=$((10#${BASH_REMATCH[1]})); fi
+  if [[ $1 =~ -rc\.([0-9]+)$ ]]; then tail=$((25000 + 10#${BASH_REMATCH[1]})); fi
   local IFS=.
   read -r a b c n <<<"$v"
   if [[ -n ${n:-} ]]; then tail=$((50000 + 10#$n)); fi
   printf '%d' "$(( ((10#${a:-0}) * 1000000 + (10#${b:-0}) * 1000 + (10#${c:-0})) * 100000 + tail ))"
 }
 
-# A version: X.Y.Z, an rc of it (X.Y.Z-rc.N), or a server-only release
-# X.Y.Z.N (N from 1), a server fix for X.Y.Z with no SDK release of its own.
-# A server-only release has no rc.
-is_version() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|\.[1-9][0-9]*)?$ ]]; }
+# A version: X.Y.Z, an rc of it (X.Y.Z-rc.N), a preview of it built from the
+# runtime's main (X.Y.Z-preview.N), or a server-only release X.Y.Z.N (N from
+# 1), a server fix for X.Y.Z with no SDK release of its own. A server-only
+# release has no rc. A preview is something a deployment can run, so it can be
+# the version upgraded from, but it has no release steps: it's never a target.
+is_version() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-preview\.[0-9]+|\.[1-9][0-9]*)?$ ]]; }
+is_preview() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+$ ]]; }
 is_server_fix() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]]; }
 # The release a version belongs to, whose @kindgi/sdk@ tag has the upgrade.sh
-# for it: X.Y.Z for X.Y.Z, X.Y.Z-rc.N and X.Y.Z.N.
+# for it: X.Y.Z for X.Y.Z, X.Y.Z-rc.N, X.Y.Z-preview.N and X.Y.Z.N.
 release_of() { [[ $1 =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"; }
 # The tags whose upgrade.sh is a release's own ($1, X.Y.Z), as the docs name
 # them: an rc's tag stands for the release until it's out.
@@ -258,6 +266,13 @@ print_go_back() {
     rc_note+=$'\n'"    npx finds no ${cli}: in this step and in step 7, name the"
     rc_note+=$'\n'"    CLI's own pre-release instead, as @kindgi/cli@$(release_of "$CURRENT")-rc.N"
     rc_note+=$'\n'"    (npm view @kindgi/cli versions lists them)."
+  fi
+  # A preview is the runtime's alone: no CLI is published with it.
+  if is_preview "$CURRENT"; then
+    rc_note=$'\n'"    This deployment runs a preview, ${CURRENT}, and no CLI is published"
+    rc_note+=$'\n'"    with a preview. Until $(release_of "$CURRENT") is out, npx finds no ${cli}: in"
+    rc_note+=$'\n'"    this step and in step 7, name the newest @kindgi/cli that's out"
+    rc_note+=$'\n'"    instead (npm view @kindgi/cli versions lists them)."
   fi
   # A private-IP database's URL keeps its host; a socket's names the instance.
   local db_where="host=/cloudsql/${SQL_CONNECTION_NAME} and dbname ${fresh}"
@@ -379,6 +394,9 @@ done
 [[ $BACKUP_BUCKET =~ ^gs://[a-z0-9][-a-z0-9._]*(/.*)?$ ]] || die "--backup-bucket must look like gs://<bucket>[/<prefix>]."
 BUCKET_ONLY="${BACKUP_BUCKET#gs://}"; BUCKET_ONLY="${BUCKET_ONLY%%/*}"
 is_version "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.2.0, 0.2.0-rc.0 or 0.2.0.1."
+if is_preview "$TARGET"; then
+  die "--to $TARGET: a preview has no release steps, so it's never a target. Upgrade to an rc or a release, such as $(release_of "$TARGET")-rc.0 or $(release_of "$TARGET")."
+fi
 TARGET_RELEASE="$(release_of "$TARGET")"
 [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
   || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of the @kindgi/sdk@0.1.10 tag."
@@ -395,7 +413,7 @@ fi
 if is_server_fix "$TARGET" && [[ " ${KNOWN_RELEASES[*]} " != *" $TARGET_RELEASE "* ]]; then
   die "--to $TARGET: a server fix for $TARGET_RELEASE, which isn't a release this script knows (${KNOWN_RELEASES[*]})."
 fi
-if [[ -n $FROM_OVERRIDE ]]; then is_version "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.10 or 0.2.0.1."; fi
+if [[ -n $FROM_OVERRIDE ]]; then is_version "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.10, 0.2.0.1 or 0.3.0-preview.2."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 
 require_cmd terraform gcloud jq docker
@@ -626,7 +644,7 @@ else
   if [[ -n $CURRENT ]]; then
     info "read $CURRENT from the mirrored image's tag"
   else
-    die "couldn't read the version from the running image (no version tag on its digest). Re-run with --from <the version it runs, such as 0.1.10 or 0.2.0.1>."
+    die "couldn't read the version from the running image (no version tag on its digest). Re-run with --from <the version it runs, such as 0.1.10, 0.2.0.1 or 0.3.0-preview.2>."
   fi
 fi
 

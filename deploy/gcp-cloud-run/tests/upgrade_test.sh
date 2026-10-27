@@ -826,13 +826,13 @@ case_start "--from an rc of a server fix isn't a version"
 reset_env
 run "yes" --from 0.2.0.1-rc.0 --to 0.2.0.2
 assert_rc 1 "--from 0.2.0.1-rc.0 refused"
-assert_out "--from \"0.2.0.1-rc.0\" isn't a version like 0.1.10 or 0.2.0.1"
+assert_out "--from \"0.2.0.1-rc.0\" isn't a version like 0.1.10, 0.2.0.1 or 0.3.0-preview.2"
 
 case_start "no version tag, no --from"
 reset_env
 run "yes" --to 0.2.0.1
 assert_rc 1 "no version refused"
-assert_out "Re-run with --from <the version it runs, such as 0.1.10 or 0.2.0.1>"
+assert_out "Re-run with --from <the version it runs, such as 0.1.10, 0.2.0.1 or 0.3.0-preview.2>"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 
 # 45. A dry run lists a server-only release like any other target: its own
@@ -1310,6 +1310,58 @@ run "yes"
 unset TF_VAR_pack_image
 assert_rc 0 "without a rebuild it runs"
 assert_out "also set       TF_VAR_pack_image (in the environment)"
+
+# --- previews ---------------------------------------------------------------
+# A preview built from the runtime's main (X.Y.Z-preview.N) is a version a
+# deployment can run: it's read from its tag (beside the moving "preview"
+# one), ranks below its release's rcs, and upgrades to them or to the final.
+# It's never a target, since it has no release steps.
+case_start "a preview read from its tag, to its release's final"
+reset_env; export STUB_TAGS="0.2.0-preview.0;preview"
+run "yes"
+assert_rc 0 "preview -> final runs"
+assert_out "read 0.2.0-preview.0 from the mirrored image's tag"
+assert_out "upgrading 0.2.0-preview.0 -> 0.2.0, crossing: 0.2.0"
+assert_out "0.2.0-preview.0 -> 0.2.0 applied"
+
+case_start "a preview to its release's rc"
+reset_env; export STUB_TAGS="0.2.0-preview.3"
+run "yes" --to 0.2.0-rc.0
+assert_rc 0 "preview -> rc runs"
+assert_out "upgrading 0.2.0-preview.3 -> 0.2.0-rc.0, crossing: 0.2.0"
+
+case_start "--from a preview"
+reset_env
+run "yes" --from 0.2.0-preview.1
+assert_rc 0 "--from a preview runs"
+assert_out "using --from 0.2.0-preview.1"
+
+case_start "a target older than the preview"
+reset_env; export STUB_TAGS="0.3.0-preview.0"
+run "yes" --to 0.2.0
+assert_rc 1 "an older target refused"
+assert_out "already on 0.3.0-preview.0, at or past the target 0.2.0"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+
+case_start "a preview as the target"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes" --to 0.2.0-preview.0
+assert_rc 1 "a preview target refused"
+assert_out "a preview has no release steps, so it's never a target"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+
+case_start "go-back from a preview"
+reset_env; export STUB_TAGS="0.2.0-preview.0" STUB_APPLY_RC=1
+run "yes"
+assert_rc 1 "apply failure"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures export --out=erasures-" "the export runs the preview's CLI line"
+note="$(grep -A4 -F "memory erasures export" "$OUT" | tail -n 4)"
+if [[ $note == "    This deployment runs a preview, 0.2.0-preview.0, and no CLI is published
+    with a preview. Until 0.2.0 is out, npx finds no @kindgi/cli@0.2: in
+    this step and in step 7, name the newest @kindgi/cli that's out
+    instead (npm view @kindgi/cli versions lists them)." ]]; then pass
+else fail "the preview note isn't right under the export: $note"; fi
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
