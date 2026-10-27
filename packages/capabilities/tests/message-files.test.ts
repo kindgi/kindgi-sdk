@@ -10,6 +10,7 @@ import {
   type FilePart,
   type MessageFile,
   type ModelMessage,
+  PROVIDER_FILE_LIMITS,
   fileParts,
   headedFileParts,
 } from '../src/index.js';
@@ -363,5 +364,23 @@ describe('headedFileParts', () => {
 
   test('no parts, no heading', () => {
     expect(headedFileParts([])).toEqual([]);
+  });
+});
+
+describe('PROVIDER_FILE_LIMITS', () => {
+  test("every provider's limit is lower than Kindgi's: one that isn't would change nothing", () => {
+    const kindgi: Readonly<Record<string, number>> = {
+      ...FILE_LIMITS,
+      // A call's documents are of its files.
+      documentsPerCall: FILE_LIMITS.filesPerCall,
+    };
+    const rows = Object.entries(PROVIDER_FILE_LIMITS);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const [provider, limits] of rows) {
+      for (const [name, value] of Object.entries(limits)) {
+        expect(kindgi[name], `${provider}: ${name} isn't one of Kindgi's limits`).toBeDefined();
+        expect(value, `${provider}: ${name}`).toBeLessThan(kindgi[name] ?? 0);
+      }
+    }
   });
 });

@@ -28,6 +28,7 @@ export {
   FILE_LIMITS,
   FILE_NOT_SHOWN_REASONS,
   IMAGE_FILE_TYPES,
+  PROVIDER_FILE_LIMITS,
   TEXT_FILE_TYPES,
   fileParts,
   headedFileParts,
