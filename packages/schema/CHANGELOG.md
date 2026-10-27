@@ -1,5 +1,12 @@
 # @kindgi/schema
 
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- @kindgi/bounds@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
 ## 0.2.0-rc.0
 
 ### Patch Changes

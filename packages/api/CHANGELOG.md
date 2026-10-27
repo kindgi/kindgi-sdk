@@ -1,5 +1,114 @@
 # @kindgi/api
 
+## 0.2.0-rc.1
+
+### Minor Changes
+
+- b6e20ca: **A schedule or webhook trigger is personal or shared, and its owner stays put.** A trigger a person owns is personal: its runs act as them, with their connections, and only they or a project admin can change, pause, resume, fire or delete it. Anyone else is answered `403 permission-denied`. A trigger a service account owns is shared: its runs act as the account, with the company's connections. Changing what it runs (its target or version, its input, its tools allowed unattended, a webhook's signing secret) takes a project admin. The project's writers can still change its label, schedule, policies and delivery settings, and pause, resume, fire or delete it. No change moves the owner; only a take-over (`POST …/owner`) does. Without an authorization store, a project admin here is a tenant-admin key, and that covers setting a trigger's tools allowed unattended and taking a trigger over too. A change by anyone but a personal trigger's owner is recorded as `trigger-changed-for-owner`. 0.2.0-rc.0 moved a trigger's owner to whoever changed what it ran; this release doesn't, and a trigger that candidate moved keeps the owner it has now.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+- b6e20ca: **A shared trigger can run as its project.** `runAsProject: true` on a schedule, webhook or mail trigger (or `--run-as=project`) makes its runs act as the project's own service account, made the first time and given the editor role on the project. It takes a project admin. The account has no keys, its role can't be changed, and it can't be named by id. A tenant admin may unregister it, which stops its triggers until an admin takes each over. A trigger's `owner` says `isProjectAccount: true`, and a service account says `projectId`. Deleting a project unregisters its account.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+
+### Patch Changes
+
+- b6e20ca: **`POST /v1/deployments` refuses a pack's tool whose version the runtime holds with another definition: `409 tool-already-registered`.** Before, a deploy kept the manifest the version already held and only moved its code pointer to the new image. So a tool changed under the same version, such as a new input schema, another `needsSpec` (whose account a connection uses, for one), `mutating` or its approvals, deployed "ok", and its new code ran under the old manifest. The deploy now checks each of the pack's tools before it writes anything, as it does the pack's data blocks:
+  
+  - A version the runtime doesn't hold is published, as before.
+  - One it holds in the deploy's project with the same definition is kept, active or unregistered, as before. A new image of the same tool is the same definition: what a deploy derives (the image and artifact version in the code pointer, the version's project and secret scopes) isn't compared.
+  - One it holds in the deploy's project with another definition, active or unregistered, is refused. `details.fields` names the fields of its definition that differ (the manifest's top-level fields, and `modulePath` for where its code lives in the pack), and the message says to give the tool a new version. Nothing is written.
+  - A version in another project, or an MCP endpoint's tool, is refused as before (`tool-project-mismatch`, `tool-kind-mismatch`). One the runtime takes from another project of the project's environment order, and one published with another definition while the deploy runs, are refused at the write, and the deploy rolls back what it wrote.
+  
+  A digest replay goes through the same check. So an image recorded before this release, whose tool the runtime kept with another definition, now gets `409 tool-already-registered` where it got `200`. Give the tool a new version and build again.
+  
+  `@kindgi/tools` exports what the deploy compares: `toolDefinition` (a tool's declared fields, and its module path), `changedToolFields` and `sameToolDefinition`. The classification of the manifest's fields is typed over every field, so one a later release adds fails the typecheck until it's classified. The tools in `@kindgi/connections` take a new version whenever what they declare changes, and their tests pin each one's definition at its version.
+- b6e20ca: **A mail trigger moved to another mailbox watches that mailbox's inbox.** A change whose `config.mailbox` names another mailbox, in the other app or with the other `as`, and that names no `config.folder` drops the trigger's folder. A Gmail label id or an Outlook folder id belongs to one mailbox, so in another it names another folder or none. The same mailbox sent again keeps the folder, and a folder named with the move is the one it watches.
+  - The `PATCH /v1/mail-triggers/{triggerId}` body's `folder` says so, and the testing trigger registry (`createInMemoryTriggerRegistry`) merges a mail trigger's config the same way a runtime does.
+  - `UpdateMailTriggerInput.config` (`@kindgi/runtime`) and `kindgi mail-triggers update --folder` say so too.
+- b6e20ca: **Mail triggers on the wire: each new mail in a Gmail or Outlook mailbox starts a run.** With a trigger registry, a server answers `/v1/mail-triggers` when its `triggerKinds` include `mail` (left out, all four kinds mount).
+  - **`POST /v1/mail-triggers`** registers one:
+    - the agent (`agentId`, with `agentVersion` optional) or the flow (`flowId` and `flowVersion`) to run;
+    - `config.mailbox`, `{ app: 'google' | 'microsoft', as: 'person' | 'company' }`;
+    - `config.folder`, the Gmail label id or the Outlook folder id or well-known name to watch (the inbox when left out, and `INBOX` or `inbox` to watch it again);
+    - `config.pollSeconds`, how often to look, 30 to 3600 (default 60), and `config.runsPerHour`, the most runs its mail starts in an hour, 1 to 600 (default 60).
+    - `projectId`, the trigger's project (the tenant's Default project when left out). One that isn't a project id is a `400`, and one that names no project of the tenant's is a `404 project-not-found`, as for schedules and webhooks.
+    - Each run's input is the mail that started it, so `config.input` is refused.
+  - **Whose it is.** A trigger is shared or personal, by its owner, and its runs act as that owner, with the owner's connections.
+    - A trigger on a person's mailbox reads its owner's own mail, so a person owns it. A project writer registers one for their own mailbox. `runAsServiceAccountId`, or a service account calling, is a `400`.
+    - A trigger on the company's mailbox is a project admin's to register. With `runAsServiceAccountId`, a service account owns it, and it's shared.
+    - No edit moves the owner. Only `POST /v1/mail-triggers/{triggerId}/owner` does, and on a person's mailbox the mailbox becomes the new owner's own.
+  - **Who may change it.**
+    - A person's trigger is changed, paused, resumed or unregistered by its owner or a project admin, and anyone else gets a `403`.
+    - Only the owner chooses what a person's trigger reads from their mailbox: another of their mailboxes, or another folder. Anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. An admin may still move it to the company's mailbox.
+    - A shared trigger's `PATCH` is an admin's, and its pause, resume and unregister need `write`.
+    - A change to a trigger on the company's mailbox, before or after the change, takes an admin.
+    - When an admin changes, pauses, resumes or unregisters a person's trigger, it's recorded as `trigger-changed-for-owner` evidence: the owner, who did it and what, and on a change the fields that changed, with the target, mailbox and folder before and after. Where the app tells owners (`triggerOwnerNotices`), the owner is told too, as for schedules and webhooks, and a take-over tells the former owner. Its runs go on acting as that person.
+  - **`toolsAllowedUnattended`.** In a run a mail started, every call that changes something, or that uses the run's own mailbox, waits for a person's yes. The list names the tools whose calls needn't wait: only tools its agent or flow calls, and a project admin's to set. While it lists any, a new target (another agent or flow, not just a version) or another mailbox must name it again: `[]` to clear it, which a person's trigger's owner may give with their own change, or a list, which a project admin sets.
+  - **Reads and the rest.**
+    - `GET /v1/mail-triggers` lists them (`projectId`, `status`, paged), and `GET /v1/mail-triggers/{triggerId}` reads one. Each gives `account`, the mailbox's account at its last poll, `lastPolledAt`, and `statusReason` (`connection-missing` while the mailbox's connection is gone or lapsed, `owner-refused` while its owner was removed or may no longer run the target).
+    - `POST …/pause`, `POST …/resume` and `POST …/unregister` work as for the other trigger kinds. A resume starts afresh: mail that came while it was paused doesn't start runs.
+    - `GET /v1/mail-triggers/{triggerId}/fires` lists its mail, newest first: the run each started, `pending` while an earlier mail of its thread runs first (`detail` starts `thread-busy:`), or why it was skipped, refused or failed, each in `detail`.
+  - **The trigger types** (`@kindgi/runtime`): the registry's mail trigger record, its config and limits, and the mail fire outcomes, which the wire describes.
+  - **Clients:** `client.mailTriggers` in the TypeScript client, and `client.mail_triggers` in the Python client. In Python, a registration's `config` is a `RegisterMailTriggerBodyConfig`, and a change's is a `PatchMailTriggerBodyConfig`.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- b6e20ca: **A trigger can't be set to run as an owner that can't run what it starts.** With an authorization store, the check every fire makes is now also made when the owner or the target is set: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule.
+  - Registering a schedule, webhook or mail trigger, or taking one over, with `runAsServiceAccountId` (`--run-as`): an account that can't is refused with `409 trigger-owner-cannot-run-target`, and nothing is registered or changed. The message names the account and the target, and what fixes it: give the account the editor role on the target's project, or name another account. Only a caller who may name the account (`act_as`, a tenant admin's) gets this far.
+  - Running one as the project (`runAsProject`, `--run-as=project`), on create or take-over: the project's own account runs only what the project's editors can, so a target it can't run, such as one another project serves, is refused with the same 409. Its message says what fixes it: run the trigger as a service account that can, or own it yourself. The account is made before the check, so it stays, with no keys, for the next `runAsProject`.
+  - Changing a schedule's or mail trigger's target (another agent or flow, or for a schedule an Improve pass): the trigger keeps its owner, so the owner, a service account or a person, must be able to run the new target. Otherwise the change is refused with the same 409, naming the owner (or, for the project's own account, saying a project admin can take the trigger over first), and nothing changes. It isn't checked when the caller is the owner, whose own check has run, nor for an owner that was unregistered or removed: every fire is refused for that already, and a take-over is the fix.
+  - Before, the change was accepted, and then every fire was refused ("may no longer run") until the trigger paused.
+  - Without an authorization store, nothing changes: a grant limits nothing there.
+  
+  `@kindgi/authz` exports `targetAccess(target)`: the action and resource a trigger's target is checked by.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/tools@0.2.0-rc.1
+  - @kindgi/connections@0.2.0-rc.1
+  - @kindgi/runtime@0.2.0-rc.1
+  - @kindgi/compliance@0.2.0-rc.1
+  - @kindgi/log@0.2.0-rc.1
+  - @kindgi/handler-runtime@0.2.0-rc.1
+  - @kindgi/agents@0.2.0-rc.1
+  - @kindgi/authz@0.2.0-rc.1
+  - @kindgi/guardrails@0.2.0-rc.1
+  - @kindgi/capabilities@0.2.0-rc.1
+  - @kindgi/flow@0.2.0-rc.1
+  - @kindgi/provenance@0.2.0-rc.1
+  - @kindgi/schema@0.2.0-rc.1
+  - @kindgi/audit-events@0.2.0-rc.1
+  - @kindgi/blob-binding@0.2.0-rc.1
+  - @kindgi/bounds@0.2.0-rc.1
+  - @kindgi/crypto@0.2.0-rc.1
+  - @kindgi/memory@0.2.0-rc.1
+  - @kindgi/platform@0.2.0-rc.1
+  - @kindgi/policy-contract@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
 ## 0.2.0-rc.0
 
 ### Patch Changes

@@ -1,5 +1,57 @@
 # @kindgi/cli
 
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **`kindgi mail-triggers`: start runs from new mail in a Gmail or Outlook mailbox.** It has `list`, `get`, `create`, `update`, `pause`, `resume`, `fires`, `take-ownership` and `unregister`.
+  - `create` takes what to run, with `--agent=<id> [--agent-version=<v>]` or `--flow=<id> --flow-version=<v>`, as the other trigger commands do. `--mailbox=google|microsoft` is required.
+  - `--as=person` (the default) watches your own mailbox, through your connection. `--as=company` watches the company's, through the company's connection, and takes `admin` on the project. `--run-as=<service-account-id>` goes with `--as=company` only, and is refused before the call otherwise.
+  - `--folder`, `--poll`, `--runs-per-hour`, `--label` and `--project` set the rest, and `--allow-unattended` names the tools whose calls in its runs needn't wait for a person's yes.
+  - `update` changes only what it's given. `--mailbox` and `--as` go together there, since the mailbox is replaced whole, and `--allow-unattended=none` clears the list. On a person's mailbox, only the trigger's owner points it at another of their mailboxes or folders, and a project admin may move it to the company's.
+  - `take-ownership` names the tools the trigger keeps allowed unattended, with the line that clears them.
+  - `fires` lists a trigger's mail: the run each started, why a mail waits (`thread-busy:`, behind an earlier mail of its thread), or why it was skipped, refused or failed. `--table` shows it as a table, as `list --table` does for the triggers. `list --table` also shows whom each trigger runs as, and whether it's personal or shared.
+  - `kindgi exports create` writes the mail triggers and their fires, in `mail-triggers.jsonl` and `mail-trigger-fires.jsonl`, as it does for schedules and webhooks.
+- 7748e6c: `kindgi dev` runs runtime 0.2.0-rc.1.
+- b6e20ca: **A mail trigger moved to another mailbox watches that mailbox's inbox.** A change whose `config.mailbox` names another mailbox, in the other app or with the other `as`, and that names no `config.folder` drops the trigger's folder. A Gmail label id or an Outlook folder id belongs to one mailbox, so in another it names another folder or none. The same mailbox sent again keeps the folder, and a folder named with the move is the one it watches.
+  - The `PATCH /v1/mail-triggers/{triggerId}` body's `folder` says so, and the testing trigger registry (`createInMemoryTriggerRegistry`) merges a mail trigger's config the same way a runtime does.
+  - `UpdateMailTriggerInput.config` (`@kindgi/runtime`) and `kindgi mail-triggers update --folder` say so too.
+- b6e20ca: **A schedule or webhook trigger is personal or shared, and its owner stays put.** A trigger a person owns is personal: its runs act as them, with their connections, and only they or a project admin can change, pause, resume, fire or delete it. Anyone else is answered `403 permission-denied`. A trigger a service account owns is shared: its runs act as the account, with the company's connections. Changing what it runs (its target or version, its input, its tools allowed unattended, a webhook's signing secret) takes a project admin. The project's writers can still change its label, schedule, policies and delivery settings, and pause, resume, fire or delete it. No change moves the owner; only a take-over (`POST …/owner`) does. Without an authorization store, a project admin here is a tenant-admin key, and that covers setting a trigger's tools allowed unattended and taking a trigger over too. A change by anyone but a personal trigger's owner is recorded as `trigger-changed-for-owner`. 0.2.0-rc.0 moved a trigger's owner to whoever changed what it ran; this release doesn't, and a trigger that candidate moved keeps the owner it has now.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+- b6e20ca: **A trigger can't be set to run as an owner that can't run what it starts.** With an authorization store, the check every fire makes is now also made when the owner or the target is set: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule.
+  - Registering a schedule, webhook or mail trigger, or taking one over, with `runAsServiceAccountId` (`--run-as`): an account that can't is refused with `409 trigger-owner-cannot-run-target`, and nothing is registered or changed. The message names the account and the target, and what fixes it: give the account the editor role on the target's project, or name another account. Only a caller who may name the account (`act_as`, a tenant admin's) gets this far.
+  - Running one as the project (`runAsProject`, `--run-as=project`), on create or take-over: the project's own account runs only what the project's editors can, so a target it can't run, such as one another project serves, is refused with the same 409. Its message says what fixes it: run the trigger as a service account that can, or own it yourself. The account is made before the check, so it stays, with no keys, for the next `runAsProject`.
+  - Changing a schedule's or mail trigger's target (another agent or flow, or for a schedule an Improve pass): the trigger keeps its owner, so the owner, a service account or a person, must be able to run the new target. Otherwise the change is refused with the same 409, naming the owner (or, for the project's own account, saying a project admin can take the trigger over first), and nothing changes. It isn't checked when the caller is the owner, whose own check has run, nor for an owner that was unregistered or removed: every fire is refused for that already, and a take-over is the fix.
+  - Before, the change was accepted, and then every fire was refused ("may no longer run") until the trigger paused.
+  - Without an authorization store, nothing changes: a grant limits nothing there.
+  
+  `@kindgi/authz` exports `targetAccess(target)`: the action and resource a trigger's target is checked by.
+- b6e20ca: **A shared trigger can run as its project.** `runAsProject: true` on a schedule, webhook or mail trigger (or `--run-as=project`) makes its runs act as the project's own service account, made the first time and given the editor role on the project. It takes a project admin. The account has no keys, its role can't be changed, and it can't be named by id. A tenant admin may unregister it, which stops its triggers until an admin takes each over. A trigger's `owner` says `isProjectAccount: true`, and a service account says `projectId`. Deleting a project unregisters its account.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/client@0.2.0-rc.1
+  - @kindgi/sdk@0.2.0-rc.1
+  - @kindgi/log@0.2.0-rc.1
+  - @kindgi/handler-runtime@0.2.0-rc.1
+  - @kindgi/agents@0.2.0-rc.1
+  - @kindgi/secrets-dotenv@0.2.0-rc.1
+  - @kindgi/flow@0.2.0-rc.1
+  - @kindgi/crypto@0.2.0-rc.1
+  - @kindgi/dotenv-file@0.2.0-rc.1
+  - @kindgi/env-schema@0.2.0-rc.1
+  - @kindgi/platform@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
 ## 0.2.0-rc.0
 
 ### Minor Changes

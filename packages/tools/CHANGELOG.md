@@ -1,5 +1,55 @@
 # @kindgi/tools
 
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **`POST /v1/deployments` refuses a pack's tool whose version the runtime holds with another definition: `409 tool-already-registered`.** Before, a deploy kept the manifest the version already held and only moved its code pointer to the new image. So a tool changed under the same version, such as a new input schema, another `needsSpec` (whose account a connection uses, for one), `mutating` or its approvals, deployed "ok", and its new code ran under the old manifest. The deploy now checks each of the pack's tools before it writes anything, as it does the pack's data blocks:
+  
+  - A version the runtime doesn't hold is published, as before.
+  - One it holds in the deploy's project with the same definition is kept, active or unregistered, as before. A new image of the same tool is the same definition: what a deploy derives (the image and artifact version in the code pointer, the version's project and secret scopes) isn't compared.
+  - One it holds in the deploy's project with another definition, active or unregistered, is refused. `details.fields` names the fields of its definition that differ (the manifest's top-level fields, and `modulePath` for where its code lives in the pack), and the message says to give the tool a new version. Nothing is written.
+  - A version in another project, or an MCP endpoint's tool, is refused as before (`tool-project-mismatch`, `tool-kind-mismatch`). One the runtime takes from another project of the project's environment order, and one published with another definition while the deploy runs, are refused at the write, and the deploy rolls back what it wrote.
+  
+  A digest replay goes through the same check. So an image recorded before this release, whose tool the runtime kept with another definition, now gets `409 tool-already-registered` where it got `200`. Give the tool a new version and build again.
+  
+  `@kindgi/tools` exports what the deploy compares: `toolDefinition` (a tool's declared fields, and its module path), `changedToolFields` and `sameToolDefinition`. The classification of the manifest's fields is typed over every field, so one a later release adds fails the typecheck until it's classified. The tools in `@kindgi/connections` take a new version whenever what they declare changes, and their tests pin each one's definition at its version.
+- b6e20ca: **A tool's error says why it failed.** A tool whose fetch failed used to report only `fetch failed`. The reason was in the error's cause, which no run showed. Now the message names each cause, Node's way:
+  
+  ```text
+  Handler for tool "acme.list-orders" threw: TypeError: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)
+  ```
+  
+  - **Where:** a pack tool's handler, a check's `evaluate`, a pack file that fails to import, and a tool run in the server's own process. Every place a failure shows carries the message: the run's record, its events, the console, the model's retry and the CLI.
+  - **Three causes at most,** each on one line and cut at 500 characters, never inside a word. A cause the message already says is left out.
+  - **A refused connection names its addresses:** `AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:4000, connect ECONNREFUSED 127.0.0.1:4000`.
+  - **An error without a cause reads as it did.**
+  - **The message is masked, its causes and the error's own words alike.** A Kindgi token becomes `[redacted]` whole, a `Bearer` value is redacted, a URL's password becomes `***`, and a URL's secret query or fragment value becomes `[redacted]`. `?token=`, `#access_token=`, `X-Amz-Signature=`, a SAS `sig=` and `?key=` are covered. Log lines keep their form, a token's last four included.
+  - **A pack tool's own secrets and connection tokens are taken out first,** at any depth of the error, before the message is masked or cut. So the mask, the cut and the one-line step can't leave part of one, a connection string's host included.
+  - **`@kindgi/log`** exports `describeCauses(err)`, which gives the `; caused by …` text, and `scrubText(text, { fullMask: true })`, which is the mask for an error a run shows.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [b6e20ca]
+  - @kindgi/log@0.2.0-rc.1
+  - @kindgi/schema@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
 ## 0.2.0-rc.0
 
 ### Patch Changes
