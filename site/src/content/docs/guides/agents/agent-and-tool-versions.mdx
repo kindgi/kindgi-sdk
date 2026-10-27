@@ -88,6 +88,10 @@ then the tenant's), the version locks the tool at the pinned version:
   picks as above.
 - **A flow's tool step** locks the pinned version.
 
+This pin is set for a scope. It isn't a version's own `pins`, the tool
+versions that agent or flow version locked when it was published, which never
+change.
+
 A pin counts only while its version is active. It changes no version already
 made: a pin reaches an agent or flow through its next version, as a new tool
 version does.
@@ -231,8 +235,8 @@ how it was chosen:
 1.1.0 pinned
 ```
 
-`kindgi.tools.pinned` also has `resolve` (the version a version made in a
-project would lock, and why), `list`, `unpin` and `history`, as
+`kindgi.tools.pinned` also has `resolve` (the version a flow version made in
+a project would lock, and why), `list`, `unpin` and `history`, as
 [Pin a flow's version](../../flows/pin-a-flow-version/) shows for flows.
 Pinning and unpinning need `pin` on the tool, which its admins have.
 
@@ -240,8 +244,8 @@ Pinning and unpinning need `pin` on the tool, which its admins have.
 environment, so a tool in an order is pinned there. A pin for a later
 environment would never act, and is refused with
 `409 environment-takes-promotions`, naming the first environment in
-`details.firstProjectId`. A pin for an org or the tenant is refused with
-`409 pin-scope-spans-environments`.
+`details.firstProjectId` when you can read that project. A pin for an org or
+the tenant is refused with `409 pin-scope-spans-environments`.
 
 **Some tools can't be pinned.** A tool an MCP endpoint's catalog lists (its
 metadata has the catalog's `kindgi.mcp` key) follows its server: a call goes

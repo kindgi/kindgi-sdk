@@ -334,6 +334,10 @@ export type StartRunInput =
     }
   | {
       readonly flow: FlowId | string;
+      /**
+       * Semver; omit → the version pinned for the run's project (the
+       * project, its org, then the tenant), else the newest it reaches.
+       */
       readonly flowVersion?: string;
       /** Project the run belongs to. Optional; when omitted, the API's run handler chooses. */
       readonly projectId?: string;
