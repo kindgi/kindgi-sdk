@@ -27,6 +27,7 @@ export {
   DOCUMENT_FILE_TYPES,
   FILE_LIMITS,
   IMAGE_FILE_TYPES,
+  PROVIDER_FILE_LIMITS,
   TEXT_FILE_TYPES,
   filesForCall,
   fileParts,

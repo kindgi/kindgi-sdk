@@ -40,6 +40,7 @@ import {
   type AwsCredentialClient,
   type AwsCredentials,
   type ModelInfo,
+  PROVIDER_FILE_LIMITS,
   adapterConfigError,
   identitiesPresent,
 } from '@kindgi/capabilities';
@@ -56,17 +57,6 @@ const KEY_SET_PER_REQUEST = 'set-per-request';
 
 /** How long the runtime's AWS identity may take before the call fails as `auth`. */
 export const IDENTITY_TIMEOUT_MS = 10_000;
-
-/**
- * Bedrock's own limits on what a message carries (Converse's `Message.content`): an image of
- * at most 3.75 MB, a document of at most 4.5 MB, and at most five documents. Lower than
- * Kindgi's (`FILE_LIMITS`), so a file over them is a line saying why, not a refused call.
- */
-const BEDROCK_FILE_LIMITS = {
-  imageBytes: 3_750_000,
-  documentBytes: 4_500_000,
-  documentsPerCall: 5,
-} as const;
 
 /** What's wrong with a registration, for `POST /v1/providers` and `GET …/check`. */
 export function bedrockCheckConfig(
@@ -98,7 +88,7 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
 
   const provider = createAiSdkModelProvider({
     metadata,
-    fileLimits: BEDROCK_FILE_LIMITS,
+    fileLimits: PROVIDER_FILE_LIMITS[BEDROCK_ADAPTER_ID],
     ...(input.fetch !== undefined && { fetch: input.fetch }),
     beforeAttempt: (signal): Promise<SignedIn> =>
       auth === 'aws-identity'
