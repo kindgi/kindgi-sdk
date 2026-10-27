@@ -160,7 +160,7 @@ variable "seed_tenant_id" {
   default     = null
   validation {
     condition     = var.seed_tenant_id == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_tenant_id))
-    error_message = "seed_tenant_id must be a uuid (a tenant id is one), such as one uuidgen prints."
+    error_message = "seed_tenant_id must be a uuid (a tenant id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
   }
 }
 
@@ -170,7 +170,7 @@ variable "seed_user_id" {
   default     = null
   validation {
     condition     = var.seed_user_id == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_user_id))
-    error_message = "seed_user_id must be a uuid (a user id is one), such as one uuidgen prints."
+    error_message = "seed_user_id must be a uuid (a user id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
   }
 }
 
