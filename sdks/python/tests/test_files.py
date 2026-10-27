@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""A tool that declares `stores_files=True` gets `ctx.files` when the call carries a file upload:
-each store posts the bytes to the upload link, and the handler never sees the link or its token
-(pack protocol 2.10.0)."""
+"""A tool that declares `stores_files=True` or `reads_files=True` gets `ctx.files` when the call
+carries tool files: each store posts the bytes to the link, each read gets a file's bytes from
+under it, and the handler never sees the link or its token (pack protocol 2.10.0)."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from kindgi import (
     MAX_STORED_FILE_BYTES,
     MAX_STORED_FILES_PER_CALL,
+    FileReadAnswer,
     FileStore,
     FileStoreAnswer,
     FileStoreError,
@@ -34,7 +35,7 @@ from kindgi.pack.files import file_store_from_wire
 from kindgi.pack.index import run_indexer
 from kindgi.pack.service import PackService
 
-TOKEN = "kgi_fu_test-token"
+TOKEN = "kgi_tf_test-token"
 TOOLS_FILES = Path(__file__).resolve().parents[3] / "packages" / "tools" / "src" / "files.ts"
 
 STORED = {
@@ -47,15 +48,39 @@ STORED = {
 }
 
 
+PDF = b"%PDF-1.7 acme"
+
+
 class Link:
-    """The upload link: answers `answer`, and keeps what it received."""
+    """The tool-files link: answers a store `answer` and a read `read_answer` (bytes, or JSON),
+    and keeps what it received."""
 
     def __init__(self) -> None:
         self.answer: tuple[int, Any] = (200, {"file": STORED})
+        self.read_answer: tuple[int, Any] = (200, PDF)
         self.received: list[dict[str, Any]] = []
         link = self
 
         class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                link.received.append(
+                    {
+                        "method": "GET",
+                        "path": self.path,
+                        "headers": {k.lower(): v for k, v in self.headers.items()},
+                    }
+                )
+                status, body = link.read_answer
+                raw = isinstance(body, bytes)
+                data = body if raw else json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header(
+                    "content-type", "application/octet-stream" if raw else "application/json"
+                )
+                self.send_header("content-length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
             def do_POST(self) -> None:
                 length = int(self.headers.get("content-length", "0"))
                 link.received.append(
@@ -77,7 +102,7 @@ class Link:
                 pass
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self._server.server_address[1]}/v1/file-uploads"
+        self.url = f"http://127.0.0.1:{self._server.server_address[1]}/v1/tool-files"
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
 
@@ -94,13 +119,20 @@ def link() -> Iterator[Link]:
 
 
 def _store(link: Link) -> FileStore:
-    store = file_store_from_wire({"fileUpload": {"url": link.url, "token": TOKEN}})
+    store = file_store_from_wire(
+        {"toolFiles": {"url": link.url, "token": TOKEN}}, stores=True, reads=True
+    )
     assert store is not None
     return store
 
 
 def test_a_tool_that_stores_files_gets_a_store_and_never_the_token(link: Link) -> None:
-    wire = {"tenantId": "t", "runId": "r", "fileUpload": {"url": link.url, "token": TOKEN}}
+    wire = {
+        "tenantId": "t",
+        "runId": "r",
+        "idempotencyKey": "call-key",
+        "toolFiles": {"url": link.url, "token": TOKEN},
+    }
     ctx = ToolContext.from_wire(wire, Cancellation(), stores_files=True)
     assert isinstance(ctx.files, FileStore)
     assert TOKEN not in repr(ctx)
@@ -109,20 +141,25 @@ def test_a_tool_that_stores_files_gets_a_store_and_never_the_token(link: Link) -
 
 
 @pytest.mark.parametrize(
-    "upload",
+    "tool_files",
     [
         None,
-        "kgi_fu_x",
+        "kgi_tf_x",
         {"url": "ftp://kindgi.example/x", "token": TOKEN},
         {"url": "https://", "token": TOKEN},
-        {"url": "https://kindgi.example/v1/file-uploads"},
-        {"url": "https://kindgi.example/v1/file-uploads", "token": ""},
-        {"url": "https://kindgi.example/v1/file-uploads", "token": "kgi_fu_a\r\nb"},
-        {"url": "https://kindgi.example/v1/file-uploads", "token": "kgi_fu_é"},
+        {"url": "https://kindgi.example/v1/tool-files"},
+        {"url": "https://kindgi.example/v1/tool-files", "token": ""},
+        {"url": "https://kindgi.example/v1/tool-files", "token": "kgi_tf_a\r\nb"},
+        {"url": "https://kindgi.example/v1/tool-files", "token": "kgi_tf_é"},
     ],
 )
-def test_no_upload_or_an_unusable_one_is_no_store(upload: Any) -> None:
-    wire = {"tenantId": "t", "runId": "r", **({} if upload is None else {"fileUpload": upload})}
+def test_no_tool_files_or_unusable_ones_are_no_store(tool_files: Any) -> None:
+    wire = {
+        "tenantId": "t",
+        "runId": "r",
+        "idempotencyKey": "call-key",
+        **({} if tool_files is None else {"toolFiles": tool_files}),
+    }
     assert ToolContext.from_wire(wire, Cancellation(), stores_files=True).files is None
 
 
@@ -130,7 +167,7 @@ def test_a_store_posts_the_bytes_with_the_token_and_answers_the_file(link: Link)
     answer = _store(link).store(name="invoice.pdf", content_type="application/pdf", data=b"test")
     assert answer == FileStoreAnswer(file=STORED)
     [received] = link.received
-    assert received["path"] == "/v1/file-uploads"
+    assert received["path"] == "/v1/tool-files"
     assert received["headers"]["authorization"] == f"Bearer {TOKEN}"
     assert received["headers"]["content-type"] == "application/pdf"
     assert received["headers"]["kindgi-file-name"] == "invoice.pdf"
@@ -166,7 +203,7 @@ def test_a_lone_surrogate_in_the_name_goes_as_u_fffd_and_a_pair_stays_one_charac
     assert link.received[0]["headers"]["kindgi-file-name"] == "a%EF%BF%BDb%F0%9F%98%80.pdf"
 
 
-@pytest.mark.parametrize("reason", ["type", "size", "limit"])
+@pytest.mark.parametrize("reason", ["type", "size", "limit", "storage"])
 def test_answers_why_nothing_was_stored(link: Link, reason: str) -> None:
     link.answer = (200, {"notStored": reason})
     answer = _store(link).store(name="x", content_type="text/plain", data=b"test")
@@ -184,19 +221,117 @@ def test_an_answer_that_isnt_a_file_or_a_reason_raises(link: Link, body: Any) ->
 
 
 def test_a_refused_store_raises_naming_the_status_and_the_code(link: Link) -> None:
-    link.answer = (409, {"error": {"code": "file-upload-closed", "message": "closed"}})
-    with pytest.raises(FileStoreError, match=r"answered 409 \(file-upload-closed\)"):
+    link.answer = (409, {"error": {"code": "tool-file-token-closed", "message": "closed"}})
+    with pytest.raises(FileStoreError, match=r"answered 409 \(tool-file-token-closed\)"):
         _store(link).store(name="x", content_type="text/plain", data=b"test")
 
 
 def test_a_runtime_that_cant_be_reached_raises(link: Link) -> None:
     url = link.url
     link.close()
-    store = file_store_from_wire({"fileUpload": {"url": url, "token": TOKEN}})
+    store = file_store_from_wire(
+        {"toolFiles": {"url": url, "token": TOKEN}}, stores=True, reads=True
+    )
     assert store is not None
     with pytest.raises(FileStoreError, match="can't be reached") as raised:
         store.store(name="x", content_type="text/plain", data=b"test")
     assert TOKEN not in str(raised.value)
+    with pytest.raises(FileStoreError, match=r"files\.read: the runtime can't be reached") as read:
+        store.read("art-1")
+    assert TOKEN not in str(read.value)
+
+
+def test_a_read_gets_the_files_bytes_under_the_link_with_the_token(link: Link) -> None:
+    assert _store(link).read("art-1") == FileReadAnswer(data=PDF)
+    [received] = link.received
+    assert received["method"] == "GET"
+    assert received["path"] == "/v1/tool-files/art-1"
+    assert received["headers"]["authorization"] == f"Bearer {TOKEN}"
+
+
+@pytest.mark.anyio
+async def test_an_async_handler_reads_the_same_way(link: Link) -> None:
+    assert await _store(link).read_async("art-1") == FileReadAnswer(data=PDF)
+
+
+def test_a_reads_id_is_percent_encoded_and_a_links_trailing_slash_isnt_doubled(
+    link: Link,
+) -> None:
+    store = file_store_from_wire(
+        {"toolFiles": {"url": f"{link.url}/", "token": TOKEN}}, stores=False, reads=True
+    )
+    assert store is not None
+    store.read("a/b c?")
+    assert link.received[0]["path"] == "/v1/tool-files/a%2Fb%20c%3F"
+
+
+def test_a_lone_surrogate_in_a_reads_id_goes_as_u_fffd_and_the_runtime_answers_rule(
+    link: Link,
+) -> None:
+    link.read_answer = (200, {"notRead": "rule"})
+    assert _store(link).read("art-\ud800") == FileReadAnswer(not_read="rule")
+    assert link.received[0]["path"] == "/v1/tool-files/art-%EF%BF%BD"
+
+
+@pytest.mark.parametrize("reason", ["rule", "gone", "changed", "size"])
+def test_answers_why_there_are_no_bytes(link: Link, reason: str) -> None:
+    link.read_answer = (200, {"notRead": reason})
+    assert _store(link).read("art-1") == FileReadAnswer(not_read=reason)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("body", [{"notRead": "limit"}, {}])
+def test_a_read_answer_that_isnt_bytes_or_a_reason_raises(link: Link, body: Any) -> None:
+    link.read_answer = (200, body)
+    with pytest.raises(FileStoreError, match="isn't a file's bytes or a reason"):
+        _store(link).read("art-1")
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(404, "tool-file-token-not-found"), (409, "tool-file-token-closed"), (503, "tool-files-busy")],
+)
+def test_a_refused_read_raises_naming_the_status_and_the_code(
+    link: Link, status: int, code: str
+) -> None:
+    link.read_answer = (status, {"error": {"code": code, "message": "no"}})
+    with pytest.raises(
+        FileStoreError, match=rf"files.read: the runtime answered {status} \({code}\)"
+    ):
+        _store(link).read("art-1")
+
+
+@pytest.mark.parametrize("artifact_id", ["", None, 7])
+def test_an_id_shaped_wrong_is_refused_before_its_sent(link: Link, artifact_id: Any) -> None:
+    with pytest.raises(TypeError):
+        _store(link).read(artifact_id)
+    assert link.received == []
+
+
+def test_a_call_has_only_what_its_tool_declares(link: Link) -> None:
+    def files(*, key: bool, **flags: bool) -> FileStore | None:
+        wire = {
+            "tenantId": "t",
+            "runId": "r",
+            **({"idempotencyKey": "call-key"} if key else {}),
+            "toolFiles": {"url": link.url, "token": TOKEN},
+        }
+        return ToolContext.from_wire(wire, Cancellation(), **flags).files
+
+    both = files(key=True, stores_files=True, reads_files=True)
+    assert both is not None and (both.stores, both.reads) == (True, True)
+    keyless = files(key=False, stores_files=True, reads_files=True)
+    assert keyless is not None and (keyless.stores, keyless.reads) == (False, True)
+    assert files(key=False, stores_files=True) is None
+    assert files(key=True) is None
+    reads = files(key=True, reads_files=True)
+    assert reads is not None
+    with pytest.raises(FileStoreError, match=r"files\.store: this call stores no files"):
+        reads.store(name="x", content_type="text/plain", data=b"test")
+    stores = files(key=True, stores_files=True)
+    assert stores is not None
+    with pytest.raises(FileStoreError, match=r"files\.read: this call reads no files"):
+        stores.read("art-1")
+    assert link.received == []
 
 
 @pytest.mark.anyio
@@ -279,6 +414,14 @@ def attachment_get(input: Fetch, ctx: ToolContext) -> Any:
 async def message_get(input: Fetch, ctx: ToolContext) -> Any:
     "Reads a mail; it stores nothing."
     return {"files": ctx.files is not None}
+
+@tool(id="acme.docs.size", reads_files=True)
+async def size(input: Fetch, ctx: ToolContext) -> Any:
+    "Says how many bytes a file has."
+    if ctx.files is None:
+        return {"bytes": None}
+    answer = await ctx.files.read_async(input.attachment)
+    return {"bytes": len(answer.data) if answer.data is not None else answer.not_read}
 """
 
 
@@ -298,6 +441,8 @@ def test_the_index_says_which_tools_store_files(make_pack: Callable[..., Path]) 
     entries = {t["id"]: t for t in _index(make_pack({"tools/mail.py": PACK}))["tools"]}
     assert entries["acme.mail.attachment-get"]["storesFiles"] is True
     assert "storesFiles" not in entries["acme.mail.message-get"]
+    assert entries["acme.docs.size"]["readsFiles"] is True
+    assert "readsFiles" not in entries["acme.mail.attachment-get"]
 
 
 @pytest.fixture
@@ -317,9 +462,14 @@ async def client(make_pack: Callable[..., Path]) -> AsyncIterator[httpx.AsyncCli
 
 
 async def call(
-    http: httpx.AsyncClient, tool_id: str, upload: Mapping[str, Any] | None
+    http: httpx.AsyncClient, tool_id: str, tool_files: Mapping[str, Any] | None
 ) -> dict[str, Any]:
-    ctx = {"tenantId": "t", "runId": "r", **({} if upload is None else {"fileUpload": upload})}
+    ctx = {
+        "tenantId": "t",
+        "runId": "r",
+        "idempotencyKey": "call-key",
+        **({} if tool_files is None else {"toolFiles": tool_files}),
+    }
     message = {
         "v": 2,
         "kind": "invoke",
@@ -337,14 +487,14 @@ async def call(
 async def test_the_service_gives_a_tool_that_stores_files_its_calls_store(
     client: httpx.AsyncClient, link: Link
 ) -> None:
-    upload = {"url": link.url, "token": TOKEN}
-    answered = await call(client, "acme.mail.attachment-get", upload)
+    tool_files = {"url": link.url, "token": TOKEN}
+    answered = await call(client, "acme.mail.attachment-get", tool_files)
     assert answered["kind"] == "result"
     assert answered["output"] == {"files": [STORED]}
     assert link.received[0]["headers"]["authorization"] == f"Bearer {TOKEN}"
-    # A runtime before pack protocol 2.10.0 sends no upload.
-    no_upload = await call(client, "acme.mail.attachment-get", None)
-    assert no_upload["output"] == {"notShown": "store"}
+    # A runtime before pack protocol 2.10.0 sends no tool files.
+    no_files = await call(client, "acme.mail.attachment-get", None)
+    assert no_files["output"] == {"notShown": "store"}
 
 
 @pytest.mark.anyio
@@ -357,12 +507,21 @@ async def test_the_service_gives_a_tool_that_doesnt_store_files_none(
 
 
 @pytest.mark.anyio
+async def test_the_service_gives_a_tool_that_reads_files_its_calls_read(
+    client: httpx.AsyncClient, link: Link
+) -> None:
+    answered = await call(client, "acme.docs.size", {"url": link.url, "token": TOKEN})
+    assert answered["output"] == {"bytes": len(PDF)}
+    assert link.received[0]["path"] == "/v1/tool-files/invoice.pdf"
+
+
+@pytest.mark.anyio
 async def test_a_refused_store_fails_the_call_without_the_token(
     client: httpx.AsyncClient, link: Link
 ) -> None:
-    link.answer = (409, {"error": {"code": "file-upload-closed", "message": "closed"}})
+    link.answer = (409, {"error": {"code": "tool-file-token-closed", "message": "closed"}})
     answered = await call(client, "acme.mail.attachment-get", {"url": link.url, "token": TOKEN})
     assert answered["kind"] == "error"
     assert answered["code"] == "handler-throw"
-    assert "file-upload-closed" in answered["message"]
+    assert "tool-file-token-closed" in answered["message"]
     assert TOKEN not in json.dumps(answered)

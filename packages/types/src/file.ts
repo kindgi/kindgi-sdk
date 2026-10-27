@@ -11,9 +11,20 @@ export const FILE_NOT_SHOWN_REASONS = [
   'gone',
   'changed',
   'refused',
+  'storage',
 ] as const;
 
 export type FileNotShownReason = (typeof FILE_NOT_SHOWN_REASONS)[number];
+
+/**
+ * Why a tool's read of a stored file answered no bytes: `rule` (its run
+ * may not read a file of that id), `gone` (it's deleted, or its bytes are
+ * missing), `changed` (its bytes aren't the ones that were checked), or
+ * `size` (over its type's limit).
+ */
+export const FILE_NOT_READ_REASONS = ['rule', 'gone', 'changed', 'size'] as const;
+
+export type FileNotReadReason = (typeof FILE_NOT_READ_REASONS)[number];
 
 /**
  * A stored file as a value: in a run's input, a tool's result, a
@@ -40,7 +51,8 @@ export interface FileValue {
    * agent or its model doesn't take images and documents), `limit` (over a
    * call's or a list's limits), `store` (no file store), `gone` (no
    * longer stored), `changed` (not the bytes that were checked),
-   * `refused` (the model couldn't read it when it was attached).
+   * `refused` (the model couldn't read it when it was attached),
+   * `storage` (a tool's store found the tenant's storage full).
    */
   readonly notShown?: FileNotShownReason;
 }

@@ -11,7 +11,7 @@ import {
   filesForCall,
   isReadable,
 } from '@kindgi/capabilities';
-import type { FileStore, FileStoreAnswer, FileToStore, Tool } from '@kindgi/tools';
+import type { FileReadAnswer, FileStore, FileStoreAnswer, FileToStore, Tool } from '@kindgi/tools';
 import { type FileValue, isFileValue } from '@kindgi/types';
 
 import type { Agent } from '../types.js';
@@ -62,6 +62,15 @@ export interface FileBinding {
     file: FileToStore,
   ): Promise<FileStoreAnswer>;
   /**
+   * A file's own bytes, as it was stored, never a copy made for a model,
+   * for a tool's call that reads files (`Tool.readsFiles`), after the
+   * run's rule is asked: `notRead: 'rule'` when the rule doesn't let the
+   * turn show it, and `gone`, `changed` or `size` as `FileStore.read` says.
+   * `signal` is the call's: a read still waiting for room in the runtime's
+   * memory stops when it aborts.
+   */
+  readSource(artifactId: string, signal?: AbortSignal): Promise<FileReadAnswer>;
+  /**
    * A call that carried these files answered: its model was shown them.
    * That only decides which files a later `refuse` marks. Marking one
    * already marked changes nothing.
@@ -79,19 +88,34 @@ export interface FileBinding {
 }
 
 /**
- * The call's file store (`ToolContext.files`): for a tool that declares
- * `storesFiles`, on a call with an idempotency key, which the dedupe and
- * the count go by. None otherwise, and a file the tool fetches is
- * `notShown: 'store'`.
+ * The call's files (`ToolContext.files`), for a tool that runs in this
+ * process, with only what it declares: `store` (`storesFiles`) on a call
+ * with an idempotency key, which the dedupe and the count go by, and
+ * `read` (`readsFiles`). None when it declares neither, or with no
+ * binding: a file the tool fetches is then `notShown: 'store'`. A pack's
+ * own code and an MCP tool run elsewhere: their runner gets the call's
+ * files, if any, from the runtime. A read passes on `signal`, the call's
+ * (`FileBinding.readSource`).
  */
 export function callFileStore(
   files: FileBinding | undefined,
-  tool: Pick<Tool, 'id' | 'storesFiles'>,
+  tool: Pick<Tool, 'id' | 'storesFiles' | 'readsFiles' | 'codeArtifactRef' | 'transport'>,
   callKey: string | undefined,
+  signal?: AbortSignal,
 ): FileStore | undefined {
-  if (files === undefined || tool.storesFiles !== true || callKey === undefined) return undefined;
-  const call = { callKey, toolId: tool.id as unknown as string };
-  return Object.freeze({ store: (file: FileToStore) => files.store(call, file) });
+  if (files === undefined || tool.codeArtifactRef !== undefined || tool.transport === 'mcp') {
+    return undefined;
+  }
+  const call =
+    tool.storesFiles === true && callKey !== undefined
+      ? { callKey, toolId: tool.id as unknown as string }
+      : undefined;
+  const reads = tool.readsFiles === true;
+  if (call === undefined && !reads) return undefined;
+  return Object.freeze({
+    ...(call !== undefined && { store: (file: FileToStore) => files.store(call, file) }),
+    ...(reads && { read: (artifactId: string) => files.readSource(artifactId, signal) }),
+  });
 }
 
 /**

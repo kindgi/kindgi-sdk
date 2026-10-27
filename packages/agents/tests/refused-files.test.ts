@@ -147,6 +147,7 @@ function filesOf(
       return options.bytes?.get(artifactId) ?? new Uint8Array([1, 2, 3]);
     },
     store: async () => ({ notStored: 'limit' }),
+    readSource: async () => ({ notRead: 'rule' }),
     shown: async (ids) => {
       shown.push([...ids]);
     },

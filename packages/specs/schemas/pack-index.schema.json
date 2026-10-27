@@ -177,7 +177,11 @@
         },
         "storesFiles": {
           "type": "boolean",
-          "description": "Whether the tool may store files (`tool.schema.json` `storesFiles`, schema-version 1.7.0+): the runtime then sends each call a `fileUpload`, and the pack service gives its handler `files.store`. Absent means `false`."
+          "description": "Whether the tool may store files (`tool.schema.json` `storesFiles`, schema-version 1.7.0+): the runtime then sends each call a `toolFiles`, and the pack service gives its handler `files.store`. Absent means `false`."
+        },
+        "readsFiles": {
+          "type": "boolean",
+          "description": "Whether the tool may read stored files (`tool.schema.json` `readsFiles`, schema-version 1.7.0+): the runtime then sends each call a `toolFiles`, and the pack service gives its handler `files.read`. Absent means `false`."
         },
         "spec": {
           "$ref": "#/$defs/openObject",

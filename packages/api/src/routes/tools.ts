@@ -732,6 +732,7 @@ const OPTIONAL_TOOL_FIELDS = [
   'needsApprovalWhenUnattended',
   'pauses',
   'storesFiles',
+  'readsFiles',
   'resultIsOutsideData',
   'sandbox',
   'limits',

@@ -482,10 +482,10 @@ function finalizeDefinition<
 }
 
 /**
- * Why a tool can't declare `pauses: true` or `storesFiles: true`, if it
- * can't. Only a handler can answer with a pause or store a file: the
- * runtime runs a declarative spec itself, and an MCP server can't do
- * either.
+ * Why a tool can't declare `pauses: true`, `storesFiles: true` or
+ * `readsFiles: true`, if it can't. Only a handler can answer with a pause,
+ * store a file or read one: the runtime runs a declarative spec itself, and
+ * an MCP server can't do any of them.
  */
 function handlerOnlyRefusal(
   spec: object,
@@ -494,18 +494,15 @@ function handlerOnlyRefusal(
   const declared = spec as {
     readonly pauses?: unknown;
     readonly storesFiles?: unknown;
+    readonly readsFiles?: unknown;
     readonly transport?: unknown;
   };
   if (declarativeSpec === undefined && declared.transport !== 'mcp') return undefined;
-  const flag =
-    declared.pauses === true ? 'pauses' : declared.storesFiles === true ? 'storesFiles' : undefined;
+  const flag = (['pauses', 'storesFiles', 'readsFiles'] as const).find((f) => declared[f] === true);
   if (flag === undefined) return undefined;
   return {
     code: 'invalid-tool-definition',
-    message:
-      flag === 'pauses'
-        ? "`pauses: true` needs a handler the pack runs: a tool with a declarative `spec` or an MCP transport can't pause."
-        : "`storesFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't store files.",
+    message: HANDLER_ONLY[flag],
     issues: [
       {
         path: declarativeSpec !== undefined ? '/spec' : '/transport',
@@ -514,6 +511,15 @@ function handlerOnlyRefusal(
     ],
   };
 }
+
+const HANDLER_ONLY = {
+  pauses:
+    "`pauses: true` needs a handler the pack runs: a tool with a declarative `spec` or an MCP transport can't pause.",
+  storesFiles:
+    "`storesFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't store files.",
+  readsFiles:
+    "`readsFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't read files.",
+} as const;
 
 function stripHandler<TInput, TOutput>(spec: Tool<TInput, TOutput>): ToolManifest {
   // Structural copy dropping `handler`. `handler` is a function and Ajv rejects

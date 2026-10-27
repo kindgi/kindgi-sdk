@@ -84,6 +84,10 @@
       "type": "boolean",
       "description": "`true` when the tool may store files it fetches, such as a mail's attachments, as files its run owns (schema-version 1.4.0, pack protocol 2.10.0). Each call's handler gets `files.store`: the runtime checks the bytes and answers a file value, which the tool returns in its result's top-level `files`, or why it stored nothing. At most 10 files a call. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`. Optional additive field."
     },
+    "readsFiles": {
+      "type": "boolean",
+      "description": "`true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it (schema-version 1.4.0, pack protocol 2.10.0). Each call's handler gets `files.read`, which answers the bytes of a file the call's run may be shown, by its file value's `artifactId`, or why there are none. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`. Optional additive field."
+    },
     "limits": {
       "type": "object",
       "additionalProperties": false,

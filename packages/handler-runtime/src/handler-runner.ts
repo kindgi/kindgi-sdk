@@ -48,14 +48,14 @@ import {
 import type { Result } from '@kindgi/types';
 
 import { serializeCause, stringifyError } from './error-text.js';
-import { fileStoreOf, fileUploadOf } from './file-upload.js';
 import {
-  type FileUploadRef,
   MAX_PAUSE_NAME_LENGTH,
   MAX_PAUSE_TIMEOUT_MS,
+  type ToolFilesRef,
   type WaitTokenRef,
 } from './protocol.js';
 import { withoutSecrets } from './secret-redaction.js';
+import { fileStoreOf, toolFilesOf } from './tool-files.js';
 
 /**
  * What a handler gets beside its input: the tenant and run it serves,
@@ -71,6 +71,12 @@ export interface HandlerContext {
   /** The project's org, when it has one (2.3.0). */
   readonly orgId?: string;
   readonly requestId?: string;
+  /**
+   * The call's idempotency key: the same every time this call runs, and
+   * different for every other call (protocol 2.6.0). Absent from an older
+   * runtime, and outside a run.
+   */
+  readonly idempotencyKey?: string;
   /** The declared env values: project, else org, else tenant (protocol 2.5.0). */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
@@ -109,21 +115,23 @@ export interface HandlerContext {
    */
   readonly pause?: (options?: PauseOptions) => PauseAnswer;
   /**
-   * Only for a tool that declares `storesFiles`: the call's file store
-   * (protocol 2.10.0). `store` sends a file's bytes to the runtime, which
-   * checks and stores them, and answers the file value to return in the
-   * result's top-level `files`, or why it stored nothing. Absent when the
-   * runtime sent no file upload (one from before 2.10.0, one with no file
-   * store, or a call with no `idempotencyKey`). Never on the wire; the
+   * Only for a tool that declares `storesFiles` or `readsFiles`: the
+   * call's files (protocol 2.10.0), with only what it declares. `store`
+   * sends a file's bytes to the runtime, which checks and stores them, and
+   * answers the file value to return in the result's top-level `files`, or
+   * why it stored nothing; it's absent on a call with no `idempotencyKey`.
+   * `read` answers the bytes of a file the call's run may be shown, or why
+   * there are none. Absent when the runtime sent no tool files (one from
+   * before 2.10.0, or one with no file store). Never on the wire; the
    * runner adds it.
    */
   readonly files?: FileStore;
   /**
-   * The call's file upload as the runtime sent it (protocol 2.10.0). The
-   * runner keeps it from the handler, which gets `files` instead. Not
+   * The call's tool files as the runtime sent them (protocol 2.10.0). The
+   * runner keeps them from the handler, which gets `files` instead. Not
    * enumerable, like `secrets`.
    */
-  readonly fileUpload?: FileUploadRef;
+  readonly toolFiles?: ToolFilesRef;
   /**
    * Never on the wire; the pack service adds it: aborted when the call
    * is cancelled or passes its deadline. Handlers that do slow I/O
@@ -156,11 +164,16 @@ export interface ToolInvocationSpec {
    */
   readonly pauses?: boolean;
   /**
-   * The tool declares `storesFiles`: its handler gets `ctx.files` when the
-   * call carried a file upload. A tool without it gets no `files`, and
-   * no handler ever gets the upload itself.
+   * The tool declares `storesFiles`: its handler gets `ctx.files.store`
+   * when the call carried tool files and an `idempotencyKey`. No handler
+   * ever gets the tool files themselves.
    */
   readonly storesFiles?: boolean;
+  /**
+   * The tool declares `readsFiles`: its handler gets `ctx.files.read` when
+   * the call carried tool files.
+   */
+  readonly readsFiles?: boolean;
 }
 
 /** What a pausing handler passes to `ctx.pause`. */
@@ -545,14 +558,14 @@ function noWaitToken(toolId: string): PauseNotAvailableError {
 }
 
 /** What the runner decides for each call: never passed through from the caller. */
-const CALL_KEYS: ReadonlySet<string> = new Set(['waitToken', 'pause', 'fileUpload', 'files']);
+const CALL_KEYS: ReadonlySet<string> = new Set(['waitToken', 'pause', 'toolFiles', 'files']);
 
 /**
  * The context a handler gets. A tool that declares `pauses` gets the
- * call's `waitToken` and `pause`; a tool that declares `storesFiles` gets
- * `files` when the call carried a file upload; any other tool gets none of
- * them, even when the call carried a token. No handler gets the upload
- * itself. The caller's context isn't changed; its properties,
+ * call's `waitToken` and `pause`; a tool that declares `storesFiles` or
+ * `readsFiles` gets `files` when the call carried tool files, with what it
+ * declares; any other tool gets none of them, even when the call carried a
+ * token. No handler gets the tool files themselves. The caller's context isn't changed; its properties,
  * non-enumerable ones too (`secrets`, `connections`, `log`), are kept.
  */
 function callContext(ctx: HandlerContext, tool: ToolInvocationSpec): HandlerContext {
@@ -562,10 +575,14 @@ function callContext(ctx: HandlerContext, tool: ToolInvocationSpec): HandlerCont
     Object.entries(own).filter(([key]) => !CALL_KEYS.has(key)),
   );
   const out = Object.defineProperties({}, descriptors) as HandlerContext;
-  const upload = tool.storesFiles === true ? fileUploadOf(ctx.fileUpload) : undefined;
-  if (upload !== undefined) {
+  const may = {
+    store: tool.storesFiles === true && ctx.idempotencyKey !== undefined,
+    read: tool.readsFiles === true,
+  };
+  const link = may.store || may.read ? toolFilesOf(ctx.toolFiles) : undefined;
+  if (link !== undefined) {
     Object.defineProperty(out, 'files', {
-      value: fileStoreOf(upload, ctx.abortSignal),
+      value: fileStoreOf(link, may, ctx.abortSignal),
       enumerable: true,
     });
   }
@@ -866,14 +883,14 @@ async function defaultImportHandler(modulePath: string): Promise<HandlerModule> 
 }
 
 /**
- * A thrown value with the call's connection tokens, secrets and file
- * upload token replaced by `[redacted]`, at any depth
+ * A thrown value with the call's connection tokens, secrets and tool
+ * files token replaced by `[redacted]`, at any depth
  * (`withoutConnectionTokens`, `withoutSecrets`).
  */
 function withoutCallValues(cause: unknown, ctx: HandlerContext): unknown {
   const secrets = [
     ...(ctx.secrets === undefined ? [] : Object.values(ctx.secrets)),
-    ...(ctx.fileUpload === undefined ? [] : [ctx.fileUpload.token]),
+    ...(ctx.toolFiles === undefined ? [] : [ctx.toolFiles.token]),
   ];
   return withoutSecrets(withoutConnectionTokens(cause, [ctx.connections]), secrets);
 }

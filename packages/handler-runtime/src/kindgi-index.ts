@@ -350,9 +350,14 @@ export interface IndexedTool {
   readonly pauses?: boolean;
   /**
    * The tool's declared `storesFiles` (schema-version 1.7.0+): each call
-   * gets a file upload, and its handler `files.store`. Absent means `false`.
+   * gets tool files, and its handler `files.store`. Absent means `false`.
    */
   readonly storesFiles?: boolean;
+  /**
+   * The tool's declared `readsFiles` (schema-version 1.7.0+): each call
+   * gets tool files, and its handler `files.read`. Absent means `false`.
+   */
+  readonly readsFiles?: boolean;
   /**
    * The tool's declared `resultIsOutsideData`: an agent reads each of its
    * results as data, not instructions. Absent means `false`.
@@ -1642,30 +1647,42 @@ function toolFlagsOf(
 }
 
 /**
- * The tool's `pauses` and `storesFiles`, as the index carries them. Only
- * the pack service's own run of a handler can answer `pause` or store a
- * file: the runtime runs a declarative spec itself, and an MCP server
- * can't do either.
+ * The tool's `pauses`, `storesFiles` and `readsFiles`, as the index
+ * carries them. Only the pack service's own run of a handler can answer
+ * `pause`, store a file or read one: the runtime runs a declarative spec
+ * itself, and an MCP server can't do any of them.
  */
 function handlerFlagsOf(
   rec: Readonly<Record<string, unknown>>,
   relPath: string,
-): Result<{ readonly pauses?: true; readonly storesFiles?: true }, IndexerError> {
-  const pauses = rec.pauses === true;
-  const storesFiles = rec.storesFiles === true;
-  if ((pauses || storesFiles) && (isObject(rec.spec) || rec.transport === 'mcp')) {
+): Result<
+  { readonly pauses?: true; readonly storesFiles?: true; readonly readsFiles?: true },
+  IndexerError
+> {
+  const flag = HANDLER_FLAGS.find((f) => rec[f] === true);
+  if (flag !== undefined && (isObject(rec.spec) || rec.transport === 'mcp')) {
     return manifestErr(
       relPath,
-      pauses
-        ? `'pauses: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't pause`
-        : `'storesFiles: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't store files`,
+      `'${flag}: true' needs a handler the pack runs: a tool with a declarative 'spec' or an MCP transport can't ${HANDLER_FLAG_DOES[flag]}`,
     );
   }
   return {
     kind: 'ok',
-    value: { ...(pauses && { pauses: true }), ...(storesFiles && { storesFiles: true }) },
+    value: {
+      ...(rec.pauses === true && { pauses: true }),
+      ...(rec.storesFiles === true && { storesFiles: true }),
+      ...(rec.readsFiles === true && { readsFiles: true }),
+    },
   };
 }
+
+const HANDLER_FLAGS = ['pauses', 'storesFiles', 'readsFiles'] as const;
+
+const HANDLER_FLAG_DOES = {
+  pauses: 'pause',
+  storesFiles: 'store files',
+  readsFiles: 'read files',
+} as const;
 
 /**
  * The built-in checks' ids (`BUILT_IN_CHECK_IDS` in `@kindgi/guardrails`; a test holds the two

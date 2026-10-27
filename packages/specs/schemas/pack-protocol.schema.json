@@ -88,21 +88,21 @@
             }
           }
         },
-        "fileUpload": {
+        "toolFiles": {
           "type": "object",
           "required": ["url", "token"],
           "additionalProperties": false,
-          "description": "Where a tool that declares `storesFiles` sends the files it stores (protocol 2.10.0). The pack service keeps it from the handler, which gets `files.store` instead: the service sends each file's bytes to `url` and answers what the runtime answered. Sent only for a tool whose index entry says `storesFiles`, when the runtime has a file store and the call has an `idempotencyKey`. Like `secrets`, never logged. Absent from an older runtime: the handler then gets no `files`.",
+          "description": "Where a tool that declares `storesFiles` or `readsFiles` stores and reads files (protocol 2.10.0). The pack service keeps it from the handler, which gets `files` instead, with what the tool declares: `files.store` on a call with an `idempotencyKey`, which sends a file's bytes to `url`, and `files.read`, which gets a file's bytes from under `url`; each answers what the runtime answered. Sent only for a tool whose index entry says `storesFiles` or `readsFiles`, when the runtime has a file store, and for one that only stores, when the call has an `idempotencyKey`. Like `secrets`, never logged. Absent from an older runtime: the handler then gets no `files`.",
           "properties": {
             "url": {
               "type": "string",
               "format": "uri",
-              "description": "`POST` each file here: its bytes as the body, its type as `Content-Type`, its name in `Kindgi-File-Name` (UTF-8, percent-encoded), and `token` in `Authorization: Bearer`. The runtime answers `200` with `{ file }`, a file value, or `{ notStored }`: `type` (the bytes aren't a type a model is shown), `size` (over its type's limit) or `limit` (the call has stored 10 files). Storing the same bytes again in the same call, a re-run included, answers the first file."
+              "description": "`POST` each file here: its bytes as the body, its type as `Content-Type`, its name in `Kindgi-File-Name` (UTF-8, percent-encoded), and `token` in `Authorization: Bearer`. The runtime answers `200` with `{ file }`, a file value, or `{ notStored }`: `type` (the bytes aren't a type a model is shown), `size` (over its type's limit), `limit` (the call has stored 10 files) or `storage` (the tenant's storage is full). Storing the same bytes again in the same call, a re-run included, answers the first file. `GET <url>/<artifactId>` (the id percent-encoded) reads a file, with `token` in `Authorization: Bearer`: the runtime answers `200` with its bytes as `application/octet-stream`, or `{ notRead }` as JSON: `rule` (the call's run may not be shown a file of that id), `gone` (deleted, or its bytes are missing), `changed` (its bytes aren't the ones that were checked) or `size` (over its type's limit). Either way, `503 tool-files-busy` means the runtime had no room for the bytes then: nothing was stored or read."
             },
             "token": {
               "type": "string",
               "minLength": 1,
-              "description": "The call's upload token: for this call only, until its deadline or its answer. Send it only to `url`, and only in the `Authorization` header."
+              "description": "The call's token: for this call only, until its deadline or its answer, and only for what the tool declares. Send it only to `url` and the reads under it, and only in the `Authorization` header."
             }
           }
         }
