@@ -17,10 +17,20 @@ import type { Agent } from '../types.js';
 import type { TurnContext } from './context.js';
 
 /**
- * The turn's stored files: which file values its model may be shown, and
- * their bytes. The runtime binds one per turn, so it knows the turn's run,
- * the run's root and its conversation. Absent: a tool result's file values
- * stay plain JSON, and a history message's files are `store` lines.
+ * Where a turn gets its stored files: one binding for the turn's run, asked
+ * for once the run has its id, beside the provenance builder. A run is
+ * often made only when its turn starts, so the runtime can't bind it
+ * earlier.
+ */
+export interface FileBindings {
+  /** The run's files. The runtime finds the run's root and conversation from its id. */
+  forRun(run: { readonly tenantId: string; readonly runId: string }): FileBinding;
+}
+
+/**
+ * One run's stored files: which file values its model may be shown, and
+ * their bytes. Absent: a tool result's file values stay plain JSON, and a
+ * history message's files are `store` lines.
  */
 export interface FileBinding {
   /**
@@ -65,6 +75,17 @@ export function callFileStore(
   if (files === undefined || tool.storesFiles !== true || callKey === undefined) return undefined;
   const call = { callKey, toolId: tool.id as unknown as string };
   return Object.freeze({ store: (file: FileToStore) => files.store(call, file) });
+}
+
+/**
+ * Bind the turn's run's files (`bindings.files.forRun`), by the run's id:
+ * setup does it beside the provenance builder, and a resumed turn's
+ * rebuild does it again.
+ */
+export function bindRunFiles(ctx: TurnContext, runId: string): void {
+  if (ctx.bindings.files !== undefined) {
+    ctx.files = ctx.bindings.files.forRun({ runId, tenantId: ctx.input.tenantId });
+  }
 }
 
 /**
@@ -146,7 +167,7 @@ export async function admitInputFiles(
   values: readonly FileValue[] | undefined,
 ): Promise<readonly FileValue[]> {
   if (values === undefined || values.length === 0) return [];
-  const binding = ctx.bindings.files;
+  const binding = ctx.files;
   if (binding === undefined) {
     return values
       .filter(isFileValue)
@@ -168,7 +189,7 @@ export async function admitHistoryFiles(
 ): Promise<readonly (readonly MessageFile[])[]> {
   const values = byMessage.flatMap((files) => files ?? []);
   if (values.length === 0) return byMessage.map(() => []);
-  const binding = ctx.bindings.files;
+  const binding = ctx.files;
   const admitted =
     binding === undefined ? values.map(() => undefined) : await binding.admit(values);
   const files = values.map((value, i): MessageFile => {
@@ -198,7 +219,7 @@ export async function admitToolResultFiles(
   ctx: TurnContext,
   result: unknown,
 ): Promise<{ readonly result: unknown; readonly files: readonly FileValue[] }> {
-  const binding = ctx.bindings.files;
+  const binding = ctx.files;
   if (binding === undefined || !hasFilesField(result)) return { result, files: [] };
   const { files: listed, ...rest } = result;
   const candidates = listed

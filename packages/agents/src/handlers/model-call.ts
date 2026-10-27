@@ -315,6 +315,6 @@ function modelSettingsOf(
  * file is a line saying it isn't stored.
  */
 function readFileOf(ctx: TurnContext): Pick<ModelCallInput, 'readFile'> {
-  const files = ctx.bindings.files;
+  const files = ctx.files;
   return files === undefined ? {} : { readFile: (artifactId) => files.read(artifactId) };
 }

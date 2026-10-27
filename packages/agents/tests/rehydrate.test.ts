@@ -16,6 +16,7 @@ import type { AgentVersionMismatchError } from '../src/errors.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { AgentTurnFailure, type RunJournalUnavailableError } from '../src/handlers/errors.js';
+import type { FileBinding, FileBindings } from '../src/handlers/files.js';
 import { rehydrateTurnContext } from '../src/handlers/rehydrate.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import { resumeAgentTurn } from '../src/invoke.js';
@@ -98,7 +99,7 @@ const stored = [
 ];
 
 /** A turn being resumed: nothing on it yet but what `resumeAgentTurn` builds. */
-function resumedTurn(providers: readonly ModelProvider[]) {
+function resumedTurn(providers: readonly ModelProvider[], files?: FileBindings) {
   const a = agent();
   const ctx = {
     input: { tenantId, conversationId: 'conv-1', agent: a },
@@ -116,6 +117,7 @@ function resumedTurn(providers: readonly ModelProvider[]) {
       toolRegistry: createToolRegistry([]),
       providerRegistry: createProviderRegistry(providers.map((p) => ({ tenantId, provider: p })))
         .registry,
+      ...(files !== undefined && { files }),
     },
     turnAbort: new AbortController(),
     startedAt: Date.now(),
@@ -215,6 +217,28 @@ describe('rehydrateTurnContext', () => {
       totalCostUsd: expect.closeTo(0.03),
     });
     expect(ctx.lastProvider).toEqual({ id: 'second', model: 'second-model' });
+  });
+
+  test("binds the resumed run's files by the run's id; a turn left to setup is bound there", async () => {
+    const asked: unknown[] = [];
+    const run: FileBinding = {
+      admit: async () => [],
+      read: async () => undefined,
+      store: async () => ({ notStored: 'limit' }),
+    };
+    const files: FileBindings = {
+      forRun: (r) => {
+        asked.push(r);
+        return run;
+      },
+    };
+    const early = resumedTurn([provider('first')], files);
+    expect(await rehydrateTurnContext(early, 'run-1', [])).toBe(false);
+    expect(early.files).toBeUndefined();
+    const ctx = resumedTurn([provider('first'), provider('second')], files);
+    expect(await rehydrateTurnContext(ctx, 'run-1', parkedJournal)).toBe(true);
+    expect(asked).toEqual([{ runId: 'run-1', tenantId }]);
+    expect(ctx.files).toBe(run);
   });
 
   test("keeps the model calls' warnings, so a resumed turn's result still has them", async () => {

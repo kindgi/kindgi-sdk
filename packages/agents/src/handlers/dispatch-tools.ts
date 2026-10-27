@@ -1069,7 +1069,7 @@ function toolContextFor(
     kctx.stepScope === undefined
       ? undefined
       : toolIdempotencyKey({ runId, stepScope: kctx.stepScope, toolId, callId: call.id });
-  const files = callFileStore(ctx.bindings.files, tool, idempotencyKey);
+  const files = callFileStore(ctx.files, tool, idempotencyKey);
   return {
     tenantId: ctx.input.tenantId,
     runId,

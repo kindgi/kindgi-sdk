@@ -47,6 +47,7 @@ import type { Timestamp } from '@kindgi/types';
 import type { ConversationMessage, RecalledMemory, RetrievedFact } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { bindRunFiles } from './files.js';
 import { readGateDecision } from './gate-decision.js';
 import { addModelWarnings } from './model-call.js';
 import { rehydrateReplay } from './replay.js';
@@ -124,6 +125,7 @@ export async function rehydrateTurnContext(
     ctx.provenance = ctx.bindings.provenance.newBuilder({ runId, tenantId: ctx.input.tenantId });
     ctx.provenanceBindings = ctx.bindings.provenance;
   }
+  bindRunFiles(ctx, runId);
   await loadTurnConversation(ctx);
   ctx.hitlPolicy = await resolveTurnHitlPolicy(ctx);
   // The route and the tool versions `setup` resolved: a resumed turn
