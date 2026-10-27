@@ -3,10 +3,13 @@
 
 /**
  * Where a guardrail runs in an agent's turn (`Guardrail.at`), and what
- * its declaration may ask for there. `validateGuardrail` and
- * `validateGuardrailSpec` refuse what doesn't fit, and so do the API's
- * register and deploy routes: a guardrail at a point its check doesn't
- * support, or an action the point can't take.
+ * its declaration may ask for there. `guardrailPointIssues` finds an
+ * action or a scope the point can't take, and `validateGuardrail` and
+ * `validateGuardrailSpec` refuse it. `guardrailCheckPointProblems` finds
+ * a point its check doesn't run at: `validateGuardrail` refuses it, and
+ * so do the API's deploy route and its register route for a built-in
+ * check. For a pack check, registering leaves it to the runtime's
+ * `GuardrailConfigCheck`.
  */
 
 import type { GuardrailConfigProblem } from './config-problems.js';
