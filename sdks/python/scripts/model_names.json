@@ -179,6 +179,7 @@
   "DeploymentEndpointProblem": ["DeploymentEndpointProblem"],
   "DeploymentLivePin": ["DeploymentLivePin"],
   "DeploymentLivePinGate": ["DeploymentLivePinGate"],
+  "DeploymentPinnedFlow": ["DeploymentPinnedFlow"],
   "DeploymentPrimitiveCounts": ["DeploymentPrimitiveCounts"],
   "DeploymentPromotion": ["DeploymentPromotion"],
   "DeploymentPromotionBody": ["DeploymentPromotionBody"],

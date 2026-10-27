@@ -251,9 +251,11 @@ export interface DeploymentsRouterBindings {
    */
   readonly liveVersions?: LiveVersionBinding;
   /**
-   * The tools' pinned versions: each tool a deployed agent or flow runs
-   * pins the version pinned for the deploy's project (an agent's, when
-   * it's in the reference's range), else as without it.
+   * The flows' and tools' pinned versions: each tool a deployed agent or
+   * flow runs pins the version pinned for the deploy's project (an
+   * agent's, when it's in the reference's range), else as without it; and
+   * a promotion asked to make what it carried live (`{ makeLive: true }`)
+   * pins each carried flow version in the target. Absent: neither.
    */
   readonly pinnedVersions?: PinnedVersionBinding;
   /** Data blocks: an agent's block references are pinned at deploy with its tools. */

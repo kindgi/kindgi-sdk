@@ -26,6 +26,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   tool at the pinned version (an agent's tool range, when the pinned version
   is in it), so a new tool version can be published without reaching what's
   made there. The same five calls as `client.flows.pinned`, sync and async.
+- `kindgi`: **`DeploymentPromotion.pinned_flows`** lists each carried flow
+  version a promotion with `make_live` pinned in the target project.
 
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a

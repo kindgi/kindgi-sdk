@@ -8801,7 +8801,7 @@ class DeploymentPromotionBody(BaseModel):
     """
     make_live: Annotated[bool | None, Field(alias="makeLive")] = None
     """
-    Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.
+    Make every agent version the promotion carries live in the target project, each through its scope's gate, and pin every flow version it carries there (the project's pin), so a run there that names no version takes it. The answer's `live` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.live` and `error.details.pinnedFlows`, in the answer's shapes.
     """
 
 
@@ -8880,6 +8880,15 @@ class DeploymentLivePin(BaseModel):
     Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
     """
     gate: DeploymentLivePinGate | None = None
+
+
+class DeploymentPinnedFlow(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
 
 
 class PromotionNextEnvironment(BaseModel):
@@ -15458,6 +15467,10 @@ class DeploymentPromotion(BaseModel):
     live: list[DeploymentLivePin] | None = None
     """
     Each carried agent pinned live in the target; present only when `makeLive` was asked.
+    """
+    pinned_flows: Annotated[list[DeploymentPinnedFlow] | None, Field(alias="pinnedFlows")] = None
+    """
+    Each carried flow version pinned in the target (the project's pin); present only when `makeLive` was asked of a runtime that pins flows.
     """
 
 

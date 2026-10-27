@@ -258,6 +258,12 @@ environment of the order at once. The pin is refused with
 `409 pin-scope-spans-environments`; pin it for each project instead. A pin
 for a later environment of an order is fine: runs there take it.
 
+A promotion into the next environment that makes what it carries live
+(`makeLive`) also pins each flow version it carries for that project, and
+the answer lists them in `pinnedFlows`. Once a flow is pinned in a project,
+a promotion without `makeLive` keeps the pinned flow in use there: move the
+pin, or promote with `makeLive`.
+
 ## Remove a pin
 
 `kindgi.flows.pinned.unpin(flow, { scope })` removes the scope's own pin. The

@@ -223,7 +223,8 @@ export function mountPinnedVersionRoutes(
       requestedBy: actorOf(c),
       ...(reason !== undefined && { reason }),
     });
-    if (outcome.kind === 'err') return failed(c, requestId, kind, itemId, outcome.error, version);
+    if (outcome.kind === 'err')
+      return pinWriteFailure(c, requestId, kind, itemId, outcome.error, version);
     return c.json(serializePinnedVersionChange(outcome.value.change));
   });
 
@@ -316,7 +317,7 @@ export function mountPinnedVersionRoutes(
       requestedBy: actorOf(c),
       ...reason.value,
     });
-    if (outcome.kind === 'err') return failed(c, requestId, kind, itemId, outcome.error);
+    if (outcome.kind === 'err') return pinWriteFailure(c, requestId, kind, itemId, outcome.error);
     return c.json(serializePinnedVersionChange(outcome.value));
   });
 
@@ -441,6 +442,7 @@ function notFound(
   kind: PinnedItemKind,
   itemId: string,
   version?: string,
+  extra: Readonly<Record<string, unknown>> = {},
 ) {
   const code = `${kind}-not-found`;
   c.status(statusFor(code) as never);
@@ -454,13 +456,20 @@ function notFound(
             : `No active version ${version} of ${kind} "${itemId}" is registered`,
         [`${kind}Id`]: itemId,
         ...(version !== undefined && { version }),
+        ...extra,
       },
       requestId,
     ),
   );
 }
 
-function gone(c: Ctx, requestId: string, kind: PinnedItemKind, itemId: string) {
+function gone(
+  c: Ctx,
+  requestId: string,
+  kind: PinnedItemKind,
+  itemId: string,
+  extra: Readonly<Record<string, unknown>> = {},
+) {
   const code = `${kind}-gone`;
   c.status(statusFor(code) as never);
   return c.json(
@@ -469,13 +478,19 @@ function gone(c: Ctx, requestId: string, kind: PinnedItemKind, itemId: string) {
         code,
         message: `${kind === 'flow' ? 'Flow' : 'Tool'} "${itemId}" has no active versions; reinstate a tombstoned version or publish a new one`,
         [`${kind}Id`]: itemId,
+        ...extra,
       },
       requestId,
     ),
   );
 }
 
-function notPinnable(c: Ctx, requestId: string, toolId: string) {
+function notPinnable(
+  c: Ctx,
+  requestId: string,
+  toolId: string,
+  extra: Readonly<Record<string, unknown>> = {},
+) {
   c.status(statusFor('tool-not-pinnable') as never);
   return c.json(
     toWireError(
@@ -483,6 +498,7 @@ function notPinnable(c: Ctx, requestId: string, toolId: string) {
         code: 'tool-not-pinnable',
         message: `Tool "${toolId}" follows its server (an MCP catalog's tool, its metadata under "kindgi.mcp") or the runtime, so a pin couldn't keep it still: reference it with a version range instead. Nothing was pinned.`,
         toolId,
+        ...extra,
       },
       requestId,
     ),
@@ -518,27 +534,32 @@ export function versionPinnedResponse(
   );
 }
 
-/** A binding's refusal, as the route answers it. */
-function failed(
+/**
+ * A binding's refusal of a pin write, as the routes answer it. `extra`
+ * joins the error's details: a deployment promotion's `makeLive` names
+ * what it pinned before the refusal there.
+ */
+export function pinWriteFailure(
   c: Ctx,
   requestId: string,
   kind: PinnedItemKind,
   itemId: string,
   error: PinnedVersionError,
   version?: Semver,
-) {
+  extra: Readonly<Record<string, unknown>> = {},
+): Response {
   switch (error.code) {
     case 'not-found':
-      return notFound(c, requestId, kind, itemId);
+      return notFound(c, requestId, kind, itemId, undefined, extra);
     case 'version-not-found':
-      return notFound(c, requestId, kind, itemId, version as unknown as string | undefined);
+      return notFound(c, requestId, kind, itemId, version as unknown as string | undefined, extra);
     case 'gone':
-      return gone(c, requestId, kind, itemId);
+      return gone(c, requestId, kind, itemId, extra);
     case 'not-pinnable':
-      return notPinnable(c, requestId, itemId);
+      return notPinnable(c, requestId, itemId, extra);
     default:
       c.status(statusFor(error.code) as never);
-      return c.json(toWireError({ code: error.code, message: error.message }, requestId));
+      return c.json(toWireError({ code: error.code, message: error.message, ...extra }, requestId));
   }
 }
 
