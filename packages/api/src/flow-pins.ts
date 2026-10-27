@@ -119,11 +119,26 @@ export async function resolveFlowPins(
 }
 
 /**
+ * What refuses a flow on a server that doesn't pin (no tool or agent
+ * registry): each sub-flow it runs at no named version. Only a pin would
+ * fix its child's version, so the publish is refused rather than store a
+ * step whose child no version names.
+ */
+export function unnamedSubflowIssues(flow: Flow): UnpinnableRef[] {
+  return flowRefs(flow).flows.map((id) => ({
+    path: '/nodes',
+    message: `a sub-flow step runs flow "${id}" with no version, and this server doesn't pin one; name the version it runs`,
+  }));
+}
+
+/**
  * The version a sub-flow step that names none pins to: the newest active
  * version of flow `id` that a run in the parent's project reaches, by the
  * one rule for "latest" (`latestVersion`). `undefined` when it reaches
  * none: one answer for a flow that isn't there and one the project
- * doesn't reach.
+ * doesn't reach. It asks the scope once per version, newest first, so a
+ * flow the project reaches no version of costs one question per active
+ * version; fine at a flow's version counts.
  */
 export async function implicitSubflowVersion(
   subflows: FlowPinsSubflows,

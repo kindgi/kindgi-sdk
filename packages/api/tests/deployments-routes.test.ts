@@ -7002,15 +7002,15 @@ function subflowPack(
 }
 
 describe('POST /v1/deployments — a sub-flow step that names no version is pinned', () => {
-  function setup(packs: readonly SignedDeploy[], reached?: ReadonlySet<string>) {
+  function setup(packs: readonly SignedDeploy[], reached?: ReadonlySet<string>, pinning = true) {
     const tools = makeVersionedToolRegistry();
     const flows = makeFlowsRegistry();
     const { app } = makeApp({
       toolRegistry: tools,
       agentRegistry: makeVersionedAgentRegistry(),
       flowRegistry: flows,
-      ...(reached !== undefined && {
-        extra: {
+      extra: {
+        ...(reached !== undefined && {
           referenceScope: {
             async reachable({ ref }) {
               return ref.kind !== 'flow' || ref.version === undefined
@@ -7018,8 +7018,10 @@ describe('POST /v1/deployments — a sub-flow step that names no version is pinn
                 : reached.has(`${ref.id}@${ref.version}`);
             },
           },
-        },
-      }),
+        }),
+        // Without the agent registry, a deploy registers flows unpinned.
+        ...(!pinning && ({ agentRegistry: undefined } as unknown as object)),
+      },
       extraTrust: packs.map((f) => ({
         keyId: KEY_ID,
         tenantId,
@@ -7175,4 +7177,26 @@ describe('POST /v1/deployments — a sub-flow step that names no version is pinn
       expect(tools.versions('acme.score')).toEqual([]);
     },
   );
+
+  test('without the agent registry, one is refused before anything is written: nothing would pin it; a named one registers unpinned', async () => {
+    const pack = subflowPack('1.0.0', [parentFlow('acme.parent', 'acme.child'), CHILD_FLOW]);
+    const { tools, flows, deploy } = setup([pack], undefined, false);
+
+    const res = await deploy(pack);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(JSON.stringify(res.body.error.details)).toContain(
+      `flow \\"acme.parent\\": a sub-flow step runs flow \\"acme.child\\" with no version, and this server doesn't pin one; name the version it runs`,
+    );
+    expect(flows.registered()).toEqual([]);
+    expect(tools.versions('acme.score')).toEqual([]);
+
+    const named = subflowPack('1.0.0', [
+      parentFlow('acme.parent', 'acme.child', '1.0.0'),
+      CHILD_FLOW,
+    ]);
+    const unpinned = setup([named], undefined, false);
+    expect((await unpinned.deploy(named)).status).toBe(201);
+    expect(pinsOf(unpinned.flows, 'acme.parent', '1.0.0')).toBeUndefined();
+  });
 });

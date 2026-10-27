@@ -75,6 +75,7 @@ import {
   implicitSubflowVersion,
   publishDeployedFlow,
   resolveFlowPins,
+  unnamedSubflowIssues,
 } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
@@ -2560,7 +2561,9 @@ async function registerAgents(input: {
  * but its sub-flows from this deploy; one with something it can't pin
  * throws `UnpinnableDeploy` before any flow is written, and the deploy
  * rolls back. Without them, flows register unpinned, as before pins
- * existed.
+ * existed, and a flow with a sub-flow step that names no version throws
+ * `UnpinnableDeploy` first (`unnamedSubflowIssues`): nothing would fix its
+ * child's version.
  */
 async function registerFlows(input: {
   readonly flows: FlowRegistryBinding;
@@ -2582,6 +2585,13 @@ async function registerFlows(input: {
     });
 
   if (tools === undefined || agents === undefined) {
+    const unnamed = input.defined.flatMap((flow, i) =>
+      unnamedSubflowIssues(flow).map((issue) => ({
+        path: `/flows/${i}${issue.path}`,
+        message: `flow "${flow.id as unknown as string}": ${issue.message}`,
+      })),
+    );
+    if (unnamed.length > 0) throw new UnpinnableDeploy(unnamed);
     for (const flow of input.defined) {
       const outcome = await flows.publish({ tenantId, projectId, flow, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.flowId, outcome.version as unknown as string);

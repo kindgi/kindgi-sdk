@@ -13,7 +13,7 @@ import { environmentTakesPromotionsResponse, laterEnvironment } from '../environ
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js';
-import { type FlowPinsSubflows, resolveFlowPins } from '../flow-pins.js';
+import { type FlowPinsSubflows, resolveFlowPins, unnamedSubflowIssues } from '../flow-pins.js';
 import {
   type ItemRights,
   type ItemServing,
@@ -63,7 +63,8 @@ import { parseScopeParams } from './scope-params.js';
  * version to the newest version of it the flow's project reaches. Every
  * run of that version uses those (`pins`, see `resolveFlowPins`); one
  * with no version to pin refuses the publish. Without `pinning`, versions
- * carry no pins and bind the latest versions per run.
+ * carry no pins and bind the latest versions per run, and a sub-flow step
+ * that names no version is refused: nothing would fix its child's version.
  */
 export function flowsRouter(
   binding: FlowRegistryBinding,
@@ -595,7 +596,11 @@ export interface FlowPinning {
   readonly live?: LiveVersionBinding;
 }
 
-/** The flow with its pins, or the references with no version to pin; as it is without `pinning`. */
+/**
+ * The flow with its pins, or the references with no version to pin.
+ * Without `pinning`, the flow as it is, unless a sub-flow step names no
+ * version (`unnamedSubflowIssues`).
+ */
 async function pinFlow(
   pinning: FlowPinning | undefined,
   tenantId: TenantId,
@@ -606,7 +611,10 @@ async function pinFlow(
   | { readonly kind: 'ok'; readonly flow: Flow }
   | { readonly kind: 'unpinnable'; readonly issues: readonly UnpinnableRef[] }
 > {
-  if (pinning === undefined) return { kind: 'ok', flow };
+  if (pinning === undefined) {
+    const issues = unnamedSubflowIssues(flow);
+    return issues.length > 0 ? { kind: 'unpinnable', issues } : { kind: 'ok', flow };
+  }
   const resolved = await resolveFlowPins(
     pinning.tools,
     pinning.agents,

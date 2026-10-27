@@ -170,7 +170,8 @@ function splitVersions(
     const agent = refs.agents.includes(id);
     const tool = refs.tools.includes(id);
     if (agent && tool) throw new UsageError(`${id} is both an agent and a tool in flow ${label}`);
-    if (!agent && !tool) throw new UsageError(`flow ${label} doesn't use ${id}`);
+    if (!agent && !tool)
+      throw new UsageError(`flow ${label} doesn't use ${id}, nor do its sub-flows you can read`);
     (agent ? agents : tools)[id] = version;
   }
   return {

@@ -234,7 +234,7 @@ describe('kindgi eval-runs start', () => {
     for (const [flags, message] of [
       [
         ['--flow=acme.intake', '--flow-version=1.0.0', '--with=acme.x@1.0.0'],
-        "flow acme.intake 1.0.0 doesn't use acme.x",
+        "flow acme.intake 1.0.0 doesn't use acme.x, nor do its sub-flows you can read",
       ],
       [
         [

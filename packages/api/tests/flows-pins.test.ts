@@ -305,7 +305,11 @@ function parentBody(id: string, steps: readonly (readonly [string, string?])[], 
 describe('POST /v1/flows pins a sub-flow step that names no version', () => {
   const projectId = randomUUID();
 
-  function subflowApp(versions: Record<string, readonly string[]>, reached?: ReadonlySet<string>) {
+  function subflowApp(
+    versions: Record<string, readonly string[]>,
+    reached?: ReadonlySet<string>,
+    pinning = true,
+  ) {
     const flows = flowsWith(versions);
     const asked: string[] = [];
     const app = createApp({
@@ -313,7 +317,7 @@ describe('POST /v1/flows pins a sub-flow step that names no version', () => {
       resolveToken,
       runHandler,
       flowRegistry: flows,
-      ...registries({}, {}),
+      ...(pinning && registries({}, {})),
       ...(reached !== undefined && {
         referenceScope: {
           async reachable({ fromProjectId, ref }) {
@@ -394,5 +398,18 @@ describe('POST /v1/flows pins a sub-flow step that names no version', () => {
     const named = await post(parentBody('acme.parent', [['acme.parent', '0.9.0']], projectId));
     expect(named.status).toBe(201);
     expect(flows.stored()[0]?.pins).toEqual({ tools: {}, agents: {} });
+  });
+
+  test('without the tool and agent registries, one refuses the publish: nothing would pin it; a named one publishes unpinned', async () => {
+    const { flows, post } = subflowApp({ 'acme.child': ['1.0.0'] }, undefined, false);
+    const res = await post(parentBody('acme.parent', [['acme.child']], projectId));
+    expect(res.status).toBe(400);
+    expect(await issues(res)).toEqual([
+      `a sub-flow step runs flow "acme.child" with no version, and this server doesn't pin one; name the version it runs`,
+    ]);
+    expect(flows.stored()).toEqual([]);
+    const named = await post(parentBody('acme.parent', [['acme.child', '1.0.0']], projectId));
+    expect(named.status).toBe(201);
+    expect(flows.stored()[0]?.pins).toBeUndefined();
   });
 });

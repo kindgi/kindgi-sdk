@@ -2934,7 +2934,7 @@ class FlowPins(BaseModel):
 
 class FlowVersionOverrides(BaseModel):
     """
-    Agents and tools a flow runs at other exact versions than the flow version's pins ("this flow, with `acme.scorer` at 0.4.0"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.
+    Agents and tools a flow runs at other exact versions than the flow version's pins ("this flow, with `acme.scorer` at 0.4.0"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow or one of its sub-flows uses.
     """
 
     model_config = ConfigDict(
@@ -7160,7 +7160,7 @@ class EvalRunCollectionPage(BaseModel):
 
 class StartEvalRunBody(BaseModel):
     """
-    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
+    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id that neither the flow nor one of its sub-flows uses, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
     """
 
     model_config = ConfigDict(
