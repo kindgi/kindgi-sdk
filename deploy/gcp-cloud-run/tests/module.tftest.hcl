@@ -117,6 +117,28 @@ run "postgres_needs_the_aad_key_version" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
+# The seed ids are uuids, as the server's settings are: another is refused
+# at plan, not at the server's start.
+run "a_seed_tenant_id_that_isnt_a_uuid_is_refused" {
+  command = plan
+
+  variables {
+    seed_tenant_id = "acme"
+  }
+
+  expect_failures = [var.seed_tenant_id]
+}
+
+run "a_seed_user_id_that_isnt_a_uuid_is_refused" {
+  command = plan
+
+  variables {
+    seed_user_id = "acme-admin"
+  }
+
+  expect_failures = [var.seed_user_id]
+}
+
 run "latest_is_refused" {
   command = plan
 

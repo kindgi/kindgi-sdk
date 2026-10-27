@@ -155,15 +155,23 @@ variable "tenancy" {
 }
 
 variable "seed_tenant_id" {
-  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses. Pin it, or every start seeds a new one. Needed with tenancy = \"single\", refused with \"multi\"."
+  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses, a uuid. Pin it, or every start seeds a new one. Needed with tenancy = \"single\", refused with \"multi\"."
   type        = string
   default     = null
+  validation {
+    condition     = var.seed_tenant_id == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_tenant_id))
+    error_message = "seed_tenant_id must be a uuid (a tenant id is one), such as one uuidgen prints."
+  }
 }
 
 variable "seed_user_id" {
-  description = "KINDGI_SEED_USER_ID: pinned so the FGA admin@tenant tuple stays stable across revisions. Needed with tenancy = \"single\", refused with \"multi\"."
+  description = "KINDGI_SEED_USER_ID: a uuid, pinned so the FGA admin@tenant tuple stays stable across revisions. Needed with tenancy = \"single\", refused with \"multi\"."
   type        = string
   default     = null
+  validation {
+    condition     = var.seed_user_id == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_user_id))
+    error_message = "seed_user_id must be a uuid (a user id is one), such as one uuidgen prints."
+  }
 }
 
 # ---- the pack service ---------------------------------------------------------
