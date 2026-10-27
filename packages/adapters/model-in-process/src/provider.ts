@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { fileParts, headedFileParts } from '@kindgi/capabilities';
 import type {
   Feature,
+  FilePart,
   ModelCallInput,
   ModelCallResult,
   ModelInfo,
@@ -111,7 +113,14 @@ export function createInProcessModelProvider(
       }
       const spec = MODEL_SPECS[modelKey];
       const p = await loadPipeline(modelKey);
-      const messages = input.messages.map(toChatTemplateMessage);
+      // A local model takes text only: a text file is read in, and an image
+      // or a PDF is a line saying it isn't shown.
+      const files = await fileParts(input.messages, {
+        readFile: input.readFile,
+        images: false,
+        documents: false,
+      });
+      const messages = input.messages.map((m, i) => toChatTemplateMessage(m, files[i] ?? []));
       const startedAt = Date.now();
 
       const promptTokens = countPromptTokens(p, messages);
@@ -190,9 +199,18 @@ function buildModelInfo(key: LocalModel, spec: ModelSpec): ModelInfo {
   };
 }
 
-/** Translate Kindgi ModelMessage → transformers.js Chat template message. */
-function toChatTemplateMessage(m: ModelMessage): { role: string; content: string } {
-  return { role: m.role, content: m.content };
+/**
+ * Translate Kindgi ModelMessage → transformers.js Chat template message. Its
+ * files (all text, `images: false`) follow its text under the outside-data
+ * heading.
+ */
+export function toChatTemplateMessage(
+  m: ModelMessage,
+  files: readonly FilePart[],
+): { role: string; content: string } {
+  const lines = headedFileParts(files).flatMap((part) => (part.kind === 'text' ? [part.text] : []));
+  const content = [...(m.content.length > 0 ? [m.content] : []), ...lines].join('\n\n');
+  return { role: m.role, content: lines.length === 0 ? m.content : content };
 }
 
 /**

@@ -34,8 +34,10 @@ import type {
   SharedV4ProviderOptions,
 } from '@ai-sdk/provider';
 
-import { samplingFor } from '@kindgi/capabilities';
+import { fileParts, headedFileParts, samplingFor } from '@kindgi/capabilities';
 import type {
+  FilePart,
+  FilePartsOptions,
   ModelCallInput,
   ModelCallResult,
   ModelCallWarning,
@@ -66,6 +68,8 @@ export interface AiSdkModelProviderOptions {
   readonly cacheMark?: (model: ModelInfo) => SharedV4ProviderOptions | undefined;
   /** Our cost formula for this vendor, from its usage. */
   readonly cost: (model: ModelInfo, usage: UsageCounters) => number;
+  /** The vendor's own file limits, where they're lower than Kindgi's (`FILE_LIMITS`). */
+  readonly fileLimits?: FilePartsOptions['limits'];
   /** HTTP attempts in all on a retryable failure (408, 409, 429, 5xx, network). Default 3. */
   readonly attempts?: number;
   /**
@@ -139,10 +143,19 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       const sampling = samplingFor(model, input);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const extra = options.providerOptions?.(model);
+      // Images and PDFs go to a model that declares `vision`; text files to any.
+      const vision = model.features.includes('vision');
+      const files = await fileParts(input.messages, {
+        readFile: input.readFile,
+        images: vision,
+        documents: vision,
+        ...(options.fileLimits !== undefined && { limits: options.fileLimits }),
+      });
       const prompt = toPrompt(
         input.messages,
         { provider: metadata.id, model: input.model },
         toolIds,
+        files,
       );
       const mark = options.cacheMark?.(model);
       const call: LanguageModelV4CallOptions = {
@@ -370,19 +383,34 @@ function decodeCarry(signature: string | undefined, owner: CarryOwner): Carry | 
   }
 }
 
-/** Our message trail as the spec's prompt; a carried answer is rebuilt part by part. */
+/**
+ * Our message trail as the spec's prompt; a carried answer is rebuilt part by part. A user
+ * message's files (`files`, by index) follow its text under the outside-data heading. A tool
+ * result's files move: after the run of tool results, one user message holds each result's
+ * files under a heading that names its call. The spec lets a tool result hold files, but a
+ * vendor may not: Azure's Chat Completions writes them out as JSON text, base64 and all, and
+ * Bedrock takes them only on some models.
+ */
 function toPrompt(
   messages: readonly ModelMessage[],
   owner: CarryOwner,
   toolIds: readonly string[],
+  files: readonly (readonly FilePart[])[],
 ): LanguageModelV4Prompt {
   const prompt: LanguageModelV4Message[] = [];
   const toolNames = new Map<string, string>();
-  for (const m of messages) {
+  let moved: ReturnType<typeof toFilePart>[] = [];
+  const flushMoved = (): void => {
+    if (moved.length > 0) prompt.push({ role: 'user', content: moved });
+    moved = [];
+  };
+  for (const [i, m] of messages.entries()) {
+    const parts = files[i] ?? [];
+    if (m.role !== 'tool') flushMoved();
     if (m.role === 'system') {
       prompt.push({ role: 'system', content: nameToolsAsSent(m.content, toolIds, wireName) });
     } else if (m.role === 'user') {
-      prompt.push({ role: 'user', content: [{ type: 'text', text: m.content }] });
+      prompt.push({ role: 'user', content: userContent(m.content, parts) });
     } else if (m.role === 'assistant') {
       const calls = m.toolCalls ?? [];
       for (const c of calls) toolNames.set(c.id, wireName(c.name));
@@ -450,9 +478,31 @@ function toPrompt(
       const last = prompt[prompt.length - 1];
       if (last?.role === 'tool') last.content.push(part);
       else prompt.push({ role: 'tool', content: [part] });
+      moved.push(...headedFileParts(parts, { toolCallId: id }).map(toFilePart));
     }
   }
+  flushMoved();
   return prompt;
+}
+
+/** A user message's content: its text, then its files under the outside-data heading. */
+function userContent(text: string, parts: readonly FilePart[]): ReturnType<typeof toFilePart>[] {
+  if (parts.length === 0) return [{ type: 'text', text }];
+  return [
+    ...(text.length > 0 ? [{ type: 'text' as const, text }] : []),
+    ...headedFileParts(parts).map(toFilePart),
+  ];
+}
+
+/** A file part as the spec's user content: text, or a file's bytes (base64) and type. */
+function toFilePart(part: FilePart) {
+  return part.kind === 'text'
+    ? { type: 'text' as const, text: part.text }
+    : {
+        type: 'file' as const,
+        data: { type: 'data' as const, data: part.data },
+        mediaType: part.mediaType,
+      };
 }
 
 /**
