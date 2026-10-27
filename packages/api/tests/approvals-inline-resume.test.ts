@@ -134,6 +134,24 @@ describe('an approval says how its run went on', () => {
     });
   });
 
+  test("a resume that found the run held answers the lease's code; `held` stays in the process", async () => {
+    const answer = await approve(
+      appWith(async () => ({
+        kind: 'err',
+        error: {
+          code: 'run-lease-lost',
+          message: 'Run run-1 is held by another executor, or queued for a slot',
+          details: { runId: 'run-1', held: true },
+        },
+      })),
+    );
+    expect(answer.json.resume).toEqual({
+      kind: 'failed',
+      code: 'run-lease-lost',
+      message: 'Run run-1 is held by another executor, or queued for a slot',
+    });
+  });
+
   test('a resume that throws is reported too', async () => {
     const answer = await approve(
       appWith(async () => {
