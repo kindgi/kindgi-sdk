@@ -60,7 +60,10 @@ const pdf = (id: string): MessageFile => ({
   pages: 1,
 });
 
-async function converse(files: readonly MessageFile[]): Promise<Record<string, unknown>> {
+async function converse(
+  files: readonly MessageFile[],
+  messages: ModelCallInput['messages'] = [{ role: 'user', content: 'Here they are.', files }],
+): Promise<Record<string, unknown>> {
   const bodies: Record<string, unknown>[] = [];
   const provider = bedrockAdapterFactory({
     metadata,
@@ -70,13 +73,15 @@ async function converse(files: readonly MessageFile[]): Promise<Record<string, u
   });
   const input: ModelCallInput = {
     model: MODEL,
-    messages: [{ role: 'user', content: 'Here they are.', files }],
+    messages,
     readFile: async (id) =>
       id.startsWith('d') ? PDF : new Uint8Array(files.find((f) => f.artifactId === id)?.size ?? 0),
   };
   await provider.invoke(input);
   return bodies[0] as Record<string, unknown>;
 }
+
+type ConverseMessage = { role: string; content: Record<string, unknown>[] };
 
 beforeEach(() => {
   vi.stubEnv('AWS_BEARER_TOKEN_BEDROCK', 'env-bearer-must-not-be-sent');
@@ -90,13 +95,48 @@ describe("Bedrock's own file limits", () => {
     const body = await converse([jpeg('small', 8), jpeg('big', 4_000_000)]);
     const sent = JSON.stringify(body);
     expect(sent).toContain('File \\"big.jpg\\" (image/jpeg, 4.0 MB): not shown: too large.');
-    const content = (body.messages as { content: Record<string, unknown>[] }[])[0]?.content ?? [];
+    const content = (body.messages as ConverseMessage[])[0]?.content ?? [];
     expect(content.filter((block) => 'image' in block)).toHaveLength(1);
+  });
+
+  test("a PDF over 4.5 MB is a line, though under Kindgi's 10 MB; nothing is read", async () => {
+    const big: MessageFile = { ...pdf('dbig'), size: 5_000_000 };
+    const body = await converse([pdf('d1'), big]);
+    expect(JSON.stringify(body)).toContain(
+      'File \\"dbig.pdf\\" (application/pdf, 5.0 MB): not shown: too large.',
+    );
+    const content = (body.messages as ConverseMessage[])[0]?.content ?? [];
+    expect(content.filter((block) => 'document' in block)).toHaveLength(1);
+  });
+
+  test("a tool result's file rides in the user message after it, with a text block beside it", async () => {
+    const photo = jpeg('photo', 8);
+    const body = await converse(
+      [photo],
+      [
+        { role: 'user', content: 'Look at the attachment.' },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'c1', name: 'mail.attachment', arguments: {} }],
+        },
+        { role: 'tool', toolCallId: 'c1', content: 'one photo', files: [photo] },
+      ],
+    );
+    const messages = body.messages as ConverseMessage[];
+    // Converse takes images and documents only in a user message, and a
+    // document only beside a text block.
+    expect(messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    const last = messages[2]?.content ?? [];
+    expect(last.some((block) => 'toolResult' in block)).toBe(true);
+    expect(last.some((block) => 'image' in block)).toBe(true);
+    expect(last.some((block) => 'text' in block)).toBe(true);
+    expect(messages.slice(0, 2).every((m) => !JSON.stringify(m).includes('"image"'))).toBe(true);
   });
 
   test('at most five documents a call, the newest kept', async () => {
     const body = await converse(['d1', 'd2', 'd3', 'd4', 'd5', 'd6'].map(pdf));
-    const content = (body.messages as { content: Record<string, unknown>[] }[])[0]?.content ?? [];
+    const content = (body.messages as ConverseMessage[])[0]?.content ?? [];
     expect(content.filter((block) => 'document' in block)).toHaveLength(5);
     expect(JSON.stringify(body)).toContain(
       'File \\"d1.pdf\\" (application/pdf, 13 bytes): not shown: over this call\'s file limit.',
