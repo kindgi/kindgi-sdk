@@ -56,8 +56,8 @@ export interface AgentsClient {
 
   /**
    * The projects the agent runs in: its first project first, then each
-   * project a deployment shipped a version of it into, among those the
-   * caller can read. A retired agent still answers.
+   * project a deployment that isn't retired shipped a version of it into,
+   * among those the caller can read. A retired agent still answers.
    *
    * @wire GET /v1/agents/:agentId/projects
    */
