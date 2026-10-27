@@ -38,8 +38,10 @@ both projects are in the same org or neither is in an org: put both in one
 order (`kindgi environments set`), the second right after the first, and
 `kindgi promote` the build from the first to the second instead of
 deploying it. Projects in two orgs, or one in an org and one not, can't
-share an order, and such a runtime has no fix for them. The `409` names
-the fix your runtime has.
+share an order unless one moves (`orgId` on
+`PATCH /v1/projects/{projectId}`, for a project in no order), which also
+changes who in the orgs reaches it. The `409` names the fix your runtime
+has.
 
 ## What a project's runs can use
 
