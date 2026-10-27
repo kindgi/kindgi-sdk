@@ -78,7 +78,7 @@ version published without pins resolves its ranges per run too.
 ## A pin holds a tool at a version
 
 A **pin** holds a tool at a version for a project, an org or the whole tenant
-(runtime 0.2.0 or later), so you can publish a new tool version without it
+(runtime 0.3.0 or later), so you can publish a new tool version without it
 reaching the agents and flows made there. When an agent or flow version is
 made in a project a tool's pin covers (the project's own pin, then its org's,
 then the tenant's), the version locks the tool at the pinned version:
@@ -454,7 +454,7 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   ```
 
 - **A pinned flow or tool version can't be unregistered** either (runtime
-  0.2.0 or later). Move or remove the pins first; until then, it's refused
+  0.3.0 or later). Move or remove the pins first; until then, it's refused
   with `409 flow-version-pinned` or `409 tool-version-pinned`, naming the
   pins' scopes in `details.scopes`.
 - **What pins it keeps running:** an agent version pinned to an unregistered
