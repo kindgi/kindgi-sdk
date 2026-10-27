@@ -48,9 +48,11 @@ import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
  * No thrown error's message reaches the client in a 500. A failed database query's
  * carries its SQL and parameters (Drizzle's `Failed query: … params: …`, a
  * person's email or address); an infrastructure error's carries an internal
- * address (`connect ECONNREFUSED …`). The body says only a fixed message —
- * `A database query failed.` for a query, `Unhandled server error`
- * otherwise — and the log keeps the error under `err`, but never a failed
+ * address (`connect ECONNREFUSED …`). The body says only a fixed message:
+ * `A database query failed.` when a database error is the thrown error or
+ * down its `cause` chain, as far as the busy mark is looked for
+ * (`isDatabaseFailure`), and `Unhandled server error` otherwise. The log
+ * keeps the error under `err`, but never a failed
  * query's SQL or values, or a value the server quotes as rejected: on the
  * error or down its `cause` chain, the line says `A database query
  * failed.` in a query error's place, and what a data exception means in
@@ -84,7 +86,7 @@ export function mapThrownError(cause: Error, c: Context): Response {
   const body = toWireError(
     {
       code: 'internal-server-error',
-      message: isQueryError(cause) ? QUERY_FAILED : 'Unhandled server error',
+      message: isDatabaseFailure(cause) ? QUERY_FAILED : 'Unhandled server error',
     },
     requestId,
   );
@@ -127,18 +129,36 @@ const READ_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD']);
 /** The wait a `503 database-busy` gives, in seconds. */
 const DATABASE_BUSY_RETRY_AFTER_S = 5;
 
-/** How far down an error's `cause` chain the busy mark is looked for (a cycle ends there too). */
+/** How far down an error's `cause` chain the busy mark, or a database error, is looked for (a cycle ends there too). */
 const MAX_CAUSE_DEPTH = 16;
 
-/** `code: 'database-busy'` on the error or anywhere on its `cause` chain. */
-function isDatabaseBusy(err: unknown): boolean {
+/** Whether `test` holds for `err` or an error down its `cause` chain: `MAX_CAUSE_DEPTH` errors at most, `err` itself first. */
+function onCauseChain(err: unknown, test: (node: object) => boolean): boolean {
   let node: unknown = err;
   for (let depth = 0; depth < MAX_CAUSE_DEPTH; depth++) {
     if (typeof node !== 'object' || node === null) return false;
-    if ((node as { code?: unknown }).code === 'database-busy') return true;
-    node = (node as { cause?: unknown }).cause;
+    if (test(node)) return true;
+    node = fieldOf(node, 'cause');
   }
   return false;
+}
+
+/** `code: 'database-busy'` on the error or anywhere on its `cause` chain. */
+function isDatabaseBusy(err: unknown): boolean {
+  return onCauseChain(err, (node) => fieldOf(node, 'code') === 'database-busy');
+}
+
+/**
+ * A database error on the error or anywhere on its `cause` chain: Drizzle's
+ * wrapper around a failed query, a Postgres server error, or one the
+ * database driver made when a connection failed or ended. So a storage
+ * failure that keeps the driver's error as its cause counts too.
+ */
+function isDatabaseFailure(err: unknown): boolean {
+  return onCauseChain(
+    err,
+    (node) => isQueryError(node) || sqlstateOf(node) !== undefined || isConnectionError(node),
+  );
 }
 
 /** A failed query's fixed text: a 500's body, and the log line's message in a query error's place. */
@@ -168,6 +188,22 @@ const DATA_EXCEPTION = 'a value the database rejected';
 
 /** A SQLSTATE of class 22, data exception. */
 const DATA_EXCEPTION_RE = /^22[0-9A-Z]{3}$/;
+
+/** A SQLSTATE: five digits or capital letters. */
+const SQLSTATE_RE = /^[0-9A-Z]{5}$/;
+
+/**
+ * The codes postgres.js (3.4) gives the errors it makes when a connection
+ * fails, times out or ends under a query: its code, also as `errno`. Not
+ * the socket's own codes (`ECONNREFUSED`, `ENOTFOUND`): an HTTP client
+ * throws those too, and nothing tells the two apart.
+ */
+const CONNECTION_ERRORS: ReadonlySet<string> = new Set([
+  'CONNECT_TIMEOUT',
+  'CONNECTION_CLOSED',
+  'CONNECTION_DESTROYED',
+  'CONNECTION_ENDED',
+]);
 
 /**
  * `err` as this handler logs it. A log line writes an error's message and
@@ -199,16 +235,29 @@ function loggable(err: unknown, depth = 0): unknown {
 /** What the log line says in place of `err`'s own message, when that can carry a request's values. */
 function saidInstead(err: unknown): string | undefined {
   if (isQueryError(err)) return QUERY_FAILED;
-  const code = fieldOf(err, 'code');
-  // A Postgres server error: a SQLSTATE and the severity every one carries.
-  if (
-    typeof code !== 'string' ||
-    !DATA_EXCEPTION_RE.test(code) ||
-    typeof fieldOf(err, 'severity') !== 'string'
-  ) {
-    return undefined;
-  }
+  const code = sqlstateOf(err);
+  if (code === undefined || !DATA_EXCEPTION_RE.test(code)) return undefined;
   return `${DATA_EXCEPTIONS[code] ?? DATA_EXCEPTION} (${code})`;
+}
+
+/**
+ * A Postgres server error's SQLSTATE: its `code`, with the `severity`
+ * every one carries (postgres.js's `PostgresError`). `undefined` for
+ * anything else.
+ */
+function sqlstateOf(err: unknown): string | undefined {
+  const code = fieldOf(err, 'code');
+  return typeof code === 'string' &&
+    SQLSTATE_RE.test(code) &&
+    typeof fieldOf(err, 'severity') === 'string'
+    ? code
+    : undefined;
+}
+
+/** An error postgres.js made when a connection failed or ended: one of its codes, also as `errno`. */
+function isConnectionError(err: unknown): boolean {
+  const code = fieldOf(err, 'code');
+  return typeof code === 'string' && CONNECTION_ERRORS.has(code) && fieldOf(err, 'errno') === code;
 }
 
 /** Drizzle's wrapper around a failed query, whose message is the SQL and its values. */
