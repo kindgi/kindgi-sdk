@@ -3131,7 +3131,7 @@ class AgentsResource:
     ) -> _models.AgentProjectList:
         """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
 
-        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project.
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.
         """
         return self._client._request(
             _OPERATIONS["agents.projects"],
@@ -12488,7 +12488,7 @@ class AsyncAgentsResource:
     ) -> _models.AgentProjectList:
         """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
 
-        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project.
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.
         """
         return await self._client._request(
             _OPERATIONS["agents.projects"],
