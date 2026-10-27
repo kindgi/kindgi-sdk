@@ -277,8 +277,10 @@ export function webhooksRouter(
     const refusal = secretNameGrammarRefusal(name) ?? secrets?.nameRefusal?.(name);
     if (refusal === undefined) return undefined;
     c.status(statusFor(refusal.code) as never);
+    // A reserved name says which, as when the trigger names an existing secret.
+    const named = refusal.code === 'reserved-name-prefix' ? { secret: name } : {};
     return c.json(
-      toWireError({ code: refusal.code, message: refusal.message }, c.get('requestId')),
+      toWireError({ code: refusal.code, message: refusal.message, ...named }, c.get('requestId')),
     );
   }
 

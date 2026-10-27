@@ -37,13 +37,16 @@ const resolveToken: TokenResolver = async (token) =>
       ? { tenantId: TENANT, userId: 'user-1' as UserId, scopes: ['tenant-admin'] }
       : null;
 
-function setup() {
+function setup(nameRefusal?: SecretBinding['nameRefusal']) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: DEFAULT_PROJECT as never });
   const app = createApp({
     ...createStubAppBindings(),
     triggerRegistry: registry,
     // No secret is set: where a named one is read is the broadest scope the caller administers.
-    secretsBinding: { get: async () => null } as unknown as SecretBinding,
+    secretsBinding: {
+      get: async () => null,
+      ...(nameRefusal !== undefined && { nameRefusal }),
+    } as unknown as SecretBinding,
     providerRegistry: {
       resolveForRuntime: async () => [
         { metadata: { id: 'acme-llm' }, secretRef: { name: 'acme-provider-key' } },
@@ -162,12 +165,22 @@ describe('registering a webhook trigger', () => {
       { secret: 'kindgi.webhook' },
     ]);
     expect(named.body.error.message).toContain('a webhook trigger never names one');
-    const generated = await call('POST', '', {
+    // A generated secret meets the store's own name rule first, as the runtime's stores refuse the prefix.
+    const store = setup((name) =>
+      name.startsWith('kindgi.')
+        ? { code: 'reserved-name-prefix', message: 'reserved for the runtime' }
+        : undefined,
+    );
+    const generated = await store.call('POST', '', {
       ...base,
       hmacSecretName: 'kindgi.webhook',
       generateSecret: true,
     });
-    expect([generated.status, generated.body.error?.code]).toEqual([400, 'reserved-name-prefix']);
+    expect([generated.status, generated.body.error?.code, generated.body.error?.details]).toEqual([
+      400,
+      'reserved-name-prefix',
+      { secret: 'kindgi.webhook' },
+    ]);
   });
 });
 
