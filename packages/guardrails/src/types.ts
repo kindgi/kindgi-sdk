@@ -31,7 +31,7 @@ import type { GuardrailConfigProblem } from './config-problems.js';
  *
  * The `BUILT_IN_GUARDRAIL_KINDS` constant enumerates the well-known values
  * (the schema lists them as `examples`); the schema accepts any non-empty
- * kind. `defineGuardrail` still requires a registered check of the same
+ * kind. `validateGuardrail` still requires a registered check of the same
  * kind, and runtime dispatch uses the registered strategies, not this
  * union.
  */
@@ -66,6 +66,27 @@ export type BuiltInOnViolation = (typeof BUILT_IN_ON_VIOLATIONS)[number];
 
 export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
 
+/**
+ * Where in an agent's turn a guardrail's check runs:
+ * - `'before-tool'`: a call the model asked for, before it runs and
+ *   before any approval is asked (`RunTrace.call`).
+ * - `'after-tool'`: a call that ran, before the model sees its result
+ *   (`RunTrace.call` and `RunTrace.result`).
+ * - `'model-step'`: each model reply, before any of its calls runs
+ *   (`RunTrace.step`).
+ * - `'final-answer'`: the answer that would be stored (`RunTrace.output`).
+ */
+export const GUARDRAIL_POINTS = ['before-tool', 'after-tool', 'model-step', 'final-answer'] as const;
+/** One of `GUARDRAIL_POINTS`. */
+export type GuardrailPoint = (typeof GUARDRAIL_POINTS)[number];
+
+/**
+ * What a guardrail's check sees of the conversation: `'turn'`, this
+ * turn only, or `'conversation'`, with the earlier turns the model was
+ * given for this turn too (`RunTrace.earlier`).
+ */
+export type GuardrailSees = 'turn' | 'conversation';
+
 export interface Action {
   /**
    * What a failed check does to the agent turn. The runtime acts on
@@ -96,6 +117,13 @@ export interface Scope {
   readonly agents?: readonly AgentId[];
   readonly flows?: readonly FlowId[];
   readonly tenants?: readonly TenantId[];
+  /**
+   * At `'before-tool'` and `'after-tool'`: the tools whose calls it
+   * checks, by id. A trailing `*` matches every id with that prefix
+   * (`'acme.woo.*'`), and a `*` anywhere else is refused, as an empty
+   * list is. Absent: every tool.
+   */
+  readonly tools?: readonly string[];
 }
 
 export interface Budget {
@@ -178,7 +206,7 @@ export type CodeArtifactRef =
  * `check` references a concrete check implementation:
  *   - For `zero-llm`: id of a check in the CheckRegistry (built-in or custom).
  *   - For `llm-judge`: id of a registered check of kind `llm-judge`
- *     (`defineGuardrail` resolves it); the judge itself is configured by
+ *     (`validateGuardrail` resolves it); the judge itself is configured by
  *     `config` (`LlmJudgeConfig`) + `judgeCapabilities`.
  *   - For `external` and adapter kinds: an id the kind's strategy understands.
  *
@@ -225,7 +253,7 @@ export interface Guardrail {
   /**
    * Check-specific configuration. Interpreted by the check
    * implementation (validated by the check's `validateConfig`, e.g.
-   * derived from its `configSchema`, when `defineGuardrail` runs).
+   * derived from its `configSchema`, when `validateGuardrail` runs).
    * Shape is opaque to the engine; e.g. `must-cite` reads
    * `{minCitations?: number}`, `output-matches` reads `{pattern: string}`.
    */
@@ -255,6 +283,13 @@ export interface Guardrail {
    * narrow further (e.g. `{agents: ['acme.support-agent']}`).
    */
   readonly scope?: Scope;
+  /**
+   * Where in the turn its check runs (`GuardrailPoint`). Absent: the
+   * final answer. Its check must support the point (`RegisteredCheck.points`).
+   */
+  readonly at?: GuardrailPoint;
+  /** What its check sees of the conversation (`GuardrailSees`). Absent: `'turn'`. */
+  readonly sees?: GuardrailSees;
   /**
    * Cost + latency ceiling per guardrail invocation (relevant for
    * `kind: 'llm-judge'` — zero-llm checks are free): `maxCostUsd` +
@@ -317,6 +352,40 @@ export interface ToolResultRecord {
   readonly toolCallId: string;
   readonly output: unknown;
   readonly at: Timestamp;
+}
+
+/**
+ * A tool call at `'before-tool'` and `'after-tool'`: the one the check
+ * judges, as the model asked for it.
+ */
+export interface TraceCall {
+  /** The model's id for the call, unique within its reply. */
+  readonly callId: string;
+  readonly toolId: ToolId;
+  readonly toolName: string;
+  /** The version the turn runs it at; absent for a tool registered without one. */
+  readonly toolVersion?: string;
+  readonly arguments: Readonly<Record<string, unknown>>;
+}
+
+/** What a call came to, at `'after-tool'`: what it returned, or what it threw. */
+export type TraceCallResult =
+  | { readonly output: unknown }
+  | { readonly error: { readonly code?: string; readonly message: string } };
+
+/** A model reply, at `'model-step'`: its text and the calls it asks for. */
+export interface TraceStep {
+  /** The reply's text; empty when it only asks for calls. */
+  readonly text: string;
+  readonly toolCalls: readonly TraceCall[];
+}
+
+/** An earlier turn, with `sees: 'conversation'`, in `RunTrace`'s own field names. */
+export interface TraceTurn {
+  readonly userInput?: string;
+  readonly output?: string;
+  readonly toolCalls: readonly ToolCallRecord[];
+  readonly toolResults: readonly ToolResultRecord[];
 }
 
 export interface ModelCallRecord {
@@ -397,6 +466,19 @@ export interface RunTrace {
   readonly mode: 'ci' | 'runtime';
   /** Free-form attributes checks may consult. Use for niche data not typed above. */
   readonly attributes?: Readonly<Record<string, unknown>>;
+  /** The point the check runs at. Absent: the final answer. */
+  readonly at?: GuardrailPoint;
+  /** At `'before-tool'` and `'after-tool'`: the call it judges, which `toolCalls` doesn't hold yet. */
+  readonly call?: TraceCall;
+  /** At `'after-tool'`: what the call came to. */
+  readonly result?: TraceCallResult;
+  /** At `'model-step'`: the reply it judges. */
+  readonly step?: TraceStep;
+  /**
+   * With `sees: 'conversation'`: the earlier turns the model was given
+   * for this turn, oldest first, bounded by the agent's history limit.
+   */
+  readonly earlier?: readonly TraceTurn[];
 }
 
 /**
@@ -505,6 +587,11 @@ export interface RegisteredCheck {
    * under `/config`): what registration refuses up front. `validateConfig` words the first.
    */
   readonly configProblems?: (config: unknown) => readonly GuardrailConfigProblem[];
+  /**
+   * The points it can run at (`GuardrailPoint`). Absent: the final answer
+   * only, so a check written for `trace.output` never runs where there's none.
+   */
+  readonly points?: readonly GuardrailPoint[];
 }
 
 /**

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/guardrail.schema.json",
-  "$comment": "schema-version: 1.1.0",
+  "$comment": "schema-version: 1.2.0",
   "title": "Guardrail",
   "description": "An assertion about agent behavior. Checked at runtime, where `halt` stops the turn, `retry` asks the model for a new answer, and every other action is recorded, AND in CI (blocks builds). Same definition, two enforcement paths — no drift between what tests check and what prod enforces. Zero-LLM checks are default (fast, deterministic); LLM-judge scorers are an opt-in class with explicit cost declaration. Schema-version 1.1.0 matches the `Guardrail` type: `check` is required, a `retry` object, when given, needs `maxAttempts`, `kind` and `on-violation` accept any non-empty string (the built-ins are listed as `examples`), and `sandbox` / `limits` / `network` / `needsSpec` are allowed.",
   "type": "object",
@@ -25,12 +25,12 @@
       "type": "string",
       "minLength": 1,
       "examples": ["zero-llm", "llm-judge", "external"],
-      "description": "How the guardrail is checked. Open string: the engine dispatches it to the execution strategy registered for that kind, and `defineGuardrail` requires a registered check of the same kind. Built-in kinds: 'zero-llm' = pure function over run trace (default, fast, deterministic). 'llm-judge' = uses a model to score (opt-in, costs money). 'external' = evaluated outside the engine by a caller-registered strategy (the built-in 'external' strategy returns an error). Adapters can register strategies for their own kinds."
+      "description": "How the guardrail is checked. Open string: the engine dispatches it to the execution strategy registered for that kind, and `validateGuardrail` requires a registered check of the same kind. Built-in kinds: 'zero-llm' = pure function over run trace (default, fast, deterministic). 'llm-judge' = uses a model to score (opt-in, costs money). 'external' = evaluated outside the engine by a caller-registered strategy (the built-in 'external' strategy returns an error). Adapters can register strategies for their own kinds."
     },
     "check": {
       "type": "string",
       "minLength": 1,
-      "description": "Id of the check in the CheckRegistry. For zero-llm: a built-in check ('must-cite', 'never-call-tool', 'max-tool-calls', 'output-matches', 'tool-order', 'required-substring', 'forbidden-substring') or a custom check id. For llm-judge: the id of a registered check of kind 'llm-judge' (the judge is configured by config and judgeCapabilities). For external and adapter kinds: an id the kind's strategy understands. Required since schema-version 1.1.0 (`defineGuardrail` already failed without a registered check)."
+      "description": "Id of the check in the CheckRegistry. For zero-llm: a built-in check ('must-cite', 'never-call-tool', 'max-tool-calls', 'output-matches', 'tool-order', 'required-substring', 'forbidden-substring') or a custom check id. For llm-judge: the id of a registered check of kind 'llm-judge' (the judge is configured by config and judgeCapabilities). For external and adapter kinds: an id the kind's strategy understands. Required since schema-version 1.1.0 (`validateGuardrail` already failed without a registered check)."
     },
     "config": {
       "type": "object",
@@ -52,6 +52,18 @@
     "scope": {
       "$ref": "#/$defs/Scope",
       "description": "When this guardrail applies: 'always' (every run), 'ci-only' (blocks CI, not runtime), 'runtime-only' (runtime enforcement, not CI), or a per-agent/per-flow selector."
+    },
+    "at": {
+      "type": "string",
+      "enum": ["before-tool", "after-tool", "model-step", "final-answer"],
+      "default": "final-answer",
+      "description": "Where in the agent's turn the check runs. 'before-tool': a call the model asked for, before it runs and before any approval is asked (the trace's `call`). 'after-tool': a call that ran, before the model sees its result (`call` and `result`). 'model-step': each model reply, before any of its calls runs (`step`). 'final-answer': the answer that would be stored (`output`). The check must support the point (its `points`). 'escalate' and 'compensate' are recorded at the final answer only."
+    },
+    "sees": {
+      "type": "string",
+      "enum": ["turn", "conversation"],
+      "default": "turn",
+      "description": "What the check sees of the conversation: 'turn', this turn only, or 'conversation', with the earlier turns the model was given for this turn too (the trace's `earlier`)."
     },
     "budget": {
       "type": "object",
@@ -263,6 +275,16 @@
             "type": "string"
           },
           "description": "Tenant ids this guardrail applies to. Empty = all tenants."
+        },
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^*]*\\*?$"
+          },
+          "description": "At 'before-tool' and 'after-tool': the tools whose calls it checks, by id. A trailing '*' matches every id with that prefix ('acme.woo.*'); a '*' anywhere else matches nothing, so it's refused, as an empty list is. Absent = every tool."
         }
       }
     }
