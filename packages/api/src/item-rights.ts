@@ -36,7 +36,15 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { routePath } from 'hono/route';
 
-import { type Action, type Decision, type ResourceRef, denyPayload, ref } from '@kindgi/authz';
+import {
+  type Action,
+  type Decision,
+  type ResourceRef,
+  type TriggerTargetRef,
+  denyPayload,
+  ref,
+  targetAccess,
+} from '@kindgi/authz';
 import type { LiveScope, ProjectId, TenantId } from '@kindgi/types';
 
 import { firstEnvironmentOf, orderSpanning } from './environment-entry.js';
@@ -745,14 +753,174 @@ export async function writeWhereMade(
   doing: string,
 ): Promise<Response | undefined> {
   const where = await rights.madeIn(c, projects);
-  const refused =
-    where === undefined ? undefined : await rights.on(c, where as unknown as string, 'write');
+  return where === undefined
+    ? undefined
+    : writeIn(c, rights, item, where as unknown as string, doing);
+}
+
+/**
+ * `write` on `projectId`, where the item gets its new versions
+ * (`writeWhereMade`, or what `runAccess` answered for an improve).
+ * `undefined` when allowed; else the 403, naming that project.
+ */
+async function writeIn(
+  c: Ctx,
+  rights: ItemRights,
+  item: { readonly kind: OrderItemKind; readonly id: string },
+  projectId: string,
+  doing: string,
+): Promise<Response | undefined> {
+  const refused = await rights.on(c, projectId, 'write');
   if (refused === undefined) return undefined;
   return forbidden(
     c,
     refused,
     `Permission denied: ${doing} needs write on project ${refused.resource.id}, where ${KIND_NAME[item.kind]} "${item.id}" gets its new versions (${refused.decision.reason})`,
   );
+}
+
+/**
+ * What `runAccess` and `servedThere` ask of the item-projects binding, for
+ * one tenant: only the narrow questions, so neither reads every project an
+ * item is in. A route answers it from its request's `ItemRights`
+ * (`servedQuestionsOf`); the runtime's fire, from the binding itself
+ * (`servedQuestionsFrom`).
+ */
+export interface ServedQuestions {
+  /** Whether `projectId` serves the item, and its first project. `undefined`: no such item. */
+  servesIn(
+    kind: 'agent' | 'flow',
+    id: string,
+    projectId: string,
+  ): Promise<ItemServesIn | undefined>;
+  /** Whether more than one project serves the item, and its first. `undefined`: no such item. */
+  servedElsewhere(kind: 'agent' | 'flow', id: string): Promise<ItemServedElsewhere | undefined>;
+  /** Where an item first published in `own` gets its new versions (`ItemRights.madeIn`). */
+  madeIn(own: ProjectId): Promise<ProjectId>;
+}
+
+/** A route's `ServedQuestions`, through its request's `ItemRights`. */
+export function servedQuestionsOf(c: Ctx, rights: ItemRights): ServedQuestions {
+  return {
+    servesIn: (kind, id, projectId) => rights.servesIn(c, kind, id, projectId),
+    servedElsewhere: (kind, id) => rights.servedElsewhere(c, kind, id),
+    madeIn: async (own) => (await rights.madeIn(c, [own])) ?? own,
+  };
+}
+
+/** `ServedQuestions` from the binding alone, for one tenant (the runtime's fire). */
+export function servedQuestionsFrom(
+  binding: Pick<ItemProjectsBinding, 'servesIn' | 'servedElsewhere'>,
+  tenantId: TenantId,
+  orders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
+): ServedQuestions {
+  return {
+    servesIn: (kind, id, projectId) =>
+      binding.servesIn({ tenantId, kind, id, projectId: projectId as ProjectId }),
+    servedElsewhere: (kind, id) => binding.servedElsewhere({ tenantId, kind, id }),
+    madeIn: async (own) => (await firstEnvironmentOf(orders, tenantId, own)) ?? own,
+  };
+}
+
+/**
+ * Whether `projectId` is one of the item's projects, and more than one
+ * serves it: its first one alone isn't enough. A project that serves the
+ * item and isn't its first means more than one does; for its first, one
+ * other project is enough to know.
+ */
+export async function servedThere(
+  served: ServedQuestions,
+  item: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  projectId: string,
+): Promise<boolean> {
+  const there = await served.servesIn(item.kind, item.id, projectId);
+  if (there === undefined || !there.serves) return false;
+  return (
+    projectId !== there.own ||
+    (await served.servedElsewhere(item.kind, item.id))?.elsewhere === true
+  );
+}
+
+/**
+ * What running or improving a trigger's target from `projectId` takes, of
+ * whoever the run acts as: the caller at register, a change and a
+ * take-over, the owner there and at every fire. One rule, so register and
+ * the fire can't disagree, and the same one a run started by hand follows:
+ *   - an agent or flow more than one project serves, `projectId` among
+ *     them: `call` (agent) or `execute` (flow) on that project
+ *     (`on: 'project'`);
+ *   - an improve of an agent more than one project serves: `write` where
+ *     its new versions are made (`on: 'made-in'`);
+ *   - anything else, or no binding (`served` absent), or an agent or flow
+ *     with no project: the item's own right, `targetAccess` (`on: 'item'`).
+ */
+export interface RunAccess {
+  readonly action: Action;
+  readonly resource: ResourceRef;
+  /** Whose right it is: the trigger's project, where new versions are made, or the item's own. */
+  readonly on: 'project' | 'made-in' | 'item';
+}
+
+/** {@link RunAccess} for `target` from a trigger in `projectId`. */
+export async function runAccess(
+  served: ServedQuestions | undefined,
+  target: TriggerTargetRef,
+  projectId: string | undefined,
+): Promise<RunAccess> {
+  if (served !== undefined && target.kind === 'improve') {
+    const elsewhere = await served.servedElsewhere('agent', target.agentId);
+    if (elsewhere?.elsewhere === true) {
+      const where = await served.madeIn(elsewhere.own);
+      return {
+        action: 'write',
+        resource: ref('project', where as unknown as string),
+        on: 'made-in',
+      };
+    }
+  } else if (served !== undefined && projectId !== undefined) {
+    const item = runItemOf(target);
+    if (item !== undefined && (await servedThere(served, item, projectId))) {
+      return {
+        action: item.kind === 'agent' ? 'call' : 'execute',
+        resource: ref('project', projectId),
+        on: 'project',
+      };
+    }
+  }
+  const [action, resource] = targetAccess(target);
+  return { action, resource, on: 'item' };
+}
+
+/** The agent or flow a run target runs; `undefined` for an improve. */
+function runItemOf(
+  target: TriggerTargetRef,
+): { readonly kind: 'agent' | 'flow'; readonly id: string } | undefined {
+  if (target.kind === 'flow') return { kind: 'flow', id: target.flowId };
+  return target.kind === 'agent' ? { kind: 'agent', id: target.agentId } : undefined;
+}
+
+/**
+ * The caller's check of a trigger's target (register, a change, a
+ * take-over), by `runAccess`, with the words each answer has: `runIn`'s
+ * for the trigger's project, `writeWhereMade`'s for an improve. The
+ * item's own right is the route's to ask (`undefined` here), since its
+ * 403 is the authorizer's own.
+ */
+export async function runAccessRefusal(
+  c: Ctx,
+  rights: ItemRights,
+  target: TriggerTargetRef,
+  access: RunAccess,
+): Promise<Response | undefined> {
+  if (access.on === 'project') {
+    const item = runItemOf(target);
+    return item === undefined ? undefined : runIn(c, rights, item, access.resource.id);
+  }
+  if (access.on === 'made-in' && target.kind === 'improve') {
+    const item = { kind: 'agent' as const, id: target.agentId };
+    return writeIn(c, rights, item, access.resource.id, `improving agent "${item.id}"`);
+  }
+  return undefined;
 }
 
 /** The 403 a refusal answers, in the envelope the authorizer's own 403 uses. */

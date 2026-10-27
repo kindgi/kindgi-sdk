@@ -572,7 +572,7 @@ describe('a version named at open or registration: refused there when the projec
     expect(listed.body.data?.map((s) => s.flowVersion)).toEqual(['1.0.0']);
   });
 
-  test('POST /v1/schedules: an agent at `agentVersion`, refused at /target; one that names none is asked about by its id', async () => {
+  test('POST /v1/schedules: an agent at `agentVersion`, refused at /target; one that names none is asked about as any version its project runs', async () => {
     const h = await harness();
     const register = (agentVersion?: string) =>
       h.call('POST', '/v1/schedules', {
@@ -585,9 +585,10 @@ describe('a version named at open or registration: refused there when the projec
     expect(h.lastAsked()).toEqual({ kind: 'agent', id: 'acme.desk', version: '1.1.0' });
     expect((await register('1.0.0')).status).toBe(201);
     expect(h.lastAsked()).toEqual({ kind: 'agent', id: 'acme.desk', version: '1.0.0' });
-    // No version named: it runs whichever its project runs, so only the id is asked about.
+    // No version named: it runs whichever its project runs, so the question
+    // is whether any version of it runs there (`anyVersion`).
     expect((await register()).status).toBe(201);
-    expect(h.lastAsked()).toStrictEqual({ kind: 'agent', id: 'acme.desk' });
+    expect(h.lastAsked()).toStrictEqual({ kind: 'agent', id: 'acme.desk', anyVersion: true });
   });
 
   test('PATCH /v1/schedules/{triggerId}: a new target at a version the project does not run is refused, and the schedule keeps its target', async () => {

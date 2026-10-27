@@ -24,8 +24,10 @@ import { randomUUID } from 'node:crypto';
 import type { Context } from 'hono';
 import { describe, expect, test } from 'vitest';
 
+import { ref } from '@kindgi/authz';
 import type { TenantId } from '@kindgi/types';
 
+import type { RunAccess } from '../src/item-rights.js';
 import { resolveTriggerOwner } from '../src/routes/trigger-owners.js';
 import type {
   ServiceAccount,
@@ -79,8 +81,9 @@ const binding = (value: ServiceAccount | null): Pick<ServiceAccountBinding, 'get
 // `actAsDenied` is a boolean: `false` → allowed, `true` → refused.
 const allow = async () => false;
 const deny = async () => true;
-// `cannotRun` likewise: `false` → the account can run the target.
-const runs = async () => false;
+// `cannotRun`: `undefined` → the account can run the target; else the right it lacks.
+const runs = async (): Promise<RunAccess | undefined> => undefined;
+const LACKS: RunAccess = { action: 'execute', resource: ref('agent', 'acme.agent'), on: 'item' };
 
 const TARGET = { kind: 'agent', agentId: 'acme.agent' } as const;
 // `isProjectAdmin`: `true` → an admin of the project.
@@ -205,7 +208,7 @@ describe('resolveTriggerOwner: a non-reader gets one 403, for every reason', () 
     canReadServiceAccounts: async () => false,
     actAsDenied: deny,
     isProjectAdmin: notAdmin,
-    cannotRun: async () => true,
+    cannotRun: async () => LACKS,
   } as const;
 
   test('missing, unregistered and not-act_as-able all look the same', async () => {
@@ -384,9 +387,9 @@ describe('resolveTriggerOwner: runAsProject', () => {
       TARGET,
       deps({
         projectAccounts: accounts,
-        cannotRun: async (id, target) => {
-          asked.push([id, target]);
-          return true;
+        cannotRun: async (id, target, projectId) => {
+          asked.push([id, target, projectId]);
+          return LACKS;
         },
       }),
     );
@@ -397,14 +400,14 @@ describe('resolveTriggerOwner: runAsProject', () => {
       "The trigger can't run agent \"acme.agent\" as the project. The project's own account runs only what the project's editors can: run the trigger as a service account that can, or own it yourself.",
     );
     expect(accounts.calls).toHaveLength(1);
-    expect(asked).toEqual([[PA, TARGET]]);
+    expect(asked).toEqual([[PA, TARGET, PROJECT]]);
   });
 
   test('refused before the account is made: the account is never asked', async () => {
     let asked = 0;
     const cannotRun = async () => {
       asked += 1;
-      return true;
+      return LACKS;
     };
     const request = { runAsProject: true, projectId: PROJECT } as const;
     const notAdminR = await resolveTriggerOwner(
@@ -479,9 +482,9 @@ describe('resolveTriggerOwner: past the gate, the account must be able to run th
         canReadServiceAccounts: async () => true,
         actAsDenied: allow,
         isProjectAdmin: notAdmin,
-        cannotRun: async (id, target) => {
-          asked.push([id, target]);
-          return true;
+        cannotRun: async (id, target, projectId) => {
+          asked.push([id, target, projectId]);
+          return LACKS;
         },
       },
     );
@@ -491,7 +494,7 @@ describe('resolveTriggerOwner: past the gate, the account must be able to run th
     expect(JSON.parse(text).error.message).toBe(
       'Service account "acme-nightly-bot" can\'t run agent "acme.agent", so the trigger can\'t run as it. Give the account the editor role on the target\'s project, or name another account.',
     );
-    expect(asked).toEqual([[BOT, TARGET]]);
+    expect(asked).toEqual([[BOT, TARGET, undefined]]);
   });
 
   test('the gate refuses first: the account is never asked', async () => {
@@ -507,7 +510,7 @@ describe('resolveTriggerOwner: past the gate, the account must be able to run th
         isProjectAdmin: notAdmin,
         cannotRun: async () => {
           asked = true;
-          return true;
+          return LACKS;
         },
       },
     );
@@ -525,7 +528,7 @@ describe('resolveTriggerOwner: past the gate, the account must be able to run th
       isProjectAdmin: notAdmin,
       cannotRun: async () => {
         asked = true;
-        return true;
+        return LACKS;
       },
     });
     expect(r).toEqual({ kind: 'owner', owner: { kind: 'user', id: ADA } });

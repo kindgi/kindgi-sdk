@@ -1247,7 +1247,14 @@ export type {
   SecretProviderScope,
 } from './secrets-provider-binding.js';
 export { statusFor, toWireError, ERROR_CODE_TO_STATUS } from './errors.js';
-export { agentReferences, flowReferences, referencesOutOfScope } from './reference-scope.js';
+export {
+  agentReferences,
+  flowReferences,
+  referencesOutOfScope,
+  triggerTargetReference,
+} from './reference-scope.js';
+export { runAccess, servedQuestionsFrom } from './item-rights.js';
+export type { RunAccess, ServedQuestions } from './item-rights.js';
 export type {
   ItemReference,
   ReferenceKind,

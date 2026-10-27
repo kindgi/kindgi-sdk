@@ -5,14 +5,14 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
-import { type Action, type ResourceRef, ref, targetAccess } from '@kindgi/authz';
+import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { callerRef } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, runIn, writeWhereMade } from '../item-rights.js';
+import { type ItemRights, runAccess, runAccessRefusal, servedQuestionsOf } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
   type ReferenceScopeBinding,
@@ -157,30 +157,23 @@ export function schedulesRouter(
   }
 
   /**
-   * What firing `target` from a schedule in `projectId` needs, as starting
-   * it by hand does (`targetAccess`); for a target more than one project
-   * serves, as the module says.
+   * What firing `target` from a schedule in `projectId` needs, of the
+   * caller: `runAccess`, the rule the owner is checked by at every fire
+   * and a run started by hand follows.
    */
   async function targetRefused(
     c: Context<AppEnv>,
     target: TriggerTarget,
     projectId: string | undefined,
   ): Promise<Response | undefined> {
-    const item =
-      target.kind === 'flow'
-        ? { kind: 'flow' as const, id: target.flowId }
-        : { kind: 'agent' as const, id: target.agentId };
     const served =
-      authorizer === undefined ? undefined : await itemRights?.multi(c, item.kind, item.id);
-    if (itemRights !== undefined && served !== undefined) {
-      if (target.kind === 'improve') {
-        return writeWhereMade(c, itemRights, item, served, `improving agent "${item.id}"`);
-      }
-      if (projectId !== undefined && served.includes(projectId as ProjectId)) {
-        return runIn(c, itemRights, item, projectId);
-      }
-    }
-    return denied(c, ...targetAccess(target));
+      authorizer === undefined || itemRights === undefined
+        ? undefined
+        : servedQuestionsOf(c, itemRights);
+    const access = await runAccess(served, target, projectId);
+    return access.on === 'item' || itemRights === undefined
+      ? denied(c, access.action, access.resource)
+      : runAccessRefusal(c, itemRights, target, access);
   }
 
   /** The schedule, if it is one (another kind's id is not found here), and the caller may `action` it. */
@@ -236,12 +229,15 @@ export function schedulesRouter(
     const scopeProblem = improveScopeProblem(target.value, project);
     if (scopeProblem !== undefined) return bad(c, requestId, scopeProblem);
     const refused =
-      (project === undefined
+      project === undefined
         ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
-        : await denied(c, 'write', ref('project', project))) ??
-      (await targetRefused(c, target.value, project));
+        : await denied(c, 'write', ref('project', project));
     if (refused !== undefined) return refused;
-    // What it runs must be its project's to reach (`reference-scope.ts`).
+    // What it runs must be its project's to reach (`reference-scope.ts`),
+    // asked before the target's right: a project that doesn't run the
+    // target yet is fixed by a promotion, which the 400 names, where the
+    // right would answer a bare 403. Only a caller who may write the
+    // project gets this far.
     if (project !== undefined) {
       const outOfScope = await referencesOutOfScope(
         referenceScope,
@@ -251,6 +247,8 @@ export function schedulesRouter(
       );
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
+    const targetRefusal = await targetRefused(c, target.value, project);
+    if (targetRefusal !== undefined) return targetRefusal;
     // What its runs may call without a person's yes: a project admin's to
     // set, and only tools its target calls.
     if (tools.kind === 'ok') {
@@ -274,7 +272,7 @@ export function schedulesRouter(
       c,
       ownerRequest,
       target.value,
-      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts, itemRights),
     );
     if (resolved.kind === 'refused') return resolved.response;
     const owner = resolved.owner;
@@ -445,13 +443,8 @@ export function schedulesRouter(
         found.value.projectId as unknown as string,
       );
       if (scopeProblem !== undefined) return bad(c, requestId, scopeProblem);
-      const refused = await targetRefused(
-        c,
-        target.value,
-        found.value.projectId as unknown as string,
-      );
-      if (refused !== undefined) return refused;
-      // A new target must be the schedule's project's to reach, as at registration.
+      // A new target must be the schedule's project's to reach, as at
+      // registration, and before the target's right, as there.
       if (found.value.projectId !== undefined) {
         const outOfScope = await referencesOutOfScope(
           referenceScope,
@@ -461,6 +454,12 @@ export function schedulesRouter(
         );
         if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
       }
+      const refused = await targetRefused(
+        c,
+        target.value,
+        found.value.projectId as unknown as string,
+      );
+      if (refused !== undefined) return refused;
     }
     // Its `toolsAllowedUnattended`: kept unless named. A new target (another
     // kind or id, not just a version) while it lists any must name it again,
@@ -542,6 +541,7 @@ export function schedulesRouter(
         names,
         found.value.owner,
         target.value,
+        { projectId: found.value.projectId as unknown as string | undefined, itemRights },
       );
       if (cannot !== undefined) return cannot;
     }
@@ -727,7 +727,7 @@ export function schedulesRouter(
       c,
       ownerRequest,
       found.value.target,
-      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts, itemRights),
     );
     if (resolved.kind === 'refused') return resolved.response;
     const { tenantId, triggerId } = found.value;

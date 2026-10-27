@@ -126,12 +126,19 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
 - **The account must be able to run it,** as any owner must. With an
   authorization store, that's checked when you name it: an account that
   can't run what the schedule runs is refused (`409
-  trigger-owner-cannot-run-target`). Give it the editor role on the
-  target's project, or name another account. Without a store, grants limit
-  nothing, so there's nothing to check.
+  trigger-owner-cannot-run-target`). Give it the role the message names,
+  the narrowest that runs it, or name another account. When the
+  schedule's project and another both run the agent or flow, as across an
+  environment order once a build is promoted, that's the caller role on
+  the schedule's project for an agent and the executor role for a flow,
+  and, for a schedule that starts Improve runs, the editor role on the
+  project where the agent gets its new versions
+  ([A trigger in a later environment](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)).
+  Otherwise it's the editor role on the target's project. Without a
+  store, grants limit nothing, so there's nothing to check.
 - **A new target is checked against the owner too:** a change keeps the
   schedule's owner, so with a store, a new agent or flow must be one the
-  owner can run, an account or a person (`409
+  owner can run by the same rule, an account or a person (`409
   trigger-owner-cannot-run-target`). It isn't checked when you're the
   owner, nor for an owner that was unregistered or removed. A tenant admin
   can give an account the role (not the project's own account, whose role

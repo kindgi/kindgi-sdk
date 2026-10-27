@@ -328,10 +328,14 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   service-account-unregistered`), or it's a project's own account (`409
   service-account-project-owned`). With an authorization store, the account
   must also be able to run the flow: one that can't is refused (`409
-  trigger-owner-cannot-run-target`); give it the editor role on the flow's
-  project. From your app, it's `runAsServiceAccountId` on
-  `webhooks.register` (`run_as_service_account_id` in Python). Send one of
-  the two, not both. Either is recorded as evidence, `trigger-owner-set`,
+  trigger-owner-cannot-run-target`); give it the executor role on the
+  webhook's project when that project and another both run the flow, as
+  across an environment order once a build is promoted
+  ([A trigger in a later environment](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)),
+  else the editor role on the flow's project. From your app, it's
+  `runAsServiceAccountId` on `webhooks.register`
+  (`run_as_service_account_id` in Python). Send one of the two, not both.
+  Either is recorded as evidence, `trigger-owner-set`,
   which says `projectAccount: true` when the account is the project's own.
 - **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
   needn't wait for a person's yes, though no person started them, once for
