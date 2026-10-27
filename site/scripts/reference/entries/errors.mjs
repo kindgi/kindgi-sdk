@@ -3297,7 +3297,7 @@ export const ERROR_ENTRIES = {
   },
   'slug-conflict': {
     description:
-      'The slug is taken: another org, team or project in the tenant already has it, or a project in the same org. Choose another slug.',
+      "The slug is taken: another org, team or project in the tenant already has it, or a project in the same org. Choose another slug. A project's slug is also taken when another project of the tenant had it before it was renamed: it stays that project's, in any org, until that project is deleted.",
     details: [
       {
         key: 'resource',
@@ -3307,8 +3307,13 @@ export const ERROR_ENTRIES = {
         key: 'slug',
         meaning: 'the taken slug; on org delete, `slugs` lists them instead',
       },
+      {
+        key: 'heldAs',
+        meaning:
+          '`slug` when another has it now; `old-slug` when another project had it before it was renamed. Absent from a runtime that keeps no old slugs',
+      },
     ],
-    seeAlso: ['POST /v1/orgs'],
+    seeAlso: ['POST /v1/orgs', 'POST /v1/projects', 'PATCH /v1/projects/{projectId}'],
   },
   'project-default-already-exists': {
     description: "The tenant already has a Default project, so a second one can't be created.",

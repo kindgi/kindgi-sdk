@@ -311,6 +311,8 @@ export interface ProjectRow {
   readonly name: string;
   readonly slug?: string;
   readonly orgId?: string;
+  /** The slugs it had before it was renamed; absent from a runtime that doesn't keep them. */
+  readonly formerSlugs?: readonly string[];
 }
 
 /** Every project the token can read (`GET /v1/projects`). */
@@ -329,18 +331,13 @@ export type ListEnvironmentOrdersResult =
   | { readonly kind: 'error'; readonly message: string };
 
 /**
- * Every project of the tenant with the slug: none, one, or (a slug is
- * unique within an org, so two orgs may share one) several.
+ * Every project of the tenant with the slug, or that had it before it was
+ * renamed: none, one, or (a slug is unique within an org, so two orgs may
+ * share one) several. Each keeps its `slug` and `formerSlugs`, so the two
+ * can be told apart.
  */
 export type FindProjectsResult =
-  | {
-      readonly kind: 'ok';
-      readonly projects: readonly {
-        readonly id: string;
-        readonly name: string;
-        readonly orgId?: string;
-      }[];
-    }
+  | { readonly kind: 'ok'; readonly projects: readonly ProjectRow[] }
   | { readonly kind: 'error'; readonly message: string };
 
 /**

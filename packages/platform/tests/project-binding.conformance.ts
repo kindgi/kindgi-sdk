@@ -17,6 +17,11 @@
  *   among those): `create` and `update` (a new slug, or a move to
  *   another org) resolve to `slug-conflict`; another org, or another
  *   tenant, may reuse the slug.
+ * - A renamed project's old slugs (`Project.formerSlugs`, newest first):
+ *   they stay the project's until it's deleted, so a create or a rename
+ *   to one, in any org of the tenant, resolves to `slug-conflict` with
+ *   `heldAs: 'old-slug'`; the project may take one back unless another
+ *   project holds it too; two renames at once both keep theirs.
  * - `project-not-found` / `project-membership-not-found` outcomes from
  *   writes on a missing row.
  * - `listForUser` aggregates memberships across projects.
@@ -718,6 +723,121 @@ export function runProjectBindingConformance(
       const id = await createProject(projects, T1, { name: 'In B', slug: 'b', orgId: ORG_B });
       expect(await projects.update(T1, id, { slug: 'a' })).toEqual({ kind: 'ok' });
       expect(await projects.update(T1, id, { slug: 'c', orgId: ORG_A })).toEqual({ kind: 'ok' });
+    });
+  });
+
+  describe(`${label} — a renamed project's old slugs`, () => {
+    const held = (slug: string) => ({ kind: 'slug-conflict', slug, heldAs: 'old-slug' });
+
+    it('a project never renamed has none', async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a', isDefault: true });
+      expect((await projects.get(T1, id))?.formerSlugs).toEqual([]);
+      expect((await projects.list(T1, {})).items[0]?.formerSlugs).toEqual([]);
+      expect((await projects.getDefault(T1))?.formerSlugs).toEqual([]);
+    });
+
+    it("a rename keeps the old slug as the project's, newest first", async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+      expect(await projects.update(T1, id, { slug: 'b' })).toEqual({ kind: 'ok' });
+      expect(await projects.update(T1, id, { slug: 'c' })).toEqual({ kind: 'ok' });
+      const got = await projects.get(T1, id);
+      expect(got?.slug).toBe('c');
+      expect(got?.formerSlugs).toEqual(['b', 'a']);
+      expect((await projects.list(T1, {})).items[0]?.formerSlugs).toEqual(['b', 'a']);
+    });
+
+    it("create with another project's old slug, in any org: slug-conflict, held; another tenant may", async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'shop', orgId: ORG_A });
+      await projects.update(T1, id, { slug: 'store' });
+      expect(await projects.create(T1, { name: 'B', slug: 'shop', orgId: ORG_A })).toEqual(
+        held('shop'),
+      );
+      expect(await projects.create(T1, { name: 'B', slug: 'shop', orgId: ORG_B })).toEqual(
+        held('shop'),
+      );
+      expect(await projects.create(T1, { name: 'B', slug: 'shop' })).toEqual(held('shop'));
+      expect((await projects.list(T1, {})).items).toHaveLength(1);
+      expect((await projects.create(T2, { name: 'B', slug: 'shop' })).kind).toBe('ok');
+    });
+
+    it("a rename to another project's old slug: slug-conflict, held; the project is unchanged", async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'shop', orgId: ORG_A });
+      await projects.update(T1, id, { slug: 'store' });
+      const other = await createProject(projects, T1, { name: 'B', slug: 'b', orgId: ORG_B });
+      expect(await projects.update(T1, other, { slug: 'shop' })).toEqual(held('shop'));
+      const got = await projects.get(T1, other);
+      expect(got?.slug).toBe('b');
+      expect(got?.formerSlugs).toEqual([]);
+    });
+
+    it('the project takes its own old slug back, and holds the one it leaves', async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'shop', orgId: ORG_A });
+      await projects.update(T1, id, { slug: 'store' });
+      expect(await projects.update(T1, id, { slug: 'shop' })).toEqual({ kind: 'ok' });
+      const got = await projects.get(T1, id);
+      expect(got?.slug).toBe('shop');
+      expect(got?.formerSlugs).toEqual(['store']);
+      expect(await projects.create(T1, { name: 'B', slug: 'store' })).toEqual(held('store'));
+      // Its slug again, so unique in its org only, as any project's slug is.
+      expect((await projects.create(T1, { name: 'B', slug: 'shop', orgId: ORG_B })).kind).toBe(
+        'ok',
+      );
+    });
+
+    it('not back when another project holds it too', async () => {
+      const { projects } = makeBinding();
+      // Two orgs may each have had `shop`, and both renamed away from it.
+      const a = await createProject(projects, T1, { name: 'A', slug: 'shop', orgId: ORG_A });
+      const b = await createProject(projects, T1, { name: 'B', slug: 'shop', orgId: ORG_B });
+      expect(await projects.update(T1, a, { slug: 'store' })).toEqual({ kind: 'ok' });
+      expect(await projects.update(T1, b, { slug: 'depot' })).toEqual({ kind: 'ok' });
+      expect(await projects.update(T1, a, { slug: 'shop' })).toEqual(held('shop'));
+      expect(await projects.update(T1, b, { slug: 'shop' })).toEqual(held('shop'));
+      expect((await projects.get(T1, a))?.slug).toBe('store');
+    });
+
+    it('a name change, a move, and a patch to the slug it has add no old slug; a move keeps them', async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a', orgId: ORG_A });
+      expect(await projects.update(T1, id, { name: 'A2' })).toEqual({ kind: 'ok' });
+      expect(await projects.update(T1, id, { orgId: ORG_B })).toEqual({ kind: 'ok' });
+      expect(await projects.update(T1, id, { slug: 'a' })).toEqual({ kind: 'ok' });
+      expect((await projects.get(T1, id))?.formerSlugs).toEqual([]);
+      await projects.update(T1, id, { slug: 'b' });
+      expect(await projects.update(T1, id, { orgId: null })).toEqual({ kind: 'ok' });
+      expect((await projects.get(T1, id))?.formerSlugs).toEqual(['a']);
+      expect(await projects.create(T1, { name: 'B', slug: 'a', orgId: ORG_A })).toEqual(held('a'));
+    });
+
+    it('two renames of one project at once both keep the slug they left', async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 's1' });
+      const outcomes = await Promise.all([
+        projects.update(T1, id, { slug: 's2' }),
+        projects.update(T1, id, { slug: 's3' }),
+      ]);
+      expect(outcomes).toEqual([{ kind: 'ok' }, { kind: 'ok' }]);
+      const got = await projects.get(T1, id);
+      // Whichever ran second renamed from the slug the first one gave it.
+      expect(['s2', 's3']).toContain(got?.slug);
+      const left = got?.slug === 's3' ? 's2' : 's3';
+      expect(got?.formerSlugs).toEqual([left, 's1']);
+      expect(await projects.create(T1, { name: 'B', slug: left })).toEqual(held(left));
+      expect(await projects.create(T1, { name: 'B', slug: 's1' })).toEqual(held('s1'));
+    });
+
+    it('a delete frees its slugs, old and current', async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+      await projects.update(T1, id, { slug: 'b' });
+      expect(await projects.delete(T1, id)).toEqual({ kind: 'ok' });
+      expect((await projects.create(T1, { name: 'B', slug: 'a' })).kind).toBe('ok');
+      expect((await projects.create(T1, { name: 'C', slug: 'b' })).kind).toBe('ok');
     });
   });
 

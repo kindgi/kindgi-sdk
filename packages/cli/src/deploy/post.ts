@@ -403,30 +403,35 @@ export async function listProjectsReal(opts: ListOptions): Promise<ListProjectsR
     name?: unknown;
     slug?: unknown;
     orgId?: unknown;
+    formerSlugs?: unknown;
   }[]) {
     if (typeof p?.id !== 'string') continue;
+    const formerSlugs = Array.isArray(p.formerSlugs)
+      ? p.formerSlugs.filter((s): s is string => typeof s === 'string')
+      : undefined;
     projects.push({
       id: p.id,
       name: typeof p.name === 'string' ? p.name : p.id,
       ...(typeof p.slug === 'string' && { slug: p.slug }),
       ...(typeof p.orgId === 'string' && { orgId: p.orgId }),
+      ...(formerSlugs !== undefined && { formerSlugs }),
     });
   }
   return { kind: 'ok', projects };
 }
 
 /**
- * Every project of the tenant whose slug is `opts.slug`, from
- * `GET /v1/projects` (it has no slug filter).
+ * Every project of the tenant whose slug is `opts.slug`, or was before it
+ * was renamed, from `GET /v1/projects` (it has no slug filter).
  */
 export async function findProjectsReal(opts: FindProjectsOptions): Promise<FindProjectsResult> {
   const listed = await listProjectsReal(opts);
   if (listed.kind === 'error') return listed;
   return {
     kind: 'ok',
-    projects: listed.projects
-      .filter((p) => p.slug === opts.slug)
-      .map(({ id, name, orgId }) => ({ id, name, ...(orgId !== undefined && { orgId }) })),
+    projects: listed.projects.filter(
+      (p) => p.slug === opts.slug || p.formerSlugs?.includes(opts.slug) === true,
+    ),
   };
 }
 

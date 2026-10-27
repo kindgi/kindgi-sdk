@@ -20,6 +20,14 @@ export interface ProjectRow {
   readonly slug?: string;
   readonly name?: string;
   readonly orgId?: string;
+  /** The slugs it had before it was renamed; absent from a runtime that doesn't keep them. */
+  readonly formerSlugs?: readonly string[];
+}
+
+/** A project id-or-slug, and where it was named (`--project`, `environments.<name>.project`). */
+export interface ProjectRef {
+  readonly ref: string;
+  readonly where: string;
 }
 
 /**
@@ -46,57 +54,113 @@ export async function listAllProjects(
 export type Resolution =
   | { readonly kind: 'ok'; readonly id: string }
   | { readonly kind: 'none' }
-  | { readonly kind: 'ambiguous'; readonly matches: readonly ProjectRow[] };
+  /** No project has the slug, and `project` had it before it was renamed. */
+  | { readonly kind: 'renamed'; readonly project: ProjectRow }
+  /** Several: the projects with the slug (`matches`) and those that had it (`renamed`). */
+  | {
+      readonly kind: 'ambiguous';
+      readonly matches: readonly ProjectRow[];
+      readonly renamed: readonly ProjectRow[];
+    };
 
 /**
  * A project id-or-slug against a listing: an id goes as it is; a slug is
- * matched, and a slug that names several projects (a slug is unique within an
- * org, so two orgs may share one) is ambiguous.
+ * matched against each project's slug and the slugs it had before it was
+ * renamed. A slug only a renamed project had is `renamed`: an old slug
+ * never names the project, so a command that names one is refused with the
+ * new one. A slug of several projects (a slug is unique within an org, so
+ * two orgs may share one, or one may have had it before another was
+ * renamed from it) is ambiguous.
  */
 export function resolveAgainst(rows: readonly ProjectRow[], ref: string): Resolution {
   if (PROJECT_ID_RE.test(ref)) return { kind: 'ok', id: ref };
   const matches = rows.filter((r) => r.slug === ref);
-  if (matches.length === 0) return { kind: 'none' };
-  if (matches.length > 1) return { kind: 'ambiguous', matches };
-  const only = matches[0];
-  return only === undefined ? { kind: 'none' } : { kind: 'ok', id: only.id };
+  const renamed = rows.filter((r) => r.slug !== ref && r.formerSlugs?.includes(ref) === true);
+  const [only] = matches;
+  const [was] = renamed;
+  if (only !== undefined && matches.length === 1 && renamed.length === 0) {
+    return { kind: 'ok', id: only.id };
+  }
+  if (only === undefined && was === undefined) return { kind: 'none' };
+  if (only === undefined && was !== undefined && renamed.length === 1) {
+    return { kind: 'renamed', project: was };
+  }
+  return { kind: 'ambiguous', matches, renamed };
+}
+
+/** A project as a refusal names it: its id, then its name and org. */
+function described(p: ProjectRow): string {
+  return `${p.id} (${p.name ?? '?'}${p.orgId === undefined ? '' : `, org ${p.orgId}`})`;
+}
+
+/** The refusal for `ref`, a slug only `project` had, before it was renamed; named at `where`. */
+export function renamedRefusal(ref: string, project: ProjectRow, where: string): string {
+  const now = project.slug ?? project.id;
+  return `"${ref}" was the slug of project ${described(project)} until it was renamed to "${now}". Change ${where} to "${now}" or to the project's id.`;
+}
+
+/** The refusal for `ref`, a slug of several projects, now or before a rename. */
+export function ambiguousRefusal(
+  ref: string,
+  matches: readonly ProjectRow[],
+  renamed: readonly ProjectRow[],
+): string {
+  const [only] = matches;
+  const parts: string[] = [];
+  if (only !== undefined) {
+    parts.push(
+      matches.length === 1
+        ? `is the slug of project ${described(only)}`
+        : `is the slug of ${matches.length} projects, in different orgs: ${matches.map(described).join(', ')}`,
+    );
+  }
+  if (renamed.length > 0) {
+    const each = renamed.map(
+      (p) => `project ${described(p)} until it was renamed to "${p.slug ?? p.id}"`,
+    );
+    parts.push(`was the slug of ${each.join(', and of ')}`);
+  }
+  return `"${ref}" ${parts.join(' and ')}. Pass the project id instead.`;
 }
 
 /**
  * Each id-or-slug as a project id, listing the projects only when one is a
- * slug. A slug that names none or several is refused (`UsageError`).
+ * slug. A slug that names none, a renamed project's old slug, or a slug of
+ * several is refused (`UsageError`); a renamed one's refusal names `where`.
  * `client`: the runtime to read the projects from; default, the CLI's own.
  */
 export async function resolveProjectRefs(
   ctx: CommandContext,
-  refs: readonly string[],
+  refs: readonly ProjectRef[],
   client?: KindgiClient,
 ): Promise<string[]> {
-  const needsList = refs.some((r) => !PROJECT_ID_RE.test(r));
+  const needsList = refs.some((r) => !PROJECT_ID_RE.test(r.ref));
   const rows = needsList ? await listAllProjects(ctx, client) : [];
-  return refs.map((ref) => idOf(rows, ref));
+  return refs.map(({ ref, where }) => idOf(rows, ref, where));
 }
 
-/** One id-or-slug as a project id, as `resolveProjectRefs` resolves each. */
-export async function resolveProjectRef(ctx: CommandContext, ref: string): Promise<string> {
-  return idOf(PROJECT_ID_RE.test(ref) ? [] : await listAllProjects(ctx), ref);
+/** One id-or-slug, named at `where`, as a project id, as `resolveProjectRefs` resolves each. */
+export async function resolveProjectRef(
+  ctx: CommandContext,
+  ref: string,
+  where: string,
+): Promise<string> {
+  return idOf(PROJECT_ID_RE.test(ref) ? [] : await listAllProjects(ctx), ref, where);
 }
 
-/** The id `ref` names in `rows`, or a `UsageError` for a slug that names none or several. */
-function idOf(rows: readonly ProjectRow[], ref: string): string {
+/** The id `ref` names in `rows`, or a `UsageError` for a slug that names none, an old one, or several. */
+function idOf(rows: readonly ProjectRow[], ref: string, where: string): string {
   const resolved = resolveAgainst(rows, ref);
-  if (resolved.kind === 'none') {
-    throw new UsageError(
-      `No project of this tenant has the slug "${ref}". \`kindgi projects list\` shows them; pass a project id instead.`,
-    );
+  switch (resolved.kind) {
+    case 'ok':
+      return resolved.id;
+    case 'none':
+      throw new UsageError(
+        `No project of this tenant has the slug "${ref}". \`kindgi projects list\` shows them; pass a project id instead.`,
+      );
+    case 'renamed':
+      throw new UsageError(renamedRefusal(ref, resolved.project, where));
+    case 'ambiguous':
+      throw new UsageError(ambiguousRefusal(ref, resolved.matches, resolved.renamed));
   }
-  if (resolved.kind === 'ambiguous') {
-    const named = resolved.matches
-      .map((m) => `${m.id} (${m.name ?? '?'}${m.orgId === undefined ? '' : `, org ${m.orgId}`})`)
-      .join(', ');
-    throw new UsageError(
-      `"${ref}" is the slug of ${resolved.matches.length} projects, in different orgs: ${named}. Pass the project id instead.`,
-    );
-  }
-  return resolved.id;
 }

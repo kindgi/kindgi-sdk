@@ -82,7 +82,11 @@ async function routeOf(ctx: CommandContext): Promise<Route> {
   }
   if (loaded.kind === 'missing') {
     const client = ctx.client();
-    const [fromProjectId, toProjectId] = (await resolveProjectRefs(ctx, [from, to], client)) as [
+    const refs = [
+      { ref: from, where: '--from' },
+      { ref: to, where: '--to' },
+    ];
+    const [fromProjectId, toProjectId] = (await resolveProjectRefs(ctx, refs, client)) as [
       string,
       string,
     ];
@@ -95,7 +99,7 @@ async function routeOf(ctx: CommandContext): Promise<Route> {
         `Your kindgi.config.ts names no project for environment "${name}". Add \`environments.${name}.project\`.`,
       );
     }
-    return ref;
+    return { ref, where: `environments.${name}.project` };
   });
   const environments = loaded.config.environments as
     | Readonly<Record<string, EnvironmentConfig>>

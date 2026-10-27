@@ -8591,7 +8591,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.create',
     summary: 'Create a project',
     description:
-      "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second Default, `409 project-default-already-exists`.",
+      "A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`, and so does a slug another project of the tenant had before it was renamed, in any org (`details.heldAs: 'old-slug'`); a second Default, `409 project-default-already-exists`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8634,7 +8634,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.update',
     summary: 'Partially update a project',
     description:
-      'A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up.',
+      "A new `slug`, or a move to another org (`orgId`, or `null` for none), answers `409 slug-conflict` when the slug is taken where the project ends up. A new `slug` also answers it when another project of the tenant had that slug before it was renamed, in any org (`details.heldAs: 'old-slug'`). The slug a rename leaves stays this project's, in `formerSlugs`: no other project can take it, and this one can take it back, unless another project also had it before a rename.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -8652,7 +8652,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '204': { description: 'Updated. No body.' },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up; or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
+        "A reused `Idempotency-Key` with a different body; `slug-conflict` when the `slug` is taken where the project ends up, or another project of the tenant had it before it was renamed (`details.heldAs: 'old-slug'`); or `project-in-environment-order` — the project is a member of an environment order, so it can't be moved to another parent (clear it from the order first).",
       ),
       '404': ErrorResponse(
         'project-not-found: no project with that id under this tenant; or org-not-found: `orgId` names no org of the tenant (it never existed, or it was deleted).',

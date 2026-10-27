@@ -119,7 +119,11 @@ function makeApp(options: Options) {
         kind: 'err',
         error:
           outcome.kind === 'slug-conflict'
-            ? { code: 'slug-conflict', message: 'slug taken' }
+            ? {
+                code: 'slug-conflict',
+                message: 'slug taken',
+                ...(outcome.heldAs !== undefined && { heldAs: outcome.heldAs }),
+              }
             : outcome.kind === 'org-not-found'
               ? { code: 'org-not-found', message: 'org gone', orgId: outcome.orgId }
               : { code: 'default-conflict', message: 'Default taken' },
@@ -231,7 +235,7 @@ describe.each([
           ? 'Another project in its org has the slug "acme" (for a project without an org: another project without one)'
           : `Another ${resource} in the tenant has the slug "acme"`,
       );
-      expect(second.body.error?.details).toEqual({ resource, slug: 'acme' });
+      expect(second.body.error?.details).toEqual({ resource, slug: 'acme', heldAs: 'slug' });
     });
 
     test('another tenant may use the slug → 201', async () => {
@@ -248,7 +252,7 @@ describe.each([
       const patched = await send(app, 'PATCH', `${path}/${id}`, { slug: 'acme' });
       expect(patched.status).toBe(409);
       expect(patched.body.error?.code).toBe('slug-conflict');
-      expect(patched.body.error?.details).toEqual({ resource, slug: 'acme' });
+      expect(patched.body.error?.details).toEqual({ resource, slug: 'acme', heldAs: 'slug' });
     });
 
     test('PATCH of a missing one → 404', async () => {
@@ -273,6 +277,38 @@ describe.each([
     expect(again.status).toBe(409);
   });
 
+  test("a project's old slug, in any org → 409 slug-conflict held as an old slug; it takes it back", async () => {
+    const app = makeApp({ authorized });
+    const orgA = await created(app, '/v1/orgs', { name: 'A', slug: 'a' });
+    const orgB = await created(app, '/v1/orgs', { name: 'B', slug: 'b' });
+    const shop = await created(app, '/v1/projects', { name: 'Shop', slug: 'shop', orgId: orgA });
+    expect((await send(app, 'PATCH', `/v1/projects/${shop}`, { slug: 'store' })).status).toBe(204);
+    const read = await app.request(`/v1/projects/${shop}`, {
+      headers: { authorization: `Bearer ${TOKEN_A}` },
+    });
+    expect(((await read.json()) as { formerSlugs?: string[] }).formerSlugs).toEqual(['shop']);
+
+    const held = {
+      code: 'slug-conflict',
+      message:
+        'The slug "shop" was another project\'s until it was renamed, and it stays that project\'s. Choose another slug.',
+      details: { resource: 'project', slug: 'shop', heldAs: 'old-slug' },
+    };
+    const create = await send(app, 'POST', '/v1/projects', {
+      name: 'B',
+      slug: 'shop',
+      orgId: orgB,
+    });
+    expect(create.status).toBe(409);
+    expect(create.body.error).toMatchObject(held);
+    const other = await created(app, '/v1/projects', { name: 'Other', slug: 'other' });
+    const rename = await send(app, 'PATCH', `/v1/projects/${other}`, { slug: 'shop' });
+    expect(rename.status).toBe(409);
+    expect(rename.body.error).toMatchObject(held);
+
+    expect((await send(app, 'PATCH', `/v1/projects/${shop}`, { slug: 'shop' })).status).toBe(204);
+  });
+
   test("deleting an org whose projects' slugs are taken without an org → 409, naming them", async () => {
     const app = makeApp({ authorized, orgDeleteConflict: ['intake', 'billing'] });
     const org = await created(app, '/v1/orgs', { name: 'A', slug: 'a' });
@@ -283,6 +319,7 @@ describe.each([
     expect(deleted.body.error?.details).toEqual({
       resource: 'project',
       slugs: ['intake', 'billing'],
+      heldAs: 'slug',
     });
   });
 

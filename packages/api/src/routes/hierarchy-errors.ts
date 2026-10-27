@@ -12,19 +12,28 @@ export type HierarchyResource = 'org' | 'team' | 'project';
 
 /**
  * `409 slug-conflict`: another `resource` has `slug` where it must be
- * unique. An org's and a team's slug are unique in the tenant; a
- * project's in its org, and a project without an org's among the
- * projects without one.
+ * unique (`heldAs: 'slug'`). An org's and a team's slug are unique in the
+ * tenant; a project's in its org, and a project without an org's among the
+ * projects without one. With `heldAs: 'old-slug'`, another project of the
+ * tenant had `slug` before it was renamed, and it stays that project's, in
+ * any org. Neither names the other project: the caller may not see it.
  */
-export function slugConflictError(resource: HierarchyResource, slug: string) {
+export function slugConflictError(
+  resource: HierarchyResource,
+  slug: string,
+  heldAs: 'slug' | 'old-slug' = 'slug',
+) {
   return {
     code: 'slug-conflict',
     message:
-      resource === 'project'
-        ? `Another project in its org has the slug "${slug}" (for a project without an org: another project without one)`
-        : `Another ${resource} in the tenant has the slug "${slug}"`,
+      heldAs === 'old-slug'
+        ? `The slug "${slug}" was another project's until it was renamed, and it stays that project's. Choose another slug.`
+        : resource === 'project'
+          ? `Another project in its org has the slug "${slug}" (for a project without an org: another project without one)`
+          : `Another ${resource} in the tenant has the slug "${slug}"`,
     resource,
     slug,
+    heldAs,
   } as const;
 }
 
@@ -39,6 +48,7 @@ export function orgDeleteSlugConflictError(slugs: readonly string[]) {
     message: `Deleting the org would leave its projects ${named} without an org, where other projects already have those slugs. Rename or move them first.`,
     resource: 'project',
     slugs,
+    heldAs: 'slug',
   } as const;
 }
 

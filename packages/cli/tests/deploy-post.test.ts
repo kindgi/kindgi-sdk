@@ -322,7 +322,14 @@ describe('findProjectsReal: --project <slug>', () => {
     first: {
       data: [
         { id: 'p-1', name: 'Acme shop', slug: 'acme-shop' },
-        { id: 'p-2', name: 'Shared', slug: 'shop', orgId: 'org-a' },
+        { id: 'p-2', name: 'Shared', slug: 'shop', orgId: 'org-a', formerSlugs: [] },
+        {
+          id: 'p-4',
+          name: 'Store',
+          slug: 'store',
+          orgId: 'org-c',
+          formerSlugs: ['shop', 'shop-1'],
+        },
       ],
       hasMore: true,
       nextCursor: 'c 2',
@@ -340,7 +347,7 @@ describe('findProjectsReal: --project <slug>', () => {
     return new Response(JSON.stringify(page), { status: 200 });
   }) as typeof fetch;
 
-  test('reads every page and keeps the projects with the slug', async () => {
+  test('reads every page and keeps the projects with the slug, or that had it', async () => {
     urls.length = 0;
     const found = await findProjectsReal({
       endpoint: 'https://api.example.com/',
@@ -351,8 +358,15 @@ describe('findProjectsReal: --project <slug>', () => {
     expect(found).toEqual({
       kind: 'ok',
       projects: [
-        { id: 'p-2', name: 'Shared', orgId: 'org-a' },
-        { id: 'p-3', name: 'Shared', orgId: 'org-b' },
+        { id: 'p-2', name: 'Shared', slug: 'shop', orgId: 'org-a', formerSlugs: [] },
+        {
+          id: 'p-4',
+          name: 'Store',
+          slug: 'store',
+          orgId: 'org-c',
+          formerSlugs: ['shop', 'shop-1'],
+        },
+        { id: 'p-3', name: 'Shared', slug: 'shop', orgId: 'org-b' },
       ],
     });
     expect(urls).toEqual([

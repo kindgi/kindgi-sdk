@@ -670,6 +670,28 @@ describe('kindgi deployments list', () => {
       expect(two.asked.list).toEqual([]);
     });
 
+    test("a renamed project's old slug: refused with the new one, exit 2, and no list", async () => {
+      const { out, asked } = await run(['deployments', 'list', '--project=stage'], {
+        projects: async () => ({
+          data: [
+            {
+              id: STAGING_ID,
+              slug: 'staging',
+              name: 'Staging',
+              orgId: 'org-acme',
+              formerSlugs: ['stage'],
+            },
+          ],
+          hasMore: false,
+        }),
+      });
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain(
+        `"stage" was the slug of project ${STAGING_ID} (Staging, org org-acme) until it was renamed to "staging". Change --project to "staging" or to the project's id.`,
+      );
+      expect(asked.list).toEqual([]);
+    });
+
     test('a runtime that lists them all, its page naming no filter: the release it needs, exit 1, nothing printed', async () => {
       for (const [flag, argv] of [
         ['project', [`--project=${STAGING_ID}`]],

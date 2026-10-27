@@ -213,31 +213,41 @@ a new slug changes is under **Changing a project's slug**, below.
 **Slugs.** An org's slug is unique in the tenant. A project's slug is unique
 in its org, so every customer can have a `support` project. A project with
 no org has a slug unique among the projects with none. A taken slug is
-refused with `409 slug-conflict`:
+refused with `409 slug-conflict`, and so is one another project of the tenant
+had before it was renamed (runtime 0.3.0 or later):
 
 ```text
 Another org in the tenant has the slug "acme-customer-one"
 Another project in its org has the slug "support" (for a project without an org: another project without one)
+The slug "support" was another project's until it was renamed, and it stays that project's. Choose another slug.
 ```
 
 **Changing a project's slug.** A rename is one change: a taken slug is
-refused, as above, and nothing changes. Once it's renamed, its old slug is
-free for another project to take. The project's id stays, and the runtime
-goes by the id, so the project's pages in the console, its runs, keys and
-triggers, and what's deployed into it keep working, with no redeploy. Only
-the CLI looks a slug up, each time it runs, wherever you name a project by
-its slug: `kindgi deploy --project`, say, or an environment's `project` in
-your pack config (`environments.<name>.project`). Every command that names
-the project that way looks it up: `kindgi deploy`, `kindgi promote`,
-`kindgi environments set`, and `kindgi secrets` and `kindgi env` under a
-pack environment (`--env`). Before you next run one, change the old slug to
-the new one there. Until you do, such a command is refused, since the slug
-names no project, unless another project in the tenant has it: one in
-another org may have it already, or take it later. Then the command acts on
-that project: a deploy goes into it without a word, and a secret or value
-is set on it. So if you change a project's slug, name the project by its id
-in scripts and pack configs, or change them to the new slug before anyone
-runs one of those commands again.
+refused, as above, and nothing changes. The project's id stays, and the
+runtime goes by the id, so the project's pages in the console, its runs, keys
+and triggers, and what's deployed into it keep working, with no redeploy.
+With the runtime 0.3.0 or later, its old slug stays the project's: no other
+project in the tenant can take it, in any org. Only the CLI looks a slug up,
+each time it runs, wherever you name a project by its slug:
+`kindgi deploy --project`, say, or an environment's `project` in your pack
+config (`environments.<name>.project`). Every command that names a project
+that way looks it up: `kindgi deploy`, `kindgi deployments list --project`,
+`kindgi promote` (in a pack, and with `--from` and `--to` outside one),
+`kindgi environments set`, and `kindgi secrets` and `kindgi env` under a pack
+environment (`--env`). Given the old slug, each of them is refused, and the
+refusal names the new slug and where to change it (an earlier CLI says no
+project has the slug). A project in another org that has the slug too keeps
+it: a command that names the slug is then refused as naming two projects,
+and an earlier CLI acts on that other project. A project can take
+its old slug back, unless another project also had it before a rename.
+Deleting a project frees its slugs, old and current. So name projects by
+their id in scripts and pack configs that may outlive a rename or a delete.
+
+An earlier runtime keeps no old slugs, and a later one doesn't keep those
+changed before its upgrade. There, the old slug is free for another project
+to take, and a command that names it then acts on that
+project: a deploy goes into it without a word, and a secret or value is set
+on it.
 
 A tenant has one Default project. Asking for a second one answers
 `409 project-default-already-exists`, "The tenant already has a Default
@@ -259,8 +269,10 @@ pnpm exec kindgi deploy --project acme-shop
 
 `--project` takes the project's id or its slug. A slug is unique within an
 org, so if two orgs each have a project with that slug, the CLI refuses it
-and names both ids: pass the id instead. Without `--project`, a deploy is
-tenant-wide and registers into the Default project, as before.
+and names both ids: pass the id instead. With the runtime 0.3.0 or later, a
+renamed project's old slug is refused too, and the refusal names its new one.
+Without `--project`, a deploy is tenant-wide and registers into the Default
+project, as before.
 
 What a deploy into a project does, with the runtime 0.1.8 or later:
 

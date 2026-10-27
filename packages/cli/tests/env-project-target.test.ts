@@ -371,6 +371,24 @@ describe('kindgi secrets: --env naming a pack environment, on a runtime that kee
     expect(sentTo(two, 'secrets.set')).toEqual([]);
   });
 
+  test("a renamed project's old slug is refused with its new one before anything is sent", async () => {
+    const rt = runtime(REFUSES, [
+      {
+        id: STAGING_1,
+        name: 'Acme staging 1',
+        slug: 'acme-stg-1',
+        orgId: 'org-a',
+        formerSlugs: ['acme-staging-1'],
+      },
+    ]);
+    const out = await cli(rt, ['secrets', 'set', 'stripe.key', '--env=staging-1', '--from-stdin']);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toBe(
+      `The pack's environment staging-1: "acme-staging-1" was the slug of project ${STAGING_1} (Acme staging 1, org org-a) until it was renamed to "acme-stg-1". Change environments.staging-1.project to "acme-stg-1" or to the project's id.\n`,
+    );
+    expect(sentTo(rt, 'secrets.set')).toEqual([]);
+  });
+
   test("pull writes the environment's own manifest", async () => {
     const rt = runtime(REFUSES);
     const out = await cli(rt, ['secrets', 'pull', '--env=staging-1']);
