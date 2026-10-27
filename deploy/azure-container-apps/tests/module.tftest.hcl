@@ -220,7 +220,8 @@ run "existing_vnet_shape_creates_no_network" {
 }
 
 # The seed ids are uuids, as the server's settings are: another is refused
-# at plan, not at the server's start.
+# at plan, not at the server's start. The check is the server's own (8-4-4-4-12
+# hex digits, in either case), so a plan never refuses an id the server takes.
 run "a_seed_tenant_id_that_isnt_a_uuid_is_refused" {
   command = plan
   variables {
@@ -235,6 +236,14 @@ run "a_seed_user_id_that_isnt_a_uuid_is_refused" {
     seed_user_id = "acme-admin"
   }
   expect_failures = [var.seed_user_id]
+}
+
+run "a_seed_id_in_upper_case_is_taken" {
+  command = plan
+  variables {
+    seed_tenant_id = "0000000A-0000-4000-8000-0000000000AB"
+    seed_user_id   = "0000000A-0000-4000-8000-0000000000CD"
+  }
 }
 
 run "existing_vnet_shape_needs_all_three" {
