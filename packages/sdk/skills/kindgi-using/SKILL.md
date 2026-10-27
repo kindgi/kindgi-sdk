@@ -97,7 +97,7 @@ decided one opens its own page.
 | Guardrails | `guardrails`, one: `guardrails/<guardrailId>` | each rule's settings, the agents it checks, what it caught |
 | Flows | `flows`, one: `flows/<flowId>` | the flows and their steps |
 | Schedules | `schedules`, one: `schedules/<triggerId>` | when each runs next, and its past runs |
-| Mail triggers | `mail-triggers`, one: `mail-triggers/<triggerId>` | the mailbox each watches and what it starts; each mail it found, and the run it started |
+| Mail triggers | `mail-triggers`, one: `mail-triggers/<triggerId>` | the mailbox each watches and what it starts; its latest mails, and the run each started |
 | Conversations | `conversations`, one: `conversations/<conversationId>` | each conversation's turns |
 | Cost | `cost` | what the project's model calls cost, by agent, model, flow or kind |
 | Quality | `quality` | answers waiting to be rated, rating rules, trends |
@@ -231,10 +231,10 @@ say there were none.
   first, with its `outcome` (`started`, `pending`, `skipped`, `refused` or
   `failed`), a `detail` saying why, and the `runId` it started. A
   `refused` mail never runs: staff handle it in the mailbox.
-- In the console: `mail-triggers/<triggerId>` lists each new mail it
-  found, what happened to it, and the run it started;
-  `runs?trigger=<triggerId>` is every run it started. The run is
-  `runs/<runId>`.
+- In the console: `mail-triggers/<triggerId>` lists its latest mails, up
+  to 50, what happened to each, and the run it started; an older one is
+  in the CLI's `fires`. `runs?trigger=<triggerId>` is every run it
+  started. The run is `runs/<runId>`.
 
 **"Is Kindgi healthy?"**
 - In the CLI: `kindgi health` (`"ok": true` when the server answers) and
