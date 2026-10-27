@@ -40,6 +40,7 @@ import type {
   ImageRegistryBinding,
   ImageRegistryError,
   LiveResolveInput,
+  PinnedResolveInput,
   ProviderRegistryBinding,
   RunHandlerBinding,
   SecretBinding,
@@ -53,6 +54,7 @@ import { sameGuardrailDefinition } from '../src/routes/deployments.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { toolPinsBinding } from './support/tool-pins.js';
 
 /**
  * Deployments route tests. Every binding is
@@ -4400,6 +4402,10 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
   }
 
   function setupWith(agentReleases: AgentReleaseBindings | undefined, ...packs: SignedDeploy[]) {
+    return setupWithApp(agentReleases !== undefined ? { agentReleases } : {}, ...packs);
+  }
+
+  function setupWithApp(extra: Partial<Parameters<typeof createApp>[0]>, ...packs: SignedDeploy[]) {
     const tools = makeVersionedToolRegistry();
     const agents = makeVersionedAgentRegistry();
     const flows = makeVersionedFlowRegistry();
@@ -4407,7 +4413,7 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
       toolRegistry: tools,
       agentRegistry: agents,
       flowRegistry: flows,
-      ...(agentReleases !== undefined && { extra: { agentReleases } }),
+      extra,
       extraTrust: packs.map(trustOf),
       extraImages: packs.map(imageOf),
     });
@@ -4856,6 +4862,39 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
         .map((f) => f.version)
         .sort(),
     ).toEqual(['2.0.0', '2.0.1']);
+  });
+
+  test("a tool's pin for the deploy's project is the lock: a new tool version in range changes no agent or flow", async () => {
+    const first = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '2.0.0' });
+    const second = pinnedPack({
+      toolVersion: '1.1.0',
+      agentVersion: '1.4.0',
+      flowVersion: '2.0.0',
+    });
+    const asked: PinnedResolveInput[] = [];
+    const { tools, agents, flows, deploy } = setupWithApp(
+      { pinnedVersions: toolPinsBinding({ 'acme.score': '1.0.0' }, asked) },
+      first,
+      second,
+    );
+
+    expect((await deploy(first)).status).toBe(201);
+    const two = await deploy(second);
+    expect(two.status).toBe(201);
+    // The new tool version is registered, and nothing locks to it.
+    expect(tools.versions('acme.score')).toEqual(['1.0.0', '1.1.0']);
+    expect(two.body.contents.agents).toEqual([{ id: 'acme.matcher', version: '1.4.0' }]);
+    expect(two.body.contents.flows).toEqual([{ id: 'acme.review', version: '2.0.0' }]);
+    expect(agents.versions().map((a) => [a.version, a.pins?.tools])).toEqual([
+      ['1.4.0', { 'acme.score': '1.0.0' }],
+    ]);
+    expect(flows.versions().map((f) => [f.version, f.pins])).toEqual([
+      ['2.0.0', { tools: { 'acme.score': '1.0.0' }, agents: { 'acme.matcher': '1.4.0' } }],
+    ]);
+    // Asked for the deploy's project, about the tool only.
+    expect(new Set(asked.map((a) => `${a.kind} ${a.itemId} ${a.projectId}`))).toEqual(
+      new Set([`tool acme.score ${DEFAULT_PROJECT_ID}`]),
+    );
   });
 });
 
