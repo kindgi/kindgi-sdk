@@ -97,6 +97,7 @@ export type {
   TurnConnections,
   ConnectionCallCode,
   FileBinding,
+  FileBindings,
   UnresolvedToolError,
 } from './invoke.js';
 export {
