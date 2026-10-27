@@ -37,7 +37,7 @@ describe('FileValue', () => {
   });
 
   test('a reason not shown is one of the listed reasons', () => {
-    expectTypeOf<'gone'>().toMatchTypeOf<FileNotShownReason>();
+    expectTypeOf<'gone'>().toExtend<FileNotShownReason>();
     // @ts-expect-error — not a listed reason.
     const _hidden: FileNotShownReason = 'hidden';
   });
