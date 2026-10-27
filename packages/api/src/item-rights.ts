@@ -851,8 +851,8 @@ export async function servedThere(
  *     (`on: 'project'`);
  *   - an improve of an agent more than one project serves: `write` where
  *     its new versions are made (`on: 'made-in'`);
- *   - anything else, or no binding (`served` absent), or no project: the
- *     item's own right, `targetAccess` (`on: 'item'`).
+ *   - anything else, or no binding (`served` absent), or an agent or flow
+ *     with no project: the item's own right, `targetAccess` (`on: 'item'`).
  */
 export interface RunAccess {
   readonly action: Action;

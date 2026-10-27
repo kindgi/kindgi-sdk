@@ -449,6 +449,56 @@ describe("reach comes before the target's right", () => {
     expect(res.asked).not.toContain(`live-editor execute agent:${SOLO}`);
   });
 
+  test("a mail trigger's change to an agent the project does not run: the 400, not the 403", async () => {
+    const h = harness({ reach: unpromotedLive });
+    const made = await h.call('live-admin', 'POST', '/v1/mail-triggers', companyMail());
+    expect(made.status, made.text).toBe(201);
+    const id = made.body.triggerId as string;
+    h.held['live-admin'] = (h.held['live-admin'] ?? []).filter(
+      (g) => g !== `execute agent:${SOLO}`,
+    );
+    const res = await h.call('live-admin', 'PATCH', `/v1/mail-triggers/${id}`, { agentId: SOLO });
+    expect(res.status, res.text).toBe(400);
+    expect(res.body.error.code).toBe('reference-out-of-scope');
+    expect(res.reachAsked).toEqual([{ kind: 'agent', id: SOLO, anyVersion: true }]);
+    expect(res.asked).not.toContain(`live-admin execute agent:${SOLO}`);
+  });
+
+  test('a webhook on a flow not yet promoted here: the 400, not the 403', async () => {
+    const h = harness({ promoted: false, reach: (p) => p !== LIVE });
+    const res = await h.call('live-editor', 'POST', '/v1/webhooks', webhook());
+    expect(res.status, res.text).toBe(400);
+    expect(res.body.error.code).toBe('reference-out-of-scope');
+    expect(res.body.error.details.issues).toEqual([
+      expect.objectContaining({ path: '/flowId', kind: 'flow', id: FLOW }),
+    ]);
+    expect(res.asked).not.toContain(`live-editor execute flow:${FLOW}`);
+    // Without a reference scope, the flow's own right refuses it.
+    const unscoped = await harness({ promoted: false }).call(
+      'live-editor',
+      'POST',
+      '/v1/webhooks',
+      webhook(),
+    );
+    expect(unscoped.status, unscoped.text).toBe(403);
+  });
+
+  test("a webhook's change to a flow version not promoted here: the 400, and the run right is never asked", async () => {
+    const h = harness({
+      reach: (p, r) => p !== LIVE || r.kind !== 'flow' || r.version !== '2.0.0',
+    });
+    const made = await h.call('live-editor', 'POST', '/v1/webhooks', webhook());
+    expect(made.status, made.text).toBe(201);
+    const id = made.body.triggerId as string;
+    const res = await h.call('live-editor', 'PATCH', `/v1/webhooks/${id}`, {
+      flowVersion: '2.0.0',
+    });
+    expect(res.status, res.text).toBe(400);
+    expect(res.body.error.code).toBe('reference-out-of-scope');
+    expect(res.reachAsked).toEqual([{ kind: 'flow', id: FLOW, version: '2.0.0' }]);
+    expect(res.asked).not.toContain(`live-editor execute project:${LIVE}`);
+  });
+
   test('a caller without write on the project: its 403, and reach is never asked', async () => {
     const h = harness({ promoted: false, reach: () => false });
     const res = await h.call('default-admin', 'POST', '/v1/schedules', agentSchedule());
