@@ -6,8 +6,10 @@
  * the pack's own lockfile, its indexer stage writes the same index as
  * the local one, and the image serves the pack's tool — a TypeScript
  * tool that imports a module of the app, bundled. Once with npm, once
- * with a pnpm workspace whose pack sits in a member folder. And a Python
- * pack, from its `uv.lock`, with a tool that imports a module beside it.
+ * with a pnpm workspace whose pack sits in a member folder, and once more
+ * with a build step, whose prune leaves no dev dependency in the image.
+ * And a Python pack, from its `uv.lock`, with a tool that imports a
+ * module beside it.
  *
  * Gated: `KINDGI_DOCKER_TESTS=1` (needs Docker, and the network for the
  * base image and corepack's pnpm).
@@ -294,6 +296,74 @@ describe.skipIf(gated)('kindgi build --local with Docker', () => {
     execFileSync('pnpm', ['install', '--lockfile-only', '--silent'], { cwd: root });
     const rebuilt = await buildLocal(packDir, '20261002.3');
     expect(rebuilt.log).toMatch(/reused [1-9]\d*, downloaded/);
+  }, 900_000);
+
+  test("pnpm workspace with a build step: the prune leaves none of the pack's dev dependencies in node_modules/.pnpm", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-docker-pnpm-prune-')));
+    dirs.push(root);
+    const pnpm = execFileSync('pnpm', ['--version'], { encoding: 'utf8' }).trim();
+    await put(
+      root,
+      'package.json',
+      `${JSON.stringify({ name: 'mono-prune', private: true, packageManager: `pnpm@${pnpm}`, scripts: APP_INSTALL_SCRIPTS }, null, 2)}\n`,
+    );
+    await put(root, 'pnpm-workspace.yaml', "packages:\n  - 'apps/*'\n");
+    const packDir = join(root, 'apps', 'support');
+    await writePack(packDir, {
+      name: 'support',
+      version: '0.1.0',
+      private: true,
+      engines: { node: '24.x' },
+      dependencies: { 'kind-of': '6.0.3' },
+      // The step's tool, and a dev dependency with one of its own: the
+      // install takes them for the step, and the prune drops them.
+      devDependencies: { 'marker-pkg': 'file:vendor/marker-pkg', 'is-odd': '3.0.1' },
+    });
+    await put(
+      packDir,
+      'vendor/marker-pkg/package.json',
+      `${JSON.stringify({ name: 'marker-pkg', version: '1.0.0', bin: { 'write-marker': 'bin.js' } })}\n`,
+    );
+    await put(
+      packDir,
+      'vendor/marker-pkg/bin.js',
+      `#!/usr/bin/env node
+const fs = require('node:fs');
+fs.mkdirSync('generated', { recursive: true });
+fs.writeFileSync('generated/marker.json', JSON.stringify({ step: 'ran' }));
+`,
+    );
+    await put(
+      packDir,
+      'kindgi.config.mjs',
+      `export default {
+  pack: { id: 'smoke', version: '0.1.0' },
+  image: { extensions: [{ name: 'marker', postInstall: [{ bin: 'write-marker' }] }] },
+};
+`,
+    );
+    execFileSync('pnpm', ['install', '--lockfile-only', '--silent'], { cwd: root });
+
+    const { imageRef } = await buildLocal(packDir, '20261002.4');
+    const inImage = execFileSync(
+      'docker',
+      [
+        'run',
+        '--rm',
+        '--entrypoint',
+        'sh',
+        imageRef,
+        '-c',
+        'cat /app/apps/support/generated/marker.json; echo; ls /app/node_modules/.pnpm',
+      ],
+      { encoding: 'utf8' },
+    ).split('\n');
+    // The step ran before the prune, and what it wrote stays.
+    expect(JSON.parse(inImage[0] ?? '')).toEqual({ step: 'ran' });
+    const packages = inImage.slice(1);
+    expect(packages).toContain('kind-of@6.0.3');
+    expect(packages.filter((name) => /^(is-odd|is-number|marker-pkg)@/.test(name))).toEqual([]);
+    expect(await serveAndInvoke(imageRef, 'pnpm-prune')).toMatchObject({ kind: 'result' });
   }, 900_000);
 
   test("image: system packages, an extension's step with its file and build env, never in the final image", async () => {
