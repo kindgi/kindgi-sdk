@@ -74,6 +74,26 @@ export const FILE_LIMITS = {
   textCharsPerCall: 200_000,
 } as const;
 
+/**
+ * Each provider's own limits on what a call carries, where they're lower
+ * than Kindgi's (`FILE_LIMITS`), by adapter id. The adapter passes its
+ * row as `FilePlanOptions.limits`, so a file over them is a line saying
+ * why, not a refused call. A provider whose limits are all at or above
+ * Kindgi's has no row.
+ *   - Bedrock's Converse API, checked on 2026-10-27 against AWS's API
+ *     reference (`Message.content`): at most 20 images, each at most
+ *     3.75 MB and 8000 px a side, and at most five documents, each at
+ *     most 4.5 MB. AWS states them for a message; a call counts them over
+ *     all its messages, the safe reading. 20 images is above Kindgi's 10.
+ */
+export const PROVIDER_FILE_LIMITS = {
+  '@kindgi/adapter-model-bedrock': {
+    imageBytes: 3_750_000,
+    documentBytes: 4_500_000,
+    documentsPerCall: 5,
+  },
+} as const satisfies Readonly<Record<string, NonNullable<FilePlanOptions['limits']>>>;
+
 /** One part of what a message shows the model of its files. */
 export type FilePart =
   | { readonly kind: 'text'; readonly text: string }
