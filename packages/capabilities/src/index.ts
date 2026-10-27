@@ -37,9 +37,12 @@ export {
 } from './message-files.js';
 export type {
   DocumentFileType,
+  FileExtract,
+  FileForm,
   FilePart,
   FilePartsOptions,
   FilePlanOptions,
+  FileRendition,
   ImageFileType,
   MessageFile,
 } from './message-files.js';

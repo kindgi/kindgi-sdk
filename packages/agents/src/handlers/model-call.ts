@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  type FileForm,
   type MessageFile,
   type ModelCallInput,
   type ModelCallResult,
@@ -22,7 +23,16 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
-import { agentSeesFiles, callFiles, filesLeftOut, isImageOrPdf, messagesForCall } from './files.js';
+import {
+  type FileBinding,
+  type FileHold,
+  agentSeesFiles,
+  callFiles,
+  filesLeftOut,
+  messagesForCall,
+  sentAsImageOrPdf,
+  withFileForms,
+} from './files.js';
 import { replayTag } from './replay.js';
 import { chargeTurnMemory } from './turn-memory.js';
 import { type FileRead, addModelCallNode, filesReadOf } from './turn-provenance.js';
@@ -48,6 +58,10 @@ import { type FileRead, addModelCallNode, filesReadOf } from './turn-provenance.
  * one's place (`retryWithoutFiles`). When that call answers, the turn goes
  * on without them, and the files binding marks them (`refuse`). A call
  * that answers tells the binding which files its model was shown (`shown`).
+ * Each call holds room for the files it reads (`hold`) until it ends; with
+ * no room in time, it's sent with a `limit` line in each one's place. Each
+ * call is sent each file's form for it, an image or a text made of it in
+ * its place, found once for the step (`withFileForms`).
  *
  * Output is a partial `AgentTurnIterationOutput` — `dispatch-tools`
  * receives it and finishes composing the iteration output.
@@ -63,11 +77,8 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     }
     const shaped = input as { readonly nextMessages?: readonly ModelMessage[] } | undefined;
     const nextMessages: readonly ModelMessage[] = shaped?.nextMessages ?? [];
-    // The call's own copy: an agent that doesn't need `vision` reads a line
-    // for each image and PDF, and any agent for each one the turn's model
-    // couldn't read. The journal keeps `nextMessages` as they are.
     const seesFiles = agentSeesFiles(ctx.input.agent);
-    const messages = messagesForCall(nextMessages, seesFiles, ctx.refusedFiles);
+    const { formed, messages } = await callCopy(ctx, kctx, nextMessages, seesFiles);
 
     // What the turn holds, charged before the model is called: the iterations
     // done so far are its steps (restored on a resume). A dry run holds nothing.
@@ -91,11 +102,11 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
       : await callModel(ctx, kctx, {
           step,
           messages,
-          nextMessages,
+          formed,
           seesFiles,
           model: ctx.model,
           announce,
-          send: senderOf(ctx, ctx.provider, {
+          send: senderOf(ctx, ctx.provider, ctx.model, {
             model,
             ...(ctx.tools.definitions.length > 0 && {
               tools: ctx.tools.definitions,
@@ -241,13 +252,36 @@ function dryRunAnswer(
   return { callId: randomUUID(), result, messages, carried: [], refused: [] };
 }
 
+/**
+ * The call's own copy of the messages: each file with its form for the call
+ * (`withFileForms`; a dry run makes none), then a line for each image and
+ * PDF sent as itself to an agent that doesn't need `vision`, and for each
+ * one the turn's model couldn't read (`messagesForCall`). The journal keeps
+ * `nextMessages` as they are.
+ */
+async function callCopy(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  nextMessages: readonly ModelMessage[],
+  seesFiles: boolean,
+): Promise<{
+  readonly formed: readonly ModelMessage[];
+  readonly messages: readonly ModelMessage[];
+}> {
+  const formed = kctx.dryRun ? nextMessages : await withFileForms(ctx, nextMessages, seesFiles);
+  return { formed, messages: messagesForCall(formed, seesFiles, ctx.refusedFiles) };
+}
+
 /** The step's call, as `callModel` sends it, and retries it. */
 interface StepCall {
   readonly step: number;
   /** The call's own copy of the messages (`messagesForCall`). */
   readonly messages: readonly ModelMessage[];
-  /** The messages as the journal keeps them. */
-  readonly nextMessages: readonly ModelMessage[];
+  /**
+   * The messages with each file's form for the call (`withFileForms`),
+   * before `messagesForCall`.
+   */
+  readonly formed: readonly ModelMessage[];
   readonly seesFiles: boolean;
   /** The model it's sent to: which files the call's limits leave out depends on it. */
   readonly model: ModelInfo;
@@ -271,7 +305,7 @@ async function callModel(
   const sent = await call.send(call.messages);
   const answered =
     'result' in sent
-      ? { callId, result: sent.result, messages: call.messages, carried: sent.carried, refused: [] }
+      ? { callId, result: sent.result, messages: sent.messages, carried: sent.carried, refused: [] }
       : await retryWithoutFiles(ctx, kctx, call, { callId, failed: sent });
   await recordAnswer(ctx, kctx, answered.callId, call.step, answered.result);
   const marks = await markFiles(ctx, answered);
@@ -279,14 +313,21 @@ async function callModel(
 }
 
 /**
- * One call sent: its answer, or what it threw; and the images and PDFs it
- * carried. A call that threw also says which files' bytes it asked for.
+ * One call sent: its answer, or what it threw; the messages it was sent
+ * (`roomFor` may have put a line in a file's place); and the images and
+ * PDFs it carried. A call that threw also says which files' bytes it asked
+ * for.
  */
 type Sent =
-  | { readonly result: ModelCallResult; readonly carried: readonly MessageFile[] }
+  | {
+      readonly result: ModelCallResult;
+      readonly messages: readonly ModelMessage[];
+      readonly carried: readonly MessageFile[];
+    }
   | {
       readonly cause: unknown;
       readonly startedAt: number;
+      readonly messages: readonly ModelMessage[];
       readonly carried: readonly MessageFile[];
       readonly asked: ReadonlySet<string>;
     };
@@ -294,41 +335,72 @@ type Sent =
 /**
  * Sends a call with the step's messages. The call reads a stored file's
  * bytes through the turn's files binding, which asks the run's rule again
- * first; without one, each file is a line saying it isn't stored. What it
- * read decides which files it carried.
+ * first; without one, each file is a line saying it isn't stored. It holds
+ * room for them first (`roomFor`), and releases it once it answers or
+ * fails. What it read decides which files it carried.
  */
 function senderOf(
   ctx: TurnContext,
   provider: ModelProvider,
+  model: ModelInfo,
   base: Omit<ModelCallInput, 'messages' | 'readFile'>,
 ): (messages: readonly ModelMessage[]) => Promise<Sent> {
   return async (messages) => {
     const binding = ctx.files;
     const asked = new Set<string>();
     const read = new Set<string>();
-    const readFile = async (artifactId: string) => {
+    const readFile = async (artifactId: string, form?: FileForm) => {
       asked.add(artifactId);
-      const bytes = await binding?.read(artifactId);
+      const bytes = await binding?.read(artifactId, form);
       if (bytes !== undefined) read.add(artifactId);
       return bytes;
     };
     const startedAt = Date.now();
+    let sent = messages;
+    let room: FileHold | undefined;
     try {
+      ({ messages: sent, room } = await roomFor(binding, messages, model, ctx.turnAbort.signal));
       const result = await provider.invoke({
         ...base,
-        messages,
+        messages: sent,
         ...(binding !== undefined && { readFile }),
       });
-      return { result, carried: carriedFiles(messages, read) };
+      return { result, messages: sent, carried: carriedFiles(sent, read) };
     } catch (cause) {
-      return { cause, startedAt, carried: carriedFiles(messages, read), asked };
+      return { cause, startedAt, messages: sent, carried: carriedFiles(sent, read), asked };
+    } finally {
+      room?.release();
     }
   };
 }
 
 /**
+ * Room for the files a call reads (`FileBinding.hold`), and the messages to
+ * send it with. With no room in time, each of them is a `limit` line in
+ * the call's copy, so the call reads none, and a later call shows them
+ * again. A call that reads no file, or a binding without `hold`, holds
+ * nothing.
+ */
+async function roomFor(
+  binding: FileBinding | undefined,
+  messages: readonly ModelMessage[],
+  model: ModelInfo,
+  signal: AbortSignal,
+): Promise<{ readonly messages: readonly ModelMessage[]; readonly room?: FileHold }> {
+  if (binding?.hold === undefined) return { messages };
+  const files = callFiles(messages, model);
+  if (files.length === 0) return { messages };
+  const room = await binding.hold(files, signal);
+  if (room !== undefined) return { messages, room };
+  const leftOut = new Set(files.map((file) => file.artifactId));
+  return { messages: messagesForCall(messages, true, new Set(), leftOut) };
+}
+
+/**
  * The images and PDFs a call carried: those its messages hold with no
- * reason not to be shown, whose bytes its `readFile` gave. Each once.
+ * reason not to be shown, sent as an image or a PDF (a photo's rendition
+ * is; a file whose text is sent isn't), whose bytes its `readFile` gave.
+ * Each once.
  */
 function carriedFiles(
   messages: readonly ModelMessage[],
@@ -337,7 +409,7 @@ function carriedFiles(
   if (read.size === 0) return [];
   const carried = new Map<string, MessageFile>();
   for (const file of messages.flatMap((message) => message.files ?? [])) {
-    if (file.notShown === undefined && isImageOrPdf(file) && read.has(file.artifactId)) {
+    if (file.notShown === undefined && sentAsImageOrPdf(file) && read.has(file.artifactId)) {
       if (!carried.has(file.artifactId)) carried.set(file.artifactId, file);
     }
   }
@@ -391,7 +463,7 @@ async function retryWithoutFiles(
   ctx.filesRetried = true;
   const refused = new Set([...(ctx.refusedFiles ?? []), ...carried.map((f) => f.artifactId)]);
   const leftOut = filesLeftOut(call.messages, call.model, asked);
-  const messages = messagesForCall(call.nextMessages, call.seesFiles, refused, leftOut);
+  const messages = messagesForCall(call.formed, call.seesFiles, refused, leftOut);
   const callId = randomUUID();
   await call.announce();
   const again = await call.send(messages);
@@ -403,7 +475,13 @@ async function retryWithoutFiles(
     throwCallFailure(ctx, ctx.turnAbort.signal.aborted ? again.cause : cause, retryUnrecorded);
   }
   ctx.refusedFiles = refused;
-  return { callId, result: again.result, messages, carried: again.carried, refused: carried };
+  return {
+    callId,
+    result: again.result,
+    messages: again.messages,
+    carried: again.carried,
+    refused: carried,
+  };
 }
 
 /**

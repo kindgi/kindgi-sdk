@@ -8,7 +8,8 @@
  * goes on without them and the files binding is told to mark them; when it
  * fails too, nothing is marked and the turn fails with the first call's
  * error. Every other failure keeps the files. A call that answers tells the
- * binding what its model was shown.
+ * binding what its model was shown. Each call holds room for the files it
+ * reads until it ends; with none in time, each one is a `limit` line.
  */
 
 import { createHash } from 'node:crypto';
@@ -34,7 +35,7 @@ import { defineAgent } from '../src/define.js';
 import { buildBudgetCheckHandler } from '../src/handlers/budget-check.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
-import type { FileBinding } from '../src/handlers/files.js';
+import { type FileBinding, asMessageFile } from '../src/handlers/files.js';
 import { buildModelCallHandler } from '../src/handlers/model-call.js';
 import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
 import type { TurnEvent } from '../src/streaming.js';
@@ -130,24 +131,40 @@ function storedPhotos(count: number) {
   return { photos, bytes };
 }
 
-/** The run's files: each id is stored (as `bytes`, or three bytes), and every mark is logged. */
+/**
+ * The run's files: each id is stored (as `bytes`, or three bytes), and every
+ * mark is logged. A call's admit gives a file its `forms`, whose bytes are
+ * `bytes` under `id:form`; a form's read is logged so. With `hold`, a call
+ * holds room for its files; each read goes in `log` too, beside the holds.
+ */
 function filesOf(
   options: {
     readonly refuse?: FileBinding['refuse'];
     readonly bytes?: ReadonlyMap<string, Uint8Array>;
+    readonly forms?: ReadonlyMap<string, Pick<MessageFile, 'rendition' | 'extracted'>>;
+    readonly hold?: FileBinding['hold'];
+    readonly log?: string[];
   } = {},
 ) {
   const shown: string[][] = [];
   const refused: string[][] = [];
   const read: string[] = [];
   const binding: FileBinding = {
-    admit: async () => [],
-    read: async (artifactId) => {
-      read.push(artifactId);
-      return options.bytes?.get(artifactId) ?? new Uint8Array([1, 2, 3]);
+    // Each file as it is, with its forms for a call.
+    admit: async (values, call) =>
+      values.map((value) => ({
+        ...asMessageFile(value),
+        ...(call !== undefined && options.forms?.get(value.artifactId)),
+      })),
+    read: async (artifactId, form) => {
+      const key = form === undefined ? artifactId : `${artifactId}:${form}`;
+      read.push(key);
+      options.log?.push(`read ${key}`);
+      return options.bytes?.get(key) ?? new Uint8Array([1, 2, 3]);
     },
     store: async () => ({ notStored: 'limit' }),
     readSource: async () => ({ notRead: 'rule' }),
+    ...(options.hold !== undefined && { hold: options.hold }),
     shown: async (ids) => {
       shown.push([...ids]);
     },
@@ -225,6 +242,7 @@ function turn(options: {
       readonly message: ModelMessage;
       readonly warnings?: readonly { readonly code: string; readonly message: string }[];
       readonly refused?: readonly string[];
+      readonly files?: readonly { readonly artifactId: string }[];
     };
   return { ctx, step, sent, recorded, events };
 }
@@ -239,8 +257,8 @@ async function fitting(
     images: true,
     documents: true,
     contextWindow: 200_000,
-    readFile: async (artifactId) => {
-      const bytes = await input.readFile?.(artifactId);
+    readFile: async (artifactId, form) => {
+      const bytes = await input.readFile?.(artifactId, form);
       if (bytes !== undefined) sentFiles.push(artifactId);
       return bytes;
     },
@@ -536,6 +554,65 @@ describe('the retry leaves out what the first call left out for its limits', () 
   });
 });
 
+describe("a file sent as what's made of it", () => {
+  const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+  const image = new Uint8Array(40).fill(7);
+  const text = new TextEncoder().encode('Order 39: the mug arrived cracked.');
+  const heic: MessageFile = {
+    artifactId: 'heic-1',
+    name: 'photo-1.heic',
+    contentType: 'image/heic',
+    size: 2_000_000,
+    sha256: sha(11),
+  };
+  const scan = pdf(2);
+  const made = () =>
+    filesOf({
+      forms: new Map([
+        [
+          heic.artifactId,
+          { rendition: { contentType: 'image/jpeg', size: image.byteLength, sha256: hash(image) } },
+        ],
+        [scan.artifactId, { extracted: { size: text.byteLength, sha256: hash(text), cut: false } }],
+      ]),
+      bytes: new Map([
+        [`${heic.artifactId}:rendition`, image],
+        [`${scan.artifactId}:extracted`, text],
+      ]),
+    });
+
+  test('a photo sent as its model image was carried: it is shown, and refused as an invalid request it is marked', async () => {
+    const answered = made();
+    await turn({ outcomes: [], unreadable: new Set(), files: answered.binding }).step(
+      withFiles(heic),
+    );
+    expect(answered.read).toEqual(['heic-1:rendition']);
+    expect(answered.shown).toEqual([['heic-1']]);
+
+    const refused = made();
+    const t = turn({ outcomes: [], unreadable: new Set(['heic-1']), files: refused.binding });
+    const out = await t.step(withFiles(heic));
+    expect(t.sent.map(filesSent)).toEqual([['heic-1'], ['heic-1:refused']]);
+    expect(refused.refused).toEqual([['heic-1']]);
+    expect(out.refused).toEqual(['heic-1']);
+  });
+
+  test("a PDF sent as its text wasn't carried: it is never shown, and an invalid request with it isn't retried", async () => {
+    const answered = made();
+    await turn({ outcomes: [], unreadable: new Set(), files: answered.binding }).step(
+      withFiles(scan),
+    );
+    expect(answered.read).toEqual(['doc-2:extracted']);
+    expect(answered.shown).toEqual([]);
+
+    const refused = made();
+    const t = turn({ outcomes: [], unreadable: new Set(['doc-2']), files: refused.binding });
+    await failureOf(t.step(withFiles(scan)));
+    expect(t.sent).toHaveLength(1);
+    expect(refused.refused).toEqual([]);
+  });
+});
+
 describe('a file already marked', () => {
   test('a history file the binding admitted as `refused` is a line, and its bytes are never read', async () => {
     const files = filesOf();
@@ -544,5 +621,102 @@ describe('a file already marked', () => {
     expect(files.read).toEqual(['art-2']);
     expect(filesSent(t.sent[0])).toEqual(['art-1:refused', 'art-2']);
     expect(files.shown).toEqual([['art-2']]);
+  });
+});
+
+/**
+ * The runtime's memory for files (`FileBinding.hold`): each hold, and each
+ * release, goes in `log`. It has no room for the holds numbered (from 1) in
+ * `noRoom`.
+ */
+function memory(log: string[], noRoom: readonly number[] = []) {
+  let holds = 0;
+  const signals: AbortSignal[] = [];
+  const hold: NonNullable<FileBinding['hold']> = async (files, signal) => {
+    holds += 1;
+    signals.push(signal);
+    const ids = files.map((file) => file.artifactId).join(' ');
+    if (noRoom.includes(holds)) {
+      log.push(`no room ${ids}`);
+      return undefined;
+    }
+    log.push(`hold ${ids}`);
+    return { release: () => void log.push(`release ${ids}`) };
+  };
+  return { hold, signals };
+}
+
+describe('the room a call holds for its files', () => {
+  test('held before any file is read, for each one the call reads, and released once it answers', async () => {
+    const log: string[] = [];
+    const room = memory(log);
+    const files = filesOf({ hold: room.hold, log });
+    const t = turn({ outcomes: [answer()], files: files.binding });
+    await t.step(withFiles(photo(1), pdf(2), notes));
+    expect(log).toEqual([
+      'hold art-1 doc-2 txt-9',
+      'read art-1',
+      'read doc-2',
+      'read txt-9',
+      'release art-1 doc-2 txt-9',
+    ]);
+    expect(room.signals).toEqual([t.ctx.turnAbort.signal]);
+  });
+
+  test('released when the call fails', async () => {
+    const log: string[] = [];
+    const files = filesOf({ hold: memory(log).hold, log });
+    const overloaded = new ModelProviderError('unavailable', 529, '529 overloaded');
+    const t = turn({ outcomes: [overloaded], files: files.binding });
+    await failureOf(t.step(withFiles(photo(1))));
+    expect(log).toEqual(['hold art-1', 'read art-1', 'release art-1']);
+  });
+
+  test('no room in time: each file is a `limit` line, none is read or shown, and a later call shows them', async () => {
+    const log: string[] = [];
+    const files = filesOf({ hold: memory(log, [1]).hold, log });
+    const t = turn({ outcomes: [answer(), answer()], files: files.binding });
+
+    const out = await t.step(withFiles(photo(1), notes));
+    expect(filesSent(t.sent[0])).toEqual(['art-1:limit', 'txt-9:limit']);
+    expect(files.read).toEqual([]);
+    expect(files.shown).toEqual([]);
+    // The call's provenance names no file it didn't read.
+    expect(out.files).toBeUndefined();
+
+    await t.step(withFiles(photo(1), notes));
+    expect(filesSent(t.sent[1])).toEqual(['art-1', 'txt-9']);
+    expect(files.shown).toEqual([['art-1']]);
+    expect(log).toEqual([
+      'no room art-1 txt-9',
+      'hold art-1 txt-9',
+      'read art-1',
+      'read txt-9',
+      'release art-1 txt-9',
+    ]);
+  });
+
+  test('a retry holds again once the refused call has released, for only the files it reads', async () => {
+    const log: string[] = [];
+    const files = filesOf({ hold: memory(log).hold, log });
+    const t = turn({ outcomes: [refusedAsInvalid(), answer()], files: files.binding });
+    await t.step(withFiles(photo(1), notes));
+    expect(log).toEqual([
+      'hold art-1 txt-9',
+      'read art-1',
+      'read txt-9',
+      'release art-1 txt-9',
+      'hold txt-9',
+      'read txt-9',
+      'release txt-9',
+    ]);
+  });
+
+  test('a call that reads no file holds nothing', async () => {
+    const log: string[] = [];
+    const files = filesOf({ hold: memory(log).hold, log });
+    const t = turn({ outcomes: [answer()], files: files.binding });
+    await t.step([{ role: 'user', content: 'Is it broken?' }]);
+    expect(log).toEqual([]);
   });
 });

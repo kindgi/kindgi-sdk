@@ -310,7 +310,7 @@ export type {
   UnresolvedToolError,
 } from './handlers/errors.js';
 export type { TurnMemoryBinding, TurnMemoryCharge } from './handlers/turn-memory.js';
-export type { FileBinding, FileBindings } from './handlers/files.js';
+export type { FileBinding, FileBindings, FileHold } from './handlers/files.js';
 export type {
   HitlBindings,
   HitlEnqueueInput,
