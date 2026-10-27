@@ -247,10 +247,13 @@ export interface DefineAgentSpec {
   readonly conversationPolicy?: ConversationPolicy;
   /**
    * Turn budget caps. `maxSteps` limits model+tool call loop
-   * iterations per turn; `maxCostUsd` caps model spend per turn;
-   * `maxWallMs` bounds turn wall-clock time. Exceeding any cap
-   * ends the turn with a `budget-exceeded` failure. Sensible dev
-   * defaults: `{maxSteps: 6, maxCostUsd: 0.1, maxWallMs: 30_000}`.
+   * iterations per turn (default 8, and at most
+   * `AGENT_TURN_LOOP_MAX_ITERATIONS`, 32: a higher value acts as 32);
+   * `maxCostUsd` caps model spend per turn (no cap by default);
+   * `maxWallMs` bounds turn wall-clock time (default 120_000, 2 min).
+   * Running out of steps or cost ends the turn with a
+   * `budget-exceeded` failure; running out of time aborts it
+   * (`agent-turn-aborted`, reason `timeout`).
    */
   readonly budget?: TurnBudget;
   /** Free-form tags for catalog filtering. Not interpreted by the runtime. */

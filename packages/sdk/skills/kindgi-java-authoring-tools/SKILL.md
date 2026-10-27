@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.3"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -217,6 +217,34 @@ every variable it doesn't declare is dropped before your code loads
 (`kindgi dev` keeps them), so an undeclared one works locally and is unset
 once deployed. `KINDGI_*` names are Kindgi's own: a pack can't declare one.
 
+### Connections to other apps
+
+A tool that acts in another app as a person or as the company (sending mail, opening an issue) declares a **connection**, never a secret holding someone's token, and reads the call's short-lived token from `ctx.connections()` (runtime 0.2.0 or later):
+
+```java
+public static final Tool<Input, Output> TOOL = Tool.define("my-pack.send-mail")
+    // …description, version, input, output, effects…
+    .set("needsSpec", Map.of("connections", Map.of(
+        "mail", Map.of("app", "google", "permissions", List.of("gmail.send"), "as", "person"))))
+    .handler((input, ctx) -> {
+      ToolConnection mail = ctx.connections().get("mail");
+      HttpResponse<String> res = http.send(
+          HttpRequest.newBuilder(uri).header("authorization", "Bearer " + mail.accessToken()).build(),
+          HttpResponse.BodyHandlers.ofString());
+      if (res.statusCode() == 401) throw new ConnectionRejectedException("mail");
+      // …
+    });
+```
+
+- **Whose connection:** `"as", "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as", "company"` is the company's. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
+- **The token:** `accessToken()` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account().label()` says whose account it is (`ana@acme.com`).
+- **A 401 from the app:** `throw new ConnectionRejectedException("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or your own exception with it as the cause. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
+- **An HTTP tool** sends the token with no code: `.authorization(new HttpAuthSpec.Connection("mail"))`.
+- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `.mutating(false)` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `.mutating(false)`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
+- **In a unit test:** `ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null)))`; the last argument, when the token expires, can be `null`. `ctx.connections()` is empty when the tool declares none.
+
+Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+
 ## Errors and output
 
 - Throw for a failure: the call fails with `handler-throw` and the
@@ -236,6 +264,10 @@ writes, sends, charges or deletes: such a tool stops a dry run. It's also
 the tool's approval default: an agent that turns approval gates on
 (`conversationPolicy.hitl`) asks before any tool that isn't read-only on its
 first use.
+
+In a run a new mail started, a call of a tool that isn't read-only waits
+for a person's yes, unless the mail trigger's `toolsAllowedUnattended`
+lists it.
 
 `effect(kind, resource)` declares a side effect, such as
 `.effect("writes", "db:ledger")`. A dry run also stops at a tool with a
@@ -298,11 +330,11 @@ the same way, with the same `HttpToolSpec`.
 
 ## A person's yes when no one is watching: `needsApprovalWhenUnattended`
 
-`needsApprovalWhenUnattended(true)` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, an event or a service account's key started. In such a run:
+`needsApprovalWhenUnattended(true)` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, a new mail, an event or a service account's key started. In such a run:
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversationPolicy.hitl.tools` says. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
-- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's or a schedule's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks` and `kindgi schedules`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left unset, it counts as `false`. Declare it on a tool that moves money or changes something people rely on:
 
@@ -314,15 +346,23 @@ In a run a person started (signed in, or with their own API key), the agent's ru
 
 Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
+## Results that are text from outside: `resultIsOutsideData`
+
+`resultIsOutsideData(true)` says the tool's results are text from outside that nobody checked, such as a mail someone sent or a page a search found. An agent reads each result of the tool as data, not instructions, in that turn and in every later turn's history. It changes what the model is told, not what the tool may do: pair it with approvals for anything an agent could do with what it read. Absent means `false`.
+
 ## Testing
 
 `Tool.call(input, ctx)` runs the handler with the input as given (no schema
 check). `ToolContext.forTest()` is a context with a test tenant and run and
-nothing else; `new ToolContext(…)` builds one with secrets:
+nothing else. `ToolContext.forTest(tool, env, secrets)` adds the env values
+the tool declares in `needsSpec`, decided as a run decides them (a schema
+`default` fills a name the test doesn't set, each value is checked, and a
+missing or invalid one throws `IllegalArgumentException`), and the secrets as
+given. `ToolContext.Builder` sets the rest:
 
 ```java
-ToolContext ctx = new ToolContext("t-test", "run-test", null, null, null,
-    Map.of(), Map.of("CITATOR_KEY", "test-key-of-twenty-chars"), Map.of(), Map.of(), new Cancellation());
+ToolContext ctx = ToolContext.forTest(new ToolContext.Builder()
+    .withSecrets(Map.of("CITATOR_KEY", "test-key-of-twenty-chars")));
 Greet.Output out = Greet.TOOL.call(new Greet.Input("Ada", "Hi"), ctx);
 ```
 

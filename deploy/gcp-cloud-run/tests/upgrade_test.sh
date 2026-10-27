@@ -11,7 +11,8 @@
 # answers only for the v1 field path, the instance read returns gcloud's JSON,
 # and the pack envelope has the fields `kindgi build` writes. Each case asserts
 # the exit code, key output, and what was (or wasn't) mirrored, exported,
-# applied and written to the var-file.
+# applied and written to the var-file. Every stubbed call is logged, so a dry
+# run can be held to reads; docker's config is a file of the case's own.
 
 set -uo pipefail
 
@@ -35,7 +36,12 @@ OLD_PACK="$REPO/pack@sha256:$(printf '%064d' 2)"
 
 cat >"$BIN/gcloud" <<'STUB'
 #!/usr/bin/env bash
+printf 'gcloud %s\n' "$*" >>"${STUB_CALLS_LOG:-/dev/null}"
 case "$*" in
+  "auth configure-docker"*)
+    # As the real one does: a credential helper for the host in docker's config.
+    if [[ -n ${DOCKER_CONFIG:-} ]]; then printf '{"credHelpers":{"%s":"gcloud"}}\n' "$3" >"$DOCKER_CONFIG/config.json"; fi
+    exit 0 ;;
   "run services describe"*)
     if [[ "$*" == *"--format=json"* ]]; then printf '%s' "${STUB_SERVICE_JSON:-}"
     elif [[ "$*" == *"--format=value(spec.template.spec.containers[0].image)"* ]]; then printf '%s\n' "${STUB_RUNNING_IMAGE:-}"
@@ -43,20 +49,30 @@ case "$*" in
   "artifacts docker images list"*) printf '%s\n' "${STUB_TAGS:-}"; exit 0 ;;
   "sql instances describe"*)
     name="$4"
-    jq -n --arg n "$name" --arg v "${STUB_DB_VERSION:-POSTGRES_16}" --argjson pub "${STUB_DB_PUBLIC:-true}" '{
+    jq -n --arg n "$name" --arg v "${STUB_DB_VERSION:-POSTGRES_16}" --argjson pub "${STUB_DB_PUBLIC:-true}" \
+      --arg sa "${STUB_SQL_SA-p-sql@demo-proj.iam.gserviceaccount.com}" '{
       name: $n, connectionName: ("demo-proj:northamerica-northeast2:" + $n),
-      serviceAccountEmailAddress: "p-sql@demo-proj.iam.gserviceaccount.com",
+      serviceAccountEmailAddress: (if $sa == "" then null else $sa end),
       databaseVersion: $v, settings: {ipConfiguration: {ipv4Enabled: $pub}}}'
     exit 0 ;;
   "run jobs create"*) printf '%s\n' "$*" >>"${STUB_JOBS_LOG:-/dev/null}"; exit "${STUB_JOB_CREATE_RC:-0}" ;;
   "run jobs execute"*) exit "${STUB_CHECK_RC:-0}" ;;
-  "sql export sql"*) : >"${STUB_MARKER_EXPORT:-/dev/null}"; exit "${STUB_EXPORT_RC:-0}" ;;
+  "sql export sql"*)
+    # Counts each try; the first STUB_EXPORT_412 tries are refused as Cloud SQL
+    # refuses one before its bucket grant takes effect.
+    n=$(( $(cat "$STUB_EXPORT_TRIES" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$STUB_EXPORT_TRIES"
+    if (( n <= ${STUB_EXPORT_412:-0} )); then
+      echo 'ERROR: (gcloud.sql.export.sql) HTTPError 412: The service account does not have the required permissions for the bucket.' >&2
+      exit 1
+    fi
+    : >"${STUB_MARKER_EXPORT:-/dev/null}"; exit "${STUB_EXPORT_RC:-0}" ;;
   *) exit 0 ;;
 esac
 STUB
 
 cat >"$BIN/terraform" <<'STUB'
 #!/usr/bin/env bash
+printf 'terraform %s\n' "$*" >>"${STUB_CALLS_LOG:-/dev/null}"
 case "${1:-}" in
   output) printf '%s' "${STUB_TF_OUTPUTS:-}"; exit 0 ;;
   console) cat >/dev/null; printf '%s\n' "${STUB_TF_VARS_RAW:-}"; exit 0 ;;
@@ -76,15 +92,21 @@ STUB
 
 cat >"$BIN/docker" <<'STUB'
 #!/usr/bin/env bash
+printf 'docker %s\n' "$*" >>"${STUB_CALLS_LOG:-/dev/null}"
 case "$*" in
   "buildx imagetools inspect"*)
-    printf '{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"%s","size":1609}\n' "${STUB_QUAY_DIGEST:-}"; exit 0 ;;
-  "buildx imagetools create"*) : >"${STUB_MARKER_MIRROR:-/dev/null}"; exit "${STUB_MIRROR_RC:-0}" ;;
+    printf '%s\n' "$*" >>"${STUB_DOCKER_LOG:-/dev/null}"
+    if [[ -n ${STUB_INSPECT_ERR:-} ]]; then printf '%s\n' "$STUB_INSPECT_ERR" >&2; exit 1; fi
+    printf '{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"%s","size":1609}\n' "${STUB_RELEASE_DIGEST:-}"; exit 0 ;;
+  "buildx imagetools create"*)
+    printf '%s\n' "$*" >>"${STUB_DOCKER_LOG:-/dev/null}"
+    printf 'stub: imagetools create\n' >&2
+    : >"${STUB_MARKER_MIRROR:-/dev/null}"; exit "${STUB_MIRROR_RC:-0}" ;;
   *) exit 0 ;;
 esac
 STUB
 
-printf '#!/usr/bin/env bash\nexit 0\n' >"$BIN/kindgi"
+printf '#!/usr/bin/env bash\nprintf "kindgi %%s\\n" "$*" >>"${STUB_CALLS_LOG:-/dev/null}"\nexit 0\n' >"$BIN/kindgi"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$BIN/sleep"
 chmod +x "$BIN"/*
 
@@ -127,7 +149,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 # A fresh case directory, var-file and markers. $1 = a pack_image line to add.
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
-        STUB_EXPORT_RC STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC \
+        STUB_EXPORT_RC STUB_EXPORT_412 STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
         V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
@@ -142,12 +164,19 @@ reset_env() {
   export STUB_TF_OUTPUTS="$TF_OUTPUTS"
   export STUB_RUNNING_IMAGE="$RUNNING_IMAGE"
   export STUB_SERVICE_JSON="$SERVICE_READY"
-  export STUB_QUAY_DIGEST="$NEW_DIGEST"
+  export STUB_RELEASE_DIGEST="$NEW_DIGEST"
+  export STUB_DOCKER_LOG="$CASE_DIR/docker.log"
   export STUB_MARKER_EXPORT="$CASE_DIR/exported"
+  export STUB_EXPORT_TRIES="$CASE_DIR/export-tries"
   export STUB_MARKER_APPLY="$CASE_DIR/applied"
   export STUB_MARKER_MIRROR="$CASE_DIR/mirrored"
   export STUB_PLAN_SAW="$CASE_DIR/plan-saw"
   export STUB_JOBS_LOG="$CASE_DIR/jobs.log"
+  export STUB_CALLS_LOG="$CASE_DIR/calls.log"
+  export DOCKER_CONFIG="$CASE_DIR/docker"
+  mkdir -p "$DOCKER_CONFIG"
+  printf '{"auths":{"registry.kindgi.com":{}}}\n' >"$DOCKER_CONFIG/config.json"
+  cp "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"
   ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs://backups/dev")
 }
 
@@ -167,8 +196,19 @@ assert_file_has() { if grep -qF -- "$2" "$1" 2>/dev/null; then pass; else fail "
 assert_varfile_unchanged() {
   if cmp -s "$VAR_FILE" "$CASE_DIR/original.tfvars"; then pass; else fail "the var-file changed but shouldn't have"; fi
 }
+assert_docker_config_unchanged() {
+  if cmp -s "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"; then pass; else fail "docker's config changed but shouldn't have"; fi
+}
+# Every call the run made is a read: the deployment's and the registry's, the
+# module's outputs and variables, and a plan with no state lock and no plan
+# file. So nothing writes to the state backend, and nothing else changes.
+assert_reads_only() {
+  local other
+  other="$(grep -vE '^(gcloud (run services describe|artifacts docker images list|sql instances describe) |docker buildx imagetools inspect |terraform output -json$|terraform console -var-file=[^ ]+$|terraform plan -var-file=[^ ]+ -var server_image=[^ ]+ -lock=false$)' "$STUB_CALLS_LOG")"
+  if [[ -z $other ]]; then pass; else fail "made a call that isn't a read: $other"; fi
+}
 
-# 1. Happy path: 0.1.8 -> 0.1.10, own instance, no pack, confirm yes.
+# 1. Happy path: 0.1.8 -> 0.2.0, own instance, no pack, confirm yes.
 case_start "happy path"
 reset_env; export STUB_TAGS="0.1.8"
 run "yes"
@@ -176,11 +216,12 @@ assert_rc 0 "happy path exits 0"
 assert_present "$STUB_MARKER_MIRROR" "mirror"
 assert_present "$STUB_MARKER_EXPORT" "backup"
 assert_present "$STUB_MARKER_APPLY" "apply"
-assert_out "0.1.8 -> 0.1.10 applied"
+assert_out "0.1.8 -> 0.2.0 applied"
 assert_file_has "$VAR_FILE" "server_image = \"$NEW_IMAGE\"  # mirrored 0.1.8" "var-file pins the new image, comment kept"
 assert_file_has "$STUB_PLAN_SAW" "$NEW_IMAGE" "the plan read the new image from the var-file"
 if grep -q "plan got -var" "$STUB_PLAN_SAW"; then fail "plan was given -var"; else pass; fi
 if cmp -s "$(ls "$CASE_DIR"/dev.tfvars.pre-upgrade-*)" "$CASE_DIR/original.tfvars"; then pass; else fail "no .pre-upgrade copy of the original"; fi
+if cmp -s "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"; then fail "docker wasn't set up for Artifact Registry"; else pass; fi
 
 # 2. Below the floor: 0.1.7 is refused, nothing mirrored or backed up.
 case_start "below floor"
@@ -194,10 +235,10 @@ assert_varfile_unchanged
 
 # 3. Already at the target.
 case_start "already at target"
-reset_env; export STUB_TAGS="0.1.10"
+reset_env; export STUB_TAGS="0.2.0"
 run "yes"
 assert_rc 1 "already at target"
-assert_out "already on 0.1.10"
+assert_out "already on 0.2.0"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 
 # 4. A runtime check fails: stop before the backup, say so.
@@ -227,9 +268,10 @@ reset_env; export STUB_TAGS="0.1.8" STUB_APPLY_RC=1
 run "yes"
 assert_rc 1 "apply failure"
 assert_out "To go back"
-assert_out "memory erasures export"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.1 memory erasures export --out=erasures-" "the export runs 0.1.8's CLI line"
 assert_out "import sql"
-assert_out "memory erasures replay"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.1 memory erasures replay erasures-" "the replay runs 0.1.8's CLI line"
+if grep -qF "pre-release" "$OUT"; then fail "a final's go-back has the pre-release note"; else pass; fi
 assert_out "cp $VAR_FILE.pre-upgrade-"
 if grep -q "or set database_name" "$OUT"; then fail "go-back still offers database_name"; else pass; fi
 assert_file_has "$VAR_FILE" "$NEW_IMAGE" "var-file keeps the new image after a failed apply"
@@ -242,6 +284,33 @@ assert_rc 1 "unhealthy start"
 assert_out "did not become ready"
 assert_out "fresh database"
 
+# 7a. The go-back names the CLI of the release the run started from: a server
+# fix for 0.2.0 is on the 0.2 line.
+case_start "go-back from a server fix"
+reset_env; export STUB_SERVICE_JSON="$SERVICE_STUCK"
+run "yes" --from 0.2.0.1 --to 0.2.0.2
+assert_rc 1 "unhealthy start"
+assert_out "did not become ready"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures export --out=erasures-" "the export runs 0.2.0.1's CLI line"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures replay erasures-" "the replay runs 0.2.0.1's CLI line"
+if grep -qF "@kindgi/cli@0.1" "$OUT"; then fail "the go-back from 0.2.0.1 names the 0.1 CLI"; else pass; fi
+if grep -qF "pre-release" "$OUT"; then fail "a server fix's go-back has the pre-release note"; else pass; fi
+
+# 7b. From an rc, the 0.2 line finds no CLI until 0.2.0 is out: a note right
+# under the export says so.
+case_start "go-back from an rc"
+reset_env; export STUB_TAGS="0.2.0-rc.0" STUB_APPLY_RC=1
+run "yes"
+assert_rc 1 "apply failure"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures export --out=erasures-" "the export runs the rc's CLI line"
+assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures replay erasures-" "the replay runs the rc's CLI line"
+note="$(grep -A4 -F "memory erasures export" "$OUT" | tail -n 4)"
+if [[ $note == "    This deployment runs a pre-release, 0.2.0-rc.0. Until 0.2.0 is out,
+    npx finds no @kindgi/cli@0.2: in this step and in step 7, name the
+    CLI's own pre-release instead, as @kindgi/cli@0.2.0-rc.N
+    (npm view @kindgi/cli versions lists them)." ]]; then pass
+else fail "the pre-release note isn't right under the export: $note"; fi
+
 # 8. Host instance not Postgres 16: refused before anything is mirrored.
 case_start "host instance not pg16"
 reset_env; export STUB_TAGS="0.1.8" STUB_DB_VERSION="POSTGRES_15"; V_HOST="app-db"
@@ -253,29 +322,29 @@ assert_absent "$STUB_MARKER_EXPORT" "backup"
 
 # 9. An rc goes to its final.
 case_start "rc to its final"
-reset_env; export STUB_TAGS="0.1.10-rc.1"
+reset_env; export STUB_TAGS="0.2.0-rc.0"
 run "yes"
 assert_rc 0 "rc -> final runs"
-assert_out "0.1.10-rc.1 -> 0.1.10 applied"
+assert_out "0.2.0-rc.0 -> 0.2.0 applied"
 
 # 10. To an rc: its release's steps are included.
 case_start "0.1.8 to an rc"
 reset_env; export STUB_TAGS="0.1.8"
-run "yes" --to 0.1.10-rc.1
+run "yes" --to 0.2.0-rc.0
 assert_rc 0 "to an rc runs"
-assert_out "crossing: 0.1.9 0.1.10"
+assert_out "crossing: 0.1.9 0.1.10 0.2.0"
 assert_out "autoCloseAfterInactiveSeconds"
 
 # 11. An rc promoted to its final carries both tags: the final is the version.
 case_start "rc and final tags on one digest"
-reset_env; export STUB_TAGS="0.1.10-rc.1;0.1.10"
+reset_env; export STUB_TAGS="0.2.0-rc.0;0.2.0"
 run "yes"
 assert_rc 1 "final read from the two tags"
-assert_out "already on 0.1.10,"
+assert_out "already on 0.2.0,"
 
-# 12. quay's tag isn't the digest given: refused before the mirror.
+# 12. The release's tag isn't the digest given: refused before the mirror.
 case_start "digest doesn't match the release tag"
-reset_env; export STUB_TAGS="0.1.8" STUB_QUAY_DIGEST="$OLD_DIGEST"
+reset_env; export STUB_TAGS="0.1.8" STUB_RELEASE_DIGEST="$OLD_DIGEST"
 run "yes"
 assert_rc 1 "mismatched digest refused"
 assert_out "not the --runtime-digest"
@@ -360,6 +429,401 @@ ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs:
 run "yes"
 assert_rc 0 "json var-file runs"
 if [[ "$(jq -r .server_image "$VAR_FILE")" == "$NEW_IMAGE" ]]; then pass; else fail "json var-file not rewritten"; fi
+
+# The export's tries, as the stub counted them.
+assert_export_tries() {
+  if [[ "$(cat "$STUB_EXPORT_TRIES" 2>/dev/null)" == "$1" ]]; then pass; else fail "$2 (export tried $(cat "$STUB_EXPORT_TRIES" 2>/dev/null || echo 0) times, wanted $1)"; fi
+}
+
+# 21. A new bucket grant that hasn't reached Cloud SQL yet: the export waits
+# for it, saying so, then goes on.
+case_start "export waits for the bucket grant"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_412=2
+run "yes"
+assert_rc 0 "the export goes on once the grant takes effect"
+assert_export_tries 3 "two refusals, then the export"
+assert_out "hasn't taken effect yet"
+assert_out "trying the export again (30s waited)"
+if [[ "$(grep -c 'HTTPError 412' "$OUT")" == 1 ]]; then pass; else fail "gcloud's refusal should be shown once"; fi
+if grep -q "Fix the cause" "$OUT"; then fail "a grant still taking effect was called a cause to fix"; else pass; fi
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 22. A grant that never takes effect: it stops after 7 minutes, and nothing
+# has changed.
+case_start "the bucket grant never takes effect"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_412=99
+run "yes"
+assert_rc 1 "a grant that never takes effect stops it"
+assert_export_tries 29 "the first try, then one every 15s for 7 minutes"
+assert_out "still can't write to gs://backups after 7 minutes"
+assert_out "get-iam-policy gs://backups"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 23. Any other export failure stops at once.
+case_start "export fails otherwise"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_RC=1
+run "yes"
+assert_rc 1 "an export failure stops it"
+assert_export_tries 1 "no second try"
+assert_out "the export failed (above). Nothing has changed."
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 24. Past the newest release this script knows: refused before anything is
+# read, mirrored or backed up, though 0.1.9 to 0.2.0 lie on the way.
+case_start "target past the newest known release"
+reset_env; export STUB_TAGS="0.1.8"
+run "yes" --to 0.3.0
+assert_rc 1 "a later target refused"
+assert_out "knows the steps up to 0.2.0"
+assert_out "as of the @kindgi/sdk@0.3.0 tag"
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 25. An rc of a later release counts as that release.
+case_start "rc of a later release"
+reset_env; export STUB_TAGS="0.1.9"
+run "yes" --to 0.3.0-rc.1
+assert_rc 1 "a later rc refused"
+assert_out "knows the steps up to 0.2.0"
+assert_out "as of the @kindgi/sdk@0.3.0 tag (before it's out, that release's newest @kindgi/sdk@0.3.0-rc.N tag)"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+
+# 26. 0.1.10 -> 0.2.0: crosses 0.2.0 alone, copies it from registry.kindgi.com.
+case_start "0.1.10 to 0.2.0"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes"
+assert_rc 0 "0.1.10 -> 0.2.0 runs"
+assert_out "crossing: 0.2.0$"
+assert_out "0.2.0:"
+assert_out "now comes from registry.kindgi.com"
+assert_out "If public_url is empty, set it to the URL people open the console at"
+assert_out "console sessions are accepted from that origin only"
+assert_out "<public_url>/console/connect/callback"
+assert_out "Three of them take a short"
+assert_out "kernel_runs, kernel_triggers, hitl_approvals or judgments"
+assert_out "With openfga_api_url empty (no authorization store)"
+assert_out "an emailed link or an identity provider isn't one"
+assert_out "A pack built for 0.1.10 keeps working without a rebuild."
+assert_out "the plan also changes it in place"
+if grep -q "autoCloseAfterInactiveSeconds" "$OUT"; then fail "0.1.10's steps shown for 0.1.10 -> 0.2.0"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0 " "the release tag is read on registry.kindgi.com"
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.2.0@$NEW_DIGEST" "the mirror copies from registry.kindgi.com"
+if grep -q "quay.io" "$STUB_DOCKER_LOG"; then fail "an image was read from quay.io"; else pass; fi
+assert_file_has "$OUT" "This copies the runtime through this machine, down from registry.kindgi.com and up to Artifact Registry. It takes both platforms (linux/amd64 and linux/arm64), so your copy keeps the release digest." "what the copy is"
+assert_file_has "$OUT" "On a slow uplink it can take most of an hour; it says when it's done." "how long the copy can take"
+said="$(grep -o -F -e "Mirroring runtime 0.2.0 into" -e "This copies the runtime" -e "it says when it's done." -e "stub: imagetools create" -e "mirrored to $NEW_IMAGE" "$OUT" | tr '\n' '|')"
+if [[ $said == "Mirroring runtime 0.2.0 into|This copies the runtime|it says when it's done.|stub: imagetools create|mirrored to $NEW_IMAGE|" ]]; then pass
+else fail "the copy's time isn't said between the step line and the copy, in order: $said"; fi
+assert_out "0.1.10 -> 0.2.0 applied"
+
+# 27. 0.1.10 -> an rc of 0.2.0: its steps are included, and it gets to the mirror.
+case_start "0.1.10 to 0.2.0-rc.0"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes" --to 0.2.0-rc.0
+assert_rc 0 "0.1.10 -> 0.2.0-rc.0 runs"
+assert_out "crossing: 0.2.0$"
+assert_present "$STUB_MARKER_MIRROR" "mirror"
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.2.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
+
+# 28. A target before 0.2.0 isn't on registry.kindgi.com: refused at the start.
+case_start "target before 0.2.0"
+reset_env; export STUB_TAGS="0.1.8"
+run "yes" --to 0.1.10
+assert_rc 1 "0.1.10 target refused"
+assert_out "has 0.2.0 and later"
+assert_out "as of the @kindgi/sdk@0.1.10 tag"
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+# 29. Not logged in to registry.kindgi.com: the login line, before the mirror.
+case_start "not logged in to registry.kindgi.com"
+reset_env; export STUB_TAGS="0.1.10" STUB_INSPECT_ERR="ERROR: unexpected status from HEAD request: 401 Unauthorized"
+run "yes"
+assert_rc 1 "no login refused"
+assert_out "docker login registry.kindgi.com --username kindgi, with your license key as the password"
+assert_out "401 Unauthorized"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 30. 0.1.11 never had a final release (its changes ship in 0.2.0): neither it
+# nor one of its rcs is a target.
+case_start "0.1.11 isn't a target"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes" --to 0.1.11-rc.0
+assert_rc 1 "a 0.1.11 target refused"
+assert_out "has 0.2.0 and later"
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+# 31. A deployment on a 0.1.11 rc upgrades to 0.2.0, crossing 0.2.0 alone.
+case_start "0.1.11-rc.0 to 0.2.0"
+reset_env; export STUB_TAGS="0.1.11-rc.0"
+run "yes"
+assert_rc 0 "0.1.11-rc.0 -> 0.2.0 runs"
+assert_out "crossing: 0.2.0$"
+assert_out "0.1.11-rc.0 -> 0.2.0 applied"
+
+# 32. A dry run: the reads and the read-only checks, every change a real run
+# would make with the names it would use, the steps to confirm by hand, and a
+# read-only plan for the new image. Nothing is mirrored, granted, exported,
+# built or applied, and no job is run; the var-file and docker's config are
+# untouched; no state lock is taken and no state is written.
+case_start "dry run"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+PACK_DIR="$CASE_DIR/pack"; mkdir -p "$PACK_DIR"
+run "yes" --pack-dir "$PACK_DIR" --dry-run
+assert_rc 0 "a dry run exits 0"
+assert_out "DRY RUN. It reads only"
+assert_file_has "$STUB_CALLS_LOG" "docker buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0 " "the release digest is read"
+assert_file_has "$OUT" "2. add gcloud as the credential helper for northamerica-northeast2-docker.pkg.dev in your docker config" "the docker config"
+assert_file_has "$OUT" "add the image tag $REPO/runtime:0.2.0 to Artifact Registry" "the mirror"
+assert_file_has "$OUT" "   (both platforms, through this machine; on a slow uplink it can take most of an hour)" "the mirror's time"
+assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-pk  (check provider-keys)" "the provider-keys job"
+assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ss  (check secret-scopes)" "the secret-scopes job"
+assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-mhc  (check mcp-header-credentials)" "the mcp-header-credentials job"
+assert_file_has "$OUT" "grant serviceAccount:p-sql@demo-proj.iam.gserviceaccount.com roles/storage.objectAdmin on gs://backups " "the grant"
+assert_file_has "$OUT" "export the \"kindgi\" database to gs://backups/dev/kindgi-kindgi-0.1.10-<YYYYMMDDTHHMMSSZ>.sql.gz" "the export"
+assert_file_has "$OUT" "rebuild and push the pack from $PACK_DIR " "the pack build"
+assert_file_has "$OUT" "copy $VAR_FILE to $VAR_FILE.pre-upgrade-<YYYYMMDDTHHMMSSZ>" "the var-file copy"
+assert_file_has "$OUT" "set server_image = \"$NEW_IMAGE\" in $VAR_FILE" "the new image"
+assert_file_has "$OUT" "pack_image is unchanged in this plan" "the pack image's limit"
+assert_file_has "$OUT" "wait for the new revision of kindgi-server" "the wait"
+assert_out "key as the password; this script copies it from there."
+assert_out "dry run done. Nothing was changed"
+if grep -q "Apply this plan" "$OUT"; then fail "a dry run asked for yes"; else pass; fi
+assert_file_has "$STUB_CALLS_LOG" "terraform plan -var-file=$VAR_FILE -var server_image=$NEW_IMAGE -lock=false" "the plan is given the new image"
+assert_reads_only
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_JOBS_LOG" "a check job"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+if ls "$CASE_DIR"/dev.tfvars.pre-upgrade-* >/dev/null 2>&1; then fail "a dry run left a .pre-upgrade copy"; else pass; fi
+assert_docker_config_unchanged
+
+# 33. A dry run stops where a real run would: a failed precondition exits 1,
+# says it was a dry run, and lists nothing.
+case_start "dry run, a precondition fails"
+reset_env; export STUB_TAGS="0.1.10" STUB_INSPECT_ERR="ERROR: unexpected status from HEAD request: 401 Unauthorized"
+run "yes" --dry-run
+assert_rc 1 "a failed check stops the dry run"
+assert_out "upgrade (dry run): a precondition failed"
+if grep -q "What a real run would change" "$OUT"; then fail "the changes were listed after a failed check"; else pass; fi
+assert_absent "$STUB_PLAN_SAW" "a plan"
+assert_reads_only
+assert_varfile_unchanged
+assert_docker_config_unchanged
+
+# 34. A dry run whose plan fails exits 1, and still changes nothing.
+case_start "dry run, the plan fails"
+reset_env; export STUB_TAGS="0.1.10" STUB_PLAN_RC=1
+run "yes" --dry-run
+assert_rc 1 "a failed plan fails the dry run"
+assert_out "4. nothing: no pack service"
+assert_out "upgrade (dry run): terraform plan failed"
+assert_reads_only
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 35. A dry run with a pack service and no --pack-dir: the pack stays as it is.
+case_start "dry run, a pack service without --pack-dir"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+run "yes" --dry-run
+assert_rc 0 "a dry run exits 0"
+assert_out "4. nothing: without --pack-dir the pack image stays as it is"
+if grep -q "pack_image is unchanged in this plan" "$OUT"; then fail "a pack note without --pack-dir"; else pass; fi
+assert_reads_only
+assert_varfile_unchanged
+
+# 36. A dry run stops where a real run would stop at the backup: the SQL
+# instance has no service account to grant. It lists nothing.
+case_start "dry run, no SQL service account"
+reset_env; export STUB_TAGS="0.1.10" STUB_SQL_SA=""
+run "yes" --dry-run
+assert_rc 1 "no service account stops the dry run"
+assert_out "upgrade (dry run): couldn't read instance kindgi's service account"
+if grep -q "What a real run would change" "$OUT"; then fail "the changes were listed without a service account"; else pass; fi
+assert_absent "$STUB_PLAN_SAW" "a plan"
+assert_reads_only
+assert_varfile_unchanged
+
+# 37. A server-only release, X.Y.Z.N, is a server fix for X.Y.Z with no SDK
+# release of its own. From X.Y.Z it crosses no release and has no steps to
+# confirm by hand; its image comes from its own tag on registry.kindgi.com.
+case_start "0.2.0 to a server-only release, 0.2.0.1"
+reset_env; export STUB_TAGS="0.2.0"
+run "yes" --to 0.2.0.1
+assert_rc 0 "0.2.0 -> 0.2.0.1 runs"
+assert_out "upgrading 0.2.0 -> 0.2.0.1, a server fix for 0.2.0: no release crossed"
+assert_out "none: 0.2.0.1 is a server fix for 0.2.0."
+if grep -q "now comes from registry.kindgi.com" "$OUT"; then fail "0.2.0's steps shown for 0.2.0 -> 0.2.0.1"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0.1 " "the server fix's own tag is read"
+assert_file_has "$STUB_DOCKER_LOG" "--tag $REPO/runtime:0.2.0.1 registry.kindgi.com/kindgi/runtime:0.2.0.1@$NEW_DIGEST" "the mirror tags it 0.2.0.1"
+assert_present "$STUB_MARKER_EXPORT" "backup"
+assert_present "$STUB_MARKER_APPLY" "apply"
+assert_out "0.2.0 -> 0.2.0.1 applied"
+
+# 38. From before X.Y.Z, a server-only release crosses X.Y.Z: its steps print.
+case_start "0.1.10 to 0.2.0.1"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes" --to 0.2.0.1
+assert_rc 0 "0.1.10 -> 0.2.0.1 runs"
+assert_out "crossing: 0.2.0$"
+assert_out "now comes from registry.kindgi.com"
+if grep -q "none: " "$OUT"; then fail "a crossing upgrade said there are no steps"; else pass; fi
+assert_out "0.1.10 -> 0.2.0.1 applied"
+
+# 39. From an rc of X.Y.Z, too: the rc is below its final.
+case_start "0.2.0-rc.0 to 0.2.0.1"
+reset_env; export STUB_TAGS="0.2.0-rc.0"
+run "yes" --to 0.2.0.1
+assert_rc 0 "0.2.0-rc.0 -> 0.2.0.1 runs"
+assert_out "crossing: 0.2.0$"
+assert_out "0.2.0-rc.0 -> 0.2.0.1 applied"
+
+# 40. From one server fix to the next: the running X.Y.Z.N is read from its
+# mirrored tag, and names the export.
+case_start "0.2.0.1 to 0.2.0.2"
+reset_env; export STUB_TAGS="0.2.0.1"
+run "yes" --to 0.2.0.2
+assert_rc 0 "0.2.0.1 -> 0.2.0.2 runs"
+assert_out "read 0.2.0.1 from the mirrored image's tag"
+assert_out "a server fix for 0.2.0: no release crossed"
+assert_out "backup complete: gs://backups/dev/kindgi-kindgi-0.2.0.1-"
+assert_out "0.2.0.1 -> 0.2.0.2 applied"
+
+# 41. A later server fix is past an earlier one, and past its release: going
+# back down is refused before anything is read from the registry.
+case_start "0.2.0.2 to 0.2.0.1 is refused"
+reset_env; export STUB_TAGS="0.2.0.2"
+run "yes" --to 0.2.0.1
+assert_rc 1 "going down refused"
+assert_out "already on 0.2.0.2, at or past the target 0.2.0.1\."
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_varfile_unchanged
+
+case_start "0.2.0.1 to 0.2.0 is refused"
+reset_env; export STUB_TAGS="0.2.0.1"
+run "yes"
+assert_rc 1 "a server fix to its release refused"
+assert_out "already on 0.2.0.1, at or past the target 0.2.0\."
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_varfile_unchanged
+
+# 42. A server fix of a release past the newest this script knows: the refusal
+# names its release's SDK tag, since a server-only release has none.
+case_start "server fix past the newest known release"
+reset_env; export STUB_TAGS="0.2.0"
+run "yes" --to 0.3.0.1
+assert_rc 1 "a later server fix refused"
+assert_out "knows the steps up to 0.2.0. 0.3.0.1 is a server fix for 0.3.0: use this script as of the @kindgi/sdk@0.3.0 tag."
+if grep -q "@kindgi/sdk@0.3.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+# 43. A server-only release has no rc, and its N starts at 1 with no leading
+# zero, as the runtime's releases are numbered: anything else isn't a target.
+for bad in 0.2.0.1-rc.0 0.2.0.0 0.2.0.01 0.2.0.1.1; do
+  case_start "--to $bad isn't a version"
+  reset_env; export STUB_TAGS="0.2.0"
+  run "yes" --to "$bad"
+  assert_rc 1 "$bad refused"
+  assert_out "--to \"$bad\" isn't a version like 0.2.0, 0.2.0-rc.0 or 0.2.0.1"
+  assert_absent "$STUB_DOCKER_LOG" "a registry read"
+done
+
+# 44. --from takes a server-only release; and with no version tag to read, the
+# refusal says --from takes one.
+case_start "--from a server-only release"
+reset_env
+run "yes" --from 0.2.0.1 --to 0.2.0.2
+assert_rc 0 "--from 0.2.0.1 runs"
+assert_out "using --from 0.2.0.1"
+assert_out "0.2.0.1 -> 0.2.0.2 applied"
+
+case_start "--from an rc of a server fix isn't a version"
+reset_env
+run "yes" --from 0.2.0.1-rc.0 --to 0.2.0.2
+assert_rc 1 "--from 0.2.0.1-rc.0 refused"
+assert_out "--from \"0.2.0.1-rc.0\" isn't a version like 0.1.10 or 0.2.0.1"
+
+case_start "no version tag, no --from"
+reset_env
+run "yes" --to 0.2.0.1
+assert_rc 1 "no version refused"
+assert_out "Re-run with --from <the version it runs, such as 0.1.10 or 0.2.0.1>"
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+
+# 45. A dry run lists a server-only release like any other target: its own
+# tag read and mirrored, no steps by hand, and nothing changed.
+case_start "dry run to a server-only release"
+reset_env; export STUB_TAGS="0.2.0"
+run "yes" --to 0.2.0.1 --dry-run
+assert_rc 0 "a dry run to 0.2.0.1 exits 0"
+assert_file_has "$STUB_CALLS_LOG" "docker buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0.1 " "the server fix's digest is read"
+assert_file_has "$OUT" "2. add the image tag $REPO/runtime:0.2.0.1 to Artifact Registry" "the mirror"
+assert_file_has "$OUT" "(a copy of registry.kindgi.com/kindgi/runtime:0.2.0.1@$NEW_DIGEST;" "the mirror's source"
+assert_file_has "$OUT" "export the \"kindgi\" database to gs://backups/dev/kindgi-kindgi-0.2.0-<YYYYMMDDTHHMMSSZ>.sql.gz" "the export"
+assert_out "none: 0.2.0.1 is a server fix for 0.2.0."
+assert_out "dry run done. Nothing was changed"
+assert_reads_only
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 46. The same script with releases it doesn't ship yet (0.2.1, and 0.4.0
+# past a 0.3.0 it doesn't list), for what today's list can't reach: a server
+# fix sorts below the next release's rc, and a server fix of a release the
+# script doesn't list is refused.
+GAP_SCRIPT="$TMP/upgrade-gap.sh"
+sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.2.1" "0.4.0")/' "$SCRIPT" >"$GAP_SCRIPT"
+chmod +x "$GAP_SCRIPT"
+if grep -qx 'readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.2.1" "0.4.0")' "$GAP_SCRIPT"; then pass; else fail "the copy's KNOWN_RELEASES wasn't set"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$GAP_SCRIPT"
+
+case_start "0.2.0.3 to the next release's rc"
+reset_env; export STUB_TAGS="0.2.0.3"
+run "yes" --to 0.2.1-rc.0
+assert_rc 0 "0.2.0.3 -> 0.2.1-rc.0 runs"
+assert_out "crossing: 0.2.1$"
+assert_out "0.2.0.3 -> 0.2.1-rc.0 applied"
+
+case_start "the next release's rc to 0.2.0.3 is refused"
+reset_env; export STUB_TAGS="0.2.1-rc.0"
+run "yes" --to 0.2.0.3
+assert_rc 1 "an rc to an earlier release's server fix refused"
+assert_out "already on 0.2.1-rc.0, at or past the target 0.2.0.3\."
+
+case_start "server fix of a release the script doesn't list"
+reset_env; export STUB_TAGS="0.2.1"
+run "yes" --to 0.3.0.1
+assert_rc 1 "0.3.0.1 refused"
+assert_out "--to 0.3.0.1: a server fix for 0.3.0, which isn't a release this script knows (0.1.9 0.1.10 0.2.0 0.2.1 0.4.0)."
+assert_absent "$STUB_DOCKER_LOG" "a registry read"
+assert_varfile_unchanged
+
+SCRIPT="$REAL_SCRIPT"
+
+# 47. A real run with a pack service and no --pack-dir leaves the pack image,
+# and its warning names no release: the steps to confirm by hand say which
+# release needs a rebuild.
+case_start "a pack service without --pack-dir"
+reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
+run "yes"
+assert_rc 0 "0.1.10 -> 0.2.0 runs without --pack-dir"
+assert_out "no --pack-dir was given: the pack image is left unchanged"
+assert_out "If a release crossed needs the pack rebuilt (its steps to confirm by hand, above, say so)"
+if grep -q "If 0.1.10 needs" "$OUT"; then fail "the warning names a release"; else pass; fi
+assert_out "0.1.10 -> 0.2.0 applied"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

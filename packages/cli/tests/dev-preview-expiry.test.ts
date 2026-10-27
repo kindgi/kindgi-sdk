@@ -33,7 +33,7 @@ const preview = (daysLeft: number, standing: 'valid' | 'expiring' | 'expired'): 
 describe('previewExpiryWarning', () => {
   test('from 30 days before: the date, the days left, and to update the CLI that pins it', () => {
     expect(previewExpiryWarning(preview(20, 'expiring'), 'pinned')).toBe(
-      '⚠ This preview runtime (0.1.8) stops starting on 2027-01-18, in 20 days. Preview releases stop starting 90 days after their release, until Kindgi 1.0. Update the Kindgi CLI (`@kindgi/cli`, or `kindgi-cli` from PyPI) to its newest release: `kindgi dev` runs the runtime release the CLI pins.',
+      '⚠ This preview runtime (0.1.8) stops starting on 2027-01-18, in 20 days. A preview release stops starting 90 days after it was released. Update the Kindgi CLI (`@kindgi/cli`, or `kindgi-cli` from PyPI) to its newest release: `kindgi dev` runs the runtime release the CLI pins.',
     );
     expect(previewExpiryWarning(preview(1, 'expiring'), 'pinned')).toContain('in 1 day.');
   });
@@ -83,7 +83,7 @@ test("a status it can't read says nothing, and never stops kindgi dev", async ()
 
 describe('a runtime that refused to start because its preview build is past its end', () => {
   const stop =
-    'the Kindgi runtime container stopped while starting (exit code 2):\nThis preview build of the Kindgi runtime (0.1.8, released 2026-10-20) expired on 2027-01-18: until Kindgi 1.0, a release stops starting 90 days after it was released. Run a newer release. With `kindgi dev`, update the Kindgi CLI (`@kindgi/cli`, or `kindgi-cli` from PyPI): it runs the runtime release the CLI pins.';
+    'the Kindgi runtime container stopped while starting (exit code 2):\nThis preview build of the Kindgi runtime (0.1.8, released 2026-10-20) expired on 2027-01-18: a preview release stops starting 90 days after it was released. Run a newer release. With `kindgi dev`, update the Kindgi CLI (`@kindgi/cli`, or `kindgi-cli` from PyPI): it runs the runtime release the CLI pins.';
 
   test('which runtime kindgi dev runs, from its flags', () => {
     expect(devRuntimeSource({ runtimeUrl: undefined, runtimeImage: DEFAULT_RUNTIME_IMAGE })).toBe(

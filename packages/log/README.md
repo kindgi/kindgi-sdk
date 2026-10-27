@@ -67,8 +67,35 @@ for (const problem of got.problems) got.logger.warn(problem);
    - a URL's password (`postgres://user:pass@`) becomes `user:***@`.
 
    Ids are never touched: the scrubber only matches exact patterns, and doesn't guess at entropy.
+3. **The full mask,** `scrubText(text, { fullMask: true })`, is for an error a run shows: on its record, in the console and in the model's view, which have more readers than a log. A log line is never written with it.
+   - A Kindgi token becomes `[redacted]` whole, with no prefix and no last four.
+   - A URL's query or fragment value whose name looks secret becomes `[redacted]`, and its name stays. The name looks secret when it ends as a secret key does (rule 1), or with `signature` or `sig`, or is exactly `key`. So `?token=`, `#access_token=`, `X-Amz-Signature=`, a SAS `sig=` and `?key=` are masked, and `?sort_key=` and `?page=` aren't.
+   - `Bearer` and a URL's password read as in rule 2.
 
 Pass a secret's *name*, never its value: redaction is the safety net, not the rule.
+
+## An error's causes: `describeCauses`
+
+`describeCauses(err)` is what an error's causes add to its message: `''` when it has none, else `; caused by <Name> [<code>]: <message>` for each. So a failed `fetch` says why:
+
+```ts
+import { describeCauses } from '@kindgi/log';
+
+try {
+  await fetch('https://shop.acme.example/orders');
+} catch (err) {
+  throw new Error(`Listing orders failed: ${(err as Error).message}${describeCauses(err)}`);
+  // Listing orders failed: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)
+}
+```
+
+- **Three causes at most** are looked at. One whose message the message above it already holds (its code too, when it has one) is passed over, so fewer may be said.
+- **An `AggregateError` with an empty message** says its errors: `AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:4000, connect ECONNREFUSED 127.0.0.1:4000`.
+- **A plain object** with a `message` or a `code` is said like an error, but its own `cause` isn't looked at, since a storage error's can carry a query's values.
+- **Each cause is masked with the full mask, made one line, and cut at 500 characters.** The cut never lands inside a word.
+- **A value that isn't an error has no causes.** It never throws.
+
+A tool's error already says its causes: the handler runtime and `invokeTool` use it.
 
 ## Trace context
 

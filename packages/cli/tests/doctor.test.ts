@@ -331,15 +331,31 @@ describe('the machine', () => {
     );
   });
 
-  test('no pull access: the fix is the registry login, the token piped in', async () => {
-    const { check } = await doctor({ seam: seam({ docker: dockerThat('no-access') }) });
+  test("no pull access on another registry: the fix is that registry's login, the token piped in", async () => {
+    const { check } = await doctor({
+      seam: {
+        ...seam({ docker: dockerThat('no-access') }),
+        image: 'quay.io/kindgi/runtime:1.0.0@sha256:abc',
+      },
+    });
     expect(check('registry')).toMatchObject({ status: 'fail' });
     expect(check('registry')?.fix).toMatch(
-      /npx @kindgi\/cli@\S+ auth registry --username <your robot name> --password-stdin/,
+      /^Log Docker in with your username and token for quay\.io: npx @kindgi\/cli@\S+ auth registry --username <username> --registry quay\.io --password-stdin \(pipe the token in, never paste it into a chat\)\. Then run doctor again\.$/,
     );
-    expect(check('registry')?.fix).toContain(
-      'the robot name and the token are on https://access.kindgi.com once you sign in with GitHub',
+  });
+
+  test("no pull access on Kindgi's registry: the fix is the license key, piped in", async () => {
+    const { check } = await doctor({
+      seam: {
+        ...seam({ docker: dockerThat('no-access') }),
+        image: 'registry.kindgi.com/kindgi/runtime:1.0.0@sha256:abc',
+      },
+    });
+    expect(check('registry')).toMatchObject({ status: 'fail' });
+    expect(check('registry')?.fix).toMatch(
+      /^Log Docker in with your license key: npx @kindgi\/cli@\S+ auth registry --password-stdin \(your license key is on https:\/\/access\.kindgi\.com once you sign in; pipe it in, never paste it into a chat\)\. Then run doctor again\.$/,
     );
+    expect(check('registry')?.fix).not.toContain('robot');
   });
 
   test("a credential helper Docker can't run: named, with the fix, not a network problem", async () => {

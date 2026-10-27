@@ -19,5 +19,7 @@ export default {
     secrets: ctx.secrets ?? {},
     config: ctx.config ?? {},
     ...(ctx.settings !== undefined && { settings: ctx.settings }),
+    ...(ctx.connections !== undefined &&
+      Object.keys(ctx.connections).length > 0 && { connections: ctx.connections }),
   }),
 };

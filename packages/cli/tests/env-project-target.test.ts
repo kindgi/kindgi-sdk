@@ -153,8 +153,15 @@ afterEach(async () => {
   await rm(packDir, { recursive: true, force: true });
 });
 
-/** A runtime answering whoami with `served` and the projects with `projects`, recording each call. */
-function runtime(served: ServedEnv | undefined, projects: readonly unknown[] = PROJECTS) {
+/**
+ * A runtime answering whoami with `served`, the projects with `projects` and
+ * an env value read with `existing`, recording each call.
+ */
+function runtime(
+  served: ServedEnv | undefined,
+  projects: readonly unknown[] = PROJECTS,
+  existing: unknown = null,
+) {
   const calls: [string, Record<string, unknown>][] = [];
   const record =
     (op: string, answer: (input: Record<string, unknown>) => unknown) =>
@@ -180,11 +187,12 @@ function runtime(served: ServedEnv | undefined, projects: readonly unknown[] = P
       list: record('secrets.list', () => ({ data: [] })),
     },
     env: {
-      get: record('env.get', () => null),
+      get: record('env.get', () => existing),
       set: record('env.set', (input) => ({ kind: 'ok', record: { ...input, revision: 1 } })),
       list: record('env.list', () => ({
         data: [{ name: 'ACME_REGION', value: 'eu', revision: 1, updatedAt: 'x' }],
       })),
+      delete: record('env.delete', () => ({ deleted: true })),
     },
     providers: {
       register: record('providers.register', (input) => ({
@@ -438,6 +446,55 @@ describe('kindgi env: --env naming a pack environment, on a runtime that keeps i
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing required flag: --scope=<kind>[:id].');
     expect(sentTo(rt, 'env.list')).toEqual([]);
+  });
+
+  test('--quiet: set, list, unset and pull say nothing, the environment line too; a refused set still names it', async () => {
+    const rt = runtime(REFUSES);
+    const done = [
+      await cli(rt, [
+        'env',
+        'set',
+        'ACME_REGION',
+        'eu',
+        '--env=staging-1',
+        '--scope=project',
+        '--quiet',
+      ]),
+      await cli(rt, ['env', 'list', '--env=staging-1', '--scope=project', '--quiet']),
+      await cli(rt, [
+        'env',
+        'unset',
+        'ACME_REGION',
+        '--env=staging-1',
+        '--scope=project',
+        '--quiet',
+      ]),
+      await cli(rt, ['env', 'pull', '--env=staging-1', '--quiet']),
+    ];
+    for (const out of done) expect([out.exitCode, out.stdout, out.stderr]).toEqual([0, '', '']);
+    for (const op of ['env.set', 'env.list', 'env.delete']) {
+      expect(sentTo(rt, op)).toEqual(
+        op === 'env.list' ? [AT_STAGING_1, AT_STAGING_1] : [AT_STAGING_1],
+      );
+    }
+    expect([...files.keys()]).toEqual([`${packDir}/.env.staging-1`]);
+
+    const set = runtime(REFUSES, PROJECTS, { name: 'ACME_REGION', value: 'us', revision: 3 });
+    const refused = await cli(set, [
+      'env',
+      'set',
+      'ACME_REGION',
+      'eu',
+      '--env=staging-1',
+      '--scope=project',
+      '--quiet',
+    ]);
+    expect([refused.exitCode, refused.stdout, refused.stderr]).toEqual([
+      1,
+      '',
+      `${NOTE}kindgi env set refuses to change ACME_REGION, already set at project:${STAGING_1} in env prod to "us". Re-run with --force to replace it.\n`,
+    ]);
+    expect(sentTo(set, 'env.set')).toEqual([]);
   });
 
   test('a credential set this way is pointed to `kindgi secrets set` with the same --env', async () => {

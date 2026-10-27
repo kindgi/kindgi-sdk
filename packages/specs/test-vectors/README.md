@@ -12,6 +12,20 @@ A signed export, one file per algorithm, replayed by the TypeScript and Python c
 
 The envelopes follow [`signed-export.schema.json`](../schemas/signed-export.schema.json).
 
+## `strict-schemas/`
+
+JSON Schemas a pack may declare (a tool's input or output, a `needsSpec` entry), and what the runtime's strict compile says to each. An SDK that checks a schema where it's declared replays them, so a schema it lets through is one the runtime compiles.
+
+- `corpus.json` — the schemas, by name, in two groups. A `parity` case's answer is one an SDK must give word for word. An `unchecked` case is a refusal the SDKs don't model: the runtime refuses it, and an SDK may let it through.
+- `answers.json` — for each case, `null` when the runtime compiles the schema, or the reason it refuses it. `node scripts/strict-schemas-oracle.mjs` writes it from the runtime's own compile, and CI fails when it's stale.
+
+## `regexp-syntax/`
+
+Regular-expression sources, and what Node's `RegExp` says to each, with the `u` flag and with no flags. An SDK that checks a pattern's syntax where it's declared replays them, so a pattern it lets through is one Node compiles.
+
+- `corpus.json` — the sources, by name. A source is a string, or a list of parts joined in order, where a part is a string or `[string, times]`: `[["()", 32768]]` is 32768 empty groups. A lone surrogate is written as a `\uXXXX` escape, and a reader must keep it as it is.
+- `answers.json` — for each case, `{ "u": …, "plain": … }`: what `new RegExp(source, "u")` and `new RegExp(source)` say. Each is `null` when the source compiles, or the reason Node gives, without its `Invalid regular expression: /<source>/<flags>: ` prefix. `node scripts/regexp-syntax-oracle.mjs` writes it from the RegExp of the Node it runs on (the Node of the runtime's image, which CI checks the answers on), and `--check` fails when it's stale.
+
 ## `open-values/`
 
 A request body holding a value the client doesn't know: an enum value, a union variant, or text in a union of known text and objects, as a newer runtime may send one. A client reads such a value and keeps it, but must refuse it before sending, so the server never gets the request. `cases.json` lists the cases:

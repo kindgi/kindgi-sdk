@@ -5,11 +5,12 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
-import { type Action, type ResourceRef, ref } from '@kindgi/authz';
+import { type Action, type ResourceRef, ref, targetAccess } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { callerRef } from '../caller.js';
+import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -35,11 +36,23 @@ import { parseImproveScheduleInput } from './improvement-passes.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import {
+  type OwnedTrigger,
+  type OwnerFacts,
   type TriggerOwnerNames,
+  type TriggerOwnerNotices,
+  isTriggerAdmin,
+  namesAnOwner,
+  noteChangeForOwner,
+  ownerCannotRunRefusal,
   ownerJson,
   ownerNamesOf,
+  ownerRequestOf,
+  ownerRuleRefused,
+  personalTriggerRefusal,
   recordOwnerSet,
   resolveTriggerOwner,
+  tellTakenOver,
+  triggerAdminRefusal,
   triggerOwnerDeps,
 } from './trigger-owners.js';
 import {
@@ -65,13 +78,23 @@ import { UUID_RE } from './uuid-param.js';
  *   POST /v1/schedules/:triggerId/owner         the caller becomes the owner
  *
  * A schedule's runs act as its owner (whoever registered it, until an
- * admin takes it over), checked again at every fire. With an authorizer:
- * reads need `read` on the schedule's project, changes `write`, taking
- * ownership `admin`, and registering or retargeting also needs `execute`
- * on what it runs, as starting that run does. The `triggerId` is aliased
- * as `scheduleId` in bodies. `toolsAllowedUnattended` (`trigger-tools.ts`)
- * takes `admin` on its project to set or change, at register too, and a
- * new target while it lists any must name it again.
+ * admin takes it over), checked again at every fire. No change moves the
+ * owner; only a take-over does. With an authorizer: reads need `read` on
+ * the schedule's project, changes `write`, taking ownership `admin`, and
+ * registering or retargeting also needs `execute` on what it runs, as
+ * starting that run does. The `triggerId` is aliased as `scheduleId` in
+ * bodies. `toolsAllowedUnattended` (`trigger-tools.ts`) takes `admin` on
+ * its project to set or change, at register too, and a new target while
+ * it lists any must name it again.
+ *
+ * Personal or shared (`trigger-owners.ts`): a schedule a person owns is
+ * personal, and only they (holding `write`) or a project admin may change,
+ * pause, resume, fire or delete it. One a service account owns is shared:
+ * its target or version, its input and its tool list take a project admin
+ * to change, and the rest is the project's writers'. Without an
+ * authorizer, a project admin is a tenant-admin key. A project admin's
+ * change to a personal schedule is audited (`trigger-changed-for-owner`),
+ * and its owner told (`ownerNotices`).
  *
  * What it runs, when more than one project serves it (`item-rights.ts`):
  * from a schedule in one of them, that project's right, as a run naming
@@ -92,8 +115,19 @@ export function schedulesRouter(
   itemRights?: ItemRights,
   /** Where a target's agents and flows are read, to check `toolsAllowedUnattended`; absent → a list is refused. */
   targetTools?: TargetToolsDeps,
+  /** Who tells a person what a project admin did to their schedule; absent → only audited. */
+  ownerNotices?: TriggerOwnerNotices,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /** A schedule as the owner rule reads it. */
+  const owned = (row: CronTriggerRecord): OwnedTrigger => ({
+    tenantId: row.tenantId,
+    triggerId: row.triggerId as unknown as string,
+    projectId: row.projectId as unknown as string,
+    label: row.label,
+    owner: row.owner,
+  });
 
   const ownerNames = (tenantId: TenantId, rows: readonly CronTriggerRecord[]) =>
     ownerNamesOf(
@@ -220,10 +254,7 @@ export function schedulesRouter(
     // What its runs may call without a person's yes: a project admin's to
     // set, and only tools its target calls.
     if (tools.kind === 'ok') {
-      const notAdmin =
-        project === undefined
-          ? undefined // a tenant admin already, above
-          : await denied(c, 'admin', ref('project', project));
+      const notAdmin = await triggerAdminRefusal(c, authorizer, project, TOOLS_TAKE_ADMIN);
       if (notAdmin !== undefined) return notAdmin;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
@@ -234,15 +265,15 @@ export function schedulesRouter(
       if (problem !== undefined) return bad(c, requestId, problem);
     }
 
-    // Who its runs act as: the caller, or the service account named with
-    // `runAsServiceAccountId` (gated by `act_as`; see `resolveTriggerOwner`).
-    const runAsRaw = body.runAsServiceAccountId;
-    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
-      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
-    }
+    // Who its runs act as: the caller, the service account named with
+    // `runAsServiceAccountId` (gated by `act_as`), or the project's own
+    // account with `runAsProject` (a project admin's; see `resolveTriggerOwner`).
+    const ownerRequest = ownerRequestOf(body, project);
+    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
     const resolved = await resolveTriggerOwner(
       c,
-      runAsRaw as string | undefined,
+      ownerRequest,
+      target.value,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -273,7 +304,7 @@ export function schedulesRouter(
     }
     // A named service-account owner is a delegation: audit it. A plain
     // register (owner = caller) is the schedule's creation, not a change.
-    if (runAsRaw !== undefined) {
+    if (namesAnOwner(ownerRequest)) {
       await recordOwnerSet({
         auditEvents,
         tenantId,
@@ -284,6 +315,7 @@ export function schedulesRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...(resolved.projectAccount === true && { projectAccount: true }),
       });
     }
     if (tools.kind === 'ok' && tools.value.length > 0) {
@@ -399,6 +431,14 @@ export function schedulesRouter(
 
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
+    const notOwners = await personalTriggerRefusal(
+      c,
+      authorizer,
+      names,
+      owned(found.value),
+      'schedule',
+    );
+    if (notOwners !== undefined) return notOwners;
     if (target !== undefined) {
       const scopeProblem = improveScopeProblem(
         target.value,
@@ -437,10 +477,11 @@ export function schedulesRouter(
       );
     }
     if (tools.kind === 'ok') {
-      const notAdmin = await denied(
+      const notAdmin = await triggerAdminRefusal(
         c,
-        'admin',
-        ref('project', found.value.projectId as unknown as string),
+        authorizer,
+        found.value.projectId as unknown as string,
+        TOOLS_TAKE_ADMIN,
       );
       if (notAdmin !== undefined) return notAdmin;
       const problem = await toolsAllowedUnattendedProblem(
@@ -481,20 +522,31 @@ export function schedulesRouter(
       ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
     };
 
-    const result = await binding.update(updateInput);
-    if (result.kind === 'err') {
-      c.status(statusFor(result.error.code) as never);
-      return c.json(
-        toWireError(
-          {
-            code: result.error.code,
-            message: result.error.message,
-            triggerId: triggerId as unknown as string,
-          },
-          requestId,
-        ),
-      );
+    // What it runs: its target or version, its input, its tool list. On a
+    // shared schedule (or one with no owner) a project admin's to change;
+    // the label, the cron line and the policies stay the writers'.
+    const fields = changedFields(found.value, body, target?.value, cfg, policy.value, kept, tools);
+    const changesWhatItRuns = fields.some((field) => WHAT_IT_RUNS.has(field));
+    if (
+      found.value.owner.kind !== 'user' &&
+      changesWhatItRuns &&
+      !(await isTriggerAdmin(c, authorizer, found.value.projectId as unknown as string))
+    ) {
+      return ownerRuleRefused(c, authorizer, names, owned(found.value), 'schedule');
     }
+    // The owner stays, so a new target must be one it can run, or every fire is refused.
+    if (target !== undefined && retargeted) {
+      const cannot = await ownerCannotRunRefusal(
+        c,
+        authorizer,
+        names,
+        found.value.owner,
+        target.value,
+      );
+      if (cannot !== undefined) return cannot;
+    }
+    const result = await binding.update(updateInput);
+    if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     // A change of the list is audited; so is a new target it names again.
     if (
       tools.kind === 'ok' &&
@@ -516,6 +568,17 @@ export function schedulesRouter(
         log: c.get('log'),
       });
     }
+    await noteChangeForOwner(c, {
+      auditEvents,
+      notices: ownerNotices,
+      trigger: owned(found.value),
+      triggerKind: 'cron',
+      change: 'updated',
+      fields,
+      ...(fields.includes('target') && {
+        target: { before: targetFields(found.value.target), after: targetFields(nextTarget) },
+      }),
+    });
     return scheduleJson(c, result.value as CronTriggerRecord);
   });
 
@@ -525,9 +588,24 @@ export function schedulesRouter(
       const requestId = c.get('requestId');
       const found = await scheduleFor(c, 'write');
       if (found.kind === 'err') return found.response;
+      const notOwners = await personalTriggerRefusal(
+        c,
+        authorizer,
+        names,
+        owned(found.value),
+        'schedule',
+      );
+      if (notOwners !== undefined) return notOwners;
       const { tenantId, triggerId } = found.value;
       const result = await binding[verb]({ tenantId, triggerId });
       if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
+      await noteChangeForOwner(c, {
+        auditEvents,
+        notices: ownerNotices,
+        trigger: owned(found.value),
+        triggerKind: 'cron',
+        change: verb === 'pause' ? 'paused' : 'resumed',
+      });
       return scheduleJson(c, result.value as CronTriggerRecord);
     });
   }
@@ -536,8 +614,25 @@ export function schedulesRouter(
   r.post('/:triggerId/unregister', async (c) => {
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
+    const notOwners = await personalTriggerRefusal(
+      c,
+      authorizer,
+      names,
+      owned(found.value),
+      'schedule',
+    );
+    if (notOwners !== undefined) return notOwners;
     const { tenantId, triggerId } = found.value;
     const outcome = await binding.unregister({ tenantId, triggerId });
+    if (outcome.unregistered) {
+      await noteChangeForOwner(c, {
+        auditEvents,
+        notices: ownerNotices,
+        trigger: owned(found.value),
+        triggerKind: 'cron',
+        change: 'unregistered',
+      });
+    }
     return c.json({
       scheduleId: triggerId as unknown as string,
       unregistered: outcome.unregistered,
@@ -569,10 +664,25 @@ export function schedulesRouter(
     const requestId = c.get('requestId');
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
+    const notOwners = await personalTriggerRefusal(
+      c,
+      authorizer,
+      names,
+      owned(found.value),
+      'schedule',
+    );
+    if (notOwners !== undefined) return notOwners;
     if (binding.fireNow === undefined) return unsupported(c, requestId, 'run-now');
     const { tenantId, triggerId } = found.value;
     const result = await binding.fireNow({ tenantId, triggerId });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
+    await noteChangeForOwner(c, {
+      auditEvents,
+      notices: ownerNotices,
+      trigger: owned(found.value),
+      triggerKind: 'cron',
+      change: 'fired',
+    });
     c.status(202);
     return c.json(serializeFire(result.value));
   });
@@ -580,8 +690,15 @@ export function schedulesRouter(
   // ---------- POST /:triggerId/owner (take ownership) ----------
   r.post('/:triggerId/owner', async (c) => {
     const requestId = c.get('requestId');
-    const found = await scheduleFor(c, 'admin');
+    const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
+    const notAdmin = await triggerAdminRefusal(
+      c,
+      authorizer,
+      found.value.projectId as unknown as string,
+      'Taking a schedule over takes a project admin.',
+    );
+    if (notAdmin !== undefined) return notAdmin;
     if (binding.setOwner === undefined) return unsupported(c, requestId, 'changing the owner');
     const refused = await targetRefused(
       c,
@@ -590,7 +707,8 @@ export function schedulesRouter(
     );
     if (refused !== undefined) return refused;
     // The caller takes it over, or names a service account with
-    // `runAsServiceAccountId` in an optional body (gated by `act_as`).
+    // `runAsServiceAccountId` in an optional body (gated by `act_as`), or
+    // the project's own account with `runAsProject`.
     const parsed = await parseJsonObject(c, requestId, { allowEmpty: true });
     if (parsed.kind === 'err') return parsed.response;
     if ('toolsAllowedUnattended' in parsed.value) {
@@ -600,13 +718,15 @@ export function schedulesRouter(
         "a take-over keeps the schedule's `toolsAllowedUnattended`: change it with PATCH",
       );
     }
-    const runAsRaw = parsed.value.runAsServiceAccountId;
-    if (runAsRaw !== undefined && (typeof runAsRaw !== 'string' || runAsRaw.length === 0)) {
-      return bad(c, requestId, '`runAsServiceAccountId` must be a service-account id');
-    }
+    const ownerRequest = ownerRequestOf(
+      parsed.value,
+      found.value.projectId as unknown as string | undefined,
+    );
+    if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
     const resolved = await resolveTriggerOwner(
       c,
-      runAsRaw as string | undefined,
+      ownerRequest,
+      found.value.target,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -629,11 +749,52 @@ export function schedulesRouter(
       ...(found.value.toolsAllowedUnattended !== undefined && {
         toolsAllowedUnattended: found.value.toolsAllowedUnattended,
       }),
+      ...(resolved.projectAccount === true && { projectAccount: true }),
     });
+    tellTakenOver(c, ownerNotices, owned(found.value), 'cron');
     return scheduleJson(c, result.value as CronTriggerRecord);
   });
 
   return r;
+}
+
+/** The 403 message for a tool list set by anyone but a project admin. */
+const TOOLS_TAKE_ADMIN = "Setting a schedule's tools allowed unattended takes a project admin.";
+
+/** The fields that say what a schedule runs (`changedFields`). */
+const WHAT_IT_RUNS: ReadonlySet<string> = new Set(['target', 'input', 'toolsAllowedUnattended']);
+
+/**
+ * The wire names of the fields a PATCH changes, the same value sent again
+ * not counted: `target` (what it runs, or its version), `input`,
+ * `toolsAllowedUnattended`, `label`, `cronExpression`, `timezone`, and
+ * each policy's. Names only: an audit entry and an owner's notice carry
+ * them, never their values.
+ */
+function changedFields(
+  row: CronTriggerRecord,
+  body: Record<string, unknown>,
+  target: TriggerTarget | undefined,
+  cfg: Partial<{ cronExpression: string; timezone: string; input: unknown }>,
+  policy: Partial<Pick<CronTriggerRecord, 'catchUp' | 'overlap' | 'startingDeadlineSeconds'>>,
+  kept: readonly string[],
+  tools: ReturnType<typeof parseToolsAllowedUnattended>,
+): string[] {
+  const changed: [string, boolean][] = [
+    ['target', target !== undefined && !sameJson(target, row.target)],
+    ['input', 'input' in cfg && !sameJson(cfg.input, row.config.input)],
+    ['toolsAllowedUnattended', tools.kind === 'ok' && !sameToolList(kept, tools.value)],
+    ['label', 'label' in body && (body.label ?? null) !== row.label],
+    [
+      'cronExpression',
+      (cfg.cronExpression ?? row.config.cronExpression) !== row.config.cronExpression,
+    ],
+    ['timezone', (cfg.timezone ?? row.config.timezone) !== row.config.timezone],
+    ...(['catchUp', 'overlap', 'startingDeadlineSeconds'] as const).map(
+      (key): [string, boolean] => [key, (policy[key] ?? row[key]) !== row[key]],
+    ),
+  ];
+  return changed.filter(([, yes]) => yes).map(([name]) => name);
 }
 
 // -----------------------------------------------------------------------
@@ -657,7 +818,7 @@ function targetFields(target: TriggerTarget): Record<string, unknown> {
 
 function serializeSchedule(
   r: CronTriggerRecord,
-  names: ReadonlyMap<string, string> = new Map(),
+  names: ReadonlyMap<string, OwnerFacts> = new Map(),
 ): Record<string, unknown> {
   return {
     scheduleId: r.triggerId as unknown as string,
@@ -701,22 +862,6 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     ...(f.missedCount !== undefined && { missedCount: f.missedCount }),
     ...(f.manual === true && { manual: true }),
   };
-}
-
-/**
- * What firing the target needs, as starting it by hand does: `execute` on
- * the agent or flow a run starts; `publish` on the agent an improvement
- * pass works on (as `POST /v1/proposals/improve`).
- */
-function targetAccess(target: TriggerTarget): [Action, ResourceRef] {
-  switch (target.kind) {
-    case 'flow':
-      return ['execute', ref('flow', target.flowId)];
-    case 'agent':
-      return ['execute', ref('agent', target.agentId)];
-    case 'improve':
-      return ['publish', ref('agent', target.agentId)];
-  }
 }
 
 /** `flowId` + `flowVersion`, `agentId` (+ `agentVersion`), or `improve`: exactly one target. */

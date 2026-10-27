@@ -96,7 +96,7 @@ def test_a_pack_indexes_to_the_spec(make_pack: Callable[..., Path]) -> None:
     root = full_pack(make_pack)
     report, index = index_of(root)
     assert report["fileErrors"] == []
-    assert report["counts"] == {"tools": 2, "guardrails": 1, "agents": 1, "flows": 1}
+    assert report["counts"] == {"tools": 2, "guardrails": 1, "agents": 1, "flows": 1, "blocks": 0}
     assert _spec("pack-index").issues(index) == []
     assert [t["id"] for t in index["tools"]] == ["acme.shout", "acme.whisper"]
     shout, whisper = index["tools"]
@@ -478,6 +478,18 @@ def read(input: Q) -> Q:
     return input
 
 
+@tool(id="acme.mail", mutating=False, result_is_outside_data=True)
+def mail(input: Q) -> Q:
+    "Reads mail."
+    return input
+
+
+@tool(id="acme.local", mutating=False, result_is_outside_data=False)
+def local(input: Q) -> Q:
+    "Reads local data."
+    return input
+
+
 @tool(id="acme.unsaid")
 def unsaid(input: Q) -> Q:
     "Says nothing about it."
@@ -488,6 +500,7 @@ charge = http_tool(
     id="acme.charge", description="Charges.", input=Q, output=Q,
     method="POST", url_template="https://api.example.com/{q}",
     needs_approval_when_unattended=True,
+    result_is_outside_data=True,
 )
 """
 
@@ -504,6 +517,20 @@ def test_the_index_carries_needs_approval_when_unattended_as_declared(
     assert by_id["acme.read"]["needsApprovalWhenUnattended"] is False
     assert "needsApprovalWhenUnattended" not in by_id["acme.unsaid"]  # absent: it needs no approval
     assert by_id["acme.charge"]["needsApprovalWhenUnattended"] is True
+
+
+def test_the_index_carries_result_is_outside_data_as_declared(
+    make_pack: Callable[..., Path],
+) -> None:
+    root = make_pack({"tools/q.py": APPROVAL_TOOLS})
+    report, index = index_of(root)
+    assert report["fileErrors"] == []
+    assert _spec("pack-index").issues(index) == []
+    by_id = {t["id"]: t for t in index["tools"]}
+    assert by_id["acme.mail"]["resultIsOutsideData"] is True
+    assert by_id["acme.local"]["resultIsOutsideData"] is False
+    assert "resultIsOutsideData" not in by_id["acme.unsaid"]  # absent: results are not outside data
+    assert by_id["acme.charge"]["resultIsOutsideData"] is True
 
 
 def _guardrail(id: str, check_id: str | None = None) -> str:

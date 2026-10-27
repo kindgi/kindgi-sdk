@@ -291,7 +291,7 @@ export function movesText(
     }
   }
   lines.push(
-    `Test sets don't move: ${route.to} reads the ones made in ${route.from}, as it reads those of every environment before it in the order.`,
+    `Test cases don't move: ${route.to} reads the ones made in ${route.from}, as it reads those of every environment before it in the order.`,
   );
   return `${lines.join('\n')}\n`;
 }

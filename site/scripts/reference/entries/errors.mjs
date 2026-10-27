@@ -17,11 +17,16 @@
 export const ERROR_ENTRIES = {
   'validation-failed': {
     description:
-      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or eval suite definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend.",
+      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or eval suite definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/proposals/improve`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
     details: [
       {
         key: 'issues',
         meaning: 'list of problems, each with a path to the offending field and a message',
+      },
+      {
+        key: 'reason',
+        meaning:
+          "on `POST /v1/proposals/improve`, why the version has nothing for the Improve run to work on: `no-tunable-keys`, or `no-pinned-prompt-block` for a run on the agent's instructions (the `prompt` tier); other refusals leave it out",
       },
     ],
   },
@@ -485,7 +490,7 @@ export const ERROR_ENTRIES = {
     details: [
       {
         key: 'conversationId',
-        meaning: 'the conversation (new turn only)',
+        meaning: 'the conversation',
       },
       {
         key: 'expectedVersion',
@@ -550,7 +555,7 @@ export const ERROR_ENTRIES = {
   },
   'run-erased': {
     description:
-      "An erasure cleared the run's content (a person's words were removed), so there is nothing to judge or replay.",
+      "An erasure cleared the run's content (a person's words were removed), so there is nothing to correct or replay.",
     details: [],
   },
   'flow-gone': {
@@ -599,15 +604,28 @@ export const ERROR_ENTRIES = {
   },
   'tool-already-registered': {
     description:
-      "The tool id and version you're publishing already exist. Published versions are immutable, so publish under a new version number.",
+      "The tool id and version you're publishing already exist. Published versions are immutable, so publish under a new version number. On a deployment, the runtime holds a version of the pack's tool, active or unregistered, with another definition: give the tool a new version in the pack. The message names the fields that differ.",
     details: [
       {
         key: 'toolId',
-        meaning: "the tool's id",
+        meaning: "the tool's id (single publish)",
       },
       {
         key: 'version',
-        meaning: 'the version that is already registered',
+        meaning: 'the version that is already registered (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`tool`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused tool, as `id@version`',
+      },
+      {
+        key: 'fields',
+        meaning:
+          "on a deployment: the fields of the tool's definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack",
       },
     ],
   },
@@ -929,7 +947,8 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'limit',
-        meaning: "the agent's cap",
+        meaning:
+          "the cap reached: the agent's own, or, for steps, 32 when its `maxSteps` is higher, since a turn makes at most 32 model calls",
       },
       {
         key: 'observed',
@@ -1007,6 +1026,25 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/agents/agent-and-tool-versions'],
   },
+  'block-unresolvable': {
+    description:
+      "A data block the agent uses (its prompt, settings or model settings) can't be loaded: no published version matches its version range, the pinned version is gone, it's the other kind of block, or the runtime serves no blocks. Under `kindgi dev`, blocks come only from the pack's files: add the block under the pack's blocks folder, at a version the range takes.",
+    details: [
+      {
+        key: 'blockId',
+        meaning: 'the block',
+      },
+      {
+        key: 'requestedRange',
+        meaning: 'the version range or pin the agent asked for',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['guides/evals/change-a-prompt-or-setting'],
+  },
   'tool-invocation-failed': {
     description:
       "A tool the agent called failed, and the agent's tool-error policy didn't let the model recover. The message carries the tool's own error.",
@@ -1072,7 +1110,38 @@ export const ERROR_ENTRIES = {
   },
   'run-resume-not-supported': {
     description:
-      "Resuming a run at a waitpoint through `POST /v1/runs/{runId}/resume` isn't available. A run waiting for an approval continues when a reviewer decides it.",
+      "Resuming a run at this waitpoint through `POST /v1/runs/{runId}/resume` isn't available. Only a run paused until another system answers (a `pause:` waitpoint) resumes there, on a server that pauses runs. A run waiting for an approval continues when a reviewer decides it.",
+    details: [],
+  },
+  'wait-token-not-found': {
+    description:
+      "No open wait matches: the link's token is unknown (a wrong or mistyped link answers the same), or the run doesn't wait at the `waitpointId` you named. A run's open waits are in `waitingFor.tokens` on `GET /v1/runs/{runId}`.",
+    details: [],
+  },
+  'wait-token-closed': {
+    description:
+      'The wait is over, so it takes no other answer: it already took a different answer, its time passed, its run was cancelled, or its tool call answered without waiting or was retried and waits on a new link. Sending the answer it took again is accepted, not refused.',
+    details: [
+      {
+        key: 'state',
+        meaning:
+          'why the wait is over: `answered` or `completed` (it took a different answer), `timed-out`, `cancelled` or `unused`',
+      },
+    ],
+  },
+  'wait-token-output-invalid': {
+    description:
+      "The answer doesn't fit the output schema of the tool that waits for it. Nothing is taken and the wait stays open: fix the answer and send it again before the wait times out.",
+    details: [
+      {
+        key: 'issues',
+        meaning: 'list of problems, each with a path to the offending field and a message',
+      },
+    ],
+  },
+  'unsupported-media-type': {
+    description:
+      "The body isn't JSON where the route takes JSON alone: an answer to a wait (`POST /v1/wait-tokens/{token}/complete`) is sent with `Content-Type: application/json`, or with no body at all.",
     details: [],
   },
   'semantic-unavailable': {
@@ -1087,7 +1156,7 @@ export const ERROR_ENTRIES = {
   },
   'rate-limit-exceeded': {
     description:
-      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
+      "You sent too many requests, or a tenant reached one of its limits: a webhook trigger got more deliveries than its per-minute limit, a client sent too many refused webhook requests, too many sign-in lookups came from one source, a client sent wait tokens' links more than 600 requests in a minute, or the tenant reached its limit on API requests or webhook deliveries a minute, or on runs waiting to start. A tenant's API requests to `/v1` and `/s3` count together; on `/s3`, its limit answers as S3 does, with `503 SlowDown` and `Retry-After`, not with this code. On a server with budgets kept per tenant (Kindgi Cloud), it's also the answer when the tenant's schemas took their budget compiling, or its instructions templates rendering, in the last 60 seconds; an agent's turn refused this way fails its run with this code. A deploy is refused with it too when the tenant's image reads unpacked as much as they may in an hour. Retry after the `Retry-After` header; a refusal by the limit on runs waiting to start has none: retry once some have started.",
     details: [
       {
         key: 'limit',
@@ -1112,7 +1181,7 @@ export const ERROR_ENTRIES = {
   },
   'approvals-pending-limit': {
     description:
-      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A promotion whose gate wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
+      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to make a version live whose release gate policy wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
     details: [
       {
         key: 'approvalsPending',
@@ -1360,58 +1429,59 @@ export const ERROR_ENTRIES = {
   },
   'proposal-not-found': {
     description:
-      "The improvement proposal doesn't exist in the tenant, or your key can't see its agent.",
+      "The suggested change doesn't exist in the tenant, or your key can't see its agent.",
     details: [
       {
         key: 'proposalId',
-        meaning: 'the proposal id that was looked up',
+        meaning: 'the suggested change id that was looked up',
       },
     ],
     seeAlso: ['guides/evals/propose-a-change'],
   },
   'proposal-invalid-state-transition': {
     description:
-      "The proposal's status doesn't allow this action, or it changed while the request ran. Read the proposal again and retry if it still applies.",
+      "The suggested change's status doesn't allow this action, or it changed while the request ran. Read the suggested change again and retry if it still applies.",
     details: [
       {
         key: 'proposalId',
-        meaning: 'the proposal id',
+        meaning: 'the suggested change id',
       },
       {
         key: 'status',
-        meaning: 'the proposal status that refused the action; absent when it changed mid-request',
+        meaning:
+          'the suggested change status that refused the action; absent when it changed mid-request',
       },
     ],
   },
   'proposal-needs-pin': {
     description:
-      'The agent has no live version for the whole tenant, so a new version would serve every scope nothing is pinned for. Promote its current version tenant-wide, then retry.',
+      'The agent has no live version for the whole tenant, so a new version would serve every scope nothing is pinned for. Make its current version live tenant-wide, then retry.',
     details: [],
   },
   'improve-unsupported': {
-    description: "This runtime doesn't run improvement passes.",
+    description: "This runtime doesn't run Improve.",
     details: [],
   },
   'improvement-pass-not-found': {
-    description: "The improvement pass doesn't exist, or your key can't read its agent.",
+    description: "The Improve run doesn't exist, or your key can't read its agent.",
     details: [
       {
         key: 'passId',
-        meaning: 'the pass id that was looked up',
+        meaning: 'the Improve run id that was looked up',
       },
     ],
     seeAlso: ['POST /v1/improvement-passes/{passId}/cancel'],
   },
   'improvement-pass-finished': {
-    description: 'The improvement pass has already ended, so there is nothing to cancel.',
+    description: 'The Improve run has already ended, so there is nothing to cancel.',
     details: [
       {
         key: 'passId',
-        meaning: 'the pass id',
+        meaning: 'the Improve run id',
       },
       {
         key: 'status',
-        meaning: 'the status the pass ended with',
+        meaning: 'the status the Improve run ended with',
       },
     ],
   },
@@ -1665,25 +1735,41 @@ export const ERROR_ENTRIES = {
   },
   'block-already-registered': {
     description:
-      'That block version is already published; versions never change, so publish a new version.',
+      "That block version is already published; versions never change, so publish a new version. On a deployment, the runtime holds a version of the pack's block with other content, or unregistered: give the block a new version in the pack, or reinstate the unregistered one (`kindgi blocks reinstate`). The message names each one.",
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
       },
       {
         key: 'version',
-        meaning: 'the version that exists',
+        meaning: 'the version that exists (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },
   'block-project-mismatch': {
     description:
-      'The block belongs to another project. Publish its versions in the project that owns it.',
+      'The block belongs to another project. Publish its versions, or deploy the pack that brings it, in the project that owns it.',
     details: [
       {
         key: 'blockId',
-        meaning: 'the block id',
+        meaning: 'the block id (single publish)',
+      },
+      {
+        key: 'primitive',
+        meaning: 'on a deployment: the kind of item refused (`block`)',
+      },
+      {
+        key: 'id',
+        meaning: 'on a deployment: the refused block, as `id@version`',
       },
     ],
   },
@@ -1733,7 +1819,7 @@ export const ERROR_ENTRIES = {
   },
   'eval-run-not-rescorable': {
     description:
-      "Only a completed comparison of a test set can be rescored; this eval run is of another kind or hasn't completed.",
+      "Only a completed run on the test cases can be rescored; this eval run is of another kind or hasn't completed.",
     details: [
       {
         key: 'runId',
@@ -1743,7 +1829,7 @@ export const ERROR_ENTRIES = {
   },
   'judgment-not-found': {
     description:
-      "No judgment exists with that id, or it's in a project your key can't read. Unregistering also needs it to be live.",
+      "No correction exists with that id, or it's in a project your key can't read. Unregistering also needs it to be live.",
     details: [],
     seeAlso: ['guides/evals/judge-a-runs-output'],
   },
@@ -1756,7 +1842,7 @@ export const ERROR_ENTRIES = {
     details: [],
   },
   'judging-item-not-found': {
-    description: "The run isn't in the project's judging queue.",
+    description: "The run isn't in the project's To correct list.",
     details: [],
   },
   'judging-item-not-open': {
@@ -1775,7 +1861,7 @@ export const ERROR_ENTRIES = {
   },
   'judge-class-not-allowed': {
     description:
-      "The judge class limits who may assert it, and your key or role isn't one of them, so you can't record a judgment as that class.",
+      "The judge class limits who may assert it, and your key or role isn't one of them, so you can't record a correction as that class.",
     details: [
       {
         key: 'action',
@@ -1797,7 +1883,7 @@ export const ERROR_ENTRIES = {
     details: [],
   },
   'promotion-not-found': {
-    description: 'No promotion with that id exists for this agent.',
+    description: "No entry with that id exists in this agent's go-live history.",
     details: [],
     seeAlso: ['guides/evals/release-an-agent-version'],
   },
@@ -1813,34 +1899,34 @@ export const ERROR_ENTRIES = {
   },
   'gate-failed': {
     description:
-      'A gate policy refused the promotion because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
+      'A release gate policy refused making the version live because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
     details: [
       {
         key: 'promotionId',
-        meaning: 'the recorded refused promotion',
+        meaning: 'the recorded refused request to make it live',
       },
       {
         key: 'policy',
-        meaning: 'the gate policy that applied (id and version), or null',
+        meaning: 'the release gate policy that applied (id and version), or null',
       },
       {
         key: 'checks',
-        meaning: 'every check the gate ran, with whether each passed',
+        meaning: 'every check the release gate policy ran, with whether each passed',
       },
       {
         key: 'proposalId',
-        meaning: 'the proposal, when the request came through a proposal',
+        meaning: 'the suggested change, when the request came through a suggested change',
       },
     ],
   },
   'promotion-superseded': {
     description:
-      "The scope's live version changed while the gate was running, so the check no longer applies. Check the promotion again against the new live version.",
+      "The scope's live version changed while the release gate policy was being checked, so the check no longer applies. Check the go-live again against the new live version.",
     details: [],
   },
   'promotion-gate-unsupported': {
     description:
-      "A gate policy applies to this promotion, and the deployment can't record a gated promotion, so the promotion is refused.",
+      "A release gate policy applies to this go-live, and the deployment can't record a gated go-live, so the go-live is refused.",
     details: [],
   },
   'separate-approver-required': {
@@ -1854,8 +1940,20 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/approvals/decide-an-approval'],
   },
+  'named-approver-required': {
+    description:
+      "The approval is addressed to one person: the call it gates acts with that person's own connection, so only they decide it. You can read it, but not decide it.",
+    details: [
+      {
+        key: 'approvalId',
+        meaning: 'the approval only its approver decides',
+      },
+    ],
+    seeAlso: ['guides/approvals/decide-an-approval'],
+  },
   'gate-policy-not-found': {
-    description: 'No gate policy with that id exists, or it has no version with that number.',
+    description:
+      'No release gate policy with that id exists, or it has no version with that number.',
     details: [
       {
         key: 'policyId',
@@ -1866,12 +1964,12 @@ export const ERROR_ENTRIES = {
   },
   'gate-policy-already-registered': {
     description:
-      'The gate policy already has a version with that number. Publish with a new version number.',
+      'The release gate policy already has a version with that number. Publish with a new version number.',
     details: [],
   },
   'gate-policy-scope-taken': {
     description:
-      'Another gate policy already gates this agent for the same scope. Publish a new version of that policy instead, or unregister it first.',
+      'Another release gate policy already gates this agent for the same scope. Publish a new version of that policy instead, or unregister it first.',
     details: [
       {
         key: 'heldBy',
@@ -1881,22 +1979,22 @@ export const ERROR_ENTRIES = {
   },
   'gate-policy-scope-changed': {
     description:
-      "A new version of a gate policy can't change the agent or the scope the policy gates. Create a new policy for the other agent or scope.",
+      "A new version of a release gate policy can't change the agent or the scope the policy gates. Create a new policy for the other agent or scope.",
     details: [],
   },
   'gate-policy-scope-unpinned': {
     description:
-      'The scope has no live version of its own, so the gate policy would not take effect. Pin a version for the scope first.',
+      'The scope has no live version of its own, so the release gate policy would not take effect. Pin a version for the scope first.',
     details: [],
   },
   'gate-policy-needs-pin': {
     description:
-      "The scope has a gate policy, and a gated scope keeps its own live version, so it can't be unpinned. Unregister the gate policy first, or roll back instead.",
+      "The scope has a release gate policy, and a gated scope keeps its own live version, so it can't be unpinned. Unregister the release gate policy first, or roll back instead.",
     details: [],
   },
   'gate-policy-descendant-unpinned': {
     description:
-      'The change would also move a narrower scope that a gate policy applies to and that has no live version of its own, bypassing its gate. Pin that scope at its current version first.',
+      'The change would also move a narrower scope that a release gate policy applies to and that has no live version of its own, bypassing that policy. Pin that scope at its current version first.',
     details: [],
   },
   'principal-not-found': {
@@ -2082,7 +2180,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-closing': {
     description:
-      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an improvement pass going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. So is an answer to one of its runs' waits through the wait token's link, and nothing is taken. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an Improve run going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2096,7 +2194,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-suspended': {
     description:
-      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or pass hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an improvement pass going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. An answer to one of its runs' waits through the wait token's link is refused with this code, and nothing is taken: a suspension cancels the tenant's runs, paused ones included. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or Improve run hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an Improve run going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2248,11 +2346,21 @@ export const ERROR_ENTRIES = {
   },
   'service-account-name-taken': {
     description:
-      'An active service account in this tenant already has that name. Choose another name.',
+      "An active service account in this tenant already has that name. Choose another name. With `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>`: a tenant admin can unregister it.",
     details: [],
   },
   'service-account-unregistered': {
     description: "The service account has been unregistered, so it can't be granted anything.",
+    details: [],
+  },
+  'trigger-owner-cannot-run-target': {
+    description:
+      "A trigger's owner can't run what the trigger starts: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule. Checked only with an authorization store, at two points. When a schedule, webhook or mail trigger names a service account to run as (`runAsServiceAccountId`), on create or take-over: give the account the editor role on the target's project, or name another account. When it's to run as the project's own account (`runAsProject`), which runs only what the project's editors can: run it as a service account that can, or own it yourself. And when a schedule's or mail trigger's target changes, since its owner stays: the owner, a service account or a person, must be able to run the new one (not checked when you're the owner, or when the owner was unregistered or removed). A tenant admin can give an account the role (not the project's own account, whose role is fixed), or a project admin can take the trigger over first. The message names the owner and the target.",
+    details: [],
+  },
+  'service-account-project-owned': {
+    description:
+      "The service account is a project's own account, the account a trigger with `runAsProject` runs as. It has no keys, so none can be minted `for` it. Its grant is fixed, so it can't be granted or ungranted anything. A trigger can't name it in `runAsServiceAccountId`: name it with `runAsProject: true` instead. An app that needs keys needs a service account of its own.",
     details: [],
   },
   'identity-user-email-taken': {
@@ -2322,7 +2430,7 @@ export const ERROR_ENTRIES = {
   },
   'agent-version-live': {
     description:
-      "The version is live in one or more scopes, so it can't be unregistered. Roll back, unpin or promote another version there first.",
+      "The version is live in one or more scopes, so it can't be unregistered. Roll back, unpin or make another version live there first.",
     details: [
       {
         key: 'agentId',
@@ -2359,7 +2467,7 @@ export const ERROR_ENTRIES = {
   },
   'run-not-finished': {
     description:
-      "The run hasn't completed with an output, so there's nothing to judge. Wait until it completes.",
+      "The run hasn't completed with an output, so there's nothing to correct. Wait until it completes.",
     details: [],
   },
   'item-not-found': {
@@ -2368,7 +2476,7 @@ export const ERROR_ENTRIES = {
   },
   'test-sets-not-supported': {
     description:
-      "This deployment can't list judged runs, so it can't build test sets from judgments.",
+      "This deployment can't list corrected runs, so it can't build test cases from corrections.",
     details: [],
   },
   'run-failures-not-supported': {
@@ -2825,7 +2933,7 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an eval run started in it, an improvement pass for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or a pass already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or pass: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), an eval run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
     details: [
       {
         key: 'environment',
@@ -3575,6 +3683,128 @@ export const ERROR_ENTRIES = {
         meaning: 'the secret reference that was too weak (name and environment)',
       },
     ],
+  },
+  'connection-app-not-found': {
+    description:
+      'No app registration with that id in the tenant, or it was removed. On a connect, no registration of the app is set up, or none serves the project: a tenant admin adds one. A connect request whose registration has been removed since answers it too: start a new connect once a tenant admin sets the app up again. `GET /v1/connection-apps` lists the registrations.',
+    details: [
+      {
+        key: 'appId',
+        meaning: 'the registration id that was not found, when the call named it in its path',
+      },
+      {
+        key: 'field',
+        meaning:
+          'on a connect, the field that names the app (`app`, or `appId` when it named a registration)',
+      },
+    ],
+  },
+  'connection-not-found': {
+    description:
+      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected.",
+    details: [
+      {
+        key: 'connectionId',
+        meaning: 'the connection id that was not found',
+      },
+    ],
+  },
+  'connection-request-not-found': {
+    description:
+      "No connect request with that id that the caller can act on, or none for the sign-in that came back from the app. A person's connect request is that person's alone; the company's, a tenant admin's. Start a new connect.",
+    details: [
+      {
+        key: 'requestId',
+        meaning: 'the connect request id that was not found, when the call named one',
+      },
+      {
+        key: 'field',
+        meaning: '`state`, when the sign-in came back with no state',
+      },
+    ],
+  },
+  'connection-app-invalid': {
+    description:
+      "An app registration that doesn't fit its app's entry, or no registration that fits a connect. A project uses one registration of an app, so a registration that would serve a project another registration of the app serves answers it too (field `projects`). So does changing a registration's client (its client id, its directory, or its GitHub App) while it has live connections: disconnect them first, then change it and connect again. The message says what's wrong.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field at fault, when there is one',
+      },
+    ],
+  },
+  'connection-app-unknown-entry': {
+    description:
+      'A registration or a connect names an app this server has no entry for, or no longer has. `GET /v1/connection-entries` lists the apps it knows.',
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field that names the app (`app`)',
+      },
+    ],
+  },
+  'connection-app-in-use': {
+    description:
+      'Removing an app registration that still has live connections. Remove it with `withConnections=true` to remove those connections too, or disconnect them first.',
+    details: [],
+  },
+  'connection-not-yours': {
+    description:
+      'Finishing a connect that someone else started: only whoever started it can finish it, signed in as themselves.',
+    details: [],
+  },
+  'connection-installation-unreachable': {
+    description:
+      "A GitHub App's connect whose person's GitHub account doesn't reach the installation, or any installation of the app. Start that request again with `newInstallation` to install the app on an account they manage, or ask an owner of the account it's installed on.",
+    details: [
+      {
+        key: 'connectRequestId',
+        meaning: 'the connect request to start again',
+      },
+    ],
+  },
+  'connection-request-expired': {
+    description: 'The connect request expired before it was used. Start a new connect.',
+    details: [],
+  },
+  'connection-request-used': {
+    description:
+      'The connect request was finished already: each one is used once. Start a new connect to connect again.',
+    details: [],
+  },
+  'connection-state-expired': {
+    description:
+      'The sign-in at the app took longer than its state lives. Start the connect again.',
+    details: [],
+  },
+  'connection-account-mismatch': {
+    description:
+      "A reconnect signed in to an account other than the connection's. Sign in with the same account; to connect another account instead, disconnect, then connect again.",
+    details: [],
+  },
+  'connection-removing': {
+    description:
+      "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",
+    details: [],
+  },
+  'connection-app-refused': {
+    description:
+      "The app refused or failed a call the connect needed, or didn't give what a connection needs (a refresh token, or which account signed in). Often the registration's client id, client secret or redirect URL doesn't match the app's settings. On GitHub, an install still waiting for an owner's approval is refused too, until an owner approves it. Start the connect again.",
+    details: [],
+  },
+  'connection-store-failed': {
+    description:
+      "The server couldn't read or write its connections (registrations, connect requests, connections or their tokens) just now. Try again; if it keeps failing, an operator checks the database and the secrets store.",
+    details: [],
+  },
+  'connection-notice-invalid': {
+    description:
+      "An app's notice to `POST /v1/connection-notices/{tenantId}/{appId}` wasn't accepted. It's one answer for every reason, such as a signature or token that doesn't check out, so the sender learns nothing from it.",
+    details: [],
+  },
+  'connection-notice-unavailable': {
+    description: "The server couldn't handle an app's notice just now. The app sends it again.",
+    details: [],
   },
   'token-mint-failed': {
     description:

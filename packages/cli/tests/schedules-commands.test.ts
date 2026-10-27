@@ -215,7 +215,8 @@ describe('kindgi schedules', () => {
                   runId: undefined,
                   missedCount: undefined,
                   outcome: 'skipped',
-                  detail: '4 of 5 trusted "no" judgments',
+                  detail:
+                    "Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong (enough: 3 runs, 2 experts).",
                 },
               ],
               hasMore: false,
@@ -225,7 +226,9 @@ describe('kindgi schedules', () => {
     });
     expect(fires.exitCode, fires.stderr).toBe(0);
     expect(fires.stdout).toContain(`pass ${passId}`);
-    expect(fires.stdout).toMatch(/skipped\s+4 of 5 trusted "no" judgments/);
+    expect(fires.stdout).toMatch(
+      /skipped\s+Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong/,
+    );
   });
 
   test('list as a table, with what each schedule runs', async () => {
@@ -235,12 +238,12 @@ describe('kindgi schedules', () => {
     expect(out.stdout).toMatch(/agent acme\.digest\s+0 7 \* \* 1-5\s+America\/Toronto\s+active/);
   });
 
-  test("list --project: one project's schedules; the table names each owner", async () => {
+  test("list --project: one project's schedules; the table names whom each runs as, personal or shared", async () => {
     const { out, calls } = await schedules(['list', `--project=${ID}`, '--table']);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['list', { projectId: ID }]]);
-    expect(out.stdout).toMatch(/OWNER/);
-    expect(out.stdout).toMatch(/Ada Lovelace/);
+    expect(out.stdout).toMatch(/RUNS AS/);
+    expect(out.stdout).toMatch(/Ada Lovelace \(personal\)/);
   });
 
   test('get with upcoming; update; the lifecycle verbs by id', async () => {
@@ -276,6 +279,22 @@ describe('kindgi schedules', () => {
 
     const take = await schedules(['take-ownership', ID, `--run-as=${BOT}`]);
     expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
+  });
+
+  test("--run-as=project names the project's own account on create and take-over", async () => {
+    const made = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      '--project=p-1',
+      '--run-as=project',
+    ]);
+    expect(made.out.exitCode, made.out.stderr).toBe(0);
+    expect(made.calls[0]).toMatchObject(['register', { runAsProject: true }]);
+    expect(made.calls[0]?.[1]).not.toHaveProperty('runAsServiceAccountId');
+
+    const take = await schedules(['take-ownership', ID, '--run-as=project']);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsProject: true }]]);
   });
 
   test('--allow-unattended: repeatable on create and update; `none` clears on update only', async () => {

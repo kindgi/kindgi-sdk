@@ -44,7 +44,7 @@ variable "kindgi_env" {
 # ---- images -------------------------------------------------------------------
 
 variable "server_image" {
-  description = "The Kindgi runtime image, by digest, in this module's Container Registry (mirrored from Quay; see README)."
+  description = "The Kindgi runtime image, by digest, in this module's Container Registry (mirrored from registry.kindgi.com; see README)."
   type        = string
 
   validation {
@@ -66,13 +66,21 @@ variable "pack_image" {
 # ---- the server ---------------------------------------------------------------
 
 variable "seed_tenant_id" {
-  description = "KINDGI_TENANT_ID: the tenant the server seeds and runs background work for. Keep it for the deployment's life."
+  description = "KINDGI_TENANT_ID: the tenant the server seeds and runs background work for, a uuid. Keep it for the deployment's life."
   type        = string
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_tenant_id))
+    error_message = "seed_tenant_id must be a uuid (a tenant id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
+  }
 }
 
 variable "seed_user_id" {
-  description = "KINDGI_SEED_USER_ID: the first admin user. Keep it for the deployment's life."
+  description = "KINDGI_SEED_USER_ID: the first admin user, a uuid. Keep it for the deployment's life."
   type        = string
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_user_id))
+    error_message = "seed_user_id must be a uuid (a user id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
+  }
 }
 
 variable "server_cpu" {
@@ -339,7 +347,7 @@ variable "erasure_ledger_key_version" {
 # ---- the server's own settings ------------------------------------------------------
 
 variable "public_url" {
-  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. When set, console sessions are accepted from this origin only. Empty leaves it unset."
+  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. Connections to other apps need it too, and a paused tool call's link is made from it: without it, that link names the address the server is bound to, which another system can't reach. When set, console sessions are accepted from this origin only. Empty leaves it unset."
   type        = string
   default     = ""
 

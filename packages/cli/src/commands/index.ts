@@ -9,6 +9,8 @@ import { authCommand } from './auth.js';
 import { blocksCommand } from './blocks.js';
 import { buildCommand } from './build.js';
 import { capabilitiesCommand } from './capabilities.js';
+import { connectionAppsCommand } from './connection-apps.js';
+import { connectionsCommand } from './connections.js';
 import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
 import { deployCommand } from './deploy.js';
@@ -28,9 +30,12 @@ import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
 import { initCommand } from './init.js';
 import { judgeClassesCommand } from './judge-classes.js';
+import { judgingQueueCommand } from './judging-queue.js';
+import { judgingRulesCommand } from './judging-rules.js';
 import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
 import { licenseCommand } from './license.js';
+import { mailTriggersCommand } from './mail-triggers.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
@@ -73,6 +78,8 @@ export const ROOT_COMMANDS: readonly Command[] = [
   envCommand,
   environmentsCommand,
   secretsCommand,
+  connectionsCommand,
+  connectionAppsCommand,
   ssoCommand,
   signInCommand,
   sitesCommand,
@@ -95,11 +102,14 @@ export const ROOT_COMMANDS: readonly Command[] = [
   flowsCommand,
   schedulesCommand,
   webhooksCommand,
+  mailTriggersCommand,
   approvalsCommand,
   reviewersCommand,
   observationsCommand,
   judgmentsCommand,
   judgeClassesCommand,
+  judgingRulesCommand,
+  judgingQueueCommand,
   evalRunsCommand,
   evalSuitesCommand,
   blocksCommand,

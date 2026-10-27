@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/pack-index.schema.json",
-  "$comment": "schema-version: 1.4.0",
+  "$comment": "schema-version: 1.6.0",
   "title": "Pack index",
-  "description": "The `index.json` a pack build emits: the pack's tools, guardrails, agents and flows as data, plus where each tool handler and guardrail check lives. A runtime registers the pack's primitives from it, and a pack service loads the modules it names and resolves every call by id. Any indexer (the TypeScript `kindgi-index`, the Python `python -m kindgi.pack index`) emits this shape. Determinism: every list is sorted by `id` (code-unit order), keys are sorted at every level, the file is UTF-8 JSON indented by two spaces with a trailing newline, and integral numbers carry no fraction, so the same source indexes to the same bytes. Consumers refuse an envelope `v` they don't recognize.",
+  "description": "The `index.json` a pack build emits: the pack's tools, guardrails, agents, flows and data blocks as data, plus where each tool handler and guardrail check lives. A runtime registers the pack's primitives from it, and a pack service loads the modules it names and resolves every call by id. Any indexer (the TypeScript `kindgi-index`, the Python `python -m kindgi.pack index`) emits this shape. Determinism: every list is sorted by `id` (code-unit order), keys are sorted at every level, the file is UTF-8 JSON indented by two spaces with a trailing newline, and integral numbers carry no fraction, so the same source indexes to the same bytes. Consumers refuse an envelope `v` they don't recognize.",
   "type": "object",
   "required": [
     "v",
@@ -61,6 +61,11 @@
       "type": "array",
       "items": { "$ref": "#/$defs/flow" },
       "description": "Flows, sorted by `id`."
+    },
+    "blocks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/block" },
+      "description": "The pack's data blocks (schema-version 1.5.0+), sorted by `id`: each JSON file the blocks discovery pattern matches (`blocks/**/*.json` by default), one version per block. Absent when the pack has none. A deploy publishes them with the pack's agents."
     },
     "env": {
       "type": "object",
@@ -161,6 +166,14 @@
         "needsApprovalWhenUnattended": {
           "type": "boolean",
           "description": "Whether a person must say yes to every call of the tool in a run no person started, unless that run's trigger lists the tool in its `toolsAllowedUnattended` (`tool.schema.json` `needsApprovalWhenUnattended`). Absent means `false`."
+        },
+        "pauses": {
+          "type": "boolean",
+          "description": "Whether the tool may answer `pause` (`tool.schema.json` `pauses`, schema-version 1.6.0+): the runtime then sends each call a `waitToken`, and the run waits for another system's answer. Absent means `false`."
+        },
+        "resultIsOutsideData": {
+          "type": "boolean",
+          "description": "Whether the tool's results are outside data an agent reads as data, not instructions (`tool.schema.json` `resultIsOutsideData`). Absent means `false`."
         },
         "spec": {
           "$ref": "#/$defs/openObject",
@@ -276,6 +289,64 @@
         },
         "modulePath": { "$ref": "#/$defs/modulePath" }
       }
+    },
+    "block": {
+      "type": "object",
+      "required": ["id", "version", "kind", "content", "modulePath"],
+      "additionalProperties": false,
+      "description": "A data block as `POST /v1/blocks` publishes it: a prompt or settings, at one version. A prompt's `templateFile` is read into `template` when the pack is indexed, so the index holds the whole block. The runtime validates it in full (the template parses, the values satisfy their schema) when a deploy publishes it.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+$",
+          "description": "Dotted lowercase id, like an agent's (`acme.reply-prompt`)."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Plain `major.minor.patch`: the version a deploy publishes."
+        },
+        "kind": { "enum": ["prompt", "settings"] },
+        "description": { "type": "string" },
+        "content": {
+          "type": "object",
+          "description": "A prompt's `{ template, parameters? }`, or settings' `{ values, schema? }`."
+        },
+        "modulePath": {
+          "$ref": "#/$defs/modulePath",
+          "description": "The block's file, relative to the pack root (`blocks/reply-prompt.json`)."
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "const": "prompt" },
+            "content": {
+              "type": "object",
+              "required": ["template"],
+              "additionalProperties": false,
+              "properties": {
+                "template": { "type": "string", "description": "A Liquid template." },
+                "parameters": { "type": "array" }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "kind": { "const": "settings" },
+            "content": {
+              "type": "object",
+              "required": ["values"],
+              "additionalProperties": false,
+              "properties": {
+                "values": { "type": "object" },
+                "schema": { "$ref": "#/$defs/jsonSchema" }
+              }
+            }
+          }
+        }
+      ]
     },
     "flow": {
       "type": "object",

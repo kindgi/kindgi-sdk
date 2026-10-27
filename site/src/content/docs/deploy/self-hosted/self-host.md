@@ -18,9 +18,9 @@ You run four containers on one Docker network:
 Everything here runs on one machine with Docker Desktop. On a server the pieces are the same; step 2 says what changes.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Before you start
@@ -43,19 +43,26 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
 
   `init` lists the files it made, and `pnpm install` its packages.
 
-- **A license key.** Outside development mode, the runtime needs one: a free non-production key covers staging and CI, and a production key comes with a commercial license. To get one, write to contact@kindgi.com. [Licensing](../../../concepts/licensing/) explains the keys. `kindgi dev` needs none.
+- **A license key.** Outside development mode, the runtime needs one, and
+  pulling its image needs one too. A free non-production key covers staging
+  and CI: get one at [access.kindgi.com](https://access.kindgi.com). A
+  production key comes with a commercial license from contact@kindgi.com.
+  [Licensing](../../../concepts/licensing/) explains the keys.
 
 ## 1. Pull the runtime image
 
-The runtime runs from Kindgi's image. Log in to its registry and pull it:
+The runtime runs from Kindgi's image. Log in to its registry with your
+license key, and pull it:
 
 ```sh
-docker login quay.io
+docker login registry.kindgi.com --username kindgi
 docker pull quay.io/kindgi/runtime:0.1.10
 ```
 
-`docker login` prints `Login Succeeded`. It asks for the robot name and
-token only if `kindgi auth registry` hasn't logged Docker in already. `docker pull` prints the image's digest when it's done.
+`docker login` asks for the password: paste your key. It prints
+`Login Succeeded`. `docker pull` prints the image's digest when it's done.
+[Pull the runtime image](../pull-the-runtime-image/) covers logging in from a
+script or CI, and other clients.
 
 ## 2. Start Postgres and a registry
 
@@ -132,7 +139,8 @@ npx --yes @kindgi/cli@0.2 key create acme-selfhost --env selfhost
 It prints the key's JSON, then the paths of its private and public key files
 and its fingerprint.
 [Rotate a signing key](../rotate-keys/#rotate-a-signing-key) shows that
-output in full.
+output in full for a second key, with the key lines the `selfhost` block has
+by then.
 
 Add an environment for this deployment to `kindgi.config.ts`:
 
@@ -221,6 +229,11 @@ one, as `env-dropped`, never its value.
 [Declare the environment your code reads](../../../guides/secrets/pack-env/#in-a-deployment)
 says more.
 
+This one service runs the tools' code of every project the runtime serves,
+in the same processes, with one environment.
+[Your tools' code](../../../concepts/security/#your-tools-code) says what
+that means, and how to keep projects apart.
+
 ## 5. Configure and start the runtime
 
 Make an API token. Your CLI and apps send it as their bearer:
@@ -261,7 +274,7 @@ It holds the API token and the license key, so keep it to yourself:
 
 Every setting is in the [environment variable reference](../../../reference/env-vars/). These are worth knowing now:
 
-- **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates. A pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them, as [PgBouncer's pooling modes](https://www.pgbouncer.org/features.html) describes.
+- **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates. A pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them, as [PgBouncer's pooling modes](https://www.pgbouncer.org/features.html) describes. `sslmode=require` in it encrypts the connection but takes any certificate: [Check the database's certificate](../database-tls/) shows how the runtime checks that the server it reached is your database.
   - **Through PgBouncer:** on runtime 0.1.9 or later, the runtime sends its [database timeouts](../../../reference/env-vars/#kindgi_db_statement_timeout_ms) as startup parameters. A PgBouncer on its default settings refuses them, so the runtime can't connect (`unsupported startup parameter: statement_timeout`). On PgBouncer 1.26.0 or later, have it pass them on with `track_extra_parameters = statement_timeout, lock_timeout, idle_in_transaction_session_timeout` ([PgBouncer's settings](https://www.pgbouncer.org/config.html#track_extra_parameters)). Earlier versions mishandle a tracked parameter that Postgres doesn't report, as it doesn't these three, when a client sends it at startup (fixed in 1.26.0, [PgBouncer's changelog](https://www.pgbouncer.org/changelog.html)). `ignore_startup_parameters` with the same names lets the runtime connect, but PgBouncer drops them, and your role's, database's or server's settings hold instead. The runtime's admin commands (`kindgi-runtime tenants …` and `kindgi-runtime check …`) send theirs the same way, with no statement timeout, and don't read back what's in effect. So behind a PgBouncer that drops them, a long purge or check runs under those settings, and can be ended by them.
   - **The runtime checks at boot:** its startup line shows the timeouts Postgres has in effect, and it logs a warning for each one that differs from what it sent.
 - **`KINDGI_ENV`** names the environment your tools' secrets resolve in.

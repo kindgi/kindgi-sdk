@@ -201,6 +201,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_DATABASE_SERVER_CA_PATH',
+    description:
+      "Used from runtime 0.2.0; earlier runtimes ignore it. Absolute path to a PEM file of the CA certificates the database server's certificate must chain to: for a database reached over TCP by an address its certificate doesn't name, such as Cloud SQL by private IP, whose per-instance CA signs that one instance's certificate alone. Set, every connection to the database uses TLS, whatever `KINDGI_DATABASE_URL`'s `sslmode` says, and the server's certificate must chain to one of these CAs (not to the system's) and be in date. Its name is checked too only with `sslmode=verify-full`. Refused at boot with a URL that reaches a Unix socket or turns TLS off (`sslmode=disable`, `ssl=false`). This or `KINDGI_DATABASE_SERVER_CA`, not both.",
+    example: '/etc/kindgi/database-ca.pem',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_DATABASE_SERVER_CA',
+    description:
+      "Used from runtime 0.2.0; earlier runtimes ignore it. The database server's CA certificates themselves, PEM: for platforms that give settings as environment variables (Cloud Run). See `KINDGI_DATABASE_SERVER_CA_PATH`; this or that, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_DB_STATEMENT_TIMEOUT_MS',
     description:
       "Used from runtime 0.1.9; earlier runtimes ignore it. How long one statement on the server's database connections may run before Postgres ends it (`statement_timeout`), in milliseconds. Default 60000 (60 s); 0 turns it off. A whole number up to 2147483647, longer than `KINDGI_DB_LOCK_TIMEOUT_MS` when both are on; anything else stops the boot, naming the variable. The migrations at boot, an index built `CONCURRENTLY` and the admin commands (`kindgi-runtime tenants …`, `check …`, `erasures …`) run with none. A GET or HEAD it ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request the usual 500, and the server's log has a `db` warning naming the setting, its value and this variable.",
@@ -239,7 +257,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_OPENFGA_API_URL',
     description:
-      'OpenFGA HTTP API URL. Set → per-tenant FGA stores are bootstrapped and authorization is enforced; unset → routes mount without enforcement (dev only; production MUST set it).',
+      'OpenFGA HTTP API URL. Set → per-tenant FGA stores are bootstrapped and authorization is enforced: roles decide who may read, write or administer each project. Unset → no roles are checked: every key and every sign-in works in every project, and only the tenant admin (the API token or an `admin` key) changes tenant settings. Suits one tenant whose people trust each other; `KINDGI_TENANCY=multi` refuses to start without it.',
     example: 'http://openfga.internal:8080',
     required: false,
     appliesTo: appliesToServer,
@@ -678,6 +696,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "The deployment's privacy policy, which the console's sign-in page links as \"Privacy\" (sign-in options' `legal.privacyUrl`). An absolute https URL with no username or password; anything else, and the runtime refuses to start. Set on its own or with `KINDGI_AUTH_TERMS_URL`.",
     example: 'https://example.com/privacy',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_CONSOLE_LINKS',
+    description:
+      "The deployment's own links, such as its help desk, status page or data processing terms (sign-in options' `links`). The console shows them in the person menu, under Docs, and in a line at the foot of every page, the sign-in page too. A JSON object, in the order written: each name is the label shown, each value an absolute https URL with no username or password. At most 8 links; a label is 1 to 40 characters once trimmed, not only digits, with no control or format character, and not another link's once trimmed. Anything else, and the runtime refuses to start. Unset: the console shows no links of the deployment's own. The sign-in page's terms and privacy links are `KINDGI_AUTH_TERMS_URL` and `KINDGI_AUTH_PRIVACY_URL`.",
+    example: '{"Help":"https://example.com/help","Status":"https://status.example.com"}',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

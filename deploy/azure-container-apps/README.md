@@ -1,12 +1,14 @@
 # Kindgi on Azure Container Apps (Terraform)
 
-> **Draft (runtime 0.1.6).** These steps ran end to end on a live subscription (2026-10-08), with a runtime built from source: a pack deployed and run, a key rotation, and the teardown. Until runtime 0.1.6 is released, step 2's image isn't on Quay yet.
+> **Draft (runtime 0.1.6).** These steps ran end to end on a live subscription (2026-10-08), with a runtime built from source: a pack deployed and run, a key rotation, and the teardown.
 
 A Terraform root module that runs Kindgi in one Azure resource group you already have:
 - the runtime (the API, agent and flow execution) as a container app;
 - your pack's code as a second container app, reachable only inside the environment;
 - Kindgi's own PostgreSQL Flexible Server (16, pgvector), on a private network;
 - everything they stand on: two user-assigned managed identities, a Container Registry, Key Vault (the key that wraps the runtime's secrets, and the secrets both services read), Log Analytics, and the network.
+
+**One tenant:** the runtime serves the tenant it seeds (`seed_tenant_id`), and the plan refuses `KINDGI_TENANCY` or `KINDGI_PACK_ROUTING` other than `single` in `server_env` (or in `server_secret_env` at all). Serving many tenants needs a container app for each deployment's pack service, run by an orchestrator of your own, which this module doesn't make.
 
 **Two network shapes:**
 
@@ -33,7 +35,7 @@ In both shapes the pack service's ingress is **environment-internal**: only apps
   done
   ```
 - **A second resource group, made by Azure:** a Container Apps environment on a VNet keeps its infrastructure in a platform-managed resource group next to yours. The module names it `<your group>-<name_prefix>-infra`; Azure creates it with the environment and deletes it with the environment. If your policies forbid new resource groups, exempt this one.
-- **Pull access to the runtime image** `quay.io/kindgi/runtime` (`kindgi auth registry`).
+- **Pull access to the runtime image** `registry.kindgi.com/kindgi/runtime`, with your license key as the password: `docker login registry.kindgi.com --username kindgi` asks for the key.
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
 - **Check your Azure Policy assignments** (`az policy assignment list -g <rg> --disable-scope-strict-search`): allowed locations, required tags, or a rule forbidding public network access change the recipe.
 
@@ -70,12 +72,12 @@ terraform apply -var-file=dev.tfvars \
 
 ## 2. Images into the registry
 
-Copy the runtime's **whole multi-platform index** by digest: a `docker pull` / `push` from an arm64 machine copies only arm64, and Container Apps needs amd64.
+Copy the runtime's **whole multi-platform index** by digest: a `docker pull` / `push` from an arm64 machine copies only arm64, and Container Apps needs amd64. The copy goes through the machine you run it on and takes both platforms, so on a slow uplink it can take most of an hour.
 
 ```sh
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag $ACR/runtime:<version> quay.io/kindgi/runtime:<version>@sha256:<release digest>
+docker buildx imagetools create --tag $ACR/runtime:<version> registry.kindgi.com/kindgi/runtime:<version>@sha256:<release digest>
 kindgi build --local --push --env dev      # the pack image, signed; registry: <ACR>/<repo> in kindgi.config
 ```
 
@@ -158,6 +160,8 @@ KMS probe OK (azure-key-vault): azure-key-vault 7.5 (wrap/unwrap round trip, RSA
   "  Pack service: https://<name_prefix>-pack.internal.<environment domain> — <pack id> (artifact …), protocol 2, 4 tools, 1 check"]}
 ```
 
+`pack_min_instances` (default 1) keeps one pack service replica running, around the clock ([Azure Container Apps pricing](https://azure.microsoft.com/pricing/details/container-apps/)), so the first tool call after a quiet spell doesn't wait for one to start. Keep it when response time matters; 0 lets the pack service scale to zero, which suits a dev deployment.
+
 `logs show` streams the running replica. For a replica that stopped (a boot that failed), query Log Analytics:
 
 ```sh
@@ -224,10 +228,35 @@ server_secret_env = {
   - Console sessions are then accepted from that origin only, so open the console there.
   - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
 - **Pin each secret to a version**, as above, rather than `latest`: a new version then reaches the server only when you change `version` here, not whenever Container Apps picks it up.
-- **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
-  - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
-  - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
-  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
+**With Continue with Google.** It needs the sign-in secret and `public_url`, as for the emailed link, and an OAuth client of type **Web application** in the Google Cloud console. Its authorized redirect URI is `public_url` followed by `/auth/kindgi/social/callback/google`:
+
+```
+https://kindgi-server.<environment domain>/auth/kindgi/social/callback/google
+```
+
+```sh
+# In the shell from step 3. The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | put google-client-secret && unset GOOGLE_SECRET
+```
+
+```hcl
+public_url = "https://kindgi-server.<environment domain>"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>" # ends in .apps.googleusercontent.com
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "auth-secret", version = "<the version put printed>" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "google-client-secret", version = "<the version put printed>" }
+}
+```
+
+- **Microsoft and GitHub, verified domains, and Turnstile** go the same way:
+  - in `server_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_ID` or `KINDGI_AUTH_GITHUB_CLIENT_ID`, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
+  - in `server_secret_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, and `KINDGI_AUTH_TURNSTILE_SECRET`;
+  - each provider's redirect URI ends in its name: `…/auth/kindgi/social/callback/microsoft` or `…/github`.
+- Several ways in share the two maps: with the emailed link too, they hold both sets of settings.
+- The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 
 ## Operating it
 

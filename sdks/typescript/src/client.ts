@@ -10,6 +10,14 @@ import { type AuthClient, makeAuthClient } from './resources/auth.js';
 import { type BlocksClient, makeBlocksClient } from './resources/blocks.js';
 import { type CapabilitiesClient, makeCapabilitiesClient } from './resources/capabilities.js';
 import { type ComplianceClient, makeComplianceClient } from './resources/compliance.js';
+import {
+  type ConnectionAppsClient,
+  type ConnectionEntriesClient,
+  type ConnectionsClient,
+  makeConnectionAppsClient,
+  makeConnectionEntriesClient,
+  makeConnectionsClient,
+} from './resources/connections.js';
 import { type ConversationsClient, makeConversationsClient } from './resources/conversations.js';
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
@@ -37,6 +45,7 @@ import {
 import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
 import { type JudgmentsClient, makeJudgmentsClient } from './resources/judgments.js';
 import { type LicenseClient, makeLicenseClient } from './resources/license.js';
+import { type MailTriggersClient, makeMailTriggersClient } from './resources/mail-triggers.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
 import { type MemoryClient, makeMemoryClient } from './resources/memory.js';
 import { type ObservationsClient, makeObservationsClient } from './resources/observations.js';
@@ -168,8 +177,13 @@ export interface KindgiClient {
   readonly events: EventsClient;
   readonly artifacts: ArtifactsClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
+  readonly connectionEntries: ConnectionEntriesClient;
+  readonly connectionApps: ConnectionAppsClient;
+  readonly connections: ConnectionsClient;
   /** Inbound webhook triggers: a signed request starts a flow run. */
   readonly webhooks: WebhooksClient;
+  /** Mail triggers: a mailbox's new mail starts runs of an agent or a flow. */
+  readonly mailTriggers: MailTriggersClient;
   // Packs
   readonly packs: PacksClient;
 }
@@ -245,7 +259,11 @@ export function createClient(options: ClientOptions): KindgiClient {
     events: makeEventsClient(transport),
     artifacts: makeArtifactsClient(transport),
     webhookEndpoints: makeWebhookEndpointsClient(transport),
+    connectionEntries: makeConnectionEntriesClient(transport),
+    connectionApps: makeConnectionAppsClient(transport),
+    connections: makeConnectionsClient(transport),
     webhooks: makeWebhooksClient(transport),
+    mailTriggers: makeMailTriggersClient(transport),
     packs: makePacksClient(transport),
   };
 }

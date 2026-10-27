@@ -71,6 +71,8 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
+import { RUN_STARTED_BY, RUN_TRIGGER_KINDS } from '@kindgi/runtime';
+import { CORRECTION_ITEM } from '@kindgi/types';
 
 import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
@@ -202,10 +204,10 @@ export const RunTriggerSchema: JsonSchema = {
   additionalProperties: false,
   required: ['triggerId', 'kind', 'fireId'],
   description:
-    "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. The runtime fires schedules only; `event` and `webhook` are kept for event triggers and inbound webhooks, which aren't served yet.",
+    "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. `kind` is the trigger's kind: `schedule`, `event`, `webhook` (an inbound webhook) or `mail` (new mail in a mailbox).",
   properties: {
     triggerId: { type: 'string', format: 'uuid' },
-    kind: { type: 'string', enum: ['schedule', 'event', 'webhook'] },
+    kind: { type: 'string', enum: [...RUN_TRIGGER_KINDS] },
     fireId: {
       type: 'string',
       description: "The fire that started the run: one entry of the trigger's fire history.",
@@ -495,7 +497,12 @@ export const GatePolicySpecSchema: JsonSchema = {
       properties: {
         maxDiverged: { type: 'integer', minimum: 0 },
         maxErrors: { type: 'integer', minimum: 0 },
-        maxRefusedWrites: { type: 'integer', minimum: 0 },
+        maxRefusedWrites: {
+          type: 'integer',
+          minimum: 0,
+          description:
+            "At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.",
+        },
         maxStopped: { type: 'integer', minimum: 0 },
       },
     },
@@ -774,6 +781,44 @@ export const RunWaitingApprovalSchema: JsonSchema = {
         callId: { type: 'string', description: "The model's id for the call." },
       },
     },
+    approver: { $ref: '#/components/schemas/ApprovalApprover' },
+    connection: { $ref: '#/components/schemas/ApprovalConnection' },
+  },
+};
+
+export const RunWaitingTokenSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tokenId', 'tool', 'createdAt', 'timesOutAt'],
+  description:
+    "A wait for another system's answer: a pack tool that declares `pauses` handed its wait token's link on. Answer it through the link, or with `POST /v1/runs/{runId}/resume` and this `tokenId`. Never the link itself.",
+  properties: {
+    tokenId: {
+      type: 'string',
+      description: 'The waitpoint id (`pause:…`), for `POST /v1/runs/{runId}/resume`.',
+    },
+    name: { type: 'string', description: 'What the run waits for, as the tool named it.' },
+    tool: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'version'],
+      description: 'The tool whose call waits.',
+      properties: {
+        id: { type: 'string', description: 'The tool id.' },
+        version: { type: 'string' },
+        callId: {
+          type: 'string',
+          description: "The model's id for the call, for an agent's call.",
+        },
+      },
+    },
+    nodeId: { type: 'string', description: "The flow step that waits, for a flow's tool step." },
+    createdAt: { type: 'string', format: 'date-time' },
+    timesOutAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the wait times out, and the call fails with `wait-token-timed-out`.',
+    },
   },
 };
 
@@ -782,9 +827,20 @@ export const RunWaitingForSchema: JsonSchema = {
   additionalProperties: false,
   required: ['approvals', 'other'],
   description:
-    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `connections`: the connects it waits for. `tokens`: its waits for another system's answer. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
   properties: {
     approvals: { type: 'array', items: { $ref: '#/components/schemas/RunWaitingApproval' } },
+    connections: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/WaitingForConnection' },
+      description: 'The connects the run waits for. Left out when there are none.',
+    },
+    tokens: {
+      type: 'array',
+      description:
+        "Its waits for another system's answer (a pausing tool's calls). Absent on a runtime that pauses no run, or when they can't be read: those waits are then `unattributed`.",
+      items: { $ref: '#/components/schemas/RunWaitingToken' },
+    },
     other: {
       type: 'array',
       items: {
@@ -864,9 +920,14 @@ export const RunSchema: JsonSchema = {
     trigger: { $ref: '#/components/schemas/RunTrigger' },
     startedBy: {
       type: 'string',
-      enum: ['person', 'key', 'schedule', 'webhook', 'event'],
+      enum: [...RUN_STARTED_BY],
       description:
-        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+        "How the run started, recorded when it was created and never changed: `person` (a person, signed in or with their own API key), `key` (a service account's key), or the kind of trigger that fired it: `schedule`, `webhook`, `event` or `mail`. A child run has its parent's. Only `person` counts as attended: in any other run, or one without this field (runs from before runs recorded it), a tool that declares `needsApprovalWhenUnattended` waits for a person's yes.",
+    },
+    actsFor: {
+      type: 'string',
+      description:
+        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
     },
     toolsAllowedUnattended: {
       type: 'array',
@@ -1014,10 +1075,11 @@ export const ResumeRunBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'Token id of the pending waitpoint to complete. Ids starting with `child:` are reserved for the runtime. Resuming without a waitpoint id returns `400 bad-input`.',
+        "Token id of the pending waitpoint to complete: a `pause:` id, from the run's `waitingFor.tokens`. Ids starting with `child:` and `pause:` are reserved for the runtime: a handler never waits on one of its own. Resuming without a waitpoint id returns `400 bad-input`.",
     },
     value: {
-      description: 'Resolved value passed back into the flow handler that suspended.',
+      description:
+        "The answer: the paused tool's output, checked against its output schema. Absent: `{}`.",
     },
   },
 };
@@ -2079,6 +2141,11 @@ export const ServiceAccountSchema: JsonSchema = {
       format: 'date-time',
       description: 'Set once unregistered: it has no grants, and its keys no longer work.',
     },
+    projectId: {
+      type: 'string',
+      description:
+        "Set on a project's own account: made by the first trigger that runs as the project (`runAsProject`), with the `editor` role on it. It runs only the triggers with `runAsProject`, not the project's other shared triggers. It has no keys, and its grant is fixed. Unregistering it stops those triggers until an admin takes each over; deleting the project unregisters it.",
+    },
   },
 };
 
@@ -2212,6 +2279,8 @@ export const ApprovalSchema: JsonSchema = {
       format: 'uuid',
       description: 'The approval this one was escalated to.',
     },
+    approver: { $ref: '#/components/schemas/ApprovalApprover' },
+    connection: { $ref: '#/components/schemas/ApprovalConnection' },
   },
 };
 
@@ -2777,7 +2846,7 @@ export const LicensePreviewSchema: JsonSchema = {
   additionalProperties: false,
   required: ['version', 'releasedAt', 'expiresAt', 'daysLeft', 'standing'],
   description:
-    "This build's own expiry, before Kindgi 1.0: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a 1.0 or later release, a build from source, or a production key.",
+    "This build's own expiry: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a build from source, or a production key.",
   properties: {
     version: { type: 'string', description: "This build's release, `0.1.8`." },
     releasedAt: { type: 'string', format: 'date-time' },
@@ -3654,7 +3723,43 @@ export const HttpAuthSpecSchema: JsonSchema = {
         secretRef: { $ref: '#/components/schemas/ToolSecretRef' },
       },
     },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'connection'],
+      description:
+        'A connection the tool declares in `needsSpec.connections`, by its name there: sent as `Authorization: Bearer <access token>`.',
+      properties: {
+        kind: { const: 'connection' },
+        connection: { type: 'string', pattern: '^[a-z][a-zA-Z0-9_]{0,63}$' },
+      },
+    },
   ],
+};
+
+export const ConnectionNeedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'permissions', 'as'],
+  properties: {
+    app: {
+      type: 'string',
+      pattern: '^[a-z][a-z0-9-]{1,31}$',
+      description: "The app's entry id: `google`, `github`.",
+    },
+    permissions: {
+      type: 'array',
+      minItems: 1,
+      uniqueItems: true,
+      items: { type: 'string', pattern: '^[a-z][a-z0-9_.-]{0,63}$' },
+      description: "The entry's permission keys the call needs: `gmail.send`.",
+    },
+    as: {
+      enum: ['person', 'company'],
+      description:
+        "Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the tenant's.",
+    },
+  },
 };
 
 export const HttpRequestBodySpecSchema: JsonSchema = {
@@ -3761,13 +3866,20 @@ export const TypedNeedsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'Typed discriminated needs (env / secrets / config / capabilities / bindings). Optional additive field.',
+    'Typed discriminated needs (env / secrets / config / capabilities / bindings / connections). Optional additive field.',
   properties: {
     env: { type: 'object', additionalProperties: { type: 'object' } },
     secrets: { type: 'object', additionalProperties: { type: 'object' } },
     config: { type: 'object', additionalProperties: { type: 'object' } },
     capabilities: { type: 'array', items: { type: 'string', minLength: 1 } },
     bindings: { type: 'array', items: { type: 'string', minLength: 1 } },
+    connections: {
+      type: 'object',
+      description:
+        "Accounts at other apps the tool acts with, by the tool's own name for each (`mail`). The runtime resolves them per call into the context's `connections`.",
+      propertyNames: { pattern: '^[a-z][a-zA-Z0-9_]{0,63}$' },
+      additionalProperties: { $ref: '#/components/schemas/ConnectionNeed' },
+    },
   },
 };
 
@@ -3880,7 +3992,17 @@ export const ToolSchema: JsonSchema = {
     needsApprovalWhenUnattended: {
       type: 'boolean',
       description:
-        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger or a schedule whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. Absent means `false`.",
+        "`true`: in a run no person started (one whose `startedBy` isn't `person`), every call of this tool waits for a person's yes, whatever the agent's approval rules say, and a flow's tool step that calls it is refused. A webhook trigger, a schedule or a mail trigger whose `toolsAllowedUnattended` names the tool (a project admin's to set) lifts that, in its own runs only. A tool that uses a person's connection, reads included, counts as declaring it. In a run a mail started, so does a tool that isn't `mutating: false`, and one that uses the run's own mailbox. Absent means `false`.",
+    },
+    pauses: {
+      type: 'boolean',
+      description:
+        "`true` when the tool may make its run wait for another system's answer: each call gets a wait token, hands its link to that system, and answers `pause`; the system's answer, valid against `output`, becomes the call's result. The run waits at most 24 days (24 hours by default) and fails the call when the time passes. Only a pack tool with a handler can pause: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.",
+    },
+    resultIsOutsideData: {
+      type: 'boolean',
+      description:
+        "`true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.",
     },
     sandbox: { $ref: '#/components/schemas/SandboxMode' },
     limits: { $ref: '#/components/schemas/RuntimeLimits' },
@@ -4642,7 +4764,11 @@ export const JudgedItemSchema: JsonSchema = {
   required: ['key'],
   description: "The judged item of a run's output.",
   properties: {
-    key: { type: 'string', minLength: 1, description: "The caller's stable id for the item." },
+    key: {
+      type: 'string',
+      minLength: 1,
+      description: `The caller's stable id for the item. \`${CORRECTION_ITEM.key}\` is reserved: a judgment on it is accepted only when it carries a correction at pointer \`""\`.`,
+    },
     pointer: {
       type: 'string',
       description:
@@ -4670,6 +4796,122 @@ export const JudgmentAssertedBySchema: JsonSchema = {
   },
 };
 
+/** One call an expert says the agent should have made: the tool, and the argument fields to compare. */
+export const ExpectedCallSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tool', 'args'],
+  properties: {
+    tool: { type: 'string', minLength: 1, maxLength: 200 },
+    args: {
+      type: 'object',
+      maxProperties: 100,
+      description:
+        'The partial set of top-level argument fields to compare, by value. Fields left out are not compared; an empty object asks only that the tool was called. At most 4000 characters in canonical JSON.',
+    },
+  },
+};
+
+const correctionCallsProperty = {
+  type: 'array',
+  maxItems: 50,
+  description: 'The calls the agent should have made.',
+  items: { $ref: '#/components/schemas/ExpectedCall' },
+} as const;
+
+const correctionNotCalledProperty = {
+  type: 'array',
+  maxItems: 50,
+  description: 'Tools that should not have been called at all.',
+  items: { type: 'string', minLength: 1, maxLength: 200 },
+} as const;
+
+/** A correction an expert records on a judgment. */
+export const CorrectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['calls', 'notCalled'],
+  description:
+    "An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).",
+  properties: {
+    calls: correctionCallsProperty,
+    notCalled: correctionNotCalledProperty,
+  },
+};
+
+/** One way a run's calls differed from a correction; it can quote argument values. */
+export const CallDifferenceSchema: JsonSchema = {
+  description: "One way a run's calls differed from a correction; it can quote argument values.",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'expected', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['count'] },
+        expected: { type: 'integer', minimum: 0 },
+        actual: { type: 'integer', minimum: 0 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the actual calls were refused on the replay. Absent when none were.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['must-not-call'] },
+        actual: { type: 'integer', minimum: 1 },
+        refused: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'How many of the forbidden calls were refused on the replay. Absent when none were.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'field', 'expected'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['missing-field'] },
+        field: { type: 'string' },
+        expected: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'kind', 'field', 'expected', 'actual'],
+      properties: {
+        tool: { type: 'string' },
+        kind: { type: 'string', enum: ['field-value'] },
+        field: { type: 'string' },
+        expected: {},
+        actual: {},
+        refused: {
+          type: 'boolean',
+          description:
+            'Present and true when the call blamed for the miss was refused on the replay.',
+        },
+      },
+    },
+  ],
+} as const;
+
 export const JudgmentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4693,6 +4935,10 @@ export const JudgmentSchema: JsonSchema = {
     item: { $ref: '#/components/schemas/JudgedItem' },
     verdict: { type: 'string', enum: ['yes', 'no'] },
     reason: { type: 'string' },
+    correction: {
+      $ref: '#/components/schemas/Correction',
+      description: "The expert's correction of the run's decisions, when they gave one.",
+    },
     judgeClassId: {
       type: 'string',
       description:
@@ -4889,6 +5135,10 @@ export const CreateJudgmentBodySchema: JsonSchema = {
       minLength: 1,
       description: "An app's opaque id for its end user, when judging on their behalf.",
     },
+    correction: {
+      $ref: '#/components/schemas/Correction',
+      description: `Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (\`item.key\` \`"${CORRECTION_ITEM.key}"\`, \`item.pointer\` \`""\`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.`,
+    },
   },
 };
 
@@ -4924,7 +5174,22 @@ export const JudgedItemSummarySchema: JsonSchema = {
       required: ['yesWeight', 'totalWeight'],
       description:
         'The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.',
-      properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
+      properties: {
+        yesWeight: { type: 'number' },
+        totalWeight: { type: 'number' },
+        judgmentIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'The judgments behind these two. Absent from a test set built before judgment ids.',
+        },
+      },
+    },
+    judgmentIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.',
     },
     reasons: {
       type: 'array',
@@ -4962,11 +5227,36 @@ export const JudgedEvalCaseSchema: JsonSchema = {
     context: { $ref: '#/components/schemas/JudgedRunContext' },
     output: {},
     items: { type: 'array', items: { $ref: '#/components/schemas/JudgedItemSummary' } },
+    corrections: {
+      type: 'array',
+      description:
+        "Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'calls', 'notCalled'],
+        properties: {
+          judgmentId: {
+            type: 'string',
+            description: 'The judgment the correction was recorded on.',
+          },
+          judgeClassId: { type: 'string', description: "The judgment's class, when it had one." },
+          restricted: {
+            type: 'boolean',
+            enum: [true],
+            description:
+              'Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).',
+          },
+          calls: correctionCallsProperty,
+          notCalled: correctionNotCalledProperty,
+        },
+      },
+    },
     erased: {
       type: 'boolean',
       const: true,
       description:
-        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).",
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).",
     },
   },
 };
@@ -5734,7 +6024,7 @@ export const FixProposalStatusSchema: JsonSchema = {
     'withdrawn',
   ],
   description:
-    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
+    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
 };
 
 export const ProposalChangeSchema: JsonSchema = {
@@ -5780,6 +6070,26 @@ export const ProposalDrafterSchema: JsonSchema = {
       type: 'string',
       description:
         'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
+    },
+  },
+};
+
+export const ProposalEvidenceSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'What a proposal rests on.',
+  properties: {
+    judgmentIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.",
+    },
+    judgmentCount: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.',
     },
   },
 };
@@ -5832,6 +6142,52 @@ export const ProposalEvaluationSchema: JsonSchema = {
     },
     cases: { type: 'integer' },
     better: { type: 'boolean', description: 'Set once the comparison finished.' },
+    rule: {
+      type: 'string',
+      enum: ['better', 'cheaper'],
+      description:
+        "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.",
+    },
+    costUsd: { $ref: '#/components/schemas/ProposalCost' },
+    decisions: { $ref: '#/components/schemas/ProposalDecisions' },
+  },
+};
+
+export const ProposalCostSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['current', 'candidate'],
+  description:
+    "What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.",
+  properties: {
+    current: { type: 'number', minimum: 0 },
+    candidate: { type: 'number', minimum: 0 },
+  },
+};
+
+export const ProposalDecisionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['checked', 'held', 'broken', 'stillWrong'],
+  description:
+    "The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.",
+  properties: {
+    checked: { type: 'integer', minimum: 0 },
+    held: {
+      type: 'integer',
+      minimum: 0,
+      description: 'The current version passed them, and so did the candidate.',
+    },
+    broken: {
+      type: 'integer',
+      minimum: 0,
+      description: "The current version passed them; the candidate didn't.",
+    },
+    stillWrong: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Neither passed them. The rest of `checked` the candidate fixed.',
+    },
   },
 };
 
@@ -5880,11 +6236,7 @@ export const FixProposalSchema: JsonSchema = {
     tier: { $ref: '#/components/schemas/ProposalTier' },
     change: { $ref: '#/components/schemas/ProposalChange' },
     hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
-    evidence: {
-      type: 'object',
-      additionalProperties: false,
-      properties: { judgmentIds: { type: 'array', items: { type: 'string' } } },
-    },
+    evidence: { $ref: '#/components/schemas/ProposalEvidence' },
     drafter: { $ref: '#/components/schemas/ProposalDrafter' },
     status: { $ref: '#/components/schemas/FixProposalStatus' },
     candidate: { $ref: '#/components/schemas/ProposalCandidate' },
@@ -6034,7 +6386,7 @@ export const ImprovementPassSchema: JsonSchema = {
     comparisons: {
       type: 'array',
       description:
-        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
+        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -6101,6 +6453,12 @@ export const ImproveBodySchema: JsonSchema = {
       type: 'string',
       description: 'The version whose settings it tunes. Default: the one serving `scope`.',
     },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
+    },
     scope: { $ref: '#/components/schemas/LiveScope' },
     suiteId: {
       type: 'string',
@@ -6133,9 +6491,8 @@ export const ImproveBodySchema: JsonSchema = {
     classWeights: {
       type: 'string',
       enum: ['as-recorded', 'restricted-only'],
-      default: 'restricted-only',
       description:
-        'Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.',
+        "Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its judgments from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only judgments recorded under one (`restricted-only`).",
     },
     objective: {
       type: 'string',
@@ -6149,6 +6506,43 @@ export const ImproveBodySchema: JsonSchema = {
       properties: {
         maxCostUsd: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
         maxCandidates: { type: 'integer', minimum: 1, maximum: 200 },
+      },
+    },
+  },
+};
+
+export const ImprovementPassEstimateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
+  required: ['maxCostUsd', 'basis'],
+  properties: {
+    estimatedCostUsd: {
+      type: 'string',
+      description:
+        "The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.",
+    },
+    maxCostUsd: {
+      type: 'string',
+      description: 'The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).',
+    },
+    basis: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['replays'],
+      description: 'What the estimate is built from.',
+      properties: {
+        replays: {
+          type: 'integer',
+          minimum: 0,
+          description: "How many replay runs the pass's comparisons would make.",
+        },
+        meanRunCostUsd: {
+          type: 'string',
+          description:
+            "The version's mean cost over its recent completed runs (US dollars). Absent with no cost history.",
+        },
       },
     },
   },
@@ -8373,7 +8767,7 @@ export const EvalSampleSchema: JsonSchema = {
   additionalProperties: false,
   required: ['part', 'seed', 'holdOutShare'],
   description:
-    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a "no" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
+    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
   properties: {
     part: { type: 'string', enum: ['search', 'hold-out'] },
     seed: { type: 'string', minLength: 1, maxLength: 200 },
@@ -8591,7 +8985,8 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
     refusedWrites: {
       type: 'integer',
       minimum: 0,
-      description: 'Tool calls refused across the cases (what the candidate would have done).',
+      description:
+        "Tool calls the replay refused across the cases (what the candidate would have done). Reads count too, despite the name: the replay refuses a call it can't run live (a write, or a read that needs an approval or reaches outside, say) that has no recording of the same call.",
     },
     errors: { type: 'integer', minimum: 0, description: 'Cases none of whose repetitions ran.' },
     erased: {
@@ -8614,7 +9009,7 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description:
-        "Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.",
+        "Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics.",
     },
     reads: { type: 'string', enum: ['recorded', 'live'] },
     classWeights: {
@@ -8659,6 +9054,62 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
         judgedCoverage: { $ref: '#/components/schemas/ComparisonMetric' },
         weightedPrecisionAtK: { $ref: '#/components/schemas/ComparisonMetric' },
       },
+    },
+    corrections: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['checked', 'passed'],
+      description:
+        'Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.',
+      properties: {
+        checked: { type: 'integer', minimum: 0, description: 'How many corrections were graded.' },
+        passed: {
+          type: 'integer',
+          minimum: 0,
+          description: 'How many passed (every repetition passed).',
+        },
+        judgments: {
+          type: 'array',
+          description:
+            'Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['judgmentId', 'pass'],
+            properties: {
+              judgmentId: { type: 'string' },
+              pass: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+    costUsd: { $ref: '#/components/schemas/JudgedComparisonCost' },
+  },
+};
+
+export const JudgedComparisonCostSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['candidate', 'cases'],
+  description:
+    "What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.",
+  properties: {
+    candidate: {
+      type: 'number',
+      minimum: 0,
+      description:
+        "Each repetition's total over `cases`, averaged over the repetitions, in US dollars.",
+    },
+    spread: {
+      type: 'number',
+      minimum: 0,
+      description: "With more than one repetition: the totals' max − min.",
+    },
+    cases: {
+      type: 'integer',
+      minimum: 1,
+      description: 'The cases whose every repetition reported a cost: the ones totalled.',
     },
   },
 };
@@ -8793,8 +9244,54 @@ export const ComparisonCaseResultSchema: JsonSchema = {
         },
       },
     },
+    corrections: {
+      type: 'array',
+      description:
+        'Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'pass', 'repetitionsPassed', 'repetitions'],
+        properties: {
+          judgmentId: { type: 'string' },
+          pass: { type: 'boolean', description: 'Passed only when every repetition passed.' },
+          repetitionsPassed: { type: 'integer', minimum: 0, description: 'The `k` of "k of n".' },
+          repetitions: { type: 'integer', minimum: 1, description: 'The `n` of "k of n".' },
+        },
+      },
+    },
+    correctionDifferences: {
+      type: 'array',
+      description:
+        "The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['judgmentId', 'repetition', 'differences'],
+        properties: {
+          judgmentId: { type: 'string' },
+          repetition: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Which repetition (1-based) these differences are from.',
+          },
+          differences: { type: 'array', items: { $ref: '#/components/schemas/CallDifference' } },
+        },
+      },
+    },
+    costUsd: {
+      type: 'array',
+      description:
+        "What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.",
+      items: { type: 'number', minimum: 0 },
+    },
     diverged: { type: 'boolean' },
-    refusedWrites: { type: 'integer', minimum: 0 },
+    refusedWrites: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Tool calls the replay refused in this case: the most in any one of its repetitions. Reads count too, despite the name.',
+    },
     noContext: { type: 'boolean' },
     approvalSkipped: { type: 'boolean' },
     error: { type: 'string' },
@@ -8802,7 +9299,7 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['toolId', 'arguments'],
-      description: 'Set when the replay stopped at a refused write: what it would have done.',
+      description: 'Set when the replay stopped at a refused tool call: what it would have done.',
       properties: { toolId: { type: 'string' }, arguments: {}, reason: { type: 'string' } },
     },
     rescored: {
@@ -8874,7 +9371,7 @@ export const EvalRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a write the replay refused, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     cancelReason: {
@@ -9191,6 +9688,21 @@ export const SignInOptionSchema: JsonSchema = {
   },
 };
 
+export const ConsoleLinkSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['label', 'url'],
+  description: "One of the deployment's own links, which the console shows on every page.",
+  properties: {
+    label: { type: 'string', minLength: 1, maxLength: 40, description: 'The text shown.' },
+    url: {
+      type: 'string',
+      format: 'uri',
+      description: 'An absolute https URL with no username or password.',
+    },
+  },
+};
+
 export const SignInOptionsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -9238,6 +9750,13 @@ export const SignInOptionsSchema: JsonSchema = {
         termsUrl: { type: 'string', format: 'uri', description: 'Its terms.' },
         privacyUrl: { type: 'string', format: 'uri', description: 'Its privacy policy.' },
       },
+    },
+    links: {
+      type: 'array',
+      maxItems: 8,
+      description:
+        "The deployment's own links (its help desk, status page, data processing terms), which the console shows on every page, the sign-in page too, in its operator's order. Absent when there are none, and from older servers.",
+      items: { $ref: '#/components/schemas/ConsoleLink' },
     },
   },
 };
@@ -10367,6 +10886,52 @@ export const JudgingRulePreviewSchema: JsonSchema = {
   },
 };
 
+export const JudgingQueueRecentInputSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description: 'Which recent runs to catch the rule up on. Give `last`, `since`, or both.',
+  properties: {
+    last: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 1000,
+      description: "This many of the project's most recent top-level runs (newest first).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Runs completed at or after this time.',
+    },
+  },
+};
+
+export const JudgingRecentQueuedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['queued', 'alreadyQueued', 'alreadyReviewed'],
+  properties: {
+    queued: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs this call newly queued for the rule: a new queue item, or the rule added to one already waiting for another rule.',
+    },
+    alreadyQueued: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`).',
+    },
+    alreadyReviewed: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        'Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.',
+    },
+  },
+};
+
 export const PersonProjectRoleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11048,7 +11613,7 @@ export const DeploymentValidationDetailsSchema: JsonSchema = {
   additionalProperties: false,
   required: ['primitive', 'index', 'path', 'message'],
   properties: {
-    primitive: { type: 'string', enum: ['tool', 'guardrail', 'agent', 'flow'] },
+    primitive: { type: 'string', enum: ['tool', 'guardrail', 'agent', 'flow', 'block'] },
     index: { type: 'integer', minimum: 0 },
     id: { type: 'string' },
     path: { type: 'string' },
@@ -12676,7 +13241,7 @@ export const ScheduleRecordSchema: JsonSchema = {
     improve: {
       $ref: '#/components/schemas/ImproveScheduleTarget',
       description:
-        'A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).',
+        'A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options).',
     },
     projectId: {
       type: 'string',
@@ -12686,7 +13251,7 @@ export const ScheduleRecordSchema: JsonSchema = {
     owner: {
       $ref: '#/components/schemas/TriggerOwner',
       description:
-        'Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire.',
+        'Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every fire.',
     },
     cronExpression: {
       type: 'string',
@@ -12758,6 +13323,12 @@ export const TriggerOwnerSchema: JsonSchema = {
       description:
         "The owner's name at the time of the response: the person's display name, or the service account's name. Absent when it can't be read (no directory, a removed account) and from a runtime before Kindgi 0.1.6: show the id then.",
     },
+    isProjectAccount: {
+      type: 'boolean',
+      enum: [true],
+      description:
+        'Set when the owner is the trigger\'s project\'s own service account (`runAsProject`): the trigger is shared, and runs as the project. Show it as "This project". Absent otherwise.',
+    },
   },
 };
 
@@ -12777,7 +13348,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'An improve schedule\'s `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent\'s runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.',
+    "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
   properties: {
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
@@ -12923,7 +13494,12 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Absent: the caller owns it.",
+        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named, and again when the schedule's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "`true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the schedule's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
     config: {
       type: 'object',
@@ -13176,7 +13752,7 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
     owner: {
       $ref: '#/components/schemas/TriggerOwner',
       description:
-        'Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every delivery.',
+        'Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every delivery.',
     },
     input: {
       description:
@@ -13286,6 +13862,15 @@ export const WebhookFirePageSchema: JsonSchema = {
   },
 };
 
+export const WaitTokenAcceptedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status'],
+  description:
+    "The runtime has the answer. It says nothing about the run: who holds a wait token's link isn't a run reader.",
+  properties: { status: { type: 'string', enum: ['accepted'] } },
+};
+
 export const WebhookReceiptSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -13373,7 +13958,12 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Absent: the caller owns it.",
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named: if it can't run the flow, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project.",
@@ -13423,13 +14013,18 @@ export const TakeTriggerOwnerBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "Who the trigger's runs act as from now. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.",
+    "Who the trigger's runs act as from now: for a trigger whose owner left, or to make one shared or personal. Absent, or an empty body: the caller takes it over (today's behaviour). With `runAsServiceAccountId`: that service account becomes the owner. With `runAsProject`: the project's own account does. A take-over keeps the trigger's `toolsAllowedUnattended`: change that with PATCH.",
   properties: {
     runAsServiceAccountId: {
       type: 'string',
       minLength: 1,
       description:
-        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs.",
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`).",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named: if it can't run what the trigger runs, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
   },
 };
@@ -13466,6 +14061,239 @@ export const WebhookTriggerUnregisterResultSchema: JsonSchema = {
   properties: {
     triggerId: { type: 'string' },
     unregistered: { type: 'boolean' },
+  },
+};
+
+// ---------- mail triggers (a mailbox's new mail starts runs) ----------
+
+export const MailTriggerMailboxSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'as'],
+  description:
+    "The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company's connection of that app; `person`: the trigger owner's own, through their connection).",
+  properties: {
+    app: { type: 'string', enum: ['google', 'microsoft'] },
+    as: { type: 'string', enum: ['company', 'person'] },
+  },
+};
+
+const MAIL_TRIGGER_CONFIG_PROPERTIES: Record<string, JsonSchema> = {
+  mailbox: { $ref: '#/components/schemas/MailTriggerMailbox' },
+  folder: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 512,
+    description:
+      'The Gmail label id, or the Outlook folder id or well-known name, it watches. Absent: the inbox.',
+  },
+  pollSeconds: {
+    type: 'integer',
+    minimum: 30,
+    maximum: 3600,
+    description: 'How often it looks for new mail, in seconds (default 60).',
+  },
+  runsPerHour: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 600,
+    description:
+      "The most runs its mail starts in an hour (default 60). Past it, a mail's fire is `refused` (`detail` starts `over-limit:`), and that mail doesn't run later.",
+  },
+};
+
+const MAIL_TRIGGER_TARGET_PROPERTIES: Record<string, JsonSchema> = {
+  flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
+  flowVersion: { type: 'string', minLength: 1 },
+  agentId: {
+    type: 'string',
+    minLength: 1,
+    description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+  },
+  agentVersion: { type: 'string', minLength: 1 },
+};
+
+export const MailTriggerRecordSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "A mail trigger: each new mail in its mailbox's folder starts a run of its agent or flow, with the mail as the run's input, as its owner. In such a run, every call that changes something, or uses the run's own mailbox, waits for a person's yes unless the trigger lists it (`toolsAllowedUnattended`).",
+  required: [
+    'triggerId',
+    'projectId',
+    'owner',
+    'mailbox',
+    'pollSeconds',
+    'runsPerHour',
+    'label',
+    'status',
+    'lastFiredAt',
+    'createdAt',
+    'updatedAt',
+  ],
+  properties: {
+    triggerId: { type: 'string' },
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project: its runs are this project's.",
+    },
+    owner: {
+      $ref: '#/components/schemas/TriggerOwner',
+      description:
+        "Who its runs act as, with their connections. A service account owns a shared trigger, on the company's mailbox: one named with `runAsServiceAccountId`, or the project's own (`runAsProject`, `isProjectAccount`). A person owns a personal one: every trigger on a person's mailbox, and one on the company's mailbox registered without either. No edit moves it; only a take-over (`POST …/owner`) does.",
+    },
+    ...MAIL_TRIGGER_CONFIG_PROPERTIES,
+    label: { type: ['string', 'null'] },
+    status: { $ref: '#/components/schemas/TriggerStatus' },
+    statusReason: {
+      type: 'string',
+      description:
+        "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
+    },
+    account: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'label'],
+      description:
+        "The mailbox's account at its last poll: the connection's account id and its label (the address). Absent before its first poll.",
+      properties: { id: { type: 'string' }, label: { type: 'string' } },
+    },
+    lastPolledAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it last polled the mailbox and got an answer.',
+    },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none.",
+    ),
+    lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+/** A new mail trigger's mailbox, folder and pace. */
+export const RegisterMailTriggerBodyConfigSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A new mail trigger's mailbox, folder and pace.",
+  required: ['mailbox'],
+  properties: MAIL_TRIGGER_CONFIG_PROPERTIES,
+};
+
+/** A mail trigger's mailbox, folder or pace, to change; an absent field keeps its value. */
+export const PatchMailTriggerBodyConfigSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "A mail trigger's mailbox, folder or pace, to change. An absent field keeps its value.",
+  properties: {
+    ...MAIL_TRIGGER_CONFIG_PROPERTIES,
+    folder: {
+      ...MAIL_TRIGGER_CONFIG_PROPERTIES.folder,
+      description:
+        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes; then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
+    },
+  },
+};
+
+export const RegisterMailTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Its runs' input is the mail, so it takes none. A trigger on a person's mailbox reads the caller's own mail and is theirs: it needs `write` on the project. One on the company's mailbox needs `admin` on the project. Both need `execute` on what it runs.",
+  required: ['config'],
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project. Absent → the tenant's default project.",
+    },
+    runAsServiceAccountId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+    },
+    runAsProject: {
+      type: 'boolean',
+      description:
+        "On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
+    },
+    config: { $ref: '#/components/schemas/RegisterMailTriggerBodyConfig' },
+    label: { type: 'string' },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project.",
+    ),
+  },
+};
+
+export const PatchMailTriggerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), its mailbox (replaced whole), folder, pace or label. A personal trigger's change is its owner's or a project admin's; a shared one's, a project admin's; and the company's mailbox, before or after, takes a project admin. The owner stays.",
+  properties: {
+    ...MAIL_TRIGGER_TARGET_PROPERTIES,
+    config: { $ref: '#/components/schemas/PatchMailTriggerBodyConfig' },
+    label: { type: ['string', 'null'] },
+    toolsAllowedUnattended: toolsAllowedUnattendedProperty(
+      "Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`.",
+    ),
+  },
+};
+
+export const MailFireSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "One mail a mail trigger found and what came of it. A thread's mail runs one at a time, oldest first.",
+  required: ['fireId', 'triggerId', 'firedAt', 'outcome'],
+  properties: {
+    fireId: { type: 'string' },
+    triggerId: { type: 'string' },
+    firedAt: { type: 'string', format: 'date-time' },
+    outcome: {
+      type: 'string',
+      enum: ['pending', 'started', 'skipped', 'refused', 'failed'],
+      description:
+        "`pending` while its run starts, or while an earlier mail of its thread waits or that mail's run hasn't finished (`detail` starts `thread-busy:`). `skipped`: no run started, as `detail` says: the mail is from the mailbox's own address (`own-address`), an automatic reply (`auto-submitted`), received before the trigger began watching (`before-since`), found in a mailbox that changed account before it was read (`mailbox-changed`), gone by the time it was read (`not-found`), or already had by an earlier run of its thread (`mail-already-given:`); or the poll started afresh (`cursor-reset:`). `refused`: over the trigger's `runsPerHour` (`over-limit:`), the mailbox's connection missing, lapsed or lacking a scope (`connection-missing:` and why), or the app gave the mail no thread (`no-thread-id`); a refused mail doesn't run later. `failed`: the run couldn't start.",
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    detail: {
+      type: 'string',
+      description: 'Why it was skipped, refused or failed, or why a `pending` fire waits.',
+    },
+    countsTowardPause: {
+      type: 'boolean',
+      description:
+        "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for `over-limit:`, `connection-missing:` and `no-thread-id` refusals: the limit passes, connecting again ends a missing connection, and a mail with no thread is the app's doing, not the trigger's. Skips never count.",
+    },
+  },
+};
+
+export const MailFirePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MailFire' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const MailTriggerCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MailTriggerRecord' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
   },
 };
 
@@ -13609,6 +14437,603 @@ export const WebhookEndpointUnregisterResultSchema: JsonSchema = {
       type: 'boolean',
       description:
         '`true` iff this call unregistered the endpoint; `false` when it was unknown or already unregistered.',
+    },
+  },
+};
+
+// ---------- connections ----------
+
+export const ConnectionSecretRefSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['envName', 'name'],
+  description:
+    "A secret by name in the deployment's secrets store, resolved at tenant scope. The registration keeps only this reference, never the value.",
+  properties: {
+    envName: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,62}$' },
+    name: { type: 'string', minLength: 1, maxLength: 256 },
+  },
+};
+
+export const ConnectionOwnerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "Who owns a connection: one member (`kind: member`, with their `userId`), or the company (`kind: company`, the tenant's own account).",
+  properties: {
+    kind: { type: 'string', enum: ['member', 'company'] },
+    userId: { type: 'string', description: 'The member. Present when `kind` is `member`.' },
+  },
+};
+
+export const ConnectionAccountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'label'],
+  description: 'Whose account a connection is at the app.',
+  properties: {
+    id: { type: 'string', description: "The account's stable id at the app." },
+    label: { type: 'string', description: 'What people see: an email address, a login.' },
+  },
+};
+
+export const ConnectionStateSchema: JsonSchema = {
+  type: 'string',
+  enum: ['working', 'needs-reconnecting', 'removing', 'removed'],
+  description:
+    '`working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.',
+};
+
+export const ConnectionEntryPermissionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['says', 'changes'],
+  properties: {
+    says: { type: 'string', description: 'In plain words, for the person asked.' },
+    changes: {
+      type: 'boolean',
+      description: 'Whether it changes anything at the app. `false` is read only.',
+    },
+  },
+};
+
+export const ConnectionEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'name', 'owners', 'signIn', 'permissions', 'setupGuide'],
+  description: 'An app this server can connect to.',
+  properties: {
+    id: { type: 'string', description: "The entry id: `'google'`, `'github'`." },
+    name: { type: 'string', description: "The app's name as people know it." },
+    owners: {
+      type: 'array',
+      items: { type: 'string', enum: ['member', 'company'] },
+      description: 'Who may own a connection to this app.',
+    },
+    signIn: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      description: 'How a person signs in at the app.',
+      properties: {
+        kind: { type: 'string', enum: ['oauth2', 'github-app'] },
+        tenant: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            "Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.",
+          properties: {
+            default: {
+              type: 'string',
+              description: 'The directory a registration that names none signs in at.',
+            },
+          },
+        },
+      },
+    },
+    permissions: {
+      type: 'object',
+      additionalProperties: { $ref: '#/components/schemas/ConnectionEntryPermission' },
+      description: 'What a tool may ask for, by permission key (`gmail.send`).',
+    },
+    removal: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        'How a disconnect withdraws access at the app, and how the app reports a removal made there. `{}` when the app has neither: a disconnect then withdraws nothing at the app, and a removal made there is not reported.',
+      properties: {
+        revoke: {
+          type: 'string',
+          enum: ['oauth2-revoke', 'github-installation-token'],
+          description:
+            "How a disconnect withdraws access at the app: an OAuth revoke, or revoking the GitHub App's installation tokens (the app stays installed).",
+        },
+        revokeIsGrantWide: {
+          type: 'boolean',
+          description:
+            "Whether the app's revoke withdraws everything the person granted the registration, not only this connection's permissions. Google's does.",
+        },
+        notices: {
+          type: 'string',
+          enum: ['google-risc', 'github-webhooks'],
+          description: 'How the app reports a removal made at the app.',
+        },
+      },
+    },
+    setupGuide: {
+      type: 'string',
+      description: 'The docs page an admin follows to register the app.',
+    },
+  },
+};
+
+export const ConnectionEntryListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionEntry' } },
+  },
+};
+
+export const ConnectionOAuth2AppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['clientId', 'clientSecret'],
+  properties: {
+    clientId: { type: 'string' },
+    clientSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+    tenant: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 253,
+      description:
+        "The directory the app signs people in at, for an app whose sign-in names one: Microsoft's tenant id or domain for a single-tenant app, `organizations`, `common` or `consumers` for a multi-tenant one. Required when the app's entry has no default, refused for an app without one (`connection-app-invalid`, `details.field` `oauth2.tenant`).",
+    },
+  },
+};
+
+export const ConnectionGitHubAppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['appNumber', 'slug', 'clientId', 'clientSecret', 'privateKey', 'webhookSecret'],
+  properties: {
+    appNumber: { type: 'integer', minimum: 1 },
+    slug: { type: 'string', description: "The app's slug." },
+    clientId: { type: 'string' },
+    clientSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+    privateKey: { $ref: '#/components/schemas/ConnectionSecretRef' },
+    webhookSecret: { $ref: '#/components/schemas/ConnectionSecretRef' },
+  },
+};
+
+export const ConnectionAppSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['appId', 'app', 'redirectUrl', 'noticesUrl', 'createdAt', 'updatedAt'],
+  description:
+    "A tenant's registration of its own client at an app. Secrets are references, never values.",
+  properties: {
+    appId: { type: 'string', format: 'uuid' },
+    app: { type: 'string', description: "The app's entry id." },
+    label: { type: 'string' },
+    oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
+    githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    projects: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The projects whose runs may use its connections. Absent: every project.',
+    },
+    redirectUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        'Give this to the app as its redirect URL: a GitHub App\'s Callback URL, with "Request user authorization (OAuth) during installation" ticked.',
+    },
+    noticesUrl: {
+      type: 'string',
+      format: 'uri',
+      description: 'Give this to the app as the place it reports removals.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    removedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const ConnectionAppPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionApp' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const CreateConnectionAppBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app'],
+  description: 'Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.',
+  properties: {
+    app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
+    label: { type: 'string', maxLength: 200 },
+    oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
+    githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    projects: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 500,
+      items: { type: 'string' },
+      description: 'The projects whose runs may use its connections. Leave out for every project.',
+    },
+  },
+};
+
+export const UpdateConnectionAppBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'Fields to change; absent fields are kept. The app itself cannot change.',
+  properties: {
+    label: { type: 'string', maxLength: 200 },
+    oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
+    githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
+    projects: {
+      type: ['array', 'null'],
+      minItems: 1,
+      maxItems: 500,
+      items: { type: 'string' },
+      description: '`null` allows every project.',
+    },
+  },
+};
+
+export const ConnectionAppRemovedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['connectionsRemoved'],
+  properties: {
+    connectionsRemoved: {
+      type: 'integer',
+      minimum: 0,
+      description: 'How many live connections the removal took with it.',
+    },
+  },
+};
+
+export const ConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'connectionId',
+    'envName',
+    'appId',
+    'app',
+    'owner',
+    'account',
+    'permissions',
+    'state',
+    'connectedAt',
+    'createdAt',
+    'createdBy',
+    'updatedAt',
+  ],
+  description:
+    "One owner's account at an app, through a registration, in one env. Never its token.",
+  properties: {
+    connectionId: { type: 'string', format: 'uuid' },
+    envName: { type: 'string' },
+    appId: { type: 'string', format: 'uuid', description: 'The registration it goes through.' },
+    app: { type: 'string', description: "The app's entry id." },
+    owner: { $ref: '#/components/schemas/ConnectionOwner' },
+    account: { $ref: '#/components/schemas/ConnectionAccount' },
+    permissions: {
+      type: 'array',
+      items: { type: 'string' },
+      description: "The entry's permission keys the app granted.",
+    },
+    state: { $ref: '#/components/schemas/ConnectionState' },
+    stateReason: {
+      type: 'string',
+      description:
+        "Why it's in its state: `invalid-grant` (the app withdrew the grant), `no-refresh-token` (the app gave no way to renew it), `token-missing` (its stored token is gone), `store-write-failed` (its token couldn't be stored at the connect), `installation-missing` (the GitHub App was uninstalled from the account), `installation-permissions` (an owner took permissions from the installation), `suspended` (the installation was suspended), `sessions-revoked` (Google revoked the person's sessions), `access-expired` (the app gave no refresh token, and its access token ends within a minute, or has ended). Other values may be added; `state` says what to do.",
+    },
+    installationId: { type: 'string', description: "A GitHub App's installation." },
+    accessEndsAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When its access token ends, for a connection the app gave no refresh token. From one minute before then, it needs reconnecting (`access-expired`), and reads say so too. Absent for one that renews.',
+    },
+    connectedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When its current grant was stored: the connect, or the last reconnect.',
+    },
+    lastUsedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When a run last used it, to the hour.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    removedAt: { type: 'string', format: 'date-time' },
+    removedBy: { type: 'string' },
+    removedReason: {
+      type: 'string',
+      enum: ['disconnected', 'revoked-at-app', 'uninstalled', 'registration-removed', 'replaced'],
+    },
+    withdrawn: {
+      type: 'string',
+      enum: ['at-app', 'app-failed', 'kept-for-other-connection', 'not-supported'],
+      description:
+        'What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection.',
+    },
+  },
+};
+
+export const ConnectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/Connection' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const ConnectRequestSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'requestId',
+    'envName',
+    'appId',
+    'app',
+    'owner',
+    'permissions',
+    'says',
+    'state',
+    'connectUrl',
+    'expiresAt',
+    'createdAt',
+    'createdBy',
+  ],
+  description:
+    'A connect: the owner goes to `connectUrl`, consents at the app, and comes back. A run that needs a connection it lacks waits on one.',
+  properties: {
+    requestId: { type: 'string', format: 'uuid' },
+    envName: { type: 'string' },
+    appId: { type: 'string', format: 'uuid' },
+    app: { type: 'string', description: "The app's entry id." },
+    owner: { $ref: '#/components/schemas/ConnectionOwner' },
+    permissions: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The permissions asked for: the ones needed, and the ones already granted.',
+    },
+    says: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'What each asks for, in plain words.',
+    },
+    reconnects: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The connection it connects again; the same account is required.',
+    },
+    runId: { type: 'string', description: 'The run that waits for it.' },
+    name: { type: 'string', description: "The tool's name for the connection, when a run waits." },
+    startedBy: {
+      type: 'string',
+      description: 'Who started it last: `<kind>:<id>`. Only they may finish it.',
+    },
+    state: {
+      type: 'string',
+      enum: ['pending', 'connected', 'declined', 'expired', 'failed'],
+    },
+    failure: {
+      type: 'string',
+      description: 'Why it failed: `account-mismatch`, `app-refused`, `store-write-failed`.',
+    },
+    missing: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The permissions the app granted less than asked.',
+    },
+    installations: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ConnectRequestInstallation' },
+      description:
+        "A GitHub App's, while it's `pending`: the app's installations the person's GitHub account reaches, when the finish found several and none was picked. They pick one and start again with `installationId`, or install the app on another account with `newInstallation`.",
+    },
+    connectionId: { type: 'string', format: 'uuid', description: 'The connection it made.' },
+    connectUrl: { type: 'string', format: 'uri', description: 'Where the owner starts.' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+  },
+};
+
+export const CreateConnectRequestBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'permissions'],
+  properties: {
+    app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
+    appId: {
+      type: 'string',
+      format: 'uuid',
+      description: 'Which registration, when the tenant has more than one for the app.',
+    },
+    projectId: {
+      type: 'string',
+      minLength: 1,
+      description: 'When given, the registration must allow this project.',
+    },
+    permissions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 64,
+      items: { type: 'string' },
+      description: "The entry's permission keys to ask for.",
+    },
+    for: {
+      type: 'string',
+      enum: ['me', 'company'],
+      default: 'me',
+      description:
+        "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.",
+    },
+  },
+};
+
+export const ConnectRequestInstallationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['installationId', 'account'],
+  description: 'A GitHub App installation the person can reach.',
+  properties: {
+    installationId: { type: 'string' },
+    account: {
+      $ref: '#/components/schemas/ConnectionAccount',
+      description: "The account it's on: its login, or the enterprise's slug.",
+    },
+  },
+};
+
+export const StartConnectBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Optional, and a GitHub App's only: the installation to attach, or a new one. Leave it out for any other app.",
+  properties: {
+    installationId: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 64,
+      description: "The installation to attach: one of the request's `installations`.",
+    },
+    newInstallation: {
+      type: 'boolean',
+      description:
+        "`true`: go to the app's install page to install it on another account, even when it has installations. Not with `installationId`.",
+    },
+  },
+};
+
+export const FinishConnectBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['state'],
+  description:
+    'What the app sent back to the callback page, each as a string. Only whoever started the request may finish it.',
+  properties: {
+    state: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 2048,
+      description: 'The one the app sent back.',
+    },
+    code: { type: 'string', minLength: 1, maxLength: 2048 },
+    installationId: { type: 'string', minLength: 1, maxLength: 2048 },
+    setupAction: { type: 'string', minLength: 1, maxLength: 2048 },
+    error: { type: 'string', minLength: 1, maxLength: 2048 },
+    errorDescription: { type: 'string', minLength: 1, maxLength: 2048 },
+  },
+};
+
+export const ConnectFinishSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'request'],
+  properties: {
+    kind: {
+      type: 'string',
+      enum: ['connected', 'declined', 'pick-installation'],
+      description:
+        "`declined`: the person declined, or granted less than asked (`request.missing`). `pick-installation`: a GitHub App's person reaches several installations and picked none; the request stays `pending` with its `installations`.",
+    },
+    request: { $ref: '#/components/schemas/ConnectRequest' },
+    connection: {
+      $ref: '#/components/schemas/Connection',
+      description: 'Present when `kind` is `connected`.',
+    },
+    reviewerSeat: {
+      type: 'boolean',
+      description:
+        'On a server with approvals, for a member who connected: whether they have a reviewer seat, which approving a send from their own account needs.',
+    },
+  },
+};
+
+export const ConnectStartSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['authorizeUrl'],
+  properties: {
+    authorizeUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        "The app's consent page, with a fresh sign-in state good for 10 minutes. Send the person there.",
+    },
+  },
+};
+
+export const WaitingForConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'requestId', 'waitToken', 'app', 'appName', 'says', 'connectUrl', 'expiresAt'],
+  description:
+    'A connect the run waits for: the person opens `connectUrl`, consents at the app, and the run goes on.',
+  properties: {
+    name: { type: 'string', description: "The tool's name for the connection." },
+    requestId: { type: 'string', format: 'uuid' },
+    waitToken: { type: 'string' },
+    app: { type: 'string', description: "The app's entry id." },
+    appName: { type: 'string' },
+    says: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'What each permission asked for allows, in plain words.',
+    },
+    connectUrl: { type: 'string', format: 'uri' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    reconnects: {
+      type: 'boolean',
+      description: 'The person connected this app before, and connects it again.',
+    },
+  },
+};
+
+export const ApprovalApproverSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'userId'],
+  description: 'The one member who may decide it.',
+  properties: {
+    kind: { type: 'string', enum: ['member'] },
+    userId: { type: 'string' },
+  },
+};
+
+export const ApprovalConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['app', 'appName', 'account'],
+  description: "The person's account the call would use.",
+  properties: {
+    app: { type: 'string', description: "The app's entry id." },
+    appName: { type: 'string' },
+    account: {
+      type: 'string',
+      description: "The account's label at the app: an email address, a login.",
     },
   },
 };
@@ -13967,6 +15392,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunAgent', RunAgentSchema],
   ['RunWaitingFor', RunWaitingForSchema],
   ['RunWaitingApproval', RunWaitingApprovalSchema],
+  ['RunWaitingToken', RunWaitingTokenSchema],
   ['RunTrigger', RunTriggerSchema],
   ['ScopeSegment', ScopeSegmentSchema],
   ['LiveScopeTenant', LiveScopeTenantSchema],
@@ -14097,6 +15523,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnregisterJudgeClassResult', UnregisterJudgeClassResultSchema],
   ['JudgedSubject', JudgedSubjectSchema],
   ['JudgedItem', JudgedItemSchema],
+  ['ExpectedCall', ExpectedCallSchema],
+  ['Correction', CorrectionSchema],
   ['JudgmentAssertedBy', JudgmentAssertedBySchema],
   ['Judgment', JudgmentSchema],
   ['JudgedRunContext', JudgedRunContextSchema],
@@ -14149,6 +15577,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ToolSecretRef', ToolSecretRefSchema],
   ['HttpHeaderSpec', HttpHeaderSpecSchema],
   ['HttpAuthSpec', HttpAuthSpecSchema],
+  ['ConnectionNeed', ConnectionNeedSchema],
   ['HttpRequestBodySpec', HttpRequestBodySpecSchema],
   ['HttpToolSpec', HttpToolSpecSchema],
   ['SandboxMode', SandboxModeSchema],
@@ -14217,8 +15646,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FixProposalStatus', FixProposalStatusSchema],
   ['ProposalChange', ProposalChangeSchema],
   ['ProposalDrafter', ProposalDrafterSchema],
+  ['ProposalEvidence', ProposalEvidenceSchema],
   ['ProposalCandidate', ProposalCandidateSchema],
   ['ProposalEvaluation', ProposalEvaluationSchema],
+  ['ProposalCost', ProposalCostSchema],
+  ['ProposalDecisions', ProposalDecisionsSchema],
   ['ProposalPromotion', ProposalPromotionSchema],
   ['FixProposal', FixProposalSchema],
   ['FixProposalCollectionPage', FixProposalCollectionPageSchema],
@@ -14227,6 +15659,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ImprovementPass', ImprovementPassSchema],
   ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
   ['ImproveBody', ImproveBodySchema],
+  ['ImprovementPassEstimate', ImprovementPassEstimateSchema],
   ['CreateProposalBody', CreateProposalBodySchema],
   ['EvaluateProposalBody', EvaluateProposalBodySchema],
   ['ProposalReasonBody', ProposalReasonBodySchema],
@@ -14339,6 +15772,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ComparisonMetric', ComparisonMetricSchema],
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
+  ['JudgedComparisonCost', JudgedComparisonCostSchema],
+  ['CallDifference', CallDifferenceSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['JudgedComparisonResult', JudgedComparisonResultSchema],
   ['EvalRun', EvalRunSchema],
@@ -14357,6 +15792,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['GetIdentityProviderResult', GetIdentityProviderResultSchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
   ['SignInOption', SignInOptionSchema],
+  ['ConsoleLink', ConsoleLinkSchema],
   ['SignInOptions', SignInOptionsSchema],
   ['TokenSignInResult', TokenSignInResultSchema],
   ['SignInEvent', SignInEventSchema],
@@ -14407,6 +15843,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['JudgingResultGroup', JudgingResultGroupSchema],
   ['JudgingRuleResults', JudgingRuleResultsSchema],
   ['JudgingRulePreview', JudgingRulePreviewSchema],
+  ['JudgingQueueRecentInput', JudgingQueueRecentInputSchema],
+  ['JudgingRecentQueued', JudgingRecentQueuedSchema],
   ['AccessRole', AccessRoleSchema],
   ['AccessPathDirect', AccessPathDirectSchema],
   ['AccessPathTeam', AccessPathTeamSchema],
@@ -14570,12 +16008,22 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookTriggerRecord', WebhookTriggerRecordSchema],
   ['WebhookFire', WebhookFireSchema],
   ['WebhookFirePage', WebhookFirePageSchema],
+  ['WaitTokenAccepted', WaitTokenAcceptedSchema],
   ['WebhookReceipt', WebhookReceiptSchema],
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],
   ['RegisterWebhookTriggerBody', RegisterWebhookTriggerBodySchema],
   ['PatchWebhookTriggerBody', PatchWebhookTriggerBodySchema],
   ['TakeTriggerOwnerBody', TakeTriggerOwnerBodySchema],
   ['WebhookTriggerUnregisterResult', WebhookTriggerUnregisterResultSchema],
+  ['MailTriggerMailbox', MailTriggerMailboxSchema],
+  ['MailTriggerRecord', MailTriggerRecordSchema],
+  ['RegisterMailTriggerBodyConfig', RegisterMailTriggerBodyConfigSchema],
+  ['PatchMailTriggerBodyConfig', PatchMailTriggerBodyConfigSchema],
+  ['RegisterMailTriggerBody', RegisterMailTriggerBodySchema],
+  ['PatchMailTriggerBody', PatchMailTriggerBodySchema],
+  ['MailFire', MailFireSchema],
+  ['MailFirePage', MailFirePageSchema],
+  ['MailTriggerCollectionPage', MailTriggerCollectionPageSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],
   ['WebhookEndpointFilter', WebhookEndpointFilterSchema],
@@ -14586,6 +16034,33 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CreateWebhookEndpointBody', CreateWebhookEndpointBodySchema],
   ['PatchWebhookEndpointBody', PatchWebhookEndpointBodySchema],
   ['WebhookEndpointUnregisterResult', WebhookEndpointUnregisterResultSchema],
+  // Connections.
+  ['ConnectionSecretRef', ConnectionSecretRefSchema],
+  ['ConnectionOwner', ConnectionOwnerSchema],
+  ['ConnectionAccount', ConnectionAccountSchema],
+  ['ConnectionState', ConnectionStateSchema],
+  ['ConnectionEntryPermission', ConnectionEntryPermissionSchema],
+  ['ConnectionEntry', ConnectionEntrySchema],
+  ['ConnectionEntryList', ConnectionEntryListSchema],
+  ['ConnectionOAuth2App', ConnectionOAuth2AppSchema],
+  ['ConnectionGitHubApp', ConnectionGitHubAppSchema],
+  ['ConnectionApp', ConnectionAppSchema],
+  ['ConnectionAppPage', ConnectionAppPageSchema],
+  ['CreateConnectionAppBody', CreateConnectionAppBodySchema],
+  ['UpdateConnectionAppBody', UpdateConnectionAppBodySchema],
+  ['ConnectionAppRemoved', ConnectionAppRemovedSchema],
+  ['Connection', ConnectionSchema],
+  ['ConnectionPage', ConnectionPageSchema],
+  ['ConnectRequest', ConnectRequestSchema],
+  ['CreateConnectRequestBody', CreateConnectRequestBodySchema],
+  ['ConnectRequestInstallation', ConnectRequestInstallationSchema],
+  ['StartConnectBody', StartConnectBodySchema],
+  ['FinishConnectBody', FinishConnectBodySchema],
+  ['ConnectFinish', ConnectFinishSchema],
+  ['ConnectStart', ConnectStartSchema],
+  ['WaitingForConnection', WaitingForConnectionSchema],
+  ['ApprovalApprover', ApprovalApproverSchema],
+  ['ApprovalConnection', ApprovalConnectionSchema],
   ['RunTreeUsage', RunTreeUsageSchema],
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],

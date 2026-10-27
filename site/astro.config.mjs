@@ -46,6 +46,7 @@ const guideAreas = [
   ['Guardrails', 'guardrails'],
   ['Approvals', 'approvals'],
   ['Secrets and env', 'secrets'],
+  ['Connections', 'connections'],
   ['Sign-in', 'sso'],
   ['Cost and provenance', 'observability'],
   ['Evals', 'evals'],
@@ -213,6 +214,16 @@ export default defineConfig({
               label: 'Self-hosted',
               items: [{ autogenerate: { directory: 'deploy/self-hosted' } }],
             },
+          ],
+        },
+        // Newest first: each release adds its page's line.
+        {
+          label: 'Release notes',
+          items: [
+            { label: 'Overview', link: '/releases/' },
+            { label: '0.1.10', link: '/releases/0.1.10/' },
+            { label: '0.1.9', link: '/releases/0.1.9/' },
+            { label: '0.1.8', link: '/releases/0.1.8/' },
           ],
         },
         {

@@ -1,0 +1,471 @@
+---
+title: Use a connection in a tool
+description: Declare the app and the permissions a tool needs, read the call's token in its handler, and know which runs can use whose connection.
+sidebar:
+  order: 30
+  label: Use a connection in a tool
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+A tool that acts in another app declares the connection it needs, the way
+it declares a secret. Kindgi finds the connection before each call, and
+hands that call the connection's current short-lived token. The handler
+never sees a stored token, and the token never goes into the run's journal, a log or an
+approval.
+
+## Before you start
+
+- **The app is registered** for your workspace ([Google](../google/),
+  [Microsoft](../microsoft/), [GitHub](../github/),
+  [LinkedIn](../linkedin/)).
+- **A pack,** on a runtime that offers connections
+  ([What you need](../#what-you-need)).
+
+## Ready-made tools
+
+For Gmail, Outlook, GitHub and LinkedIn, `@kindgi/connections` has tools a
+pack can include instead of writing its own:
+
+- **`gmailSend`, `gmailMessagesList`, `gmailMessageGet` and `gmailReply`,**
+  from `@kindgi/connections/google/tools`, send a plain-text mail from the
+  Gmail account of the person the run acts as, list its messages, newest
+  first or by a search, read one, and answer one in its thread. The two
+  reads need only `gmail.readonly`, and a reply needs `gmail.send` and
+  `gmail.readonly`.
+- **`outlookSend`, `outlookMessagesList`, `outlookMessageGet` and
+  `outlookReply`,** from `@kindgi/connections/microsoft/tools`, do the same
+  in the Outlook mailbox of the person the run acts as. A reply needs
+  `Mail.Send` and `Mail.Read`.
+- **`githubIssuesList`, `githubLabelsList` and `githubIssuesAddLabels`,**
+  from `@kindgi/connections/github/tools`, list a repository's issues and
+  its labels, and add labels it already has to an issue, through your
+  company's GitHub connection.
+- **`linkedinPost`,** from `@kindgi/connections/linkedin/tools`, posts text
+  on LinkedIn as the person the run acts as, to their own feed, seen by
+  anyone or by their connections only. A `#` that starts a word makes a
+  hashtag, and the text mentions no one.
+
+Each is a factory, and the pack names the tool's id. The tool's folder
+holds an `index.ts` of one line:
+
+```ts excerpt
+import { gmailSend } from '@kindgi/connections/google/tools';
+
+export default gmailSend({ id: 'acme.gmail.send' });
+```
+
+There's no default id: a tool id is your tenant's, filed under the first
+project that publishes it, so each pack picks one under its own name. An
+agent lists the tool by that id, as `{ id: 'acme.gmail.send', version:
+'^1.0.0' }`, and its approval settings name it the same way.
+
+- **The mail tools take `as: 'company'`** to use the company's mailbox
+  instead of the person's own, such as a shop's support address. A tenant
+  admin connects it by signing in as that mailbox
+  ([The company's mailbox](../../runs/start-runs-from-new-mail/#the-companys-mailbox)).
+  `as` is part of what a tool declares, so a tool id you've published keeps
+  its `as`: give the company's mailbox its own id, as in
+  `gmailMessagesList({ id: 'acme.store-mail.list', as: 'company' })`.
+- **A mail read's result is outside text:** the reads set
+  `resultIsOutsideData`, so the agent reads each mail as data, not
+  instructions
+  ([Results from outside](../../tools/read-only-tools/#results-from-outside)).
+  A message read (`gmailMessageGet`, `outlookMessageGet`) gives a
+  `MailMessage` (`@kindgi/connections/mail`), the same shape for Gmail and
+  Outlook.
+- **A reply goes only to the address the mail asks for,** its Reply-To,
+  else its From, and the call's `to` must name it
+  ([Answer in the thread](../../runs/start-runs-from-new-mail/#answer-in-the-thread)).
+- **Sending mail, replying, adding labels and posting change things,** so
+  in a run no person started, each of their calls waits for a person's
+  yes. The others only read, and a read with a person's connection waits
+  there too ([Approvals](#approvals)).
+
+To start from a working pack, `kindgi init <pack-name> --template=follow-up`
+makes one whose agent writes a follow-up mail from your notes and sends it
+with `gmailSend` once you approve it.
+
+## Declare the connection
+
+`needsSpec.connections` names each connection the tool needs, with its app,
+the permissions it needs, and whose connection it uses:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+needsSpec: {
+  connections: {
+    mail: { app: 'google', permissions: ['gmail.send'], as: 'person' },
+  },
+},
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+needs_spec={
+    "connections": {
+        "mail": {"app": "google", "permissions": ["gmail.send"], "as": "person"},
+    },
+},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+.set("needsSpec", Map.of(
+    "connections", Map.of(
+        "mail", Map.of("app", "google", "permissions", List.of("gmail.send"), "as", "person"))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+.set("needsSpec", Map(
+  "connections" -> Map(
+    "mail" -> Map("app" -> "google", "permissions" -> List("gmail.send"), "as" -> "person"))))
+```
+
+</TabItem>
+</Tabs>
+
+- **`mail`** is the name the handler reads it by.
+- **`app`** is the app's id, such as `google` or `github`.
+- **`permissions`** are the app's permissions the call needs, by the names
+  its entry gives them ([Add an app](../add-an-app/#permissions)).
+- **`as`** says whose connection:
+  - `'person'`: the connection of the person the run acts as. That's whoever
+    started the run, or the owner of the schedule or webhook that started
+    it.
+  - `'company'`: the company's connection for the project.
+
+## Read the token
+
+The handler gets each connection the tool declares in `ctx.connections`,
+by its name:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+import { ConnectionRejectedError } from '@kindgi/sdk/define';
+
+handler: async (input, ctx) => {
+  const mail = ctx.connections?.mail;
+  const res = await fetch(url, {
+    headers: { authorization: `Bearer ${mail?.accessToken}` },
+  });
+  if (res.status === 401) throw new ConnectionRejectedError('mail');
+  // …
+},
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+import httpx
+
+from kindgi import ConnectionRejected, ToolContext
+
+
+def send_mail(message: Message, ctx: ToolContext) -> Sent:
+    mail = ctx.connections["mail"]
+    res = httpx.get(url, headers={"authorization": f"Bearer {mail.access_token}"})
+    if res.status_code == 401:
+        raise ConnectionRejected("mail")
+    # …
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+.handler((input, ctx) -> {
+  ToolConnection mail = ctx.connections().get("mail");
+  HttpResponse<String> res = http.send(
+      HttpRequest.newBuilder(uri).header("authorization", "Bearer " + mail.accessToken()).build(),
+      HttpResponse.BodyHandlers.ofString());
+  if (res.statusCode() == 401) throw new ConnectionRejectedException("mail");
+  // …
+})
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+.handler { (in, ctx) =>
+  val mail = ctx.connections.get("mail")
+  val res = http.send(
+    HttpRequest.newBuilder(uri).header("authorization", s"Bearer ${mail.accessToken}").build(),
+    HttpResponse.BodyHandlers.ofString())
+  if (res.statusCode == 401) throw new ConnectionRejectedException("mail")
+  // …
+}
+```
+
+</TabItem>
+</Tabs>
+
+- **`accessToken`** (`access_token` in Python) is the connection's current
+  short-lived token. Don't keep it, log it or return it: Kindgi renews it
+  shortly before it expires, and each call gets the one that's current.
+- **`account`** is whose account it is: its `label` is what people see,
+  such as `ana@acme.com`, and its `id` is its stable id at the app.
+- **In TypeScript, `ctx.connections` is optional in the type,** because a
+  unit test builds its own context ([Test it](#test-it)). In Python, Java
+  and Scala, it's a map, empty when the tool declares none. In a call the
+  runtime makes, it holds every connection the tool declares: without one,
+  the call waits or fails before the handler runs
+  ([When the connection is missing](#when-the-connection-is-missing)).
+
+If the app refuses the token (`401`), throw a refusal with the
+connection's name: `ConnectionRejectedError` in TypeScript,
+`ConnectionRejected` in Python, `ConnectionRejectedException` in Java and
+Scala. A second argument can say what the app answered, never the token.
+Kindgi gets a new token and calls the tool once more. If that's refused
+too, the call fails with `connection-rejected`, and the connection stays
+as it is. A connection the app gave no refresh token, as LinkedIn does
+for most apps ([LinkedIn](../linkedin/)), can't get a new one: the
+refusal makes it need reconnecting, and the call fails with
+`connection-missing`.
+
+To throw your own error instead, give it the refusal as its cause: Kindgi
+looks for one up to three causes deep.
+
+A token in what a call throws goes no further. In a failed call's error,
+Kindgi puts `[redacted]` in place of each of the call's connection tokens:
+in its message and its other strings, in what it holds, and down its cause
+chain. The run's events, its record and the model see that copy. Leave
+tokens out of your errors all the same.
+
+In TypeScript, `appFetch(ctx, call)` from `@kindgi/connections/app-fetch`
+makes the call the way the [ready-made tools](#ready-made-tools) do. It
+sends the connection's token as the only `Authorization`, paces calls by
+the app's [`rateLimits`](../add-an-app/#an-entry), tries again (three
+tries in all) when the app says it's busy, and throws a `401` as
+`ConnectionRejectedError`. Any other answer comes back for you to read:
+
+```ts excerpt
+import { appFetch } from '@kindgi/connections/app-fetch';
+import { github } from '@kindgi/connections/github';
+
+const res = await appFetch(ctx, {
+  entry: github,
+  connection: 'github',
+  toolId: 'github.issues.comment',
+  url: `https://api.github.com/repos/${input.owner}/${input.repo}/issues/${input.issueNumber}/comments`,
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ body: input.comment }),
+});
+```
+
+`entry` is the app's entry, and `connection` is the name the tool declares.
+`toolId` is what the entry's `rateLimits` charge the call as: an operation
+its `costs` don't list takes 1 unit.
+
+## In an HTTP tool
+
+An HTTP tool sends the token as a bearer header, with no code:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+authorization: { kind: 'connection', connection: 'mail' },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+authorization={"kind": "connection", "connection": "mail"},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+.authorization(new HttpAuthSpec.Connection("mail"))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+.authorization(new HttpAuthSpec.Connection("mail"))
+```
+
+</TabItem>
+</Tabs>
+
+A `401` from the API counts as a refused token, as above.
+
+## Test it
+
+A unit test builds a context with the connections the handler reads, and
+a made-up token:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+import { toolContextForTest } from '@kindgi/sdk/define';
+
+const ctx = toolContextForTest({
+  connections: {
+    mail: {
+      connectionId: 'c-1',
+      app: 'google',
+      appName: 'Google',
+      accessToken: 'test-token',
+      account: { id: 'g-1', label: 'ana@acme.com' },
+    },
+  },
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+from kindgi import ConnectionAccount, ToolConnection, ToolContext
+
+ctx = ToolContext.for_test(
+    connections={
+        "mail": ToolConnection(
+            connection_id="c-1",
+            app="google",
+            app_name="Google",
+            access_token="test-token",
+            account=ConnectionAccount(id="g-1", label="ana@acme.com"),
+        ),
+    },
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+ToolContext ctx = ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google",
+    "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)));
+```
+
+The last argument is when the token expires, which a test can leave
+`null`.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+import com.kindgi.pack.{ConnectionAccount, ToolConnection, ToolContext}
+import java.util.Map as JMap
+
+val ctx = ToolContext.forTest(JMap.of("mail", new ToolConnection("c-1", "google", "Google",
+  "test-token", new ConnectionAccount("g-1", "ana@acme.com"), null)))
+```
+
+The last argument is when the token expires, which a test can leave
+`null`.
+
+</TabItem>
+</Tabs>
+
+## Which runs can use whose connection
+
+Kindgi picks the connection from the run, never from the model or the
+input:
+
+- **`as: 'person'`** uses the connection of the person the run acts as:
+  - in a run you start, from the console, the CLI, or your own API key:
+    yours;
+  - in a run of a schedule or a webhook: its owner's. A schedule or webhook
+    is owned by the person who created it, unless a service account owns
+    it, and only a take-over changes that.
+  - in a run a service account started, an event's run, or a run of a
+    schedule or webhook a service account owns: none. The call fails with
+    `connection-needs-a-person`.
+- **`as: 'company'`** uses the company's connection, in any run in a
+  project the registration allows.
+
+## When the connection is missing
+
+- **A person's own connection, in a run they started:** the run waits for
+  them to connect, or to reconnect, or to allow a permission the
+  connection lacks. Its page names the app, as in **Connect Google**,
+  with what the call asks for and a link to connect from, and the run
+  goes on when they have. If they decline
+  on the app's page, or allow less than the call needs, the call fails
+  with `connection-declined`, naming what they didn't allow. If nobody
+  connects in time, it fails with `connection-timed-out`.
+- **Anything else** fails the call with `connection-missing`, naming the
+  app and what's missing: a person's connection in a run they didn't
+  start, and the company's connection in any run, since only an admin
+  connects it.
+- **A flow's tool step can't wait,** so it fails with `connection-missing`
+  the same way.
+
+An agent's call stopped this way runs nothing. The run records
+`tool.failed` with the code, and the model reads that as the call's result
+(`{ "status": "failed", "error": … }`). The turn goes on, so the agent
+can say what's missing. A flow's tool step fails instead: the run records
+`step.failed`, with the code and its message.
+
+A run that waits for a connect says so outside its page too.
+`kindgi runs resume <run-id>` names the app, what it asks for and the link
+to connect from, with when the link stops working, and exits `6`
+([What a run waits for](../../approvals/decide-an-approval/#what-a-run-waits-for)).
+`kindgi runs get <run-id>` prints the same line after the run's JSON. From
+your app, `runs.get` answers it under `waitingFor.connections`
+([A run's `waitingFor`](../../approvals/approvals-reference/#a-runs-waitingfor)).
+
+## Approvals
+
+A call that uses a connection is approved as any other call is, and the
+approval shows the account it acts as.
+
+- **In a run you started,** the agent's own approval settings decide
+  ([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
+- **In a run no person started,** such as a schedule's or a webhook's, a
+  tool that uses a person's connection waits for that person's yes, reads
+  included: one with an `as: 'person'` connection waits even when it's
+  marked `mutating: false`. The agent's rules can't lift it; only the
+  schedule's, webhook's or mail trigger's own list of
+  [tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)
+  can.
+- **In a run a mail started,** a call that uses a connection of the run's
+  own mailbox waits too, read-only or not, and so does every call that
+  changes something
+  ([What waits for a yes](../../runs/start-runs-from-new-mail/#what-waits-for-a-yes)).
+
+**For a person's connection, only that person decides.** They need a
+reviewer seat at the approval's rank
+([The Reviewers page](../../approvals/approvals-reference/#the-reviewers-page)).
+Without one, the call fails at once with
+`connection-approver-not-a-reviewer`, rather than waiting for nobody. A
+workspace admin sees such an approval but can't decide it
+(`named-approver-required`). It never escalates: if that person doesn't
+decide by its deadline, it expires.
+The approval names them as its `approver`, and the account as its
+`connection`
+([An approval's fields](../../approvals/approvals-reference/#an-approvals-fields)).
+With reviewer email on, only they're emailed about it
+([Reviewer email](../../approvals/decide-an-approval/#reviewer-email)).
+
+**A flow's tool step** in a run no person started can't wait for that yes.
+A step whose tool uses a person's connection fails before
+the tool runs, with `needs-a-person`
+([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/#in-a-flow)).
+Call the tool from an agent step instead.
+
+A rule that asks for a second person to approve (`separateApprover`) can't
+be met for a person's connection, so such a call fails with
+`connection-approval-conflict`.

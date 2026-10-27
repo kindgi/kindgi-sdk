@@ -78,26 +78,29 @@ export interface RunReplayRef {
   readonly evalRunId: string;
 }
 
+/** Every value of `RunTriggerRef.kind`. */
+export const RUN_TRIGGER_KINDS = ['schedule', 'event', 'webhook', 'mail'] as const;
+
 /**
  * Marks a run a trigger started: the trigger, the fire that started it,
  * and for a schedule the occurrence it ran for.
  */
 export interface RunTriggerRef {
   readonly triggerId: TriggerId;
-  readonly kind: 'schedule' | 'event' | 'webhook';
+  readonly kind: (typeof RUN_TRIGGER_KINDS)[number];
   readonly fireId: string;
   /** A schedule's fire: the occurrence it ran for. */
   readonly scheduledFor?: Timestamp;
 }
 
 /** Every value of `RunStartedBy`. */
-export const RUN_STARTED_BY = ['person', 'key', 'schedule', 'webhook', 'event'] as const;
+export const RUN_STARTED_BY = ['person', 'key', 'schedule', 'webhook', 'event', 'mail'] as const;
 
 /**
  * How a run started, recorded with it and never changed: a person
  * (`person`), a service account's key (`key`), or the kind of trigger
- * that fired it (`schedule`, `webhook`, `event`). A child run takes its
- * parent's. A person's own API key starts runs as that person.
+ * that fired it (`schedule`, `webhook`, `event`, `mail`). A child run
+ * takes its parent's. A person's own API key starts runs as that person.
  *
  * Only `person` counts as attended (`runIsAttended`): a run with any other
  * value, or with none, is one no person is watching, so a tool that
@@ -111,23 +114,144 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 }
 
 /**
- * Whether a call of `tool` waits for a person's yes because no person is
- * watching its run: the tool declares `needsApprovalWhenUnattended`, the
- * run isn't attended (`runIsAttended`), and it isn't a run a webhook or a
- * schedule started whose `toolsAllowedUnattended` lists the tool. Only
- * those runs have a list: on any other, one lifts nothing. The one rule an
- * agent's tool gate and a flow's tool step both apply.
+ * The mailbox a mail trigger's run started from: the app, and whose
+ * connection the trigger reads it with, the company's or the trigger
+ * owner's. Recorded with the run and never changed; a child run takes its
+ * parent's. In such a run a further read of that mailbox is steered by the
+ * mail, so a call with a connection of this app and kind waits for a
+ * person's yes, read-only or not (`needsPersonsYesUnattended`).
  */
-export function needsPersonsYesUnattended(
-  tool: { readonly id: string; readonly needsApprovalWhenUnattended?: boolean },
+export interface RunMailbox {
+  readonly app: 'google' | 'microsoft';
+  readonly as: 'company' | 'person';
+}
+
+/**
+ * Whom a run acts for, whose access it has: a person (`user:<id>`) or a
+ * service account (`service_account:<id>`), named as an approval's
+ * `requestedBy` and a conversation's `openedBy` name them. Recorded with
+ * the run and never changed: a run a schedule or a webhook fired acts for
+ * the trigger's owner, a child run for its parent's, an agent acting for
+ * someone for that someone. An id, never a name.
+ */
+export type RunActsFor = `user:${string}` | `service_account:${string}`;
+
+/**
+ * What the rule for runs no person started reads of a tool: its flags,
+ * and its `needsSpec.connections` (`@kindgi/tools`' `ConnectionNeed`s,
+ * each an `app` and `as: 'person' | 'company'`).
+ */
+export interface UnattendedRuleTool {
+  readonly id: string;
+  readonly needsApprovalWhenUnattended?: boolean;
+  readonly mutating?: boolean;
+  readonly needsSpec?: object;
+}
+
+/**
+ * Whether a call of `tool` needs a person's yes in a run no person
+ * started: it declares `needsApprovalWhenUnattended`, or it uses a
+ * person's connection (a `needsSpec.connections` entry `as: 'person'`),
+ * reads included. So a tool that reads or sends as someone never runs
+ * unasked under a trigger because its author left the flag off or marked
+ * it `mutating: false`; `needsApprovalWhenUnattended: false` doesn't lift
+ * it either.
+ */
+export function toolNeedsPersonsYesUnattended(tool: UnattendedRuleTool): boolean {
+  const reason = waitReasonOf(tool, undefined, undefined);
+  return reason === 'declared' || reason === 'persons-connection';
+}
+
+/**
+ * Why a call waits for a person's yes in a run no person started
+ * (`unattendedWaitReason`):
+ *
+ * - `declared`: the tool declares `needsApprovalWhenUnattended`;
+ * - `persons-connection`: it uses a person's connection, reads included;
+ * - `mail-change`: a mail started the run, and the tool changes something
+ *   (it isn't `mutating: false`);
+ * - `mail-own-mailbox`: a mail started the run, and the tool uses a
+ *   connection of the run's own mailbox, read-only or not.
+ */
+export type UnattendedWaitReason =
+  | 'declared'
+  | 'persons-connection'
+  | 'mail-change'
+  | 'mail-own-mailbox';
+
+/**
+ * Why a call of `tool` waits for a person's yes because no person is
+ * watching its run (`runIsAttended`), or `undefined` when it doesn't. It
+ * waits, for the first reason that holds, in this order:
+ *
+ * - the tool declares it (`declared`), or uses a person's connection
+ *   (`persons-connection`), in any such run (`toolNeedsPersonsYesUnattended`);
+ * - a mail started the run (`mail`), and the tool changes something
+ *   (`mail-change`: it isn't `mutating: false`), or it uses a connection of
+ *   the run's own `mailbox`, its app and kind (`mail-own-mailbox`; any
+ *   connection, when the run records no mailbox).
+ *
+ * Unless the trigger that started the run lists the tool in its
+ * `toolsAllowedUnattended`: only the runs a webhook, a schedule or a mail
+ * trigger started have a list, and on any other one lifts nothing. The one
+ * rule an agent's tool gate and a flow's tool step both apply, so a
+ * refusal's message names the reason this gives.
+ */
+export function unattendedWaitReason(
+  tool: UnattendedRuleTool,
   startedBy: RunStartedBy | undefined,
   toolsAllowedUnattended: readonly string[] | undefined,
-): boolean {
-  if (tool.needsApprovalWhenUnattended !== true || runIsAttended(startedBy)) return false;
+  mailbox?: RunMailbox,
+): UnattendedWaitReason | undefined {
+  if (runIsAttended(startedBy)) return undefined;
+  const reason = waitReasonOf(tool, startedBy, mailbox);
+  if (reason === undefined) return undefined;
   const listed =
-    (startedBy === 'webhook' || startedBy === 'schedule') &&
+    (startedBy === 'webhook' || startedBy === 'schedule' || startedBy === 'mail') &&
     toolsAllowedUnattended?.includes(tool.id) === true;
-  return !listed;
+  return listed ? undefined : reason;
+}
+
+/**
+ * Whether a call of `tool` waits for a person's yes because no person is
+ * watching its run: whether `unattendedWaitReason` gives a reason.
+ */
+export function needsPersonsYesUnattended(
+  tool: UnattendedRuleTool,
+  startedBy: RunStartedBy | undefined,
+  toolsAllowedUnattended: readonly string[] | undefined,
+  mailbox?: RunMailbox,
+): boolean {
+  return unattendedWaitReason(tool, startedBy, toolsAllowedUnattended, mailbox) !== undefined;
+}
+
+/** The first reason a call of `tool` waits in an unattended run, before the list. */
+function waitReasonOf(
+  tool: UnattendedRuleTool,
+  startedBy: RunStartedBy | undefined,
+  mailbox: RunMailbox | undefined,
+): UnattendedWaitReason | undefined {
+  if (tool.needsApprovalWhenUnattended === true) return 'declared';
+  const needs = connectionNeedsOf(tool);
+  if (needs.some((need) => need.as === 'person')) return 'persons-connection';
+  if (startedBy !== 'mail') return undefined;
+  if (tool.mutating !== false) return 'mail-change';
+  const ownMailbox = needs.some(
+    (need) => mailbox === undefined || (need.app === mailbox.app && need.as === mailbox.as),
+  );
+  return ownMailbox ? 'mail-own-mailbox' : undefined;
+}
+
+/** A tool's `needsSpec.connections` entries, as the rule reads them. */
+function connectionNeedsOf(
+  tool: UnattendedRuleTool,
+): readonly { readonly app?: unknown; readonly as?: unknown }[] {
+  const { connections } = (tool.needsSpec ?? {}) as {
+    readonly connections?: Readonly<
+      Record<string, { readonly app?: unknown; readonly as?: unknown }>
+    >;
+  };
+  return connections === undefined ? [] : Object.values(connections);
 }
 
 /**
@@ -201,11 +325,17 @@ export interface RunFlowInput {
   /**
    * The tools, by id, a call of which doesn't wait for a person's yes
    * though no person started the run (`needsPersonsYesUnattended`): the
-   * `toolsAllowedUnattended` of the webhook or schedule that started it,
-   * as it was when the run started. Recorded with the run and never
-   * changed; a child run takes its parent's. Absent: none.
+   * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
+   * started it, as it was when the run started. Recorded with the run and
+   * never changed; a child run takes its parent's. Absent: none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The mailbox the run's mail came from (`RunMailbox`), on a run a mail
+   * trigger started (`startedBy: 'mail'`). Recorded with the run and never
+   * changed; a child run takes its parent's. Absent on every other run.
+   */
+  readonly mailbox?: RunMailbox;
   /**
    * The W3C trace id of the request that started the run (32 lowercase
    * hex), kept on the run so its later turns and resumes can name the
@@ -308,6 +438,8 @@ export interface StartRunParams {
   readonly startedBy?: RunStartedBy;
   /** What it may call without a person's yes; see `RunFlowInput.toolsAllowedUnattended`. */
   readonly toolsAllowedUnattended?: readonly string[];
+  /** The mailbox a mail trigger's run came from; see `RunFlowInput.mailbox`. */
+  readonly mailbox?: RunMailbox;
   /** The trace id of the request that started the run; see `RunFlowInput.traceId`. */
   readonly traceId?: string;
   /** The versions the run swaps in over its flow version's pins; see `RunFlowInput.versions`. */

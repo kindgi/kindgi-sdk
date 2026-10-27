@@ -1,0 +1,108 @@
+{
+  "name": "@kindgi/connections",
+  "version": "0.1.10",
+  "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, the Google, GitHub, Microsoft and LinkedIn entries, and tools that act with their connections (sending and reading mail as a person; listing and labelling a repository's issues; posting on LinkedIn as a person).",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/connections"
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/connections#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./google": {
+      "types": "./dist/google.d.ts",
+      "import": "./dist/google.js",
+      "default": "./dist/google.js"
+    },
+    "./github": {
+      "types": "./dist/github.d.ts",
+      "import": "./dist/github.js",
+      "default": "./dist/github.js"
+    },
+    "./google/tools": {
+      "types": "./dist/google-tools.d.ts",
+      "import": "./dist/google-tools.js",
+      "default": "./dist/google-tools.js"
+    },
+    "./google/mail": {
+      "types": "./dist/google-mail.d.ts",
+      "import": "./dist/google-mail.js",
+      "default": "./dist/google-mail.js"
+    },
+    "./github/tools": {
+      "types": "./dist/github-tools.d.ts",
+      "import": "./dist/github-tools.js",
+      "default": "./dist/github-tools.js"
+    },
+    "./microsoft": {
+      "types": "./dist/microsoft.d.ts",
+      "import": "./dist/microsoft.js",
+      "default": "./dist/microsoft.js"
+    },
+    "./microsoft/tools": {
+      "types": "./dist/microsoft-tools.d.ts",
+      "import": "./dist/microsoft-tools.js",
+      "default": "./dist/microsoft-tools.js"
+    },
+    "./microsoft/mail": {
+      "types": "./dist/microsoft-mail.d.ts",
+      "import": "./dist/microsoft-mail.js",
+      "default": "./dist/microsoft-mail.js"
+    },
+    "./linkedin": {
+      "types": "./dist/linkedin.d.ts",
+      "import": "./dist/linkedin.js",
+      "default": "./dist/linkedin.js"
+    },
+    "./linkedin/tools": {
+      "types": "./dist/linkedin-tools.d.ts",
+      "import": "./dist/linkedin-tools.js",
+      "default": "./dist/linkedin-tools.js"
+    },
+    "./app-fetch": {
+      "types": "./dist/app-fetch.d.ts",
+      "import": "./dist/app-fetch.js",
+      "default": "./dist/app-fetch.js"
+    },
+    "./mail": {
+      "types": "./dist/mail.d.ts",
+      "import": "./dist/mail.js",
+      "default": "./dist/mail.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@kindgi/tools": "workspace:*",
+    "@kindgi/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

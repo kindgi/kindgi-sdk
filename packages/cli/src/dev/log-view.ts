@@ -14,8 +14,8 @@
  * and checked again here for a source that ignores them.
  * `--log-format=json` writes the records as they came, one per line on
  * stdout, for `| jq`; everything else stays on stderr. `--quiet` keeps
- * errors only. A line that isn't a record (pack code's own output, an
- * older runtime's) is shown as it is.
+ * errors and warnings only. A line that isn't a record (pack code's own
+ * output, an older runtime's) is shown as it is.
  */
 
 import {
@@ -58,7 +58,7 @@ export interface DevLogView {
   readonly format: 'pretty' | 'json';
   /** Colours in pretty lines: stderr is a terminal and `NO_COLOR` is unset. */
   readonly color: boolean;
-  /** `--quiet`: errors only. */
+  /** `--quiet`: errors and warnings only. */
   readonly quiet: boolean;
 }
 
@@ -117,7 +117,7 @@ export function parseDevLogFlags(options: {
 /**
  * The session's view: the flags first, then `KINDGI_LOG_LEVEL` and
  * `KINDGI_LOG_LEVELS` (the shell's, then the env files'), then `info`.
- * `--quiet` is `error` unless `--log-level` says otherwise.
+ * `--quiet` is `warn` unless `--log-level` says otherwise.
  */
 export function resolveDevLogView(
   flags: DevLogFlags,
@@ -137,7 +137,7 @@ export function resolveDevLogView(
   let level = flags.level;
   let levels: Readonly<Record<string, LogLevel>> = {};
   if (flags.quiet) {
-    level ??= 'error';
+    level ??= 'warn';
   } else {
     const rawLevel = setting('KINDGI_LOG_LEVEL');
     if (level === undefined && rawLevel !== undefined) {

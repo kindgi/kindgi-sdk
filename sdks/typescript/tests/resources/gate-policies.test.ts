@@ -139,7 +139,7 @@ describe('gated promotions', () => {
         body: JSON.stringify({
           error: {
             code: 'gate-failed',
-            message: 'The gate refused acme.drafting 1.2.0: too low',
+            message: 'The release gate policy refused acme.drafting 1.2.0: too low',
             details: {
               promotionId: 'promo-1',
               policy: { id: POLICY.id, version: '1.0.0' },

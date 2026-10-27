@@ -219,6 +219,33 @@ run "existing_vnet_shape_creates_no_network" {
   }
 }
 
+# The seed ids are uuids, as the server's settings are: another is refused
+# at plan, not at the server's start. The check is the server's own (8-4-4-4-12
+# hex digits, in either case), so a plan never refuses an id the server takes.
+run "a_seed_tenant_id_that_isnt_a_uuid_is_refused" {
+  command = plan
+  variables {
+    seed_tenant_id = "acme"
+  }
+  expect_failures = [var.seed_tenant_id]
+}
+
+run "a_seed_user_id_that_isnt_a_uuid_is_refused" {
+  command = plan
+  variables {
+    seed_user_id = "acme-admin"
+  }
+  expect_failures = [var.seed_user_id]
+}
+
+run "a_seed_id_in_upper_case_is_taken" {
+  command = plan
+  variables {
+    seed_tenant_id = "0000000A-0000-4000-8000-0000000000AB"
+    seed_user_id   = "0000000A-0000-4000-8000-0000000000CD"
+  }
+}
+
 run "existing_vnet_shape_needs_all_three" {
   command = plan
   variables {
@@ -450,6 +477,77 @@ run "sign_in_with_providers_needs_public_url" {
   command = plan
   variables {
     server_secret_env = { KINDGI_AUTH_SECRET = { secret = "auth-secret", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+# One tenant: "single", or unset, plans; serving many is refused, in either map.
+run "one_tenant_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "single" }
+  }
+  assert {
+    condition     = [for e in azurerm_container_app.server.template[0].container[0].env : e.value if e.name == "KINDGI_TENANCY"] == ["single"]
+    error_message = "KINDGI_TENANCY = \"single\" reaches the server."
+  }
+}
+
+# The runtime reads an empty KINDGI_TENANCY as "single".
+run "an_empty_tenancy_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "" }
+  }
+}
+
+run "refuses_many_tenants" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TENANCY = "multi" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_tenancy_as_a_secret" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_TENANCY = { secret = "tenancy", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "one_pack_service_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "single" }
+  }
+  assert {
+    condition     = [for e in azurerm_container_app.server.template[0].container[0].env : e.value if e.name == "KINDGI_PACK_ROUTING"] == ["single"]
+    error_message = "KINDGI_PACK_ROUTING = \"single\" reaches the server."
+  }
+}
+
+# The runtime trims KINDGI_PACK_ROUTING before it reads it.
+run "a_padded_single_routing_plans" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = " single " }
+  }
+}
+
+run "refuses_a_pack_service_per_deployment" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PACK_ROUTING = "per-deployment" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_pack_routing_as_a_secret" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_PACK_ROUTING = { secret = "pack-routing", version = "latest" } }
   }
   expect_failures = [azurerm_container_app.server]
 }

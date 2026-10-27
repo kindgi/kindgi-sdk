@@ -10,6 +10,8 @@
  * how to expose it (route handler, static file, both).
  */
 
+import { DEPLOY_PUBLISHES_PACK_BLOCKS } from '@kindgi/handler-runtime';
+
 import {
   OPERATIONS,
   type OperationSpec,
@@ -39,8 +41,18 @@ const DEFAULT_INFO: Required<OpenApiInfo> = {
   title: 'Kindgi Platform API',
   version: '0.1.0',
   description:
-    'REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes.',
+    'REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes. `info["x-kindgi-capabilities"]` names what this API does that an earlier one didn\'t: an open list of strings, which a client checks before a request an earlier runtime would take differently, and whose names it doesn\'t know it ignores.',
 };
+
+/**
+ * What this API does that an earlier one didn't, by name
+ * (`info["x-kindgi-capabilities"]`). An open list: names are added, never
+ * renamed or removed, and a reader ignores the ones it doesn't know.
+ */
+export const API_CAPABILITIES: readonly string[] = [
+  // A deploy publishes the data blocks its pack brings (`deploy-blocks.ts`).
+  DEPLOY_PUBLISHES_PACK_BLOCKS,
+];
 
 const DEFAULT_SERVERS: readonly OpenApiServer[] = [
   { url: '/', description: 'Same-origin — path relative to the deployment root.' },
@@ -129,8 +141,12 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   env: 'Non-sensitive per-env values (`/v1/env/*`). Every route requires `envName` + `scopeKind` (+ `scopeId` for org / project); `value` is present on every read path (env is non-sensitive by definition). Writes require the `env:write` capability. Caller-plugged via `EnvBinding` (`@kindgi/env-inmemory` is an in-memory implementation for development and tests).',
   schedules:
     "Run an agent or a flow on a schedule: a cron expression in a timezone. Each occurrence is one fire, which starts one run as the schedule's owner (re-checked at every fire), through the same path as `POST /v1/runs`; a run a schedule started names it (`Run.trigger`). After a gap, `catchUp` runs once for the latest missed occurrence (or skips them), never once per missed one; `overlap` skips an occurrence while the previous run is still going. `GET …/fires` is the schedule's history; `run-now` fires it outside the schedule. Mounted when the deployment fires schedules.",
+  'mail-triggers':
+    "Mail triggers: each new mail in a mailbox's folder starts a run of an agent or a flow, as the trigger's owner. A thread's mail runs one at a time, and each run continues the thread's conversation.",
   'webhook-endpoints':
     'Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`.',
+  connections:
+    "Accounts at other apps (a member's Google account, the company's GitHub App) that tools act with. `connection-entries` lists the apps this server can connect to; `connection-apps` is the tenant's own registration of its client at an app (a tenant admin's, secrets by reference); `connections` are the accounts connected through them, with the connect that makes one (`requests`, `start`, `finish`). A connection is a member's own or the company's, and its token never leaves the server. `POST /v1/connection-notices/{tenantId}/{appId}` is where an app reports a removal, signed its own way. Caller-plugged via `ConnectionBinding`.",
   secrets:
     "Sensitive per-env values (`/v1/secrets/*`). The ONLY endpoint that accepts plaintext is `POST /v1/secrets`; every other route is metadata-only (`value` NEVER returns on list / get / listVersions / getVersion — structural redaction). Rotation is discriminated: sync providers return 201 inline, async providers return 202 with a status URL + SSE events URL. A hard revoke erases the value, which can't be undone; backups, and a secret manager's own retention, may keep copies for a time. Every mutating route is capability-gated (`secrets:write`, `secrets:rotate`, `secrets:revoke`, `secrets:revoke:hard`).",
 };
@@ -168,7 +184,7 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
 
   return {
     openapi: '3.1.0',
-    info,
+    info: { ...info, 'x-kindgi-capabilities': [...API_CAPABILITIES] },
     servers,
     tags,
     components,

@@ -9,10 +9,12 @@ When you finish this page, your runtime checks every request against who
 may read, write or administer each project, with OpenFGA running next to
 it.
 
-A self-hosted runtime checks one thing on each request by default: the API
-token. Whoever holds it can do anything in its tenant. **Authorization** adds a
-second check, per resource, kept in [OpenFGA](https://openfga.dev): who may
-read, write or administer each project and what's in it.
+By default, a self-hosted runtime lets in whoever holds a key or a sign-in,
+and each may work in every project. Tenant settings are the tenant admin's
+([Without authorization](../people-and-keys/#without-authorization)).
+**Authorization** adds a check per resource, kept in
+[OpenFGA](https://openfga.dev): who may read, write or administer each
+project and what's in it.
 
 :::note[On Kindgi Cloud]
 Authorization is always on, and Kindgi runs OpenFGA. Skip
@@ -23,13 +25,16 @@ runtime's `KINDGI_*` settings: they're Kindgi's.
 
 ## What it gives, and what it doesn't
 
-Authorization is for several people and teams sharing one deployment:
+Authorization is for people and teams who share one deployment but need
+different access:
 
-- **People and service accounts, each with their own keys.** A tenant admin
-  adds people, who [sign in to the console](../self-hosted/sign-in/) and make their own
-  API keys, and service accounts for pipelines and apps
-  ([People, API keys and service accounts](../people-and-keys/)). The
-  runtime's seed user (`KINDGI_SEED_USER_ID`) is the first tenant admin.
+- **Roles for people and service accounts.** People
+  [sign in to the console](../self-hosted/sign-in/) and make their own API
+  keys either way, and service accounts act for pipelines and apps
+  ([People, API keys and service accounts](../people-and-keys/)). With
+  authorization, a tenant admin gives each a role, and can make others
+  tenant admins. The runtime's seed user (`KINDGI_SEED_USER_ID`) is the
+  first.
 - **Every request is checked** against what its caller may do: tenant admin,
   tenant member, a role on a project, or a reviewer role. Lists hold only
   what the caller may read.
@@ -42,9 +47,11 @@ Authorization is for several people and teams sharing one deployment:
 - **A team can have a role on a project** through the API
   ([Team grants](#team-grants)). The console doesn't offer it.
 
-**Turn it on** when more than one person or system uses a deployment.
-**Leave it off** if one operator is all you need: you'd run OpenFGA for
-little else. `kindgi dev` runs without it.
+**Turn it on** when people need different access, such as a viewer or a
+project of their own, or when more than one person needs to be a tenant
+admin. A runtime serving many tenants needs it. **Leave it off** when
+everyone who signs in may work in every project, such as one operator or a
+small team that trusts each other. `kindgi dev` runs without it.
 
 ## Before you start
 
@@ -92,6 +99,12 @@ migration done
 - `run` starts OpenFGA on the `kindgi` network, as `kindgi-openfga`. `-d`
   runs it in the background, and `--restart unless-stopped` has Docker
   start it again after a restart.
+
+These commands reach Postgres over the `kindgi` network, which doesn't
+leave the machine, so the URI turns TLS off (`sslmode=disable`). When
+OpenFGA reaches its database over another network, have it check the
+server's certificate
+([OpenFGA's connection to the database](../self-hosted/database-tls/#openfgas-connection-to-the-database)).
 
 Keep OpenFGA on the private network, with no published port: the runtime
 calls it without credentials unless OpenFGA requires a key
@@ -263,11 +276,12 @@ checks every call.
   set the tenant's own line, `console.readOnlyNotice`, it shows instead,
   such as "Ask Ana Ruiz for edit access."
 - **An editor** may also "run agents and flows, work on agent versions,
-  publish data blocks, judge runs, compare versions on test sets", in the
-  console's words. An agent's page offers them **Register new version** and
-  **Start run**, which a viewer's doesn't.
-- **A project admin** may also "promote versions, register agents and
-  tools, build test sets, rescore comparisons, set judge classes", and
+  publish prompts and settings, correct runs, try versions on the test
+  cases", in the console's words. An agent's page offers them **Register new
+  version** and **Start run**, which a viewer's doesn't.
+- **A project admin** may also "make versions live, register agents and
+  tools, build test cases, rescore runs on the test cases, set judge
+  classes", and
   changes who works in the project ([Members](#in-the-console-members)).
 - **The tenant's sections** show to those they're for:
   - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
@@ -286,7 +300,7 @@ lets you do and doesn't. You can have a role directly, through a team, as an
 admin of the org, or as a tenant admin. **The detail** holds your ids and
 what each role allows on each kind of object.
 
-![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish data blocks, judge runs, compare versions on test sets; not promote versions, register agents and tools, build test sets, rescore comparisons, set judge classes"; and The detail, closed.](../../../assets/access/my-access.png)
+![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish prompts and settings, correct runs, try versions on the test cases; not make versions live, register agents and tools, build test cases, rescore runs on the test cases, set judge classes"; and The detail, closed.](../../../assets/access/my-access.png)
 
 ## Project memberships
 
@@ -318,6 +332,12 @@ the tenant's people, whatever its case
 calls are `projects.memberships.add`, `updateRole` and `remove`, with
 `update_role` in Python. Changing members takes `admin` on the project: a
 tenant admin, or the project's own admins.
+
+A project's admins also decide which of its triggers run as the project:
+`--run-as=project` on a schedule, webhook trigger or mail trigger runs it
+as the project's own service account, which has the `editor` role on the
+project ([A project's own account](../people-and-keys/#a-projects-own-account)).
+Without an authorization store, a tenant-admin key does that.
 
 Adding someone who's a member already keeps their role. The same role answers
 `201` with the existing membership; another one is `409 membership-exists`,
@@ -537,7 +557,7 @@ refused:
 - minting a key with capabilities you don't hold;
 - on the approvals routes, a caller who isn't a reviewer, unless it's a
   tenant admin reading them;
-- a caller who may not judge as a restricted judge class
+- a caller who may not correct as a restricted judge class
   (`judge-class-not-allowed`);
 - the operator's identity-provider lock (`identity-providers-operator-managed`);
 - reading the deployment's license (`GET /v1/license`) or its use
@@ -554,8 +574,8 @@ refused:
 Never kept, since they don't refuse the caller: `signer-not-trusted`,
 `csrf-origin-mismatch` and `role-exceeds-principal`, a limit on the key
 being minted. Nor is a refusal of a request with no principal behind it: a
-public run token used outside its two progress routes, or judging without a
-user or a service token. A `401`, for an unknown caller, never is.
+public run token used outside its two progress routes, or correcting a run
+without a user or a service token. A `401`, for an unknown caller, never is.
 
 ### In the console
 

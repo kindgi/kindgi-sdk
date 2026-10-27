@@ -17,6 +17,13 @@
  *      and its last four characters; `Bearer <anything>` becomes
  *      `Bearer [redacted]`; a URL's password (`postgres://user:pass@`)
  *      becomes `user:***@`.
+ *   3. **The full mask,** for text more people read than a log's: a tool's
+ *      error, on a run's record, in the console and in the model's view.
+ *      A Kindgi token becomes `[redacted]` whole, with no prefix and no
+ *      last four, and a URL's query or fragment value whose name looks
+ *      secret becomes `[redacted]`, its name kept (`?token=`,
+ *      `#access_token=`, `X-Amz-Signature=`, a SAS `sig=`, `?key=`).
+ *      A record is never written with it.
  *
  * The first rule is the code rule's net: secret values are never fields
  * to begin with (pass a secret's name, not its value).
@@ -54,16 +61,42 @@ export function isSecretKey(key: string, extra: readonly string[] = []): boolean
 const KINDGI_TOKEN = /\bkgi_([a-z]{2,3})_([A-Za-z0-9._~+/=-]+)/g;
 const BEARER = /\b(Bearer)\s+[^\s"',;]+/gi;
 const URL_PASSWORD = /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+):[^\s@/]+@/gi;
+/** A URL's query or fragment parameter: `?`, `&` or `#`, its name, `=`, its value. */
+const URL_PARAM = /([?&#])([^\s=&#"'<>]+)=([^\s&#"'<>]*)/g;
+/**
+ * More endings that make a parameter's name secret, on top of rule 1's: a
+ * signed URL's signature (`X-Amz-Signature`, `X-Goog-Signature`, a SAS
+ * `sig`).
+ */
+const PARAM_SECRET_ENDINGS: readonly string[] = ['signature', 'sig'];
 
-/** A string with known secret shapes masked (see rule 2). */
-export function scrubText(text: string): string {
-  return text
+/**
+ * Whether a URL parameter's name looks secret: rule 1's endings and a
+ * signature's, or exactly `key` (an API key, `?key=…`). Only exactly:
+ * `sort_key` and `idempotency_key` are ids.
+ */
+function isSecretParam(name: string): boolean {
+  return normalize(name) === 'key' || isSecretKey(name, PARAM_SECRET_ENDINGS);
+}
+
+/**
+ * A string with known secret shapes masked (see rule 2). With `fullMask`,
+ * rule 3's: a Kindgi token whole, and a URL's secret parameters.
+ */
+export function scrubText(text: string, options: { readonly fullMask?: boolean } = {}): string {
+  const full = options.fullMask === true;
+  const scrubbed = text
     .replace(KINDGI_TOKEN, (_m, kind: string, body: string) => {
+      if (full) return REDACTED;
       const tail = body.length >= 16 ? body.slice(-4) : '';
       return `kgi_${kind}_…${tail}`;
     })
     .replace(BEARER, '$1 [redacted]')
     .replace(URL_PASSWORD, '$1:***@');
+  if (!full) return scrubbed;
+  return scrubbed.replace(URL_PARAM, (match, mark: string, name: string, value: string) =>
+    value !== '' && isSecretParam(name) ? `${mark}${name}=${REDACTED}` : match,
+  );
 }
 
 const MAX_DEPTH = 8;
