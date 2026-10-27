@@ -267,6 +267,7 @@
   "FactSubject": ["FactSubject"],
   "FailureGroup": ["FailureGroup"],
   "FailureSubject": ["FailureSubject"],
+  "FileValue": ["FileValue"],
   "Filter": ["ExportComplianceEvidenceBody.filter"],
   "FinishConnectBody": ["FinishConnectBody"],
   "FinishedRun": ["FinishedRun"],

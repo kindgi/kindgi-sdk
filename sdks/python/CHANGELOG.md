@@ -13,6 +13,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a conversation's messages carry their files.** The client's
+  `ConversationMessage` gains `files`: the stored files the message names, each
+  a `FileValue` (`artifact_id`, `name`, `content_type`, `size`, `sha256`), as
+  `conversations.messages` returns them. It's `None` on a message with none.
+
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a
   mail someone sent or a page a search found. An agent reads each result of the

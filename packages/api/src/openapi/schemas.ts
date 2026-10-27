@@ -4394,6 +4394,41 @@ export const ConversationSchema: JsonSchema = {
   },
 };
 
+export const FileValueSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['type', 'artifactId', 'contentType', 'size', 'sha256'],
+  description:
+    "A stored file as a value: in a run's input, a tool's result or a conversation message. Only `artifactId` is trusted: the runtime shows a model a file by its own checked record of it, never by the value's other fields. A message's files are the ones its run admitted, with the record's fields.",
+  properties: {
+    type: { type: 'string', const: 'kindgi.file' },
+    artifactId: {
+      type: 'string',
+      minLength: 1,
+      description: 'The stored file (`POST /v1/artifacts`): its `blobId`.',
+    },
+    name: { type: 'string', description: "The file's name." },
+    contentType: { type: 'string', description: 'Its type, as checked from its bytes.' },
+    size: { type: 'integer', minimum: 0, description: 'Its size in bytes.' },
+    sha256: {
+      type: 'string',
+      pattern: '^[0-9a-f]{64}$',
+      description: 'sha256 of its bytes, hex-encoded, lowercase.',
+    },
+    pages: {
+      type: 'integer',
+      minimum: 1,
+      description: "A PDF's page count, as checked from its bytes.",
+    },
+    notShown: {
+      type: 'string',
+      enum: ['type', 'size', 'model', 'limit', 'store', 'gone', 'changed'],
+      description:
+        "Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked).",
+    },
+  },
+};
+
 export const ConversationMessageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4406,7 +4441,13 @@ export const ConversationMessageSchema: JsonSchema = {
     },
     role: { type: 'string', enum: ['user', 'agent', 'tool', 'system'] },
     content: {
-      description: 'Free-form string OR a structured object (tool results, multi-modal payloads).',
+      description: 'Free-form string OR a structured object (tool results).',
+    },
+    files: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/FileValue' },
+      description:
+        "Stored files the message carries, on a user message (its run's input files) or a tool's result: references, never bytes. A later turn shows its model each one the run's rule still admits, and a line for one that's gone.",
     },
     toolCall: {
       type: 'object',
@@ -15607,6 +15648,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['GuardrailOutcomes', GuardrailOutcomesSchema],
   ['ConversationStatus', ConversationStatusSchema],
   ['Conversation', ConversationSchema],
+  ['FileValue', FileValueSchema],
   ['ConversationMessage', ConversationMessageSchema],
   ['OpenConversationBody', OpenConversationBodySchema],
   ['ConversationCollectionPage', ConversationCollectionPageSchema],
