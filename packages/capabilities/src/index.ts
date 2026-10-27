@@ -31,6 +31,7 @@ export {
   filesForCall,
   fileParts,
   headedFileParts,
+  isReadable,
   notShownLine,
 } from './message-files.js';
 export type {
