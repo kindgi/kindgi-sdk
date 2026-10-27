@@ -64,18 +64,37 @@ export interface FileValue extends MessageFile {
   readonly type: 'kindgi.file';
 }
 
-/** Whether `value` has a file value's shape. Its fields aren't checked against anything. */
+/**
+ * Whether `value` has a file value's shape: each field of the right type,
+ * a whole size, a lowercase hex sha256, a whole page count from 1, and a
+ * known `notShown` reason. Its fields aren't checked against anything.
+ */
 export function isFileValue(value: unknown): value is FileValue {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Readonly<Record<string, unknown>>;
+  return v.type === 'kindgi.file' && hasFileFields(v) && hasOptionalFileFields(v);
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+function hasFileFields(v: Readonly<Record<string, unknown>>): boolean {
   return (
-    v.type === 'kindgi.file' &&
     typeof v.artifactId === 'string' &&
     v.artifactId.length > 0 &&
-    (v.name === undefined || typeof v.name === 'string') &&
     typeof v.contentType === 'string' &&
-    typeof v.size === 'number' &&
-    typeof v.sha256 === 'string'
+    Number.isSafeInteger(v.size) &&
+    (v.size as number) >= 0 &&
+    typeof v.sha256 === 'string' &&
+    SHA256_HEX.test(v.sha256)
+  );
+}
+
+function hasOptionalFileFields(v: Readonly<Record<string, unknown>>): boolean {
+  return (
+    (v.name === undefined || typeof v.name === 'string') &&
+    (v.pages === undefined || (Number.isSafeInteger(v.pages) && (v.pages as number) >= 1)) &&
+    (v.notShown === undefined ||
+      (FILE_NOT_SHOWN_REASONS as readonly unknown[]).includes(v.notShown))
   );
 }
 

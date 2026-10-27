@@ -110,7 +110,8 @@ export function asFileValue(file: MessageFile): FileValue {
 /**
  * The turn's input files as the user message keeps them: each one the run's
  * rule admits, with the runtime's own fields. A value the rule refuses is
- * left out. Without a binding, each is a `store` line.
+ * left out. Without a binding, each value of a file value's shape is a
+ * `store` line, with only a file value's fields.
  */
 export async function admitInputFiles(
   ctx: TurnContext,
@@ -118,7 +119,11 @@ export async function admitInputFiles(
 ): Promise<readonly FileValue[]> {
   if (values === undefined || values.length === 0) return [];
   const binding = ctx.bindings.files;
-  if (binding === undefined) return values.map((v) => ({ ...v, notShown: 'store' }));
+  if (binding === undefined) {
+    return values
+      .filter(isFileValue)
+      .map((value) => asFileValue({ ...asMessageFile(value), notShown: 'store' }));
+  }
   const admitted = await binding.admit(values);
   return admitted.flatMap((file) => (file === undefined ? [] : [asFileValue(file)]));
 }
@@ -191,8 +196,16 @@ function hasFilesField(
   );
 }
 
-/** A kept file value as the file a model message carries. */
+/** A kept file value as the file a model message carries: a file's fields only. */
 export function asMessageFile(value: FileValue): MessageFile {
-  const { type: _type, ...file } = value;
-  return file;
+  const { artifactId, name, contentType, size, sha256, pages, notShown } = value;
+  return {
+    artifactId,
+    ...(name !== undefined && { name }),
+    contentType,
+    size,
+    sha256,
+    ...(pages !== undefined && { pages }),
+    ...(notShown !== undefined && { notShown }),
+  };
 }

@@ -149,17 +149,21 @@ export interface ModelCallFacts {
   readonly provider: { readonly id: string; readonly model: string };
   readonly finishReason: string;
   readonly at: Timestamp;
-  /** The stored files the call read in (`callFiles`). */
+  /**
+   * The stored files the call planned to read in (`callFiles`): at most
+   * what it read in, since a provider's lower limit, or a file found gone
+   * or changed, can leave one out.
+   */
   readonly files: readonly FileRead[];
 }
 
 /**
- * A stored file a model call read in: its artifact id, and the sha256 the
- * runtime's record of it holds.
+ * A stored file a model call planned to read in: its artifact id, and the
+ * sha256 the runtime's record of it holds.
  */
 export type FileRead = Pick<MessageFile, 'artifactId' | 'sha256'>;
 
-/** The files a call read, as its step's output keeps them: none when it read none. */
+/** The files a call planned to read, as its step's output keeps them: none when there are none. */
 export function filesReadOf(files: readonly FileRead[]): { readonly files?: readonly FileRead[] } {
   return files.length === 0
     ? {}
