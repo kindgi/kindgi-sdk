@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { createHash } from 'node:crypto';
+
 import type { MessageFile, ModelCallInput, ProviderMetadata } from '@kindgi/capabilities';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -38,19 +40,24 @@ function capturingFetch(bodies: Record<string, unknown>[]): typeof fetch {
   }) as typeof fetch;
 }
 
+const PDF = new TextEncoder().encode('%PDF-1.7 tiny');
+const sha256Of = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+
+/** An image the fake store holds as `size` zero bytes. */
 const jpeg = (id: string, size: number): MessageFile => ({
   artifactId: id,
   name: `${id}.jpg`,
   contentType: 'image/jpeg',
   size,
-  sha256: 'a'.repeat(64),
+  sha256: sha256Of(new Uint8Array(size)),
 });
 const pdf = (id: string): MessageFile => ({
   artifactId: id,
   name: `${id}.pdf`,
   contentType: 'application/pdf',
-  size: 13,
-  sha256: 'b'.repeat(64),
+  size: PDF.byteLength,
+  sha256: sha256Of(PDF),
+  pages: 1,
 });
 
 async function converse(files: readonly MessageFile[]): Promise<Record<string, unknown>> {
@@ -65,9 +72,7 @@ async function converse(files: readonly MessageFile[]): Promise<Record<string, u
     model: MODEL,
     messages: [{ role: 'user', content: 'Here they are.', files }],
     readFile: async (id) =>
-      id.startsWith('d')
-        ? new TextEncoder().encode('%PDF-1.7 tiny')
-        : new Uint8Array(files.find((f) => f.artifactId === id)?.size ?? 0),
+      id.startsWith('d') ? PDF : new Uint8Array(files.find((f) => f.artifactId === id)?.size ?? 0),
   };
   await provider.invoke(input);
   return bodies[0] as Record<string, unknown>;

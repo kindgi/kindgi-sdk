@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { createHash } from 'node:crypto';
+
 import type Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, test, vi } from 'vitest';
 
@@ -13,6 +15,7 @@ import { toAnthropicMessages } from '../src/translate.js';
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
 const PDF = new TextEncoder().encode('%PDF-1.7 tiny');
+const sha256Of = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const JPEG64 = Buffer.from(JPEG).toString('base64');
 const PDF64 = Buffer.from(PDF).toString('base64');
 
@@ -21,14 +24,14 @@ const photo: MessageFile = {
   name: 'photo.jpg',
   contentType: 'image/jpeg',
   size: JPEG.byteLength,
-  sha256: 'a'.repeat(64),
+  sha256: sha256Of(JPEG),
 };
 const receipt: MessageFile = {
   artifactId: 'receipt',
   name: 'receipt.pdf',
   contentType: 'application/pdf',
   size: PDF.byteLength,
-  sha256: 'b'.repeat(64),
+  sha256: sha256Of(PDF),
 };
 const STORED: Record<string, Uint8Array> = { photo: JPEG, receipt: PDF };
 const readFile = vi.fn(async (id: string) => STORED[id]);

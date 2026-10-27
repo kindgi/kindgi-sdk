@@ -492,6 +492,11 @@ export interface ModelCallInput {
    * longer stored. The caller checks the file is one this call may show
    * before it reads. Adapters read only the files they send, and keep
    * nothing. Absent: no file is read, and each is a line saying so.
+   *
+   * A rejection (the store is down) fails the call with that rejection,
+   * unchanged, before anything is sent: an outage isn't shown to the model
+   * as a missing file. An agent turn then fails with
+   * `model-invocation-failed`, its cause the rejection.
    */
   readonly readFile?: (artifactId: string) => Promise<Uint8Array | undefined>;
 }

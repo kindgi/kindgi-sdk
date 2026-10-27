@@ -53,7 +53,8 @@ export function checkFunctionName(name: string): string {
  * `files` holds each message's file parts (`fileParts`), by index, sent
  * inline after the message's text. A function response isn't known to take
  * files, so a tool result's files move: after the run of tool results, each
- * result's files under a heading that names its call.
+ * result's files under a heading that names its call, in the same user turn
+ * as the function responses (consecutive user parts merge).
  */
 export function toGeminiRequest(
   messages: readonly ModelMessage[],
@@ -65,7 +66,8 @@ export function toGeminiRequest(
   const systemParts: string[] = [];
   const contents: Content[] = [];
   const callNames = new Map<string, string>();
-  // A tool result's files, held until the run of tool results ends.
+  // A tool result's files, held until the run of tool results ends; they join
+  // its user turn, after the function responses.
   let moved: Part[] = [];
   const flushMoved = (): void => {
     if (moved.length > 0) append(contents, 'user', moved);
