@@ -13,14 +13,17 @@ import { type Flow, type FlowNode, isFanoutNode, isLoopNode } from './types.js';
  * A flow names its tools by id (a tool node's `ref`, a fanout branch's
  * `handler`) and its agents by id, with an exact `config.version` or
  * none. When a version of the flow is published, the runtime pins each
- * tool, and each agent that names no version, to its latest version
- * then, and every run of that flow version uses those versions. So a
- * new tool or agent version reaches the flow only through a new flow
- * version.
+ * tool to its version pinned where the flow version is made (the
+ * project, then its org, then the tenant), else its latest version
+ * then, and each agent that names no version to its version live for
+ * that project, else its latest. Every run of that flow version uses
+ * those versions, so a new tool or agent version reaches the flow only
+ * through a new flow version.
  *
  * Set by the runtime at publish, never authored. A flow version
- * published before pins existed has none and binds the latest versions
- * per run.
+ * published before pins existed has none: each run of it binds each
+ * tool's latest version, and each agent's version live for the run,
+ * else its latest.
  */
 export interface FlowPins {
   /** Tool id → the exact version this flow version runs. */
