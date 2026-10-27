@@ -136,7 +136,7 @@ export function projectMismatchFix(runtime: {
     return 'one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id';
   }
   if (runtime.environmentOrders) {
-    return "this runtime runs one pack service, so a copy of the pack wouldn't run: if both projects are in the same org, or neither is in an org, put them in one environment order (`kindgi environments set`), this one right after the one it belongs to, and `kindgi promote` the build to this one instead of deploying it; otherwise they can't share an order until one moves into the other's org, or out of its org (a project not in an order can move)";
+    return "this runtime runs one pack service, so a copy of the pack wouldn't run: if both projects are in the same org, or neither is in an org, put them in one environment order (`kindgi environments set`), this one right after the one it belongs to, and `kindgi promote` the build to this one instead of deploying it; otherwise they can't share an order until both are in the same org, or neither is in an org (a project not in an order can move)";
   }
   return undefined;
 }
