@@ -17,16 +17,11 @@ describe('FileValue', () => {
   });
 
   test("a file value needs its type mark and a file's required fields", () => {
+    const fields = { artifactId: 'a', contentType: 'image/png', size: 1, sha256: 'x' };
     // @ts-expect-error — missing the 'kindgi.file' type mark.
-    const _noType: FileValue = { artifactId: 'a', contentType: 'image/png', size: 1, sha256: 'x' };
+    const _noType: FileValue = fields;
     // @ts-expect-error — 'type' must be 'kindgi.file'.
-    const _otherType: FileValue = {
-      type: 'file',
-      artifactId: 'a',
-      contentType: 'image/png',
-      size: 1,
-      sha256: 'x',
-    };
+    const _otherType: FileValue = { ...fields, type: 'file' };
     // @ts-expect-error — missing sha256.
     const _noHash: FileValue = {
       type: 'kindgi.file',
