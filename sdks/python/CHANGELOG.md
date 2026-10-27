@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a flow's sub-flow step can leave out `flowRef.version`** (flow
+  schema 1.10.0). When the flow version is published, the runtime pins the
+  newest version of the child that its project reaches, and every run of the
+  flow version runs that one. The client's flow pins have `flows` for those;
+  absent when there are none, and from older servers.
+
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a
   mail someone sent or a page a search found. An agent reads each result of the

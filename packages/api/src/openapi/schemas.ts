@@ -3551,7 +3551,7 @@ export const FlowSchema: JsonSchema = {
 
 export const FlowPinsSchema: JsonSchema = {
   description:
-    'The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).',
+    'The exact tool, agent and sub-flow versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, each agent it runs at no named version, and each sub-flow it runs at no named version, resolves once then, and every run of that flow version uses those versions. Absent on a version published before pins existed (it binds the latest versions per run).',
   type: 'object',
   additionalProperties: false,
   required: ['tools', 'agents'],
@@ -3560,6 +3560,11 @@ export const FlowPinsSchema: JsonSchema = {
     agents: {
       ...PinMapSchema,
       description: 'Agent id → exact version, for agent nodes that name no version.',
+    },
+    flows: {
+      ...PinMapSchema,
+      description:
+        'Flow id → exact version, for sub-flow steps that name no version. Absent when there are none, and from older servers.',
     },
   },
 };
@@ -11084,7 +11089,11 @@ export const PinChangeSchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind', 'id'],
   properties: {
-    kind: { type: 'string', enum: ['tool', 'prompt', 'setting', 'agent'] },
+    kind: {
+      type: 'string',
+      enum: ['tool', 'prompt', 'setting', 'agent', 'flow'],
+      description: "`flow`: a flow's sub-flow (`FlowPins.flows`). Not sent by older servers.",
+    },
     id: { type: 'string' },
     from: { type: 'string', description: "The earlier version's pin; absent when it had none." },
     to: { type: 'string', description: "The later version's pin; absent when it has none." },

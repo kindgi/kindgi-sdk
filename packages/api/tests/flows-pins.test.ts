@@ -248,3 +248,151 @@ describe('POST /v1/flows pins the version', () => {
     expect(flows.stored()[0]?.pins).toBeUndefined();
   });
 });
+
+/** Flows with these active versions, by id; a published version is stored and listed too. */
+function flowsWith(versions: Record<string, readonly string[]>) {
+  const rows = new Map<string, Flow>();
+  const listed = (flowId: string) => [
+    ...(versions[flowId] ?? []),
+    ...[...rows.values()].filter((f) => f.id === flowId).map((f) => f.version),
+  ];
+  return {
+    stored: () => [...rows.values()],
+    list: unused,
+    get: unused,
+    headExists: unused,
+    unregister: unused,
+    reinstateVersion: unused,
+    async listVersions({ flowId }: Parameters<FlowRegistryBinding['listVersions']>[0]) {
+      return {
+        data: listed(flowId as unknown as string).map((version) => ({ id: flowId, version })),
+      };
+    },
+    async getVersion({ flowId, version }: Parameters<FlowRegistryBinding['getVersion']>[0]) {
+      return rows.get(`${flowId as unknown as string}@${version}`) ?? null;
+    },
+    async publish({ flow }: Parameters<FlowRegistryBinding['publish']>[0]) {
+      rows.set(`${flow.id as unknown as string}@${flow.version}`, flow);
+      return { kind: 'ok', flowId: flow.id, version: flow.version };
+    },
+  } as unknown as FlowRegistryBinding & { stored: () => Flow[] };
+}
+
+/** A parent flow whose steps run these sub-flows: `[flowId, version?]` each. */
+function parentBody(id: string, steps: readonly (readonly [string, string?])[], projectId: string) {
+  const nodes = steps.map(([flowId, version], i) => ({
+    id: `sub${i}`,
+    kind: 'subgraph',
+    flowRef: { flowId, ...(version !== undefined && { version }) },
+    inputMapping: {},
+    outputSchema: { type: 'object' },
+    convergence: 'settle-all',
+  }));
+  const ids = nodes.map((n) => n.id);
+  return JSON.stringify({
+    id,
+    version: '1.0.0',
+    nodes,
+    edges: [
+      { id: 'e0', from: '$start', to: ids[0] },
+      ...ids.slice(1).map((to, i) => ({ id: `e${i + 1}`, from: ids[i], to })),
+      { id: 'end', from: ids[ids.length - 1], to: '$end' },
+    ],
+    projectId,
+  });
+}
+
+describe('POST /v1/flows pins a sub-flow step that names no version', () => {
+  const projectId = randomUUID();
+
+  function subflowApp(versions: Record<string, readonly string[]>, reached?: ReadonlySet<string>) {
+    const flows = flowsWith(versions);
+    const asked: string[] = [];
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      flowRegistry: flows,
+      ...registries({}, {}),
+      ...(reached !== undefined && {
+        referenceScope: {
+          async reachable({ fromProjectId, ref }) {
+            if (ref.kind !== 'flow' || ref.version === undefined) return true;
+            asked.push(`${fromProjectId as unknown as string} ${ref.id}@${ref.version}`);
+            return reached.has(`${ref.id}@${ref.version}`);
+          },
+        },
+      }),
+    });
+    const post = (body: string) =>
+      app.request('/v1/flows', {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body,
+      });
+    return { app, flows, asked, post };
+  }
+
+  async function issues(res: Response) {
+    const err = (await res.json()) as {
+      error: { code: string; details: { issues: { path: string; message: string }[] } };
+    };
+    expect(err.error.code).toBe('validation-failed');
+    return err.error.details.issues.map((i) => i.message);
+  }
+
+  test('to the newest version the project reaches; a named version is left as named', async () => {
+    const { flows, asked, post } = subflowApp(
+      { 'acme.child': ['1.0.0', '1.2.0', '2.0.0-rc.1', '1.10.0'], 'acme.named': ['3.0.0'] },
+      new Set(['acme.child@1.0.0', 'acme.child@1.2.0']),
+    );
+    const res = await post(
+      parentBody(
+        'acme.parent',
+        [['acme.child'], ['acme.named', '3.0.0'], ['acme.child']],
+        projectId,
+      ),
+    );
+    expect(res.status).toBe(201);
+    const stored = flows.stored().find((f) => f.id === 'acme.parent');
+    const pins = { tools: {}, agents: {}, flows: { 'acme.child': '1.2.0' } };
+    expect(stored?.pins).toEqual(pins);
+    expect(stored?.pinsDigest).toBe(flowPinsDigest(pins));
+    // Newest first, asked in the parent's project, until one is reached.
+    expect(asked).toEqual([
+      `${projectId} acme.child@2.0.0-rc.1`,
+      `${projectId} acme.child@1.10.0`,
+      `${projectId} acme.child@1.2.0`,
+    ]);
+  });
+
+  test('without a reference scope, to the newest version', async () => {
+    const { flows, post } = subflowApp({ 'acme.child': ['1.0.0', '1.2.0'] });
+    expect((await post(parentBody('acme.parent', [['acme.child']], projectId))).status).toBe(201);
+    expect(flows.stored()[0]?.pins?.flows).toEqual({ 'acme.child': '1.2.0' });
+  });
+
+  test("one with no version the project reaches refuses the publish, as one that isn't there", async () => {
+    const { flows, post } = subflowApp({ 'acme.child': ['1.0.0'] }, new Set());
+    const res = await post(parentBody('acme.parent', [['acme.child'], ['acme.ghost']], projectId));
+    expect(res.status).toBe(400);
+    expect(await issues(res)).toEqual([
+      'flow "acme.child" has no published version this project runs; publish it first',
+      'flow "acme.ghost" has no published version this project runs; publish it first',
+    ]);
+    expect(flows.stored()).toEqual([]);
+  });
+
+  test('a step running the flow itself with no version refuses the publish; with one, it loads', async () => {
+    const { flows, post } = subflowApp({ 'acme.parent': ['0.9.0'] });
+    const res = await post(parentBody('acme.parent', [['acme.parent']], projectId));
+    expect(res.status).toBe(400);
+    expect(await issues(res)).toEqual([
+      'a sub-flow step runs flow "acme.parent", this flow, with no version; name the version it runs',
+    ]);
+    expect(flows.stored()).toEqual([]);
+    const named = await post(parentBody('acme.parent', [['acme.parent', '0.9.0']], projectId));
+    expect(named.status).toBe(201);
+    expect(flows.stored()[0]?.pins).toEqual({ tools: {}, agents: {} });
+  });
+});

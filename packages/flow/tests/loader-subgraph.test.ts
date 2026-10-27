@@ -55,6 +55,14 @@ describe('loadFlow — subgraph happy path', () => {
     expect(r.kind).toBe('ok');
   });
 
+  test('accepts a flowRef with no version: the parent version pins it (1.10.0)', () => {
+    const r = loadFlow(outerWith(subgraphNode({ flowRef: { flowId: 'child.flow' } })));
+    expect(r.kind).toBe('ok');
+    if (r.kind !== 'ok') return;
+    expect(r.value.nodes[0]).toMatchObject({ flowRef: { flowId: 'child.flow' } });
+    expect('version' in (r.value.nodes[0] as { flowRef: object }).flowRef).toBe(false);
+  });
+
   test('accepts a pre-release semver version like 1.2.3-alpha.1', () => {
     const r = loadFlow(
       outerWith(subgraphNode({ flowRef: { flowId: 'child.flow', version: '1.2.3-alpha.1' } })),

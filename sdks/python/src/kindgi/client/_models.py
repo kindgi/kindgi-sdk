@@ -2842,7 +2842,10 @@ class PinChange(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["tool", "prompt", "setting", "agent"] | str, _open.OPEN]
+    kind: Annotated[Literal["tool", "prompt", "setting", "agent", "flow"] | str, _open.OPEN]
+    """
+    `flow`: a flow's sub-flow (`FlowPins.flows`). Not sent by older servers.
+    """
     id: str
     from_: Annotated[str | None, Field(alias="from")] = None
     """
@@ -2908,7 +2911,7 @@ class AgentPinSwaps(BaseModel):
 
 class FlowPins(BaseModel):
     """
-    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).
+    The exact tool, agent and sub-flow versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, each agent it runs at no named version, and each sub-flow it runs at no named version, resolves once then, and every run of that flow version uses those versions. Absent on a version published before pins existed (it binds the latest versions per run).
     """
 
     model_config = ConfigDict(
@@ -2922,6 +2925,10 @@ class FlowPins(BaseModel):
     agents: dict[str, str]
     """
     Agent id → exact version, for agent nodes that name no version.
+    """
+    flows: dict[str, str] | None = None
+    """
+    Flow id → exact version, for sub-flow steps that name no version. Absent when there are none, and from older servers.
     """
 
 

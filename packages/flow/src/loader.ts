@@ -1018,15 +1018,17 @@ function checkSubflowNode(flow: Flow, subgraph: SubflowNode): InvalidSubflowNode
   if (typeof flowRef.flowId !== 'string' || flowRef.flowId.length === 0) {
     return subgraphErr(flow, subgraph.id, 'flowRef.flowId', 'must be a non-empty string');
   }
-  if (typeof flowRef.version !== 'string' || flowRef.version.length === 0) {
-    return subgraphErr(flow, subgraph.id, 'flowRef.version', 'must be a non-empty string');
+  // No version: the runtime locks the child's when the parent is published.
+  const version = flowRef.version;
+  if (version !== undefined && typeof version !== 'string') {
+    return subgraphErr(flow, subgraph.id, 'flowRef.version', 'must be a string when given');
   }
-  if (!SEMVER_EXACT_REGEX.test(flowRef.version)) {
+  if (typeof version === 'string' && !SEMVER_EXACT_REGEX.test(version)) {
     return subgraphErr(
       flow,
       subgraph.id,
       'flowRef.version',
-      `must be an exact semver (no ranges) — got "${flowRef.version}"`,
+      `must be an exact semver (no ranges) — got "${version}"`,
     );
   }
 
