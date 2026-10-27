@@ -76,7 +76,12 @@ export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
  *   (`RunTrace.step`).
  * - `'final-answer'`: the answer that would be stored (`RunTrace.output`).
  */
-export const GUARDRAIL_POINTS = ['before-tool', 'after-tool', 'model-step', 'final-answer'] as const;
+export const GUARDRAIL_POINTS = [
+  'before-tool',
+  'after-tool',
+  'model-step',
+  'final-answer',
+] as const;
 /** One of `GUARDRAIL_POINTS`. */
 export type GuardrailPoint = (typeof GUARDRAIL_POINTS)[number];
 

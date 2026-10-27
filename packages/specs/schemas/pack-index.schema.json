@@ -220,7 +220,10 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "string", "enum": ["before-tool", "after-tool", "model-step", "final-answer"] },
+          "items": {
+            "type": "string",
+            "enum": ["before-tool", "after-tool", "model-step", "final-answer"]
+          },
           "description": "The points the pack's check runs at (its `defineCheck` `points`, or the final answer when it names none), which `at` is one of. Absent for a built-in check, whose points the runtime knows; for a pack check, absent means the final answer only."
         },
         "checkModulePath": { "$ref": "#/$defs/modulePath" },
