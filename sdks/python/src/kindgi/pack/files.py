@@ -110,14 +110,17 @@ class FileStore:
             raise FileStoreError(f"files.store: the runtime can't be reached: {cause}") from None
         return _answer_of(response)
 
-    def _request(self, name: str, content_type: str, data: bytes) -> dict[str, Any] | None:
+    def _request(self, name: object, content_type: object, data: object) -> dict[str, Any] | None:
         """The store's request, or None for bytes over `MAX_STORED_FILE_BYTES`: the runtime
-        would answer `size`, so nothing is sent."""
+        would answer `size`, so nothing is sent. Its arguments are checked as any values: a
+        handler's types aren't checked when it runs."""
         if not isinstance(name, str) or not isinstance(content_type, str):
             raise TypeError("files.store takes name: str, content_type: str, data: bytes")
-        if not isinstance(data, (bytes, bytearray, memoryview)):
+        # A memoryview's length counts its items, not its bytes.
+        content = data.tobytes() if isinstance(data, memoryview) else data
+        if not isinstance(content, (bytes, bytearray)):
             raise TypeError("files.store takes name: str, content_type: str, data: bytes")
-        if len(data) > MAX_STORED_FILE_BYTES:
+        if len(content) > MAX_STORED_FILE_BYTES:
             return None
         return {
             "headers": {
@@ -125,7 +128,7 @@ class FileStore:
                 "content-type": _sendable_type(content_type),
                 "kindgi-file-name": quote(name, safe=""),
             },
-            "content": bytes(data),
+            "content": bytes(content),
         }
 
 
@@ -175,7 +178,7 @@ def _answer_of(response: httpx.Response) -> FileStoreAnswer:
                 return FileStoreAnswer(file=cast("Mapping[str, Any]", answer["file"]))
             reason = answer.get("notStored")
             if reason in _NOT_STORED_REASONS:
-                return FileStoreAnswer(not_stored=cast("NotStoredReason", reason))
+                return FileStoreAnswer(not_stored=reason)
         raise FileStoreError("files.store: the runtime's answer isn't a stored file or a reason")
     code = _error_code(body)
     raise FileStoreError(

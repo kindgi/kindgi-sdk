@@ -7,6 +7,7 @@ each store posts the bytes to the upload link, and the handler never sees the li
 
 from __future__ import annotations
 
+import array
 import json
 import re
 import threading
@@ -203,6 +204,21 @@ async def test_a_file_over_the_largest_any_type_allows_answers_size_and_nothing_
     answer = await store.store_async(name="x.pdf", content_type="application/pdf", data=over)
     assert answer == FileStoreAnswer(not_stored="size")
     assert link.received == []
+
+
+def test_a_memoryview_is_counted_in_bytes(link: Link) -> None:
+    # 2,500,001 items of 4 bytes each: fewer items than the limit, more bytes.
+    items = array.array("I", [0]) * (MAX_STORED_FILE_BYTES // 4 + 1)
+    answer = _store(link).store(
+        name="x.pdf", content_type="application/pdf", data=memoryview(items)
+    )
+    assert answer == FileStoreAnswer(not_stored="size")
+    assert link.received == []
+
+
+def test_a_memoryview_sends_its_bytes(link: Link) -> None:
+    _store(link).store(name="x", content_type="text/plain", data=memoryview(b"test"))
+    assert link.received[0]["body"] == b"test"
 
 
 @pytest.mark.parametrize(
