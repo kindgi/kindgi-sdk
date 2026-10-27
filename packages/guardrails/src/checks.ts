@@ -9,7 +9,14 @@ import {
 } from '@kindgi/bounds';
 
 import { type GuardrailConfigProblem, guardrailConfigProblems } from './config-problems.js';
-import type { CheckFunction, CheckRegistry, RegisteredCheck } from './types.js';
+import type {
+  CheckFunction,
+  CheckRegistry,
+  GuardrailPoint,
+  RegisteredCheck,
+  RunTrace,
+  TraceCallResult,
+} from './types.js';
 
 /**
  * Built-in check library. Every entry is `kind: 'zero-llm'` — pure
@@ -20,7 +27,53 @@ import type { CheckFunction, CheckRegistry, RegisteredCheck } from './types.js';
  * `BUILT_IN_CHECKS` with its config's JSON Schema (which also refuses a
  * config it doesn't know: a misspelt setting is never silently ignored),
  * and document it in the JSDoc block.
+ *
+ * Each names the points it runs at (`RegisteredCheck.points`). A check of
+ * the calls (`never-call-tool`, `max-tool-calls`, `tool-order`) also runs
+ * before a call, and a check of text (`output-matches`,
+ * `forbidden-substring`) on each reply and each call's result too.
  */
+
+/**
+ * The text a check of text reads at the trace's point: the answer at the
+ * final answer, the reply's text at `'model-step'`, and the call's result
+ * at `'after-tool'` (a string as it is, anything else as JSON, an error's
+ * message).
+ */
+function textAt(trace: RunTrace): string | undefined {
+  switch (trace.at ?? 'final-answer') {
+    case 'model-step':
+      return trace.step?.text;
+    case 'after-tool':
+      return trace.result === undefined ? undefined : resultText(trace.result);
+    case 'final-answer':
+      return trace.output;
+    default:
+      return undefined;
+  }
+}
+
+function resultText(result: TraceCallResult): string {
+  if ('error' in result) return result.error.message;
+  return typeof result.output === 'string' ? result.output : (JSON.stringify(result.output) ?? '');
+}
+
+/** What `textAt` reads, as a reason names it. */
+function textNoun(trace: RunTrace): string {
+  switch (trace.at ?? 'final-answer') {
+    case 'model-step':
+      return 'reply';
+    case 'after-tool':
+      return 'result';
+    default:
+      return 'output';
+  }
+}
+
+/** Before a call, the call it judges; otherwise none. */
+function callBefore(trace: RunTrace): RunTrace['call'] {
+  return trace.at === 'before-tool' ? trace.call : undefined;
+}
 
 /**
  * `must-cite`: assistant output must include at least N matches of the
@@ -62,6 +115,9 @@ const mustCite: CheckFunction = async (config, trace) => {
 /**
  * `never-call-tool`: fail if any of the listed tools were invoked.
  * Config: `{ tools: string[] }` — tool ids or names to forbid.
+ *
+ * Before a call (`'before-tool'`), it judges that call alone, so a
+ * forbidden call never runs.
  */
 const neverCallTool: CheckFunction = async (config, trace) => {
   // Accept both tool id / name strings and ToolRef objects
@@ -81,7 +137,8 @@ const neverCallTool: CheckFunction = async (config, trace) => {
     }
   }
   const violations: string[] = [];
-  for (const call of trace.toolCalls) {
+  const before = callBefore(trace);
+  for (const call of before !== undefined ? [before] : trace.toolCalls) {
     if (forbidden.has(call.toolId) || forbidden.has(call.toolName)) {
       violations.push(call.toolName);
     }
@@ -97,22 +154,29 @@ const neverCallTool: CheckFunction = async (config, trace) => {
 /**
  * `max-tool-calls`: cap total tool invocations. Config: `{ max?: number }` (default 10).
  * Guards against runaway agents.
+ *
+ * Before a call, it counts that call with the turn's earlier ones, so the
+ * call over the cap never runs.
  */
 const maxToolCalls: CheckFunction = async (config, trace) => {
   const max = typeof config.max === 'number' ? config.max : 10;
-  if (trace.toolCalls.length <= max) {
-    return { passed: true, attributes: { toolCallCount: trace.toolCalls.length } };
+  const count = trace.toolCalls.length + (callBefore(trace) !== undefined ? 1 : 0);
+  if (count <= max) {
+    return { passed: true, attributes: { toolCallCount: count } };
   }
   return {
     passed: false,
-    reason: `expected <= ${max} tool calls, saw ${trace.toolCalls.length}`,
-    attributes: { toolCallCount: trace.toolCalls.length },
+    reason: `expected <= ${max} tool calls, saw ${count}`,
+    attributes: { toolCallCount: count },
   };
 };
 
 /**
  * `output-matches`: final assistant output must match a regex (or fail
  * if `negate: true`). Config: `{ pattern: string, flags?: string, negate?: boolean }`.
+ *
+ * At `'model-step'` it reads the reply's text, and at `'after-tool'` the
+ * call's result (`textAt`).
  */
 const outputMatches: CheckFunction = async (config, trace) => {
   const pattern = typeof config.pattern === 'string' ? config.pattern : '';
@@ -121,16 +185,17 @@ const outputMatches: CheckFunction = async (config, trace) => {
   if (pattern.length === 0) {
     return { passed: false, reason: 'pattern config is required' };
   }
-  const output = trace.output ?? '';
-  const matched = patternOf(config, 'pattern', pattern, flags).test(output);
+  const text = textAt(trace) ?? '';
+  const noun = textNoun(trace);
+  const matched = patternOf(config, 'pattern', pattern, flags).test(text);
   const passed = negate ? !matched : matched;
   return passed
     ? { passed: true }
     : {
         passed: false,
         reason: negate
-          ? `output matched forbidden pattern /${pattern}/`
-          : `output did not match /${pattern}/`,
+          ? `${noun} matched forbidden pattern /${pattern}/`
+          : `${noun} did not match /${pattern}/`,
       };
 };
 
@@ -139,15 +204,30 @@ const outputMatches: CheckFunction = async (config, trace) => {
  *   `{ sequence: string[] }` — tool names in expected order (subsequence).
  * Non-listed tools are allowed to appear anywhere; the sequence must exist
  * as a subsequence of the actual call order.
+ *
+ * Before a call (`'before-tool'`), a call to a listed tool fails unless
+ * the tools before it in `sequence` were called, in that order, earlier
+ * in the turn: so a refund before the order lookup never runs.
  */
 const toolOrder: CheckFunction = async (config, trace) => {
   const sequence = Array.isArray(config.sequence) ? (config.sequence as string[]) : [];
   if (sequence.length === 0) return { passed: true };
   let seqIndex = 0;
   for (const call of trace.toolCalls) {
+    if (seqIndex === sequence.length) break;
     if (call.toolName === sequence[seqIndex]) seqIndex += 1;
-    if (seqIndex === sequence.length) return { passed: true };
   }
+  const before = callBefore(trace);
+  if (before !== undefined) {
+    const position = sequence.indexOf(before.toolName);
+    if (position <= seqIndex) return { passed: true };
+    return {
+      passed: false,
+      reason: `"${before.toolName}" called before [${sequence.slice(seqIndex, position).join(', ')}]`,
+      attributes: { matchedPrefix: sequence.slice(0, seqIndex) },
+    };
+  }
+  if (seqIndex === sequence.length) return { passed: true };
   return {
     passed: false,
     reason: `expected tool-call subsequence [${sequence.join(', ')}] not observed`,
@@ -198,15 +278,17 @@ const requiredSubstring: CheckFunction = async (config, trace) => {
  *
  * Symmetric to `required-substring`. Enables "output must not contain
  * PII markers / off-limits phrases / policy trigger words" without an
- * llm-judge.
+ * llm-judge. At `'model-step'` it reads the reply's text, and at
+ * `'after-tool'` the call's result (`textAt`).
  */
 const forbiddenSubstring: CheckFunction = async (config, trace) => {
   const patternsRaw = Array.isArray(config.patterns) ? (config.patterns as unknown[]) : [];
   const patterns = patternsRaw.filter((p): p is string => typeof p === 'string' && p.length > 0);
   if (patterns.length === 0) return { passed: true };
-  if (trace.output === undefined || trace.output.length === 0) return { passed: true };
+  const text = textAt(trace);
+  if (text === undefined || text.length === 0) return { passed: true };
   const caseSensitive = config.caseSensitive === true;
-  const haystack = caseSensitive ? trace.output : trace.output.toLowerCase();
+  const haystack = caseSensitive ? text : text.toLowerCase();
   const violated: string[] = [];
   for (const p of patterns) {
     const needle = caseSensitive ? p : p.toLowerCase();
@@ -215,7 +297,7 @@ const forbiddenSubstring: CheckFunction = async (config, trace) => {
   if (violated.length === 0) return { passed: true };
   return {
     passed: false,
-    reason: `output contains forbidden pattern(s): ${violated.join(', ')}`,
+    reason: `${textNoun(trace)} contains forbidden pattern(s): ${violated.join(', ')}`,
     attributes: { violated },
   };
 };
@@ -367,26 +449,35 @@ function regexProblems(
     : [{ path: `/config/${patternKey}`, message: notAPattern(patternKey, compiled.reason) }];
 }
 
-function builtIn(id: string, evaluate: CheckFunction): RegisteredCheck {
+function builtIn(
+  id: string,
+  evaluate: CheckFunction,
+  points: readonly GuardrailPoint[],
+): RegisteredCheck {
   const configProblems = (config: unknown) => builtInConfigProblems(id, config);
   return {
     id,
     kind: 'zero-llm',
     evaluate,
+    points,
     configSchema: CONFIG_SCHEMAS[id] as Readonly<Record<string, unknown>>,
     configProblems,
     validateConfig: (config) => configProblems(config)[0]?.message,
   };
 }
 
+const ANSWER: readonly GuardrailPoint[] = ['final-answer'];
+const CALLS: readonly GuardrailPoint[] = ['before-tool', 'final-answer'];
+const TEXT: readonly GuardrailPoint[] = ['model-step', 'after-tool', 'final-answer'];
+
 const BUILT_IN_CHECKS: readonly RegisteredCheck[] = [
-  builtIn('must-cite', mustCite),
-  builtIn('never-call-tool', neverCallTool),
-  builtIn('max-tool-calls', maxToolCalls),
-  builtIn('output-matches', outputMatches),
-  builtIn('tool-order', toolOrder),
-  builtIn('required-substring', requiredSubstring),
-  builtIn('forbidden-substring', forbiddenSubstring),
+  builtIn('must-cite', mustCite, ANSWER),
+  builtIn('never-call-tool', neverCallTool, CALLS),
+  builtIn('max-tool-calls', maxToolCalls, CALLS),
+  builtIn('output-matches', outputMatches, TEXT),
+  builtIn('tool-order', toolOrder, CALLS),
+  builtIn('required-substring', requiredSubstring, ANSWER),
+  builtIn('forbidden-substring', forbiddenSubstring, TEXT),
 ];
 
 /**

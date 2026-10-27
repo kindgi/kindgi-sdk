@@ -1,0 +1,8 @@
+---
+"@kindgi/guardrails": patch
+"@kindgi/specs": patch
+"@kindgi/api": patch
+"@kindgi/handler-runtime": patch
+---
+
+**A guardrail says where in the agent's turn it runs: `at`.** `'before-tool'` judges a call the model asked for, before it runs and before any approval is asked; `'after-tool'` a call's result, before the model sees it; `'model-step'` each model reply, before any of its calls runs; and `'final-answer'`, the default, the answer that would be stored. `sees: 'conversation'` gives the check the conversation's earlier turns too (`trace.earlier`), and `scope.tools` limits a guardrail at a tool point to the tools it names (a trailing `*` matches every id with that prefix). A check says where it can run with `defineCheck({ points })`; one that names none runs at the final answer only, as every check does today. `validateGuardrail`, the register and deploy routes, and the pack indexer refuse a guardrail at a point its check doesn't run at (registering answers `422 guardrail-config-invalid`, the problem at `/at`), and one that asks a point for what it can't do: `'escalate'` before a tool call names the role that decides (`escalateTo`: `standard`, `senior` or `admin`) and runs at no other new point, `'compensate'` stays at the final answer, and `scope.tools` is for the tool points. The built-in checks: `must-cite` and `required-substring` run at the final answer; `never-call-tool`, `max-tool-calls` and `tool-order` before a tool call too, judging that call, so a forbidden call, a call over the cap, or a call out of order never runs; `output-matches` and `forbidden-substring` on each reply and each call's result too. The pack index carries `at`, `sees` and the pack check's `checkPoints`.

@@ -19,9 +19,15 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 
-import { BUILT_IN_CHECK_IDS } from '@kindgi/guardrails';
+import { BUILT_IN_CHECK_IDS, GUARDRAIL_POINTS as POINTS } from '@kindgi/guardrails';
 
-import { RESERVED_CHECK_IDS, main, readBundleMap, runIndexer } from '../src/kindgi-index.js';
+import {
+  GUARDRAIL_POINTS,
+  RESERVED_CHECK_IDS,
+  main,
+  readBundleMap,
+  runIndexer,
+} from '../src/kindgi-index.js';
 
 // Every index this suite writes must satisfy the spec (`@kindgi/specs/pack-index.schema.json`).
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
@@ -376,6 +382,106 @@ describe('built-in check ids', () => {
     expect(report.fileErrors).toEqual([]);
     const parsed = await readValidIndex(report.outputPath);
     expect(parsed.guardrails[0].checkBuiltIn).toBeUndefined();
+  });
+});
+
+describe("a guardrail's point", () => {
+  const index = async (guardrailFile: FixtureFile) => {
+    const fixture = await makeFixture({
+      files: { 'kindgi.config.mjs': config(), 'guardrails/calls.mjs': guardrailFile },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      artifactVersion: '20261027.1',
+      importModule: fixture.importModule,
+    });
+    if (outcome.kind !== 'ok') throw new Error('indexer failed');
+    return outcome.value;
+  };
+  const evaluate = async () => ({ passed: true });
+
+  test("GUARDRAIL_POINTS is @kindgi/guardrails' GUARDRAIL_POINTS", () => {
+    expect(GUARDRAIL_POINTS).toEqual(POINTS);
+  });
+
+  test('at and sees are carried, with the points of the check the guardrail ships', async () => {
+    const report = await index(
+      guardrailModule({
+        check: { id: 'acme.checks.args', evaluate, points: ['before-tool', 'final-answer'] },
+        at: 'before-tool',
+        sees: 'conversation',
+        scope: { tools: ['acme.woo.*'] },
+      }),
+    );
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0]).toMatchObject({
+      at: 'before-tool',
+      sees: 'conversation',
+      scope: { tools: ['acme.woo.*'] },
+      checkId: 'acme.checks.args',
+      checkPoints: ['before-tool', 'final-answer'],
+    });
+  });
+
+  test('a check the module exports under the guardrail\'s check id gives its points', async () => {
+    const report = await index({
+      module: {
+        default: (guardrailModule({ check: 'acme.checks.args', at: 'model-step' }).module as {
+          default: unknown;
+        }).default,
+        check: { id: 'acme.checks.args', evaluate, points: ['model-step'] },
+      },
+    });
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0]).toMatchObject({ at: 'model-step', checkPoints: ['model-step'] });
+  });
+
+  test('a check that names no points runs at the final answer, and nothing is added for none', async () => {
+    const report = await index(guardrailModule({ check: { id: 'acme.checks.plain', evaluate } }));
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0].checkPoints).toEqual(['final-answer']);
+    expect(parsed.guardrails[0].at).toBeUndefined();
+    expect(parsed.guardrails[0].sees).toBeUndefined();
+  });
+
+  test("a built-in's points are the runtime's: none are listed", async () => {
+    const report = await index(guardrailModule({ check: 'never-call-tool', at: 'before-tool' }));
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0]).toMatchObject({ at: 'before-tool', checkBuiltIn: true });
+    expect(parsed.guardrails[0].checkPoints).toBeUndefined();
+  });
+
+  test.each([
+    [
+      "a point its check doesn't run at",
+      { check: { id: 'acme.checks.plain', evaluate }, at: 'before-tool' },
+      "guardrail acme.grounded runs at 'before-tool', which isn't one of its check's points (final-answer)",
+    ],
+    [
+      'a point there is none of',
+      { at: 'before-handoff' },
+      "'at' must be one of before-tool, after-tool, model-step, final-answer",
+    ],
+    ['a view there is none of', { sees: 'everything' }, "'sees' must be 'turn' or 'conversation'"],
+    [
+      "a check's points that aren't points",
+      { check: { id: 'acme.checks.odd', evaluate, points: ['before-handoff'] } },
+      'check "acme.checks.odd" \'points\' must name one or more of before-tool, after-tool, model-step, final-answer',
+    ],
+  ] as const)('%s: refused', async (_what, overrides, message) => {
+    const report = await index(guardrailModule(overrides));
+    expect(report.fileErrors).toEqual([
+      expect.objectContaining({
+        code: 'manifest-validation-failed',
+        filePath: 'guardrails/calls.mjs',
+        message: `guardrails/calls.mjs: ${message}`,
+      }),
+    ]);
   });
 });
 

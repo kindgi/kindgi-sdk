@@ -59,10 +59,13 @@ export type {
   CheckRegistry,
   CheckResult,
   CodeArtifactRef,
+  EscalationRole,
   EvaluationBindings,
   EvaluationResult,
   Guardrail,
   GuardrailKind,
+  GuardrailPoint,
+  GuardrailSees,
   GuardrailSeverity,
   JsonSchema,
   ModelCallRecord,
@@ -76,9 +79,27 @@ export type {
   ScopeWhen,
   ToolCallRecord,
   ToolResultRecord,
+  TraceCall,
+  TraceCallResult,
+  TraceStep,
+  TraceTurn,
   TypedNeeds,
 } from './types.js';
-export { BUILT_IN_GUARDRAIL_KINDS, BUILT_IN_ON_VIOLATIONS } from './types.js';
+export {
+  BUILT_IN_GUARDRAIL_KINDS,
+  BUILT_IN_ON_VIOLATIONS,
+  ESCALATION_ROLES,
+  GUARDRAIL_POINTS,
+} from './types.js';
+export {
+  DEFAULT_CHECK_POINTS,
+  checkPoints,
+  guardrailCheckPointProblems,
+  guardrailCoversTool,
+  guardrailPoint,
+  guardrailPointIssues,
+  isGuardrailPoint,
+} from './points.js';
 export type {
   CheckFailedError,
   InvalidCheckConfigError,

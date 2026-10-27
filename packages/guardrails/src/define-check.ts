@@ -14,7 +14,8 @@ import {
 import type { AnySchema, ZodLikeSchema } from '@kindgi/schema';
 
 import type { InvalidCheckDefinitionError } from './errors.js';
-import type { CheckFunction, GuardrailKind, RegisteredCheck } from './types.js';
+import { isGuardrailPoint } from './points.js';
+import type { CheckFunction, GuardrailKind, GuardrailPoint, RegisteredCheck } from './types.js';
 
 type AddFormatsFn = (ajv: InstanceType<typeof Ajv2020>, opts?: unknown) => unknown;
 const addFormatsRaw = addFormatsModule as unknown;
@@ -85,6 +86,14 @@ export interface DefineCheckSpec<TConfigSchema extends AnySchema> {
    * "config is valid"; non-undefined string is the error message.
    */
   readonly validateConfig?: (config: unknown) => string | undefined;
+  /**
+   * The points a guardrail naming this check may run at
+   * (`GuardrailPoint`). Absent: `['final-answer']`, the answer only. A
+   * check that reads `trace.output` runs at the final answer; one that
+   * reads `trace.call`, `trace.result` or `trace.step` names the points
+   * where it's there.
+   */
+  readonly points?: readonly GuardrailPoint[];
 }
 
 /**
@@ -120,6 +129,14 @@ export type DefinedCheck<TConfigSchema extends AnySchema> = RegisteredCheck & {
 export function defineCheck<TConfigSchema extends AnySchema = AnySchema>(
   spec: DefineCheckSpec<TConfigSchema>,
 ): DefinedCheck<TConfigSchema> {
+  const pointsProblem = checkPointsProblem(spec.points);
+  if (pointsProblem !== undefined) {
+    throw errorFromDefinition({
+      code: 'invalid-check-definition',
+      message: `Check "${spec.id}" points ${pointsProblem}`,
+      checkId: spec.id,
+    });
+  }
   const converter =
     spec.configSchema !== undefined && isZodSchema(spec.configSchema)
       ? loadZodConverterSync()
@@ -188,6 +205,7 @@ export function defineCheck<TConfigSchema extends AnySchema = AnySchema>(
     kind: spec.kind,
     evaluate,
     ...(validate !== undefined && { validateConfig: validate }),
+    ...(spec.points !== undefined && { points: [...spec.points] }),
     ...(zodSchema !== undefined && { configZod: zodSchema }),
     ...(jsonSchema !== undefined && { configJsonSchema: jsonSchema }),
   } as unknown as DefinedCheck<TConfigSchema>;
@@ -296,4 +314,14 @@ function errorFromDefinition(err: InvalidCheckDefinitionError): Error {
   const wrapped = new Error(err.message);
   Object.assign(wrapped, err);
   return wrapped;
+}
+
+/** Why `points` can't be a check's points, or undefined when it can (or is absent). */
+function checkPointsProblem(points: readonly unknown[] | undefined): string | undefined {
+  if (points === undefined) return undefined;
+  if (!Array.isArray(points) || points.length === 0) return 'must name at least one point';
+  const unknown = points.find((point) => !isGuardrailPoint(point));
+  if (unknown !== undefined) return `names "${String(unknown)}", which isn't a point`;
+  if (new Set(points).size !== points.length) return 'names a point twice';
+  return undefined;
 }

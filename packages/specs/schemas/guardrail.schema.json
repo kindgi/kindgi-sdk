@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/guardrail.schema.json",
-  "$comment": "schema-version: 1.1.0",
+  "$comment": "schema-version: 1.2.0",
   "title": "Guardrail",
   "description": "An assertion about agent behavior. Checked at runtime, where in 0.1 only `halt` stops the turn and every other action is recorded, AND in CI (blocks builds). Same definition, two enforcement paths — no drift between what tests check and what prod enforces. Zero-LLM checks are default (fast, deterministic); LLM-judge scorers are an opt-in class with explicit cost declaration. Schema-version 1.1.0 matches the `Guardrail` type: `check` is required, a `retry` object, when given, needs `maxAttempts`, `kind` and `on-violation` accept any non-empty string (the built-ins are listed as `examples`), and `sandbox` / `limits` / `network` / `needsSpec` are allowed.",
   "type": "object",
@@ -52,6 +52,18 @@
     "scope": {
       "$ref": "#/$defs/Scope",
       "description": "When this guardrail applies: 'always' (every run), 'ci-only' (blocks CI, not runtime), 'runtime-only' (runtime enforcement, not CI), or a per-agent/per-flow selector."
+    },
+    "at": {
+      "type": "string",
+      "enum": ["before-tool", "after-tool", "model-step", "final-answer"],
+      "default": "final-answer",
+      "description": "Where in the agent's turn the check runs. 'before-tool': a call the model asked for, before it runs and before any approval is asked (the trace's `call`). 'after-tool': a call that ran, before the model sees its result (`call` and `result`). 'model-step': each model reply, before any of its calls runs (`step`). 'final-answer': the answer that would be stored (`output`). The check must support the point (its `points`). 'escalate' runs only at 'before-tool', where `escalateTo` names a role ('standard', 'senior' or 'admin'), and 'compensate' only at the final answer."
+    },
+    "sees": {
+      "type": "string",
+      "enum": ["turn", "conversation"],
+      "default": "turn",
+      "description": "What the check sees of the conversation: 'turn', this turn only, or 'conversation', with the earlier turns the model was given for this turn too (the trace's `earlier`)."
     },
     "budget": {
       "type": "object",
@@ -263,6 +275,14 @@
             "type": "string"
           },
           "description": "Tenant ids this guardrail applies to. Empty = all tenants."
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "At 'before-tool' and 'after-tool': the tools whose calls it checks, by id. A trailing '*' matches every id with that prefix ('acme.woo.*'). Absent = every tool."
         }
       }
     }
