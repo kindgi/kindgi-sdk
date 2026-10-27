@@ -23,6 +23,7 @@ import httpx
 
 __all__ = [
     "MAX_STORED_FILES_PER_CALL",
+    "MAX_STORED_FILE_BYTES",
     "FileStore",
     "FileStoreAnswer",
     "FileStoreError",
@@ -32,6 +33,10 @@ __all__ = [
 
 MAX_STORED_FILES_PER_CALL: Final = 10
 """The most files one call may store: the call's later stores answer `limit`."""
+
+MAX_STORED_FILE_BYTES: Final = 10_000_000
+"""The most bytes a stored file may have: the largest any type allows (a PDF's 10 MB). A store
+of more answers `size` without sending its bytes."""
 
 NotStoredReason = Literal["type", "size", "limit"]
 """Why a store kept nothing: `type` (the bytes aren't a type a model is shown, or not the type
@@ -84,6 +89,8 @@ class FileStore:
         the runtime checks the bytes against. Raises `FileStoreError` when the runtime refuses
         the store or can't be reached."""
         request = self._request(name, content_type, data)
+        if request is None:
+            return FileStoreAnswer(not_stored="size")
         try:
             with httpx.Client(timeout=_TIMEOUT) as client:
                 response = client.post(self._url, **request)
@@ -94,6 +101,8 @@ class FileStore:
     async def store_async(self, *, name: str, content_type: str, data: bytes) -> FileStoreAnswer:
         """`store`, from an async handler."""
         request = self._request(name, content_type, data)
+        if request is None:
+            return FileStoreAnswer(not_stored="size")
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 response = await client.post(self._url, **request)
@@ -101,11 +110,15 @@ class FileStore:
             raise FileStoreError(f"files.store: the runtime can't be reached: {cause}") from None
         return _answer_of(response)
 
-    def _request(self, name: str, content_type: str, data: bytes) -> dict[str, Any]:
+    def _request(self, name: str, content_type: str, data: bytes) -> dict[str, Any] | None:
+        """The store's request, or None for bytes over `MAX_STORED_FILE_BYTES`: the runtime
+        would answer `size`, so nothing is sent."""
         if not isinstance(name, str) or not isinstance(content_type, str):
             raise TypeError("files.store takes name: str, content_type: str, data: bytes")
         if not isinstance(data, (bytes, bytearray, memoryview)):
             raise TypeError("files.store takes name: str, content_type: str, data: bytes")
+        if len(data) > MAX_STORED_FILE_BYTES:
+            return None
         return {
             "headers": {
                 "authorization": f"Bearer {self._token}",

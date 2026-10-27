@@ -10,7 +10,13 @@
  * answered. The handler never sees the link or the token.
  */
 
-import type { FileNotStoredReason, FileStore, FileStoreAnswer, FileToStore } from '@kindgi/tools';
+import {
+  type FileNotStoredReason,
+  type FileStore,
+  type FileStoreAnswer,
+  type FileToStore,
+  MAX_STORED_FILE_BYTES,
+} from '@kindgi/tools';
 import { bearerValueProblem, headerValueProblem, isFileValue } from '@kindgi/types';
 
 import type { FileUploadRef } from './protocol.js';
@@ -46,6 +52,8 @@ export function fileStoreOf(upload: FileUploadRef, signal?: AbortSignal): FileSt
   return Object.freeze({
     store: async (file: FileToStore): Promise<FileStoreAnswer> => {
       checkFile(file);
+      // Over every type's limit: the runtime would answer `size`, so nothing is sent.
+      if (file.bytes.byteLength > MAX_STORED_FILE_BYTES) return { notStored: 'size' };
       const response = await fetch(upload.url, {
         method: 'POST',
         headers: {

@@ -14,7 +14,9 @@ import { describe, expect, test } from 'vitest';
 
 import { HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
+import { FILE_LIMITS } from '@kindgi/capabilities';
 import { createLogger } from '@kindgi/log';
+import { MAX_STORED_FILE_BYTES } from '@kindgi/tools';
 import type { EnvName, Result, TenantId, UserId } from '@kindgi/types';
 
 import { createApp, createInMemoryRateLimitStore } from '../src/index.js';
@@ -157,7 +159,13 @@ describe('the upload route', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ notStored: 'size' });
     expect(h.stored[0]?.bytes).toBe('too-large');
-    expect(FILE_UPLOAD_MAX_BYTES).toBe(10_000_000);
+  });
+
+  test("the limit is the largest any type allows, the one a pack's store holds to", () => {
+    expect(FILE_UPLOAD_MAX_BYTES).toBe(
+      Math.max(FILE_LIMITS.imageBytes, FILE_LIMITS.documentBytes, FILE_LIMITS.textBytes),
+    );
+    expect(FILE_UPLOAD_MAX_BYTES).toBe(MAX_STORED_FILE_BYTES);
   });
 
   test('a body at the limit is read whole', async () => {

@@ -8,6 +8,7 @@ each store posts the bytes to the upload link, and the handler never sees the li
 from __future__ import annotations
 
 import json
+import re
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,13 +19,22 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from kindgi import FileStore, FileStoreAnswer, FileStoreError, ToolContext, tool
+from kindgi import (
+    MAX_STORED_FILE_BYTES,
+    MAX_STORED_FILES_PER_CALL,
+    FileStore,
+    FileStoreAnswer,
+    FileStoreError,
+    ToolContext,
+    tool,
+)
 from kindgi.pack.context import Cancellation
 from kindgi.pack.files import file_store_from_wire
 from kindgi.pack.index import run_indexer
 from kindgi.pack.service import PackService
 
 TOKEN = "kgi_fu_test-token"
+TOOLS_FILES = Path(__file__).resolve().parents[3] / "packages" / "tools" / "src" / "files.ts"
 
 STORED = {
     "type": "kindgi.file",
@@ -45,7 +55,7 @@ class Link:
         link = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:  # noqa: N802 — the stdlib's name
+            def do_POST(self) -> None:
                 length = int(self.headers.get("content-length", "0"))
                 link.received.append(
                     {
@@ -179,6 +189,33 @@ def test_a_runtime_that_cant_be_reached_raises(link: Link) -> None:
     with pytest.raises(FileStoreError, match="can't be reached") as raised:
         store.store(name="x", content_type="text/plain", data=b"test")
     assert TOKEN not in str(raised.value)
+
+
+@pytest.mark.anyio
+async def test_a_file_over_the_largest_any_type_allows_answers_size_and_nothing_is_sent(
+    link: Link,
+) -> None:
+    over = bytes(MAX_STORED_FILE_BYTES + 1)
+    store = _store(link)
+    assert store.store(name="x.pdf", content_type="application/pdf", data=over) == FileStoreAnswer(
+        not_stored="size"
+    )
+    answer = await store.store_async(name="x.pdf", content_type="application/pdf", data=over)
+    assert answer == FileStoreAnswer(not_stored="size")
+    assert link.received == []
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("MAX_STORED_FILES_PER_CALL", MAX_STORED_FILES_PER_CALL),
+        ("MAX_STORED_FILE_BYTES", MAX_STORED_FILE_BYTES),
+    ],
+)
+def test_the_limits_are_the_typescript_sdks(name: str, value: int) -> None:
+    found = re.search(rf"export const {name} = ([0-9_]+);", TOOLS_FILES.read_text())
+    assert found is not None
+    assert int(found.group(1)) == value
 
 
 @pytest.mark.parametrize(

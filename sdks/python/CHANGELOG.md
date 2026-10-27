@@ -19,8 +19,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   attachment, as a file the call's run owns. The runtime checks the bytes and
   answers the file's value, which the tool returns in its result's top-level
   `files`, and an agent is shown the file; or it answers why nothing was stored
-  (`type`, `size`, or `limit` past 10 files a call). The same bytes again in the
-  same call answer the first file. The pack service posts the bytes to the
+  (`type`, `size`, or `limit` past 10 files a call). A file over
+  `MAX_STORED_FILE_BYTES` (10 MB, the most any type allows) answers `size`
+  without its bytes being sent. The same bytes again in the same call answer
+  the first file. The pack service posts the bytes to the
   call's upload link, and the handler never sees the link or its token. A call
   from a runtime before pack protocol 2.10.0 carries no upload, and
   `ctx.files` is `None`. The pack's index carries it as `storesFiles`, and

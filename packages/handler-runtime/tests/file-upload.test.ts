@@ -10,7 +10,7 @@
 import { type IncomingHttpHeaders, type Server, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import type { FileStore, FileToStore } from '@kindgi/tools';
+import { type FileStore, type FileToStore, MAX_STORED_FILE_BYTES } from '@kindgi/tools';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 
 import { fileStoreOf, fileUploadOf } from '../src/file-upload.js';
@@ -195,6 +195,13 @@ describe('a tool that stores files', () => {
       '400 (token [redacted] refused)',
     );
     expect(JSON.stringify(outcome)).not.toContain(token);
+  });
+
+  test('a file over the largest any type allows answers size, and nothing is sent', async () => {
+    const store = fileStoreOf({ url, token });
+    const over = { ...invoice, bytes: new Uint8Array(MAX_STORED_FILE_BYTES + 1) };
+    await expect(store.store(over)).resolves.toEqual({ notStored: 'size' });
+    expect(received).toEqual([]);
   });
 
   test("a store the link doesn't answer stops with the call's abort signal", async () => {

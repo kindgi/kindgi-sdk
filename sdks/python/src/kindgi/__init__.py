@@ -38,11 +38,18 @@ from .pack.define import (
     http_tool,
     tool,
 )
-from .pack.files import MAX_STORED_FILES_PER_CALL, FileStore, FileStoreAnswer, FileStoreError
+from .pack.files import (
+    MAX_STORED_FILE_BYTES,
+    MAX_STORED_FILES_PER_CALL,
+    FileStore,
+    FileStoreAnswer,
+    FileStoreError,
+)
 from .pack.trace import CheckResult, ModelCallRecord, RunTrace, ToolCallRecord, ToolResultRecord
 
 __all__ = [
     "MAX_STORED_FILES_PER_CALL",
+    "MAX_STORED_FILE_BYTES",
     "Agent",
     "CallCancelled",
     "Cancellation",
