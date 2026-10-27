@@ -12279,6 +12279,10 @@ class Call(BaseModel):
     tool_id: Annotated[str, Field(alias="toolId")]
     arguments: Any | None = None
     result: Any | None = None
+    from_event: Annotated[Literal[True] | None, Field(alias="fromEvent")] = None
+    """
+    An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.
+    """
 
 
 class Step(BaseModel):
