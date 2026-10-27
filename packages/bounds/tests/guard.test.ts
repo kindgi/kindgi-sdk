@@ -8,7 +8,7 @@
  * A new site fails this test until it moves onto the helper or is listed.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
@@ -67,9 +67,24 @@ function unlisted(sites: ReadonlyMap<string, number>): string[] {
   return problems;
 }
 
+/**
+ * The packages, as paths from `packages/`: each folder with a package.json,
+ * however deep. The model adapters are a level down, under `adapters/`.
+ */
+function packageDirs(dir = ''): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(join(PACKAGES, dir), { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === 'node_modules') continue;
+    const rel = dir === '' ? entry.name : `${dir}/${entry.name}`;
+    if (existsSync(join(PACKAGES, rel, 'package.json'))) found.push(rel);
+    else found.push(...packageDirs(rel));
+  }
+  return found;
+}
+
 function sourceFiles(): Map<string, string> {
   const files = new Map<string, string>();
-  for (const pkg of readdirSync(PACKAGES)) {
+  for (const pkg of packageDirs()) {
     if (NOT_SERVER.has(pkg)) continue;
     const src = join(PACKAGES, pkg, 'src');
     let entries: string[];
@@ -90,6 +105,8 @@ describe('no tenant pattern skips compileTenantPattern', () => {
   test("every RegExp( in the packages' source is the helper's or listed with why", () => {
     const files = sourceFiles();
     expect(files.size).toBeGreaterThan(100);
+    // The model adapters' too, a level down.
+    expect([...files.keys()].some((f) => f.startsWith('adapters/'))).toBe(true);
     expect(unlisted(regExpSites(files))).toEqual([]);
   });
 
