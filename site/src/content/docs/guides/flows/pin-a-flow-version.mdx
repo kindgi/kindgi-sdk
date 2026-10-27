@@ -44,10 +44,12 @@ in, and a project a deployment shipped it to.
 A run keeps the version it started with, also when it resumes. A pin doesn't
 change what a version's steps run: each tool and agent step runs the version
 it was locked to when the flow version was published. The one exception is an
-agent step in a run whose segment a
+agent step that names no version, in a run whose segment a
 [release gate policy](../../evals/release-an-agent-version/#gate-a-release)
-for that agent covers: it runs the agent's
-[live version](../../evals/live-versions-reference/) for that segment.
+of that agent set on a segment covers: it runs the agent's
+[live version](../../evals/live-versions-reference/) for that segment, as a run
+started in that segment would. A policy for the project, its org or the tenant
+doesn't change what the step runs.
 
 ## Try a new version without putting it in use
 

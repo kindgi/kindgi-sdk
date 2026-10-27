@@ -64,11 +64,14 @@ import { parseScopeParams } from './scope-params.js';
  * `/v1/flows/:flowId/run` route is added here.
  *
  * With `pinning` (the tool and agent registries), a published version is
- * pinned: each tool it runs resolves once, at publish, to its latest
- * version, and each agent it runs at no named version to what a run in
- * the flow's project would get, its live version there with
- * `pinning.live`, else its latest. Every run of that version uses those
- * (`pins`, see `resolveFlowPins`); one with no published version refuses
+ * pinned: each tool it runs resolves once, at publish, to its version
+ * pinned for the flow's project with `pinning.pinned` (the project, then
+ * its org, then the tenant), else its latest version, and each agent it
+ * runs at no named version to what a run in the flow's project would
+ * get, its live version there with `pinning.live`, else its latest.
+ * Every run of that version uses those (`pins`, see `resolveFlowPins`),
+ * but for an agent step under a gate policy set on a segment, which runs
+ * the version live there; one with no published version refuses
  * the publish. Without `pinning`, versions carry no pins and bind the
  * latest versions per run.
  *
