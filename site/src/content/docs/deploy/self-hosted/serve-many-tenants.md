@@ -627,6 +627,20 @@ tenant f309aaca-024a-4fb9-aff8-ef76c4c40e16 (tenant-a): Default project created;
 1 tenant gone through; 1 left for the operator (named above).
 ```
 
+The Default project it adds has the slug `default`. With the runtime 0.3.0
+or later, when a project without an org has that slug, or another project of
+the tenant had it before it was renamed, the Default gets the first free one
+of `default-2`, `default-3` and so on, and the tenant's line starts, after
+its name, with:
+
+```text
+Default project created with the slug "default-2" ("default" is another project's, now or before it was renamed)
+```
+
+The runtime finds the Default by its being the Default, never by its slug:
+a deploy that names no project still goes into it. A one-tenant runtime adds
+its Default when it starts, and logs a note when it takes another slug.
+
 ## Switch a one-tenant runtime to many
 
 The first start with many tenants keeps the tenant it served, with its data,
