@@ -45,6 +45,7 @@ import {
   mayChangePersonalTrigger,
   namesAnOwner,
   noteChangeForOwner,
+  ownerCannotRunRefusal,
   ownerJson,
   ownerNamesOf,
   ownerOf,
@@ -317,6 +318,7 @@ export function mailTriggersRouter(
     const resolved = await resolveTriggerOwner(
       c,
       ownerRequest,
+      target.value,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -534,6 +536,11 @@ export function mailTriggersRouter(
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
+    // The owner stays, so a new target must be one it can run, or every fire is refused.
+    if (target !== undefined && retargeted) {
+      const cannot = await ownerCannotRunRefusal(c, authorizer, names, rec.owner, target.value);
+      if (cannot !== undefined) return cannot;
+    }
 
     const triggerId = rec.triggerId;
     const updateInput: UpdateMailTriggerInput = {
@@ -683,6 +690,7 @@ export function mailTriggersRouter(
     const resolved = await resolveTriggerOwner(
       c,
       ownerRequest,
+      rec.target,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;

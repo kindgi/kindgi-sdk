@@ -336,7 +336,8 @@ assert_out "import sql"
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.1 memory erasures replay erasures-" "the replay runs 0.1.8's CLI line"
 if grep -qF "pre-release" "$OUT"; then fail "a final's go-back has the pre-release note"; else pass; fi
 assert_out "cp $VAR_FILE.pre-upgrade-"
-if grep -qxF "      terraform apply -var-file=$VAR_FILE" "$OUT"; then pass; else fail "the go-back doesn't apply with the var-file alone"; fi
+if grep -qxF "      (umask 077 && terraform plan -var-file=$VAR_FILE -out=back.tfplan)" "$OUT"; then pass; else fail "the go-back doesn't plan with the var-file alone"; fi
+if grep -qxF "      terraform apply back.tfplan" "$OUT"; then pass; else fail "the go-back doesn't apply its saved plan"; fi
 if grep -q "or set database_name" "$OUT"; then fail "go-back still offers database_name"; else pass; fi
 assert_file_has "$VAR_FILE" "$NEW_IMAGE" "var-file keeps the new image after a failed apply"
 
@@ -370,7 +371,7 @@ assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures export --out=e
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures replay erasures-" "the replay runs the rc's CLI line"
 note="$(grep -A4 -F "memory erasures export" "$OUT" | tail -n 4)"
 if [[ $note == "    This deployment runs a pre-release, 0.2.0-rc.0. Until 0.2.0 is out,
-    npx finds no @kindgi/cli@0.2: in this step and in step 6, name the
+    npx finds no @kindgi/cli@0.2: in this step and in step 7, name the
     CLI's own pre-release instead, as @kindgi/cli@0.2.0-rc.N
     (npm view @kindgi/cli versions lists them)." ]]; then pass
 else fail "the pre-release note isn't right under the export: $note"; fi
@@ -795,7 +796,7 @@ case_start "server fix past the newest known release"
 reset_env; export STUB_TAGS="0.2.0"
 run "yes" --to 0.4.0.1
 assert_rc 1 "a later server fix refused"
-assert_out "knows the steps up to 0.3.0. 0.4.0.1 is a server fix for 0.4.0: use this script as of the @kindgi/sdk@0.4.0 tag or, before that release is out, its newest @kindgi/sdk@0.4.0-rc.N tag."
+assert_out "knows the steps up to 0.3.0. 0.4.0.1 is a server fix for 0.4.0, which comes out after its final: use this script as of the @kindgi/sdk@0.4.0 tag."
 if grep -q "@kindgi/sdk@0.4.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
@@ -1009,7 +1010,7 @@ assert_file_has "$STUB_CALLS_LOG" "terraform console -var-file=$VAR_FILE -var-fi
 assert_file_has "$STUB_CALLS_LOG" "terraform plan -var-file=$VAR_FILE -var-file=$PACK_ENV_FILE -out=" "the plan reads both"
 assert_file_has "$OUT" "var file        $VAR_FILE (the new image goes in here)" "the image's file listed"
 assert_file_has "$OUT" "var file        $PACK_ENV_FILE" "the pack env's file listed"
-if grep -qxF "      terraform apply -var-file=$VAR_FILE -var-file=$PACK_ENV_FILE" "$OUT"; then pass; else fail "the go-back doesn't apply with both var files"; fi
+if grep -qxF "      (umask 077 && terraform plan -var-file=$VAR_FILE -var-file=$PACK_ENV_FILE -out=back.tfplan)" "$OUT"; then pass; else fail "the go-back doesn't plan with both var files"; fi
 assert_file_has "$VAR_FILE" "server_image = \"$NEW_IMAGE\"" "the image went into the file that sets it"
 if cmp -s "$PACK_ENV_FILE" "$CASE_DIR/original-pack-env.json"; then pass; else fail "the pack env's file changed"; fi
 
@@ -1214,8 +1215,8 @@ reset_env; export STUB_TAGS="0.1.10" STUB_APPLY_RC=1
 SPACED="$CASE_DIR/pack env.tfvars.json"; printf '{}\n' >"$SPACED"
 run "yes" --var-file "$SPACED"
 assert_rc 1 "the apply fails"
-if grep -qxF "      terraform apply -var-file=$VAR_FILE -var-file=$CASE_DIR/pack\\ env.tfvars.json" "$OUT"; then pass
-else fail "the go-back doesn't quote the path: $(grep -F "terraform apply -var-file" "$OUT")"; fi
+if grep -qxF "      (umask 077 && terraform plan -var-file=$VAR_FILE -var-file=$CASE_DIR/pack\\ env.tfvars.json -out=back.tfplan)" "$OUT"; then pass
+else fail "the go-back doesn't quote the path: $(grep -F "terraform plan -var-file" "$OUT")"; fi
 
 # 68. tests/scrub_plan.sh: the fixture it makes from a saved plan holds no
 # values and is private, the plan check reads it as it reads the plan, and it

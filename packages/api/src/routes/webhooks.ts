@@ -402,6 +402,7 @@ export function webhooksRouter(
     const resolved = await resolveTriggerOwner(
       c,
       ownerRequest,
+      { kind: 'flow', flowId: flowId.value },
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -870,6 +871,7 @@ export function webhooksRouter(
     const resolved = await resolveTriggerOwner(
       c,
       ownerRequest,
+      { kind: 'flow', flowId: found.value.flowId },
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;

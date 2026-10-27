@@ -348,12 +348,13 @@ running the older version on it.
   release you're upgrading to, since it knows the steps up to its own
   release. It takes a `--var-file` for each file the deployment's variables
   are in. Run `./upgrade.sh --dry-run` first: it changes nothing, and lists
-  what a real run would change. The module README's Upgrading section has
-  the rest:
+  what a real run would change. A real run's `yes` applies exactly the
+  saved plan it showed. The module README's Upgrading section has the rest:
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
-- **Any other Cloud Run deployment, or one on Azure Container Apps:** the
-  "Operate it" section of its page,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/cloud-run/#operate-it or
+- **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
+  Run page's "Upgrade by hand" section says:
+  https://docs.kindgi.com/v0.1/deploy/self-hosted/cloud-run/#upgrade-by-hand
+- **On Azure Container Apps:** the "Operate it" section of its page,
   https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it.
 - **Otherwise:** the operate page's upgrade steps,
   https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime.

@@ -55,7 +55,7 @@ cp example.tfvars dev.tfvars      # or example-connector.tfvars / example-dev.tf
 terraform init -backend-config=bucket=<state bucket> -backend-config=prefix=<this deployment>
 ```
 
-Give each deployment its own state prefix. Never share a root module or a prefix with your app's own infrastructure.
+Give each deployment its own state prefix. Never share a root module or a prefix with your app's own infrastructure. Staging and production are two deployments, each in its own copy of this folder, with its own prefix, var-file and pack env ([Staging and production](https://docs.kindgi.com/deploy/self-hosted/cloud-run/#staging-and-production)).
 
 The services need images and secret values that don't exist yet, so the first apply leaves them out:
 
@@ -183,6 +183,8 @@ With `database_private_network` set, the URL is `postgres://kindgi:<password>@<p
 kindgi env plan --env=dev > pack-env.json      # exits 1 if a required name has no value
 jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env.auto.tfvars.json
 ```
+
+Keep the file here, and keep its name's ending: Terraform reads `terraform.tfvars` and every `*.auto.tfvars` in this folder by itself, `.json` forms included, for every plan and apply, `upgrade.sh`'s included. A file named otherwise is read only with `-var-file`, so a plan without it sets `pack_env` and `pack_secret_env` to `{}`, and applying it takes the pack's env away. Since every such file here is read, keep one deployment's.
 
 **A Cloud Run service the pack's code calls (`pack_run_invokers`).** When a tool calls one of your app's IAM-protected Cloud Run services, list it as `{ project, location, service }`, with the service's name, not its URL. The pack's service account gets `roles/run.invoker` on it. The grant is added beside the service's other members, and nothing else of the service changes.
 - **The token:** the pack's code fetches a Google ID token for the service's URL from the metadata server and sends it as `Authorization: Bearer`. In Node that's google-auth-library's `getIdTokenClient(url)`; in Python, `google.oauth2.id_token.fetch_id_token`.
@@ -362,6 +364,7 @@ server_secret_env = {
 - **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
 - **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`). Its own calls to it are billed to the caller's project, but another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it on, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
 - **The instance gets a backstop for sessions left idle in a transaction** (`database_idle_in_transaction_timeout_ms`, 10 minutes by default; 0 turns it off). A deployment made with an earlier copy of the module gets it at its next apply: one flag added to the instance, changed in place. Cloud SQL lists `idle_in_transaction_session_timeout` as a flag that needs no restart ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
+- **By hand**, for any deployment (and for `network_mode = "direct"` or `"connector"` with an `upgrade.sh` from before the `@kindgi/sdk@0.3.0` tag, which takes `"none"` only): staging first, with `gcloud` set to the deployment's project (`gcloud config set project <project_id>`). Copy the new image by digest (step 2), run the new version's checks as a Cloud Run job that reaches the database, back the database up, set `server_image` (and `pack_image`), `(umask 077 && terraform plan -var-file=<env>.tfvars -out=upgrade.tfplan)` (the plan holds your variables' values, secret ones too), read it, `terraform apply upgrade.tfplan`, delete the plan, and check the new revision serves. The steps, the commands and the way back: [Upgrade by hand](https://docs.kindgi.com/deploy/self-hosted/cloud-run/#upgrade-by-hand).
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
 ## Operating it
