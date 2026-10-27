@@ -288,6 +288,28 @@ export function addStepToolNodes(
   }
 }
 
+/**
+ * A guardrail's check at a point inside the loop (`Guardrail.at`), as its
+ * `dispatch-tools` step keeps it: the node, and the node it was
+ * `influenced-by` (the call it judged, or the model call).
+ */
+export interface PointCheckNode {
+  readonly id: string;
+  readonly timestamp: Timestamp;
+  readonly attributes: Readonly<Record<string, unknown>>;
+  readonly to: string;
+}
+
+/** A step's guardrail checks at the loop's points (`pointCheckNodes`), after its tool nodes. */
+export function addPointCheckNodes(ctx: TurnContext, nodes: readonly PointCheckNode[]): void {
+  const provenance = ctx.provenance;
+  if (provenance === undefined) return;
+  for (const { id, timestamp, attributes, to } of nodes) {
+    provenance.addNode({ id, kind: 'guardrail-check', timestamp, attributes: { ...attributes } });
+    provenance.addEdge({ from: id, to, kind: 'influenced-by' });
+  }
+}
+
 /** A tool call's approval, decided: the wait it parked on and the answer. */
 export interface ToolApproval {
   readonly waitTokenId: string;

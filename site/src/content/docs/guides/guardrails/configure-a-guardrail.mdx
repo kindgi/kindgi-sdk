@@ -1,6 +1,6 @@
 ---
 title: Configure a guardrail
-description: Give a guardrail's check its settings with config, describe them with a schema, and change them without touching the check.
+description: Give a guardrail's check its settings with config, describe them with a schema, change them without touching the check, and choose where in the agent's turn it runs.
 sidebar:
   order: 2
 ---
@@ -8,7 +8,8 @@ sidebar:
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This guide gives a guardrail's check its settings, so you change a limit
-without touching the check's code.
+without touching the check's code. Then it chooses where in the agent's turn
+the guardrail runs.
 
 ## Before you start
 
@@ -324,6 +325,111 @@ The check gets `config` as a `Config`:
 
 </TabItem>
 </Tabs>
+
+## Where in the turn it runs
+
+A guardrail judges the agent's final answer unless it says otherwise. `at`
+says where in the turn it runs:
+
+- **`'final-answer'`**, the default: the answer the turn would store.
+- **`'before-tool'`**: a tool call the model asked for, before it runs. It
+  runs after the call's access check, and before any approval is asked.
+- **`'after-tool'`**: what a call returned, or the error it threw, before the
+  model sees it.
+- **`'model-step'`**: a model reply that asks for tool calls, before any of
+  them runs.
+
+What `halt`, `retry` and the other actions do at each point is in
+[At a tool call or a model reply](../halt-or-record/#at-a-tool-call-or-a-model-reply).
+
+A guardrail runs only where its check can. A check names its points with
+`points` ([Check a tool call or a reply](../write-a-guardrail/#check-a-tool-call-or-a-reply)).
+A check that names none runs at the final answer only. The built-in checks'
+points are in [Where each check runs](../use-a-built-in-check/#where-each-check-runs).
+
+At `'before-tool'` and `'after-tool'`, **`scope.tools`** limits the
+guardrail to the tools it names, by id. A trailing `*` matches every id with
+that prefix, such as `acme.crm.*`. Left out, the guardrail checks every
+tool's calls.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+This guardrail withholds any result of an `acme.crm` tool that contains
+`SECRET`, before the model sees it:
+
+```ts
+// guardrails/no-secret-in-results/index.ts
+export default {
+  id: 'my-pack.no-secret-in-results',
+  kind: 'zero-llm',
+  check: 'forbidden-substring',
+  config: { patterns: ['SECRET'] },
+  at: 'after-tool',
+  scope: { tools: ['acme.crm.*'] },
+  action: { 'on-violation': 'retry' },
+  severity: 'error',
+};
+```
+
+When the pack is indexed, `kindgi dev` reports the file and `kindgi build`
+refuses the pack if:
+
+- `at` isn't one of the values above;
+- `scope.tools` is empty, has a `*` anywhere but the end, or is set at
+  `'model-step'` or `'final-answer'`;
+- the action is `'escalate'` or `'compensate'` away from the final answer;
+- the pack's own check doesn't run at `at`.
+
+The answer-length check names no points, so with `at: 'before-tool'`:
+
+```text
+guardrails/answer-length/index.ts: guardrail my-pack.answer-length runs at 'before-tool', which isn't one of its check's points (final-answer)
+```
+
+Deploying the pack, or registering the guardrail through the API, refuses
+the same, and also a built-in check at a point it doesn't run at. A deploy
+fails with `deployment-validation-failed`, each problem named with its
+guardrail and its path: `/at`, `/action/on-violation` or `/scope/tools`.
+Registering answers `422 guardrail-config-invalid` for a check that doesn't
+run at `at`, and `400 validation-failed` for the others.
+
+</TabItem>
+<TabItem label="Python">
+
+A Python guardrail runs at the final answer only. `@guardrail` has no field
+for `at`, and a check has no `points`, so `scope.tools` doesn't apply
+either.
+
+</TabItem>
+<TabItem label="Java">
+
+A Java guardrail runs at the final answer only. `Guardrail.define` has no
+method for `at`, and a check has no `points`, so `scope.tools` doesn't apply
+either.
+
+</TabItem>
+<TabItem label="Scala">
+
+A Scala guardrail runs at the final answer only. `Guardrail[Config](…)` has
+no method for `at`, and a check has no `points`, so `scope.tools` doesn't
+apply either.
+
+</TabItem>
+</Tabs>
+
+### How long its check may take
+
+At `'before-tool'`, `'after-tool'` and `'model-step'`, the agent loop stops a
+check that runs past its guardrail's `budget.maxLatencyMs`, such as
+`budget: { maxLatencyMs: 2_000 }` for two seconds. A guardrail without one gets a
+limit by its kind: 10 seconds for `zero-llm`, 60 for `llm-judge` and 30 for
+any other. A check stopped this way fails with `check-timed-out`, and the
+guardrail's action handles it as a check that couldn't run
+([When the check can't run](../halt-or-record/#when-the-check-cant-run)).
+
+At the final answer, a check has no time limit. `budget.maxCostUsd` isn't
+enforced at any point.
 
 ## Next
 

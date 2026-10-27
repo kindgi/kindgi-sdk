@@ -113,7 +113,7 @@
     "guardrails": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Guardrail ids the agent is subject to. Resolved at turn start against the guardrails bound for the run (an unknown id fails the turn); evaluated on each turn's final response, before it is stored."
+      "description": "Guardrail ids the agent is subject to. Resolved at turn start against the guardrails bound for the run (an unknown id fails the turn); each is evaluated where its `at` says: on each turn's final response, before it is stored (the default), or inside the turn's loop, on a tool call before it runs, on a call's result before the model sees it, or on a model reply before its calls run."
     },
     "preferredProvider": {
       "type": "string",

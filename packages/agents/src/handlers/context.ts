@@ -93,9 +93,31 @@ export interface TurnContext {
    */
   model?: ModelInfo;
   /**
-   * Populated by `setup` — resolved guardrails for the final-response gate.
+   * Populated by `setup`, and on a resume by `rehydrate` from the set
+   * `setup` journaled: the turn's guardrails, at every point
+   * (`Guardrail.at`).
    */
   guardrails?: readonly Guardrail[];
+  /**
+   * The turn's guardrails that run where their check, as the turn
+   * resolved it, doesn't, by id, with the problem
+   * (`guardrailPointFaults`). Checked whenever the turn resolves its
+   * checks: at setup and on each resume. Such a guardrail fails as a check
+   * that couldn't run, uncalled.
+   */
+  guardrailPointFaults?: ReadonlyMap<string, string>;
+  /**
+   * The calls the turn ran, by `<reply sequence>:<call id>`
+   * (`ranCallKey`), for the trace's `toolCalls` at the loop's points. Kept
+   * only when the turn has a guardrail in the loop; restored on a resume
+   * from the completed `dispatch-tools` steps and the parked step's records.
+   */
+  ranCalls?: Set<string>;
+  /**
+   * The flow whose step started the turn, once read (`flowOfTurn`): a
+   * turn's flow doesn't change, so a gate at each call doesn't read it again.
+   */
+  turnFlow?: { readonly flowId: import('@kindgi/types').FlowId | undefined };
   /**
    * Populated by `persist-user-message` — the persisted user message row.
    */
@@ -217,6 +239,15 @@ export interface TurnContext {
    * `AgentTurnResult.violations`.
    */
   nonBlockingViolations?: readonly EvaluationResult[];
+  /**
+   * The failures the loop's points only recorded (`log-only`, and any
+   * action other than `halt` and `retry`; a `retry` too on a dry run), by
+   * step and guardrail, in the order they ran: `evaluate-guardrails` puts
+   * them first in `nonBlockingViolations`. Keyed, so a step run again
+   * after a park adds none twice; restored on a resume from the completed
+   * `dispatch-tools` steps' `guardrailViolations`.
+   */
+  pointViolations?: Map<string, EvaluationResult>;
   /**
    * The answer `budget-check` judged and let finish the turn, when the
    * turn has a `retry` guardrail: its loop iteration and its message. Its

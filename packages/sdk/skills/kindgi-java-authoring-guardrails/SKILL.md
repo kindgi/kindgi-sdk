@@ -42,6 +42,8 @@ class in a `guardrails` package. For an agent turn, the runtime evaluates
 every guardrail the agent lists once, on the final answer, before it is
 stored.
 
+`Guardrail.define` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a Java guardrail runs at the final answer only; the points are documented at https://docs.kindgi.com/v0.1/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
+
 Ask what the rule should catch before writing one. The sample
 `response-not-empty` guardrail is a demonstration, not a template.
 

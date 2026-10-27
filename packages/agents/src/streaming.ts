@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { EvaluationResult } from '@kindgi/guardrails';
+import type { EvaluationResult, GuardrailPoint } from '@kindgi/guardrails';
 import type { Semver } from '@kindgi/types';
 
 import type { AgentId, ConversationId, ConversationMessage, RetrievedFact } from './types.js';
@@ -116,6 +116,10 @@ export interface GuardrailViolatedEvent {
   readonly severity: EvaluationResult['severity'];
   readonly guardrailId: string;
   readonly reason?: string;
+  /** Where in the loop it failed (`Guardrail.at`); absent at the final answer. */
+  readonly point?: Exclude<GuardrailPoint, 'final-answer'>;
+  /** At `'before-tool'` and `'after-tool'`: the call it judged (`invocationId` of its tool events). */
+  readonly callId?: string;
 }
 
 /**
@@ -132,6 +136,10 @@ export interface GuardrailErrorEvent {
   /** Why it couldn't run: the engine's error code (`unknown-check`, `invalid-check-config`, …). */
   readonly code: string;
   readonly message: string;
+  /** Where in the loop it couldn't run (`Guardrail.at`); absent at the final answer. */
+  readonly point?: Exclude<GuardrailPoint, 'final-answer'>;
+  /** At `'before-tool'` and `'after-tool'`: the call it was to judge. */
+  readonly callId?: string;
 }
 
 export interface TurnCompletedEvent {

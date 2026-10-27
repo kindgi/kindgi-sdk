@@ -76,7 +76,12 @@ export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
  *   (`RunTrace.step`).
  * - `'final-answer'`: the answer that would be stored (`RunTrace.output`).
  */
-export const GUARDRAIL_POINTS = ['before-tool', 'after-tool', 'model-step', 'final-answer'] as const;
+export const GUARDRAIL_POINTS = [
+  'before-tool',
+  'after-tool',
+  'model-step',
+  'final-answer',
+] as const;
 /** One of `GUARDRAIL_POINTS`. */
 export type GuardrailPoint = (typeof GUARDRAIL_POINTS)[number];
 
@@ -91,19 +96,26 @@ export interface Action {
   /**
    * What a failed check does to the agent turn. The runtime acts on
    * `'halt'`: the turn fails with `guardrail-violation` and its response
-   * is not stored. It acts on `'retry'` too: the answer goes back to the
-   * model with the check's reason, for a new one, until the guardrail's
-   * attempts (`retry`) run out, and then the turn fails the same way. Any
-   * other action, `'escalate'` and `'compensate'` included, is recorded on
-   * the turn's `violations`, as `'log-only'` is, and the turn completes:
-   * in 0.1 nothing escalates or calls a compensating tool.
+   * is not stored. It acts on `'retry'` too: at the final answer, the
+   * answer goes back to the model with the check's reason, for a new one;
+   * before a tool call (`at: 'before-tool'`), the call doesn't run and the
+   * model gets the reason as its result; after one (`'after-tool'`), the
+   * result is withheld and the reason stored in its place; on a model
+   * reply (`'model-step'`), the reply goes back, none of its calls run.
+   * Either way until the guardrail's attempts (`retry`) run out, and then
+   * the turn fails the same way. Any other action, `'escalate'` and
+   * `'compensate'` included, is recorded on the turn's `violations`, as
+   * `'log-only'` is, and the turn completes: in 0.1 nothing escalates or
+   * calls a compensating tool. A check that can't run acts the same way,
+   * with a reason that names why.
    */
   readonly 'on-violation': OnViolation;
   /**
-   * Counts the answers this guardrail fails in a turn, the first one
-   * included: with `maxAttempts: 3` it sends a failed answer back up to
-   * twice, and the third answer it fails ends the turn. Left out, 2. The
-   * turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.
+   * Counts what this guardrail fails in a turn (answers, replies, calls or
+   * results, as its `at` says), the first one included: with
+   * `maxAttempts: 3` it sends back, refuses or withholds up to twice, and
+   * the third failure ends the turn. Left out, 2. The turn's `maxSteps`,
+   * and the agent loop's 32 model calls, bound it too.
    */
   readonly retry?: { readonly maxAttempts: number };
   /** Where an `'escalate'` goes. In 0.1 nothing escalates. */
@@ -293,7 +305,12 @@ export interface Guardrail {
   /**
    * Cost + latency ceiling per guardrail invocation (relevant for
    * `kind: 'llm-judge'` — zero-llm checks are free): `maxCostUsd` +
-   * `maxLatencyMs`. Declarative — not enforced by the runtime.
+   * `maxLatencyMs`. The agent loop enforces `maxLatencyMs` at
+   * `'before-tool'`, `'after-tool'` and `'model-step'` (absent, a default
+   * per kind: 10 s `zero-llm`, 60 s `llm-judge`, 30 s any other), and a
+   * check that runs past it fails as one that couldn't run
+   * (`check-timed-out`). Not enforced at the final answer, and
+   * `maxCostUsd` isn't enforced anywhere.
    */
   readonly budget?: Budget;
   /**
@@ -430,6 +447,12 @@ export interface RunTrace {
   readonly flowId?: FlowId;
   /** Final assistant output text. Present when the run produced text. */
   readonly output?: string;
+  /**
+   * The turn's tool calls so far. At the final answer, every call the
+   * model asked for, a refused one included, as before points existed.
+   * At the other points, the calls that ran: a refused or rejected call
+   * isn't one, and neither is the call the check judges (`call`).
+   */
   readonly toolCalls: readonly ToolCallRecord[];
   readonly toolResults: readonly ToolResultRecord[];
   readonly modelCalls: readonly ModelCallRecord[];

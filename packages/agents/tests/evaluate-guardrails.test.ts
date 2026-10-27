@@ -239,3 +239,44 @@ describe('evaluate-guardrails — checks stop when the turn does', () => {
     expect(received).toEqual([withCheck.turnAbort.signal]);
   });
 });
+
+describe("evaluate-guardrails — the final answer's guardrails only", () => {
+  test("a guardrail at a loop point isn't judged on the final answer, and the loop's recorded failures join the turn's", async () => {
+    const ctx = turnContext([], undefined);
+    const judged: string[] = [];
+    const checks = createCheckRegistry();
+    checks.register({
+      id: 'acme.fails',
+      kind: 'zero-llm',
+      points: ['before-tool', 'final-answer'],
+      evaluate: async () => {
+        judged.push('acme.fails');
+        return { passed: false, reason: 'it fails' };
+      },
+    });
+    const recorded = {
+      guardrailId: 'acme.warn',
+      action: 'log-only',
+      severity: 'warning',
+      result: { passed: false, reason: 'an earlier call' },
+      at: '2026-10-27T08:00:00Z',
+    };
+    const withPoint = {
+      ...ctx,
+      bindings: { ...ctx.bindings, checks },
+      guardrails: [
+        {
+          id: 'acme.at-call' as GuardrailId,
+          kind: 'zero-llm',
+          check: 'acme.fails',
+          at: 'before-tool',
+          action: { 'on-violation': 'halt' },
+        } as Guardrail,
+      ],
+      pointViolations: new Map([['dispatch-tools@0:c1:acme.warn', recorded]]),
+    } as unknown as TurnContext;
+    await buildEvaluateGuardrailsHandler(withPoint)(loopOutput, {} as NodeContext);
+    expect(judged).toEqual([]);
+    expect(withPoint.nonBlockingViolations).toEqual([recorded]);
+  });
+});

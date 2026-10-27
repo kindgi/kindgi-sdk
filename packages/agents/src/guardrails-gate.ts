@@ -10,12 +10,16 @@ import {
   type EvaluationResult,
   type Guardrail,
   type GuardrailCheckOutcome,
+  type GuardrailPoint,
   type GuardrailSeverity,
   type ModelCallRecord,
   type OnViolation,
   type RunTrace,
   type ToolCallRecord,
   type ToolResultRecord,
+  type TraceCall,
+  type TraceCallResult,
+  type TraceStep,
   evaluateAll,
 } from '@kindgi/guardrails';
 import type {
@@ -27,6 +31,7 @@ import type {
   Result,
   RunId,
   TenantId,
+  Timestamp,
 } from '@kindgi/types';
 
 import type { Agent, ConversationId, ConversationMessage } from './types.js';
@@ -93,12 +98,32 @@ export function buildRunTrace(input: {
   /** The parsed answer, when the agent declares `output`. */
   readonly structuredOutput?: unknown;
   readonly appended: readonly ConversationMessage[];
-  readonly finalResponse: ConversationMessage;
+  /** The answer as it would be stored. Absent at a point inside the loop, where there's none yet. */
+  readonly finalResponse?: ConversationMessage;
+  /** When the gate runs: the time of the approximate model-call record without a final response. */
+  readonly evaluatedAt?: Timestamp;
+  /** At a point inside the loop (`Guardrail.at`): what the check judges there. */
+  readonly point?: {
+    readonly at: GuardrailPoint;
+    /**
+     * The calls that ran, by `<reply sequence>:<call id>`: the trace's
+     * `toolCalls` and `toolResults` hold only these, so a call refused,
+     * rejected or not run yet isn't one, and a refusal's note isn't a
+     * result.
+     */
+    readonly ranCalls: ReadonlySet<string>;
+    readonly call?: TraceCall;
+    readonly result?: TraceCallResult;
+    readonly step?: TraceStep;
+  };
   readonly usage: TurnUsageSnapshot;
 }): RunTrace {
   const toolCalls: ToolCallRecord[] = [];
   const toolResults: ToolResultRecord[] = [];
   const modelCalls: ModelCallRecord[] = [];
+  const ran = input.point?.ranCalls;
+  // Each call's reply, by the call's id: the latest reply that asked for it.
+  const replyOf = new Map<string, number>();
 
   for (const msg of input.appended) {
     if (msg.role === 'agent' && typeof msg.content === 'object' && msg.content !== null) {
@@ -111,6 +136,8 @@ export function buildRunTrace(input: {
       };
       if (structured.toolCalls !== undefined) {
         for (const call of structured.toolCalls) {
+          replyOf.set(call.id, msg.sequence);
+          if (ran !== undefined && !ran.has(`${msg.sequence}:${call.id}`)) continue;
           toolCalls.push({
             toolId: call.name as never,
             toolName: call.name,
@@ -121,6 +148,8 @@ export function buildRunTrace(input: {
       }
     }
     if (msg.role === 'tool' && msg.toolCall !== undefined) {
+      const { invocationId } = msg.toolCall;
+      if (ran !== undefined && !ran.has(`${replyOf.get(invocationId)}:${invocationId}`)) continue;
       toolResults.push({
         toolCallId: msg.toolCall.invocationId,
         output: msg.content,
@@ -137,13 +166,20 @@ export function buildRunTrace(input: {
     model: 'runtime.picked',
     promptTokens: input.usage.promptTokens,
     completionTokens: input.usage.completionTokens,
-    at: input.finalResponse.createdAt,
+    at:
+      input.finalResponse?.createdAt ??
+      input.evaluatedAt ??
+      (new Date().toISOString() as Timestamp),
   });
 
+  const final = input.finalResponse;
   const output =
-    typeof input.finalResponse.content === 'string'
-      ? input.finalResponse.content
-      : JSON.stringify(input.finalResponse.content);
+    final === undefined
+      ? undefined
+      : typeof final.content === 'string'
+        ? final.content
+        : JSON.stringify(final.content);
+  const point = input.point;
 
   return {
     runId: input.runId,
@@ -152,7 +188,7 @@ export function buildRunTrace(input: {
     ...(input.orgId !== undefined && { orgId: input.orgId }),
     agentId: input.agent.id as unknown as AgentId,
     ...(input.flowId !== undefined && { flowId: input.flowId }),
-    output,
+    ...(output !== undefined && { output }),
     toolCalls,
     toolResults,
     modelCalls,
@@ -167,6 +203,12 @@ export function buildRunTrace(input: {
       ...(input.stepInput !== undefined && { stepInput: input.stepInput }),
       ...(input.structuredOutput !== undefined && { structuredOutput: input.structuredOutput }),
     },
+    ...(point !== undefined && {
+      at: point.at,
+      ...(point.call !== undefined && { call: point.call }),
+      ...(point.result !== undefined && { result: point.result }),
+      ...(point.step !== undefined && { step: point.step }),
+    }),
   };
 }
 
@@ -339,22 +381,47 @@ export function categorizeOutcomes(
   return { blocking, warnings, retry, other, errors, blockingErrors, checks };
 }
 
+/** Where in the turn guardrails stopped it, for its message: the point, and at a tool point the tool. */
+export interface BlockedAt {
+  readonly point: GuardrailPoint;
+  readonly toolId?: string;
+}
+
 /**
  * Message for a turn stopped by blocking violations — names each
- * guardrail that fired, with its check's reason when it gave one, and,
- * for `retry` guardrails out of attempts, the answers the turn wrote:
+ * guardrail that fired, with its check's reason when it gave one, where
+ * in the turn when it wasn't the final answer, and, for `retry`
+ * guardrails out of attempts, the answers (replies, or tries at a tool
+ * call) the turn made:
  *
  *   Turn blocked by guardrail 'no-pii': Response contains an email address
  *   Turn blocked by 2 guardrails: 'no-pii' (Response contains …); 'max-length'
  *   Turn blocked by guardrail 'cite' after 2 answers: No source cited
+ *   Turn blocked by guardrail 'no-refund' before calling acme.woo.refund: …
+ *   Turn blocked by guardrail 'no-pii' on a model reply, after 2 replies: …
  */
 export function describeBlockingViolations(
   blocking: readonly EvaluationResult[],
   blockingErrors: readonly GuardrailEvaluationError[] = [],
   attempts?: number,
+  blockedAt?: BlockedAt,
 ): string {
-  const after =
-    attempts === undefined ? '' : ` after ${attempts} answer${attempts === 1 ? '' : 's'}`;
+  const point = blockedAt?.point ?? 'final-answer';
+  const tool = blockedAt?.toolId ?? 'a tool';
+  const where =
+    point === 'before-tool'
+      ? ` before calling ${tool}`
+      : point === 'after-tool'
+        ? ` after ${tool} ran`
+        : point === 'model-step'
+          ? ' on a model reply'
+          : '';
+  const noun = point === 'final-answer' ? 'answer' : point === 'model-step' ? 'reply' : 'try';
+  const counted =
+    attempts === undefined
+      ? ''
+      : `${attempts} ${attempts === 1 ? noun : noun === 'try' ? 'tries' : `${noun}s`}`;
+  const after = `${where}${counted === '' ? '' : `${where === '' ? '' : ','} after ${counted}`}`;
   const reasonOf = (v: EvaluationResult): string | undefined => {
     const reason = v.result.reason?.trim();
     return reason === undefined || reason === '' ? undefined : reason;
@@ -368,7 +435,7 @@ export function describeBlockingViolations(
     return `Turn blocked by guardrail '${only.guardrailId}'${after}${reason !== undefined ? `: ${reason}` : ''}`;
   }
   if (blocking.length === 0 && blockingErrors.length === 1 && onlyError !== undefined) {
-    return `Turn blocked: guardrail ${couldNotRun(onlyError)}`;
+    return `Turn blocked${after}: guardrail ${couldNotRun(onlyError)}`;
   }
   const named = [
     ...blocking.map((v) => {
@@ -433,9 +500,14 @@ export interface GuardrailViolationError {
   readonly evaluationErrors: readonly GuardrailEvaluationError[];
   /**
    * For `retry` guardrails out of attempts: the answers the turn wrote,
-   * the first one included. Absent when a `halt` guardrail blocked it.
+   * the first one included, or at a loop point the tries there. Absent
+   * when a `halt` guardrail blocked it.
    */
   readonly attempts?: number;
+  /** Where in the turn the guardrails stopped it (`Guardrail.at`). Absent: the final answer. */
+  readonly point?: GuardrailPoint;
+  /** At `'before-tool'` and `'after-tool'`: the model's id for the call, unique within its reply. */
+  readonly callId?: string;
 }
 
 /**

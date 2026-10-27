@@ -486,8 +486,11 @@ export interface Agent {
    * against the guardrail definitions bound for the run
    * (`GuardrailsBindings.guardrails`, evaluated through its `checks`
    * registry from `@kindgi/guardrails`); an unknown id fails the turn
-   * with `unresolved-guardrail`. Evaluated once per turn, on the final
-   * response before it is stored.
+   * with `unresolved-guardrail`. Each is evaluated where its `at` says:
+   * once per turn, on the final response before it is stored (the
+   * default), or inside the turn's loop, on each tool call before it
+   * runs, each call's result before the model sees it, or each model
+   * reply before its calls run.
    */
   readonly guardrails: readonly string[];
   /**

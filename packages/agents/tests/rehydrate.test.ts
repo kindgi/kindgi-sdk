@@ -6,6 +6,8 @@ import { describe, expect, test } from 'vitest';
 import { TenantBudgetError } from '@kindgi/bounds';
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { ModelMessage, ModelProvider } from '@kindgi/capabilities';
+import { createCheckRegistry } from '@kindgi/guardrails';
+import type { Guardrail } from '@kindgi/guardrails';
 import type { JournalEntry } from '@kindgi/runtime';
 import { createToolRegistry, defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
@@ -484,5 +486,92 @@ describe('dispatch-tools, resumed in the step it parked in', () => {
     ]);
     expect(ctx.storedBeforePark).toEqual([]);
     expect(ctx.appended.map((m) => m.sequence)).toEqual([3, 4, 5, 6, 7, 8]);
+  });
+});
+
+describe("rehydrateTurnContext: the guardrails at the loop's points", () => {
+  const AT_CALL = {
+    id: 'acme.no-big-refund',
+    kind: 'zero-llm',
+    check: 'acme.refund-limit',
+    at: 'before-tool',
+    action: { 'on-violation': 'retry' },
+  } as unknown as Guardrail;
+
+  /** The parked journal (or `journal`), with `output` added to the output of each `nodeId` step. */
+  const journalWith = (
+    nodeId: string,
+    output: Record<string, unknown>,
+    journal: readonly JournalEntry[] = parkedJournal,
+  ) =>
+    journal.map((e) =>
+      e.nodeId === nodeId
+        ? ({
+            ...e,
+            payload: {
+              ...(e.payload as object),
+              output: { ...((e.payload as { output?: object }).output ?? {}), ...output },
+            },
+          } as JournalEntry)
+        : e,
+    );
+
+  test("takes the turn's guardrails from setup's output, and checks their points against the checks it has now", async () => {
+    const ctx = resumedTurn([provider('second')]);
+    const checks = createCheckRegistry();
+    // The check as the registry holds it now: it names no points, so it runs at the final answer only.
+    checks.register({
+      id: 'acme.refund-limit',
+      kind: 'zero-llm',
+      evaluate: async () => ({ passed: true }),
+    } as never);
+    (ctx.bindings as { checks?: unknown }).checks = checks;
+    expect(
+      await rehydrateTurnContext(ctx, 'run-1', journalWith('setup', { guardrails: [AT_CALL] })),
+    ).toBe(true);
+    // The agent names none: the set is the one setup resolved.
+    expect(ctx.guardrails).toEqual([AT_CALL]);
+    expect([...(ctx.guardrailPointFaults?.keys() ?? [])]).toEqual(['acme.no-big-refund']);
+  });
+
+  test('restores the calls that ran, the failures only recorded, and the checks in provenance', async () => {
+    const ctx = resumedTurn([provider('second')]);
+    const nodes: string[] = [];
+    const edges: unknown[] = [];
+    (ctx.bindings as { provenance?: unknown }).provenance = {
+      newBuilder: () => ({
+        addNode: (n: { readonly id: string }) => void nodes.push(n.id),
+        addEdge: (e: unknown) => void edges.push(e),
+      }),
+    };
+    const violation = {
+      guardrailId: 'acme.warn',
+      action: 'log-only',
+      severity: 'warning',
+      result: { passed: false, reason: 'a warning' },
+      at: '2026-10-01T00:00:00Z',
+    };
+    const check = 'guardrail-check:acme.warn@before-tool:c1';
+    // Each model call named, so provenance rebuilds its step.
+    const journal = journalWith(
+      'dispatch-tools',
+      {
+        step: 1,
+        ranCalls: ['4:c1'],
+        guardrailViolations: [{ key: 'dispatch-tools@0:c1:acme.warn', violation }],
+        guardrailChecks: [
+          { id: check, timestamp: '2026-10-01T00:00:00Z', attributes: {}, to: 'tool-call:c1' },
+        ],
+      },
+      journalWith('model-call', { callId: 'model-call-1' }),
+    );
+    expect(await rehydrateTurnContext(ctx, 'run-1', journal)).toBe(true);
+    expect([...(ctx.ranCalls ?? [])]).toEqual(['4:c1']);
+    expect([...(ctx.pointViolations?.entries() ?? [])]).toEqual([
+      ['dispatch-tools@0:c1:acme.warn', violation],
+    ]);
+    expect(nodes).toContain(check);
+    expect(nodes.indexOf(check)).toBeGreaterThan(nodes.indexOf('tool-call:c1'));
+    expect(edges).toContainEqual({ from: check, to: 'tool-call:c1', kind: 'influenced-by' });
   });
 });

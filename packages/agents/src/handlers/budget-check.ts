@@ -21,7 +21,9 @@ import {
   violationsOf,
   withBlocked,
 } from './evaluate-guardrails.js';
+import { guardrailsAt, loopIteration } from './guardrail-points.js';
 import {
+  answerNotes,
   attemptsOf,
   isRetryGuardrail,
   judgedInLoop,
@@ -54,9 +56,9 @@ import {
  *     schema keeps the turn going with a repair message, while repairs
  *     (and steps) are left; after that the turn fails with
  *     `output-schema-violation`. Skipped on a dry run.
- *   - The turn's `retry` guardrails — when it has one, a finished answer
- *     (a valid one, for a typed agent) is judged here on its `halt` and
- *     `retry` guardrails. A `halt` that fails it fails the turn at once. A
+ *   - The turn's `retry` guardrails at the final answer — when it has
+ *     one, a finished answer (a valid one, for a typed agent) is judged
+ *     here on its `halt` and `retry` guardrails there. A `halt` that fails it fails the turn at once. A
  *     `retry` that fails it sends it back with a note giving the reasons,
  *     while that guardrail's attempts (and the steps) last; after that the
  *     turn fails with `guardrail-violation`. Skipped on a dry run. The
@@ -142,7 +144,11 @@ export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
       }
     }
 
-    if (finishedTurn && !kctx.dryRun && ctx.guardrails?.some(isRetryGuardrail) === true) {
+    if (
+      finishedTurn &&
+      !kctx.dryRun &&
+      guardrailsAt(ctx.guardrails, 'final-answer').some(isRetryGuardrail)
+    ) {
       const sentBack = await judgeInLoop(ctx, kctx, partial, nextMessages, maxSteps);
       if (sentBack !== undefined) {
         finishedTurn = false;
@@ -197,17 +203,6 @@ async function judgeInLoop(
 }
 
 /**
- * The kernel's loop iteration of this step (`$loop.iteration`), which a
- * replay of the loop numbers the same. A handler run outside the kernel's
- * loop counts by the turn's model calls instead.
- */
-function loopIteration(kctx: NodeContext, ctx: TurnContext): number {
-  const loop = (kctx.state as { readonly $loop?: { readonly iteration?: unknown } } | undefined)
-    ?.$loop;
-  return typeof loop?.iteration === 'number' ? loop.iteration : ctx.usage.steps - 1;
-}
-
-/**
  * Judge a finished answer on the turn's `halt` and `retry` guardrails.
  * A `halt` that fails it fails the turn at once, before any answer is
  * sent back. A `retry` that fails it returns the next model call's
@@ -232,11 +227,14 @@ async function guardrailRetry(
   | { readonly kind: 'sent-back'; readonly messages: readonly ModelMessage[] }
   | { readonly kind: 'passed'; readonly errors: readonly GuardrailEvaluationError[] }
 > {
-  const guardrails = (ctx.guardrails ?? []).filter(judgedInLoop);
+  const guardrails = guardrailsAt(ctx.guardrails, 'final-answer').filter(judgedInLoop);
   const evaluatedAt = new Date().toISOString() as Timestamp;
   const categorized = await judgeAnswer(ctx, kctx, answer.message, guardrails, evaluatedAt);
   const halted = categorized.blocking.length > 0 || categorized.blockingErrors.length > 0;
-  const notes = turnRetryNotes(ctx, sent);
+  const notes = answerNotes(
+    turnRetryNotes(ctx, sent),
+    guardrailsAt(ctx.guardrails, 'final-answer'),
+  );
   const sentBack = sentBackSoFar(notes);
   const byId = new Map(guardrails.map((g) => [g.id as unknown as string, g]));
   const outOfAttempts = halted

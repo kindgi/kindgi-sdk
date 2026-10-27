@@ -1,0 +1,18 @@
+---
+"@kindgi/agents": patch
+"@kindgi/guardrails": patch
+"@kindgi/handler-runtime": patch
+"@kindgi/specs": patch
+---
+
+**The agent loop runs a guardrail where its `at` says: before a tool call, after it, or on each model reply.** Until now every guardrail judged the final answer. `halt`, `retry` and the recorded actions now work at the loop's points too:
+- **`at: 'before-tool'`** judges a call after its access check and before any approval is asked. A `halt` fails the turn with `guardrail-violation`. A `retry` refuses the call: it doesn't run, and the model gets the guardrail's reason as its result, so it can go on without the call or make another.
+- **`at: 'after-tool'`** judges what a call returned, or the error it failed with, before the model sees it. A `retry` withholds it: the reason is stored as the call's result in its place, so neither the model nor a later turn's history sees the result. A replay's recorded result is judged as a live one is.
+- **`at: 'model-step'`** judges a reply that asks for calls, before any of them runs. A `retry` sends the reply back: none of its calls runs, nothing of it is stored, and the model writes a new reply.
+- **Attempts are counted across the turn.** A `retry` guardrail's `retry.maxAttempts` counts every call it refused, result it withheld and reply it sent back; when they run out, or the turn has no steps left, the turn fails as at the final answer, with `attempts`. A tool's own result can't count as one, whatever its text.
+- **A check that can't run** at its point (no such check, a point its check doesn't run at, or its time ran out) acts as a failed one: a `halt` fails the turn, a `retry` refuses or withholds with a reason that names why. So a broken check never lets a call through unchecked.
+- **`budget.maxLatencyMs` is enforced at these three points**, with a default by kind when it's left out: 10 s for `zero-llm`, 60 s for `llm-judge`, 30 s for any other. A check past its time is stopped and fails as `check-timed-out`. The pack index now carries a guardrail's `budget`, so a pack's guardrail runs with its own. The final answer keeps no limit, and `maxCostUsd` isn't enforced anywhere yet; the docs say so.
+- **The record says where.** A failure's `guardrail-violation` names the point and, at a tool point, the call (`point`, `callId`), and so do `guardrail.violated` and `guardrail.error` events, the outcome rows (`point`, `callId`, `nodeId` `dispatch-tools@<iteration>[:<callId>]`) and the provenance's `guardrail-check` nodes. Failures with any other action join the turn's `violations`.
+- **A resumed turn decides nothing twice.** Each check's outcome at a point is recorded with the step, so a turn resumed after an approval, or a step run again, reuses it: no judge is asked or billed again, and no event is sent again.
+- **New error codes:** `check-timed-out` (with `limitMs`) and `check-point-unsupported` (with `checkId` and `point`).
+- **The final answer** runs only the guardrails at the final answer. Its trace keeps every call the model asked for, as today; at the loop's points, the trace's `toolCalls` and `toolResults` hold only the calls that ran.
