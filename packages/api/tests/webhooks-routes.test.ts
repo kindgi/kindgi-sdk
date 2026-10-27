@@ -152,6 +152,23 @@ describe('registering a webhook trigger', () => {
     const res = await call('POST', '', { ...base, hmacSecretName: 'acme-provider-key' });
     expect(res).toMatchObject({ status: 400, body: { error: { code: 'provider-key-refused' } } });
   });
+
+  test('refuses a reserved `kindgi.` name as its secret, named or generated', async () => {
+    const { call, base } = setup();
+    const named = await call('POST', '', { ...base, hmacSecretName: 'kindgi.webhook' });
+    expect([named.status, named.body.error?.code, named.body.error?.details]).toEqual([
+      400,
+      'reserved-name-prefix',
+      { secret: 'kindgi.webhook' },
+    ]);
+    expect(named.body.error.message).toContain('a webhook trigger never names one');
+    const generated = await call('POST', '', {
+      ...base,
+      hmacSecretName: 'kindgi.webhook',
+      generateSecret: true,
+    });
+    expect([generated.status, generated.body.error?.code]).toEqual([400, 'reserved-name-prefix']);
+  });
 });
 
 describe('changing a webhook trigger', () => {
@@ -184,7 +201,7 @@ describe('changing a webhook trigger', () => {
     expect(res.body).not.toHaveProperty('deliveryIdHeader');
   });
 
-  test("keeps its flow; refuses a provider's key; refuses Standard Webhooks with the header it already has", async () => {
+  test("keeps its flow; refuses a provider's key or a reserved name; refuses Standard Webhooks with the header it already has", async () => {
     const { call, base } = setup();
     const t = (await call('POST', '', { ...base, deliveryIdHeader: 'X-Delivery' })).body;
     expect((await call('PATCH', `/${t.triggerId}`, { flowId: 'acme.other' })).status).toBe(400);
@@ -192,6 +209,10 @@ describe('changing a webhook trigger', () => {
       (await call('PATCH', `/${t.triggerId}`, { hmacSecretName: 'acme-provider-key' })).body.error
         .code,
     ).toBe('provider-key-refused');
+    expect(
+      (await call('PATCH', `/${t.triggerId}`, { hmacSecretName: 'kindgi.webhook' })).body.error
+        .code,
+    ).toBe('reserved-name-prefix');
     const sw = await call('PATCH', `/${t.triggerId}`, { signature: { kind: 'standard-webhooks' } });
     expect(sw.status).toBe(400);
     expect(sw.body.error.message).toContain('`webhook-id`');

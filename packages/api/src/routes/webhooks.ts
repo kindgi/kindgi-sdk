@@ -24,7 +24,7 @@ import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -282,12 +282,12 @@ export function webhooksRouter(
     );
   }
 
-  /** A model provider's key named as the signing secret: the refusal. */
-  async function providerKeyRefused(
+  /** A reserved `kindgi.` name or a model provider's key named as the signing secret: the refusal. */
+  async function signingSecretRefused(
     c: Context<AppEnv>,
     name: string,
   ): Promise<Response | undefined> {
-    const refusal = await refuseProviderKeys(
+    const refusal = await refuseSecretNames(
       providerKeys,
       c.get('tenantId') as TenantId,
       [name],
@@ -366,8 +366,8 @@ export function webhooksRouter(
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
-    const keyRefused = await providerKeyRefused(c, hmacSecretName.value);
-    if (keyRefused !== undefined) return keyRefused;
+    const secretRefused = await signingSecretRefused(c, hmacSecretName.value);
+    if (secretRefused !== undefined) return secretRefused;
 
     // The signing secret: made here (`generateSecret`), in the trigger's own
     // scope, where it's then read; or named, and read where its registrant
@@ -632,8 +632,8 @@ export function webhooksRouter(
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
     if (typeof body.hmacSecretName === 'string') {
-      const keyRefused = await providerKeyRefused(c, body.hmacSecretName);
-      if (keyRefused !== undefined) return keyRefused;
+      const secretRefused = await signingSecretRefused(c, body.hmacSecretName);
+      if (secretRefused !== undefined) return secretRefused;
     }
     // Its `toolsAllowedUnattended`: kept unless named (a trigger keeps its
     // flow, so a new version keeps it too); naming it takes `admin`, and

@@ -25,6 +25,7 @@ import type {
   ProviderSecretRef,
 } from '../provider-binding.js';
 import type { SecretUse } from '../provider-keys.js';
+import { RESERVED_SECRET_NAME_PREFIX } from '../secrets-binding.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -871,7 +872,8 @@ function parseAdapterConfig(
 /**
  * Parse the optional `secret_ref` on the register request body.
  * Accepts `undefined` (no credential — dev-echo, local models),
- * `{envName: string, name: string}`, or rejects any other shape.
+ * `{envName: string, name: string}`, or rejects any other shape, and a
+ * `name` under the reserved `kindgi.` prefix.
  */
 function parseSecretRef(
   raw: unknown,
@@ -888,6 +890,12 @@ function parseSecretRef(
   }
   if (typeof r.name !== 'string' || r.name.length === 0) {
     return { kind: 'err', error: '`secret_ref.name` must be a non-empty string.' };
+  }
+  if (r.name.startsWith(RESERVED_SECRET_NAME_PREFIX)) {
+    return {
+      kind: 'err',
+      error: `\`secret_ref.name\` is \`${r.name}\`, under the reserved "${RESERVED_SECRET_NAME_PREFIX}" prefix: those names are Kindgi's own. Store the key under a name of its own.`,
+    };
   }
   return { kind: 'ok', value: { envName: r.envName, name: r.name } };
 }
