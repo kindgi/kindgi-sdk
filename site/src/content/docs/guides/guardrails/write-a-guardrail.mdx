@@ -527,7 +527,7 @@ A guardrail's page has:
 - **What it checks:** how, the check, its settings, when it fires, its
   severity and where it applies.
 - **Agents it checks:** each agent version that names it and can run here,
-  marked "(latest)", "(live)" or "(live and latest)".
+  marked "(latest)", "(pinned)" or "(pinned and latest)".
 - **What it caught:** its outcomes by agent version, as
   [Stop a turn or record a violation](../halt-or-record/#in-the-console)
   shows.
@@ -544,7 +544,7 @@ versions whose turns then fail, and how they come back:
 
 ```text
 Remove No secrets in answers?
-Guarded agent 1.0.0 (latest) names it: its turns fail, saying it isn't registered, until it's registered again or a version that doesn't name it goes live.
+Guarded agent 1.0.0 (latest) names it: its turns fail, saying it isn't registered, until it's registered again or a version that doesn't name it takes over.
 There's no undo: registering it again brings it back.
 ```
 
