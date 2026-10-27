@@ -109,6 +109,15 @@ its agent steps that don't name a version, to their latest at publish. A tool
 change reaches a flow through a new agent version and a new flow version, in
 one deploy, with a line for each.
 
+**Where a version runs.** An agent version runs in the project it was
+published in, and in each project a deployment shipped it into, such as the
+next environment `kindgi promote` carried its build to. So a change to the
+agent reaches each of them. `client.agents.projects(agentId)`
+(`GET /v1/agents/{agentId}/projects`) lists them, the agent's first project
+first, naming only the ones you can read. A project stays on the list after
+the versions shipped there are unregistered, because reinstating one would
+run there again.
+
 **An agent version published without pins,** such as by an older runtime,
 gets a pinned next version at the first deploy:
 

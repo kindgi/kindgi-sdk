@@ -211,6 +211,9 @@ OPERATIONS: dict[str, Operation] = {
     "agents.list": Operation("agents.list", "GET", "/v1/agents", "json", False),
     "agents.publish": Operation("agents.publish", "POST", "/v1/agents", "json", True),
     "agents.get": Operation("agents.get", "GET", "/v1/agents/{agentId}", "json", False),
+    "agents.projects": Operation(
+        "agents.projects", "GET", "/v1/agents/{agentId}/projects", "json", False
+    ),
     "agents.listVersions": Operation(
         "agents.listVersions", "GET", "/v1/agents/{agentId}/versions", "json", False
     ),
@@ -3120,6 +3123,22 @@ class AgentsResource:
             query={"projectId": project_id},
             headers={},
             response=_models.Agent,
+            timeout=timeout,
+        )
+
+    def projects(
+        self, agent_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.AgentProjectList:
+        """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
+
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.projects"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            response=_models.AgentProjectList,
             timeout=timeout,
         )
 
@@ -12461,6 +12480,22 @@ class AsyncAgentsResource:
             query={"projectId": project_id},
             headers={},
             response=_models.Agent,
+            timeout=timeout,
+        )
+
+    async def projects(
+        self, agent_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.AgentProjectList:
+        """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
+
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.projects"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            response=_models.AgentProjectList,
             timeout=timeout,
         )
 

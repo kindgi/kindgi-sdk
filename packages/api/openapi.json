@@ -1147,6 +1147,35 @@
           }
         }
       },
+      "AgentProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "AgentProjectList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "description": "Its first project first, then the others, each once.",
+            "items": {
+              "$ref": "#/components/schemas/AgentProject"
+            }
+          }
+        }
+      },
       "Promotion": {
         "type": "object",
         "additionalProperties": false,
@@ -33411,6 +33440,64 @@
             },
             "required": false,
             "description": "The newest active version that can run in this project, a project the caller reads; `404` when there's none, or when the caller doesn't read the project. An item with one project answers its latest version for its own project and `404` for any other; one that names no project (under `kindgi dev`, a pack's agents, flows and tools) answers it for any. With authorization off, the caller reads every project. An older runtime ignores it and answers the latest version."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/projects": {
+      "get": {
+        "operationId": "agents.projects",
+        "summary": "List the projects an agent runs in",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The projects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProjectList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No agent with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
           }
         ],
         "security": [

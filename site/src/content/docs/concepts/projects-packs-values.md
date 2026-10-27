@@ -28,6 +28,14 @@ which gives every id the new pack's id.
 [Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)
 shows how.
 
+An environment order, such as testing and then live, is the one way a
+build reaches more than one project: `kindgi promote` carries the same
+build on to the order's next project. Its items still belong to the project
+they were first published in, and they also run in each project the build
+reached, so a change to one of them reaches each. For an agent,
+`GET /v1/agents/{agentId}/projects` lists those projects, its first one
+first, naming only the ones you can read.
+
 ## What a project's runs can use
 
 A run is in one project, and it can use only what that project reaches:
