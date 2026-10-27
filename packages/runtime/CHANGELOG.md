@@ -1,5 +1,55 @@
 # @kindgi/runtime
 
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **A mail trigger moved to another mailbox watches that mailbox's inbox.** A change whose `config.mailbox` names another mailbox, in the other app or with the other `as`, and that names no `config.folder` drops the trigger's folder. A Gmail label id or an Outlook folder id belongs to one mailbox, so in another it names another folder or none. The same mailbox sent again keeps the folder, and a folder named with the move is the one it watches.
+  - The `PATCH /v1/mail-triggers/{triggerId}` body's `folder` says so, and the testing trigger registry (`createInMemoryTriggerRegistry`) merges a mail trigger's config the same way a runtime does.
+  - `UpdateMailTriggerInput.config` (`@kindgi/runtime`) and `kindgi mail-triggers update --folder` say so too.
+- b6e20ca: **Mail triggers on the wire: each new mail in a Gmail or Outlook mailbox starts a run.** With a trigger registry, a server answers `/v1/mail-triggers` when its `triggerKinds` include `mail` (left out, all four kinds mount).
+  - **`POST /v1/mail-triggers`** registers one:
+    - the agent (`agentId`, with `agentVersion` optional) or the flow (`flowId` and `flowVersion`) to run;
+    - `config.mailbox`, `{ app: 'google' | 'microsoft', as: 'person' | 'company' }`;
+    - `config.folder`, the Gmail label id or the Outlook folder id or well-known name to watch (the inbox when left out, and `INBOX` or `inbox` to watch it again);
+    - `config.pollSeconds`, how often to look, 30 to 3600 (default 60), and `config.runsPerHour`, the most runs its mail starts in an hour, 1 to 600 (default 60).
+    - `projectId`, the trigger's project (the tenant's Default project when left out). One that isn't a project id is a `400`, and one that names no project of the tenant's is a `404 project-not-found`, as for schedules and webhooks.
+    - Each run's input is the mail that started it, so `config.input` is refused.
+  - **Whose it is.** A trigger is shared or personal, by its owner, and its runs act as that owner, with the owner's connections.
+    - A trigger on a person's mailbox reads its owner's own mail, so a person owns it. A project writer registers one for their own mailbox. `runAsServiceAccountId`, or a service account calling, is a `400`.
+    - A trigger on the company's mailbox is a project admin's to register. With `runAsServiceAccountId`, a service account owns it, and it's shared.
+    - No edit moves the owner. Only `POST /v1/mail-triggers/{triggerId}/owner` does, and on a person's mailbox the mailbox becomes the new owner's own.
+  - **Who may change it.**
+    - A person's trigger is changed, paused, resumed or unregistered by its owner or a project admin, and anyone else gets a `403`.
+    - Only the owner chooses what a person's trigger reads from their mailbox: another of their mailboxes, or another folder. Anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. An admin may still move it to the company's mailbox.
+    - A shared trigger's `PATCH` is an admin's, and its pause, resume and unregister need `write`.
+    - A change to a trigger on the company's mailbox, before or after the change, takes an admin.
+    - When an admin changes, pauses, resumes or unregisters a person's trigger, it's recorded as `trigger-changed-for-owner` evidence: the owner, who did it and what, and on a change the fields that changed, with the target, mailbox and folder before and after. Where the app tells owners (`triggerOwnerNotices`), the owner is told too, as for schedules and webhooks, and a take-over tells the former owner. Its runs go on acting as that person.
+  - **`toolsAllowedUnattended`.** In a run a mail started, every call that changes something, or that uses the run's own mailbox, waits for a person's yes. The list names the tools whose calls needn't wait: only tools its agent or flow calls, and a project admin's to set. While it lists any, a new target (another agent or flow, not just a version) or another mailbox must name it again: `[]` to clear it, which a person's trigger's owner may give with their own change, or a list, which a project admin sets.
+  - **Reads and the rest.**
+    - `GET /v1/mail-triggers` lists them (`projectId`, `status`, paged), and `GET /v1/mail-triggers/{triggerId}` reads one. Each gives `account`, the mailbox's account at its last poll, `lastPolledAt`, and `statusReason` (`connection-missing` while the mailbox's connection is gone or lapsed, `owner-refused` while its owner was removed or may no longer run the target).
+    - `POST …/pause`, `POST …/resume` and `POST …/unregister` work as for the other trigger kinds. A resume starts afresh: mail that came while it was paused doesn't start runs.
+    - `GET /v1/mail-triggers/{triggerId}/fires` lists its mail, newest first: the run each started, `pending` while an earlier mail of its thread runs first (`detail` starts `thread-busy:`), or why it was skipped, refused or failed, each in `detail`.
+  - **The trigger types** (`@kindgi/runtime`): the registry's mail trigger record, its config and limits, and the mail fire outcomes, which the wire describes.
+  - **Clients:** `client.mailTriggers` in the TypeScript client, and `client.mail_triggers` in the Python client. In Python, a registration's `config` is a `RegisterMailTriggerBodyConfig`, and a change's is a `PatchMailTriggerBodyConfig`.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [b6e20ca]
+  - @kindgi/authz@0.2.0-rc.1
+  - @kindgi/flow@0.2.0-rc.1
+  - @kindgi/handler@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
 ## 0.2.0-rc.0
 
 ### Patch Changes

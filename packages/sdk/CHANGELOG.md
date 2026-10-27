@@ -1,5 +1,47 @@
 # @kindgi/sdk
 
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **The getting-started skills (TypeScript, Python, Java, Scala) say more about upgrading a deployment on Cloud Run.** The module's `./upgrade.sh` makes its plan with every `*.auto.tfvars.json` in the module's folder too, the pack's env among them, and `yes` applies exactly the saved plan it showed. Any other Cloud Run deployment upgrades by hand, staging first, as the Cloud Run page's new "Upgrade by hand" section says, and one on Azure Container Apps follows its page's "Operate it" section.
+- b6e20ca: **The `kindgi-using` skill finds a mail trigger in the console.** Asked what the support inbox did with a mail, it links the trigger's page, `mail-triggers/<triggerId>`, with its latest mails, up to 50, what happened to each and the run it started (older mail is in `kindgi mail-triggers fires`), and `runs?trigger=<triggerId>`, every run it started. Its console pages list the mail triggers, and it links Start runs from new mail.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/tools@0.2.0-rc.1
+  - @kindgi/client@0.2.0-rc.1
+  - @kindgi/handler-runtime@0.2.0-rc.1
+  - @kindgi/agents@0.2.0-rc.1
+  - @kindgi/guardrails@0.2.0-rc.1
+  - @kindgi/flow@0.2.0-rc.1
+  - @kindgi/schema@0.2.0-rc.1
+  - @kindgi/crypto@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
 ## 0.2.0-rc.0
 
 ### Minor Changes

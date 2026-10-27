@@ -10,6 +10,8 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+## 0.2.0-rc.1
+
 - `kindgi-pack`, `kindgi-pack-scala`: **a tool can say `resultIsOutsideData`.** `Tool.define(...).resultIsOutsideData(true)` (Scala: `.resultIsOutsideData(true)`) says the tool's results are text from outside that nobody checked, such as a mail someone sent or a page a search found. An agent reads each result of the tool as data, not instructions, in that turn and in every later turn's history. It changes what the model is told, not what the tool may do: pair it with approvals for anything an agent could do with what it read. The pack's index carries it; left out, nothing changes.
 
 ## 0.2.0-rc.0

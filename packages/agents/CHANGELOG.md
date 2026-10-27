@@ -1,5 +1,59 @@
 # @kindgi/agents
 
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- b6e20ca: **Every error an agent turn returns is declared in `InvokeAgentError`, so a typed caller's `switch` on `code` sees each one.**
+  - `run-journal-unavailable` (`RunJournalUnavailableError`): `resumeAgentTurn` couldn't read the run's journal. Resuming again may work.
+  - A turn that ends at an approval gate. Each of these is a person's outcome, as the approvals reference says:
+    - `hitl-rejected` (`HitlRejectedError`): a reviewer rejected the turn at its session gate, or, in a replay, the past run's reviewer did. It carries the reviewer's `rationale`, when they gave one.
+    - `hitl-cancelled` (`HitlCancelledError`): nobody decided in time. It carries the wait's `reason`.
+    - `hitl-withdrawn` (`HitlWithdrawnError`): a reviewer withdrew the approval.
+  - `resumeAgentTurn`'s `agent-version-mismatch` now carries `conversationId`, as `AgentVersionMismatchError` says it does.
+  
+  The codes and messages are unchanged; before, the turn returned them outside its declared type. A `switch` on `code` that checks every case (with `never`, or an `assertNever`) now has to handle these four codes to compile.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/tools@0.2.0-rc.1
+  - @kindgi/runtime@0.2.0-rc.1
+  - @kindgi/compliance@0.2.0-rc.1
+  - @kindgi/authz@0.2.0-rc.1
+  - @kindgi/guardrails@0.2.0-rc.1
+  - @kindgi/capabilities@0.2.0-rc.1
+  - @kindgi/flow@0.2.0-rc.1
+  - @kindgi/provenance@0.2.0-rc.1
+  - @kindgi/schema@0.2.0-rc.1
+  - @kindgi/handler@0.2.0-rc.1
+  - @kindgi/bounds@0.2.0-rc.1
+  - @kindgi/embedding@0.2.0-rc.1
+  - @kindgi/memory@0.2.0-rc.1
+  - @kindgi/policy-contract@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
 ## 0.2.0-rc.0
 
 ### Patch Changes

@@ -13,6 +13,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.2.0rc1
+
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a
   mail someone sent or a page a search found. An agent reads each result of the
