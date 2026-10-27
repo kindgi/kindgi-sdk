@@ -464,10 +464,10 @@ Mail already there doesn't run: it starts from now." It asks for:
 - **Gmail label** or **Outlook folder:** empty for the inbox, else the
   label's id, such as `Label_12`, or the folder's id or well-known name,
   such as `archive`.
-- **Starts:** an agent, at its live version, or a flow, at its latest
-  version that isn't retired, which the trigger then keeps starting. To
-  start another of its versions, create the trigger with the CLI's
-  `--flow-version` ([Create one](#create-one)).
+- **Starts:** an agent (its pinned version, or the latest), or a flow, at
+  its latest version that isn't retired, which the trigger then keeps
+  starting. To start another of its versions, create the trigger with the
+  CLI's `--flow-version` ([Create one](#create-one)).
 - **Looks:** how often it looks for new mail, from every 30 seconds to
   every hour. It's every minute to start with.
 - **Runs an hour, at most:** 1 to 600, 60 to start with. Past it, a mail
@@ -481,8 +481,8 @@ is personal to whoever made it. To have the project own it, create it with
 `--run-as=project` ([The company's mailbox](#the-companys-mailbox)).
 
 A trigger's page says what it does, such as "New mail in the company's
-Gmail, inbox starts the agent Support Desk (its live version), one run per
-mail." Then:
+Gmail, inbox starts the agent Support Desk (its pinned version, or the
+latest), one run per mail." Then:
 
 - **Mailbox:** whose mailbox it is, its label or folder, or **Inbox**, the
   account it reads, once it has looked, when it last looked, and its pace,
