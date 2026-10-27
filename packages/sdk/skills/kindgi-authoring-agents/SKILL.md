@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.8"
+version: "0.4.9"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -188,8 +188,8 @@ export default defined.value;
   person's approval. Remembering is a tool call, so use a model with
   reliable tool calling. `{ instructionTypes: ['acme.policy'] }` turns a
   retrieved, verified fact of those types into an instruction
-  ("Policies (verified)"). See
-  https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/.
+  ("Policies (verified)"). Give an agent memory has the rest:
+  https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/
 
 ## What a turn receives
 
