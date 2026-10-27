@@ -30,12 +30,16 @@ shows how.
 
 A copy runs on a runtime that runs each deployment as a service of its
 own (`KINDGI_PACK_ROUTING=per-deployment`, which only a runtime serving
-many tenants can set). A runtime with one pack service,
-such as a self-host serving one tenant, runs only the pack it was given,
-so a copy's code wouldn't run there. There, a second project gets the same
-items through an environment order: put both projects in one order
-(`kindgi environments set`), and `kindgi promote` the build from the first
-to the second. The `409` names the fix your runtime has.
+many tenants can set). Unset, a runtime runs one pack service for every
+deployment, whether it serves one tenant or many, and that service runs
+only the pack it was given, so a copy's code wouldn't run there. There, a
+second project gets the same items through an environment order, when
+both projects are in the same org or neither is in an org: put both in one
+order (`kindgi environments set`), the second right after the first, and
+`kindgi promote` the build from the first to the second instead of
+deploying it. Projects in two orgs, or one in an org and one not, can't
+share an order, and such a runtime has no fix for them. The `409` names
+the fix your runtime has.
 
 ## What a project's runs can use
 

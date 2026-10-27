@@ -124,7 +124,9 @@ export const PROJECT_MISMATCH = 'it belongs to another project';
  * runs its own pack service, a copy of the pack with its own pack id runs
  * beside it. Where one pack service serves every deployment, a copy's
  * image never runs, and another project gets the items through an
- * environment order. With neither, there's no fix to name.
+ * environment order, which holds only projects with the same parent
+ * (one org, or none), and promotes a build only to the environment right
+ * after. With neither, there's no fix to name.
  */
 export function projectMismatchFix(runtime: {
   readonly perDeploymentPacks: boolean;
@@ -134,7 +136,7 @@ export function projectMismatchFix(runtime: {
     return 'one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id';
   }
   if (runtime.environmentOrders) {
-    return "this runtime runs one pack service, so a copy of the pack wouldn't run: put both projects in one environment order (`kindgi environments set`) and `kindgi promote` the build to this one";
+    return "this runtime runs one pack service, so a copy of the pack wouldn't run: if both projects are in the same org, or neither is in an org, put them in one environment order (`kindgi environments set`), this one right after the one it belongs to, and `kindgi promote` the build to this one instead of deploying it; otherwise they can't share an order, and this runtime has no fix";
   }
   return undefined;
 }
