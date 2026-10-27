@@ -72,7 +72,7 @@ export function toAnthropicMessages(
   const out: Anthropic.MessageParam[] = [];
 
   for (const [i, msg] of messages.entries()) {
-    const parts = headedFileParts(files[i] ?? []);
+    const parts = partsAt(files, i);
     if (msg.role === 'system') {
       if (msg.content.length > 0) systemParts.push(msg.content);
       continue;
@@ -122,6 +122,11 @@ export function toAnthropicMessages(
   };
 }
 
+/** Message `i`'s file parts, under the outside-data heading; none when it has none. */
+function partsAt(files: readonly (readonly FilePart[])[], i: number): readonly FilePart[] {
+  return headedFileParts(files[i] ?? []);
+}
+
 /** A user message's blocks: its text, then its files (when it has any). */
 function userBlocks(
   text: string,
@@ -134,7 +139,7 @@ function userBlocks(
 function toolResultContent(
   text: string,
   parts: readonly FilePart[],
-): Anthropic.ToolResultBlockParam['content'] {
+): NonNullable<Anthropic.ToolResultBlockParam['content']> {
   return parts.length === 0 ? text : fileBlocks(text, parts);
 }
 

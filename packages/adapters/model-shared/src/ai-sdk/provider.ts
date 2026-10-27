@@ -143,15 +143,7 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       const sampling = samplingFor(model, input);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const extra = options.providerOptions?.(model);
-      // Images and PDFs go to a model that declares `vision`; text files to any.
-      const vision = model.features.includes('vision');
-      const files = await fileParts(input.messages, {
-        readFile: input.readFile,
-        images: vision,
-        documents: vision,
-        contextWindow: model.contextWindow,
-        ...(options.fileLimits !== undefined && { limits: options.fileLimits }),
-      });
+      const files = await fileParts(input.messages, filePartsFor(model, input, options.fileLimits));
       const prompt = toPrompt(
         input.messages,
         { provider: metadata.id, model: input.model },
@@ -400,14 +392,10 @@ function toPrompt(
 ): LanguageModelV4Prompt {
   const prompt: LanguageModelV4Message[] = [];
   const toolNames = new Map<string, string>();
-  let moved: ReturnType<typeof toFilePart>[] = [];
-  const flushMoved = (): void => {
-    if (moved.length > 0) prompt.push({ role: 'user', content: moved });
-    moved = [];
-  };
+  // Each run of tool results' files, by the index of the tool message that holds the run.
+  const moved = new Map<number, ReturnType<typeof toFilePart>[]>();
   for (const [i, m] of messages.entries()) {
-    const parts = files[i] ?? [];
-    if (m.role !== 'tool') flushMoved();
+    const parts = partsAt(files, i);
     if (m.role === 'system') {
       prompt.push({ role: 'system', content: nameToolsAsSent(m.content, toolIds, wireName) });
     } else if (m.role === 'user') {
@@ -479,11 +467,55 @@ function toPrompt(
       const last = prompt[prompt.length - 1];
       if (last?.role === 'tool') last.content.push(part);
       else prompt.push({ role: 'tool', content: [part] });
-      moved.push(...headedFileParts(parts, { toolCallId: id }).map(toFilePart));
+      addMoved(moved, prompt.length - 1, headedFileParts(parts, { toolCallId: id }));
     }
   }
-  flushMoved();
-  return prompt;
+  return withMovedFiles(prompt, moved);
+}
+
+/** Message `i`'s file parts; none when it has none. */
+function partsAt(files: readonly (readonly FilePart[])[], i: number): readonly FilePart[] {
+  return files[i] ?? [];
+}
+
+/** A tool result's files, added to those of the run of results at prompt index `at`. */
+function addMoved(
+  moved: Map<number, ReturnType<typeof toFilePart>[]>,
+  at: number,
+  parts: readonly FilePart[],
+): void {
+  if (parts.length > 0) moved.set(at, [...(moved.get(at) ?? []), ...parts.map(toFilePart)]);
+}
+
+/** The prompt with one user message, holding the run's files, after each run of tool results that has any. */
+function withMovedFiles(
+  prompt: LanguageModelV4Message[],
+  moved: ReadonlyMap<number, ReturnType<typeof toFilePart>[]>,
+): LanguageModelV4Prompt {
+  if (moved.size === 0) return prompt;
+  return prompt.flatMap((message, i): LanguageModelV4Message[] => {
+    const content = moved.get(i);
+    return content === undefined ? [message] : [message, { role: 'user', content }];
+  });
+}
+
+/**
+ * What `fileParts` reads for `model`: images and PDFs for a model that
+ * declares `vision`, text files for any, within the vendor's own limits.
+ */
+function filePartsFor(
+  model: ModelInfo,
+  input: ModelCallInput,
+  limits: FilePartsOptions['limits'] | undefined,
+): FilePartsOptions {
+  const vision = model.features.includes('vision');
+  return {
+    readFile: input.readFile,
+    images: vision,
+    documents: vision,
+    contextWindow: model.contextWindow,
+    ...(limits !== undefined && { limits }),
+  };
 }
 
 /** A user message's content: its text, then its files under the outside-data heading. */
