@@ -55,9 +55,10 @@ project holds:
   trigger in a project a build is promoted into runs what's been promoted
   there. Registering one, or changing what it runs, before the first
   build that ships its agent or flow is promoted there answers
-  `400 reference-out-of-scope` at `/target`. It's asked once the caller
-  may change the project's triggers, before their right to run the
-  target. For an agent named with no version, the message is:
+  `400 reference-out-of-scope` at `/target` (a webhook's at `/flowId`,
+  or at `/flowVersion` for a change). It's asked once the caller may
+  change the project's triggers, before their right to run the target.
+  For an agent named with no version, the message is:
   `This project can't reference agent "<id>": it has no version that runs here (none was made in this project, and no build in place here ships one). If it's made in an earlier environment of this project's order, promote a build that ships it here; else make the trigger in the project that makes it`.
   Once it's there, the trigger runs on its owner's right on that project,
   as a run started there by hand does: `call` for an agent, `execute` for

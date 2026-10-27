@@ -332,9 +332,10 @@ preset, where to paste them. With the WooCommerce preset, the secret left out:
   webhook's project when that project and another both run the flow, as
   across an environment order once a build is promoted
   ([A trigger in a later environment](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)),
-  else the editor role on the flow's project. From your app, it's `runAsServiceAccountId` on
-  `webhooks.register` (`run_as_service_account_id` in Python). Send one of
-  the two, not both. Either is recorded as evidence, `trigger-owner-set`,
+  else the editor role on the flow's project. From your app, it's
+  `runAsServiceAccountId` on `webhooks.register`
+  (`run_as_service_account_id` in Python). Send one of the two, not both.
+  Either is recorded as evidence, `trigger-owner-set`,
   which says `projectAccount: true` when the account is the project's own.
 - **`--allow-unattended=<tool-id>`** names a tool whose calls in its runs
   needn't wait for a person's yes, though no person started them, once for

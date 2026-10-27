@@ -131,8 +131,8 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   schedule's project and another both run the agent or flow, as across an
   environment order once a build is promoted, that's the caller role on
   the schedule's project for an agent and the executor role for a flow,
-  and for an Improve pass the editor role on the project where the agent
-  gets its new versions
+  and, for a schedule that starts Improve runs, the editor role on the
+  project where the agent gets its new versions
   ([A trigger in a later environment](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)).
   Otherwise it's the editor role on the target's project. Without a
   store, grants limit nothing, so there's nothing to check.

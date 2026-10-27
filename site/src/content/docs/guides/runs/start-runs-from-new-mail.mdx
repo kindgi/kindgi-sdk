@@ -322,10 +322,11 @@ account. No change moves the owner: only a take-over does.
   `--run-as=project` on one the project's editors can't run: run the
   trigger as a service account that can, or own it yourself. And since no
   change moves the owner, a new agent or flow must be one the owner can
-  run by the same rule, a person or an account. That isn't checked when you're the owner,
-  nor for an owner that was unregistered or removed. A tenant admin can
-  give an account the role (not the project's own account, whose role is
-  fixed), or a project admin can take the trigger over first.
+  run by the same rule, a person or an account. That isn't checked when
+  you're the owner, nor for an owner that was unregistered or removed. A
+  tenant admin can give an account the role (not the project's own
+  account, whose role is fixed), or a project admin can take the trigger
+  over first.
 - **Without an authorization store,** a project admin here is a tenant
   admin ([Without authorization](../../../deploy/people-and-keys/#without-authorization)).
 
@@ -418,10 +419,12 @@ A trigger's `statusReason` says why it isn't reading mail:
   clears it.
 - **`target-out-of-reach`:** no version of its agent or flow runs in its
   project: none was made there, and no build in place there ships one,
-  such as after the build that brought it to a later environment was
-  retired. The trigger keeps looking but reads nothing, and its looks
-  don't pause it. Once a build that ships one is promoted there, it reads
-  on from where it stopped, within the catch-up below.
+  such as after the versions a build shipped there were unregistered.
+  The trigger keeps looking but reads nothing, and its looks don't pause
+  it. A mail it had already found is `refused` when its run would start,
+  and those fires count toward the pause. Once a build that ships one is
+  promoted there, it reads on from where it stopped, within the catch-up
+  below.
 - **Paused:** after 5 fires in a row that were refused or failed, the
   trigger pauses itself, with the last reason. A refusal for the hourly
   limit, a missing connection, a missing thread or a busy runtime doesn't
