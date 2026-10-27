@@ -76,6 +76,15 @@ export const EVIDENCE_KINDS = [
   'agent-live-unpinned',
   // A live pin whose version was unregistered: runs use the scope above.
   'agent-live-pin-inactive',
+  // Which flow or tool version is pinned for a scope: a pin (set or moved)
+  // or an unpin (the scope falls back to the one above), and a pin whose
+  // version was unregistered, passed over for the scope above.
+  'flow-pinned',
+  'flow-unpinned',
+  'flow-pin-inactive',
+  'tool-pinned',
+  'tool-unpinned',
+  'tool-pin-inactive',
   // Who can act, and with which key: an API key minted or revoked (never
   // its secret), a service account created, granted a role, ungranted or
   // unregistered, a person added, and a person made tenant admin or no

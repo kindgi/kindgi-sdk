@@ -94,6 +94,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-project-mismatch': 409,
   'registry-read-only': 409,
   'live-scope-spans-environments': 409,
+  /** A flow or tool pinned wider than one project, for an item in an environment order. */
+  'pin-scope-spans-environments': 409,
   'agent-gone': 410,
   'run-erased': 410,
   'flow-gone': 410,
@@ -397,6 +399,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'permissions-unsupported': 501,
   /** Unregister: the version is live in a scope; move that pin first. */
   'agent-version-live': 409,
+  /** Unregister or delete: the flow version is pinned in a scope; move or remove that pin first. */
+  'flow-version-pinned': 409,
+  /** Unregister or delete: the tool version is pinned in a scope; move or remove that pin first. */
+  'tool-version-pinned': 409,
+  /** A pin of a tool that follows its server (an MCP catalog tool) or the runtime (one it ships). */
+  'tool-not-pinnable': 400,
   /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */
   'artifact-too-large': 413,
   /** A request body over the API's limit (`requestMaxBytes`); `details.maxBytes` says how much. */

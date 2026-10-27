@@ -102,6 +102,7 @@ import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
+import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
@@ -972,6 +973,16 @@ export interface CreateAppInput {
    * version, as before.
    */
   readonly agentReleases?: AgentReleaseBindings;
+  /**
+   * Optional. Pinned versions of flows and tools per scope
+   * (`/v1/flows/{id}/pinned`, `/pinned-versions`, `/pinned/pin`,
+   * `/pinned/unpin`, `/pin-history`, and the same under `/v1/tools/{id}`).
+   * A run that names no flow version takes the one pinned for its project,
+   * and a published agent or flow version locks each tool at the version
+   * pinned where it's made. Absent → the routes aren't mounted, a run takes
+   * the newest flow version and a lock the newest tool version, as before.
+   */
+  readonly pinnedVersions?: PinnedVersionBinding;
   /**
    * Optional. Push-based pub/sub binding used by SSE endpoints to
    * deliver run events without polling. When present, `GET

@@ -775,6 +775,21 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
   },
+  'pin-scope-spans-environments': {
+    description:
+      "A flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once. Pin a flow in each environment's project, and a tool in the order's first environment, where agent and flow versions are made.",
+    details: [],
+  },
+  'tool-not-pinnable': {
+    description:
+      "The tool follows its server (a tool an MCP endpoint's catalog lists) or the runtime (a tool the runtime ships), so a pin couldn't keep it still. Reference it with a version range instead.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: 'the tool',
+      },
+    ],
+  },
   'live-scope-spans-environments': {
     description:
       "An agent with a project in an environment order is made live one project at a time, whether one project serves it or several. A live change for the whole tenant or an organization would reach every environment of the order at once, so it's refused. Name a project in the change's scope, or a segment of it. To take a build from one environment to the next and make it live there, promote it (`kindgi promote --make-live`). Nothing is changed.",
@@ -1894,7 +1909,7 @@ export const ERROR_ENTRIES = {
   },
   'not-pinned': {
     description:
-      "The scope has no live version of its own, so there's nothing to roll back or unpin. Pin a version for the scope first.",
+      "The scope has no pin of its own (for an agent, no live version of its own), so there's nothing to roll back or unpin. Pin a version for the scope first.",
     details: [],
   },
   'gate-failed': {
@@ -2443,6 +2458,42 @@ export const ERROR_ENTRIES = {
       {
         key: 'scopes',
         meaning: 'the scopes where it is live',
+      },
+    ],
+  },
+  'flow-version-pinned': {
+    description:
+      "The flow version is pinned in one or more scopes, so it can't be unregistered, and the flow can't be deleted while any of its versions is. Move the pin to another version, or unpin it, first.",
+    details: [
+      {
+        key: 'flowId',
+        meaning: 'the flow',
+      },
+      {
+        key: 'version',
+        meaning: 'the version',
+      },
+      {
+        key: 'scopes',
+        meaning: 'the scopes where it is pinned',
+      },
+    ],
+  },
+  'tool-version-pinned': {
+    description:
+      "The tool version is pinned in one or more scopes, so it can't be unregistered, and the tool can't be deleted while any of its versions is. Move the pin to another version, or unpin it, first.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: 'the tool',
+      },
+      {
+        key: 'version',
+        meaning: 'the version',
+      },
+      {
+        key: 'scopes',
+        meaning: 'the scopes where it is pinned',
       },
     ],
   },

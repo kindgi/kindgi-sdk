@@ -170,6 +170,177 @@ class RequestedBy(BaseModel):
     id: str
 
 
+class PinScopeTenant(BaseModel):
+    """
+    The whole tenant.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant"]
+
+
+class PinScopeOrg(BaseModel):
+    """
+    An org's projects.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org"]
+    org_id: Annotated[UUID, Field(alias="orgId")]
+
+
+class PinScopeProject(BaseModel):
+    """
+    One project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project"]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class PinActor(BaseModel):
+    """
+    Who pinned or unpinned: a user, or a service token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service"]
+    id: str
+
+
+class PinnedVersionResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    item_id: Annotated[str, Field(alias="itemId")]
+    """
+    The flow or tool.
+    """
+    version: str
+    """
+    The version in use there (semver): what a run that names no flow version takes, or what the next agent or flow version made there locks for a tool.
+    """
+    via: Literal["pinned", "latest"]
+    """
+    A pin chose it, or nothing is pinned on the way up and it is the newest version (for a flow, the newest the project reaches; for a tool, the newest active one).
+    """
+    pinned_scope: Annotated[
+        PinScopeTenant | PinScopeOrg | PinScopeProject | None,
+        Field(alias="pinnedScope", discriminator="kind"),
+    ] = None
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+
+
+class PinnedVersion(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    item_id: Annotated[str, Field(alias="itemId")]
+    scope: Annotated[PinScopeTenant | PinScopeOrg | PinScopeProject, Field(discriminator="kind")]
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+    version: str
+    change_id: Annotated[UUID, Field(alias="changeId")]
+    """
+    The change that set it.
+    """
+    set_at: Annotated[AwareDatetime, Field(alias="setAt")]
+    set_by: Annotated[PinActor, Field(alias="setBy")]
+
+
+class PinnedVersionList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[PinnedVersion]
+
+
+class PinnedVersionChange(BaseModel):
+    """
+    One change of a scope's pin, kept for good: what was pinned before, what is after, who asked and why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    item_id: Annotated[str, Field(alias="itemId")]
+    scope: Annotated[PinScopeTenant | PinScopeOrg | PinScopeProject, Field(discriminator="kind")]
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+    action: Literal["pin", "unpin"]
+    from_version: Annotated[str | None, Field(alias="fromVersion")]
+    """
+    The scope's own pin before; null when it had none.
+    """
+    to_version: Annotated[str | None, Field(alias="toVersion")]
+    """
+    The scope's own pin after; null after an unpin.
+    """
+    requested_by: Annotated[PinActor, Field(alias="requestedBy")]
+    reason: str | None = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+
+
+class PinnedVersionChangePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[PinnedVersionChange]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class PinVersionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The version to pin (registered, active).
+    """
+    scope: Annotated[PinScopeTenant | PinScopeOrg | PinScopeProject, Field(discriminator="kind")]
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
+
+
+class UnpinVersionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scope: Annotated[PinScopeTenant | PinScopeOrg | PinScopeProject, Field(discriminator="kind")]
+    """
+    Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.
+    """
+    reason: Annotated[str | None, Field(max_length=2000)] = None
+
+
 class GateCheck(BaseModel):
     """
     One of a gate's checks, as the promotion records it.
@@ -8485,10 +8656,13 @@ class RoleActions(BaseModel):
     ]
     flow: list[
         Annotated[
-            Literal["read", "write", "delete", "admin", "execute", "publish"] | str, _open.OPEN
+            Literal["read", "write", "delete", "admin", "execute", "publish", "pin"] | str,
+            _open.OPEN,
         ]
     ]
-    tool: list[Annotated[Literal["read", "write", "delete", "admin", "invoke"] | str, _open.OPEN]]
+    tool: list[
+        Annotated[Literal["read", "write", "delete", "admin", "invoke", "pin"] | str, _open.OPEN]
+    ]
     guardrail: list[Annotated[Literal["read", "write", "delete", "admin"] | str, _open.OPEN]]
     eval_suite: list[
         Annotated[
@@ -8974,6 +9148,12 @@ class EvidenceKind(RootModel[str]):
                 "agent-rollback",
                 "agent-live-unpinned",
                 "agent-live-pin-inactive",
+                "flow-pinned",
+                "flow-unpinned",
+                "flow-pin-inactive",
+                "tool-pinned",
+                "tool-unpinned",
+                "tool-pin-inactive",
                 "api-key-minted",
                 "api-key-revoked",
                 "service-account-created",
@@ -9144,6 +9324,12 @@ class ComplianceEvidence(BaseModel):
                 "agent-rollback",
                 "agent-live-unpinned",
                 "agent-live-pin-inactive",
+                "flow-pinned",
+                "flow-unpinned",
+                "flow-pin-inactive",
+                "tool-pinned",
+                "tool-unpinned",
+                "tool-pin-inactive",
                 "api-key-minted",
                 "api-key-revoked",
                 "service-account-created",
@@ -9242,6 +9428,12 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "agent-rollback",
                 "agent-live-unpinned",
                 "agent-live-pin-inactive",
+                "flow-pinned",
+                "flow-unpinned",
+                "flow-pin-inactive",
+                "tool-pinned",
+                "tool-unpinned",
+                "tool-pin-inactive",
                 "api-key-minted",
                 "api-key-revoked",
                 "service-account-created",
@@ -9317,6 +9509,12 @@ class Filter(BaseModel):
                 "agent-rollback",
                 "agent-live-unpinned",
                 "agent-live-pin-inactive",
+                "flow-pinned",
+                "flow-unpinned",
+                "flow-pin-inactive",
+                "tool-pinned",
+                "tool-unpinned",
+                "tool-pin-inactive",
                 "api-key-minted",
                 "api-key-revoked",
                 "service-account-created",
