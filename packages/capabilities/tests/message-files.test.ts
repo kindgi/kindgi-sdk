@@ -13,6 +13,7 @@ import {
   fileParts,
   filesForCall,
   headedFileParts,
+  isReadable,
 } from '../src/index.js';
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
@@ -364,6 +365,34 @@ describe('filesForCall: the files fileParts reads, without reading', () => {
       options.images ? [...images.slice(2).map((f) => f.artifactId), 'notes'] : ['notes'],
     );
     expect([...read].sort()).toEqual([...planned].sort());
+  });
+
+  test('isReadable: a file it reads when it fits; one it can read but that doesn’t fit is a `limit` line', async () => {
+    const readFile = store(bytes);
+    const parts = await fileParts(messages, { readFile, ...ALL });
+    const read = new Set(readFile.mock.calls.map(([id]) => id));
+    const readable = messages.flatMap((m) => m.files ?? []).filter((f) => isReadable(f, ALL));
+    expect(readable.filter((f) => read.has(f.artifactId))).toEqual(filesForCall(messages, ALL));
+    expect(readable.filter((f) => !read.has(f.artifactId)).map((f) => f.artifactId)).toEqual([
+      'p0',
+      'p1',
+    ]);
+    const shown = texts(parts.flat()).join('\n');
+    expect(shown.match(/over this call's file limit/g)).toHaveLength(2);
+  });
+
+  test('isReadable: not a file with a reason, a type or kind its model isn’t shown, or one too large', () => {
+    expect(isReadable(images[0] as MessageFile, ALL)).toBe(true);
+    expect(isReadable(notes, { ...ALL, images: false, documents: false })).toBe(true);
+    expect(isReadable({ ...(images[0] as MessageFile), notShown: 'refused' }, ALL)).toBe(false);
+    expect(isReadable(file('heic', 'image/heic', JPEG), ALL)).toBe(false);
+    expect(isReadable(images[0] as MessageFile, { ...ALL, images: false })).toBe(false);
+    expect(isReadable(receipt, { ...ALL, documents: false })).toBe(false);
+    expect(
+      isReadable(file('huge', 'image/png', JPEG, { size: FILE_LIMITS.imageBytes + 1 }), ALL),
+    ).toBe(false);
+    // A provider's own lower limit counts.
+    expect(isReadable(images[0] as MessageFile, { ...ALL, limits: { imageBytes: 4 } })).toBe(false);
   });
 });
 

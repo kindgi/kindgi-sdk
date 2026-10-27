@@ -3,11 +3,13 @@
 
 import {
   DOCUMENT_FILE_TYPES,
+  type FilePlanOptions,
   IMAGE_FILE_TYPES,
   type MessageFile,
   type ModelInfo,
   type ModelMessage,
   filesForCall,
+  isReadable,
 } from '@kindgi/capabilities';
 import { type FileValue, isFileValue } from '@kindgi/types';
 
@@ -94,18 +96,24 @@ export function agentSeesFiles(agent: Pick<Agent, 'capabilities'>): boolean {
  * reference, and a later version of the agent that needs `vision` is shown
  * the file. Each image and PDF in `refused` (the turn's model couldn't read
  * a call carrying it) is `notShown: 'refused'` the same way, for the rest
- * of the turn.
+ * of the turn. Each file in `leftOut` (one the first of a retried call's
+ * two left out, `filesLeftOut`) is `notShown: 'limit'`, so the second
+ * leaves it out too.
  */
 export function messagesForCall(
   messages: readonly ModelMessage[],
   seesFiles: boolean,
   refused: ReadonlySet<string> = new Set(),
+  leftOut: ReadonlySet<string> = new Set(),
 ): readonly ModelMessage[] {
-  if (seesFiles && refused.size === 0) return messages;
-  const reasonOf = (file: MessageFile): 'model' | 'refused' | undefined => {
-    if (!isUnseen(file)) return undefined;
-    if (!seesFiles) return 'model';
-    return refused.has(file.artifactId) ? 'refused' : undefined;
+  if (seesFiles && refused.size === 0 && leftOut.size === 0) return messages;
+  const reasonOf = (file: MessageFile): 'model' | 'refused' | 'limit' | undefined => {
+    if (file.notShown !== undefined) return undefined;
+    if (isImageOrPdf(file)) {
+      if (!seesFiles) return 'model';
+      if (refused.has(file.artifactId)) return 'refused';
+    }
+    return leftOut.has(file.artifactId) ? 'limit' : undefined;
   };
   return messages.map((message) =>
     message.files === undefined || !message.files.some((file) => reasonOf(file) !== undefined)
@@ -130,17 +138,32 @@ export function callFiles(
   messages: readonly ModelMessage[],
   model: Pick<ModelInfo, 'features' | 'contextWindow'>,
 ): readonly MessageFile[] {
-  const vision = model.features.includes('vision');
-  return filesForCall(messages, {
-    images: vision,
-    documents: vision,
-    contextWindow: model.contextWindow,
-  });
+  return filesForCall(messages, planOptions(model));
 }
 
-/** An image or a PDF with no reason yet not to be shown. */
-function isUnseen(file: MessageFile): boolean {
-  return file.notShown === undefined && isImageOrPdf(file);
+/**
+ * The files a call to `model` left out for its limits: each one it reads
+ * when it fits (`isReadable`), but whose bytes it never asked for
+ * (`asked`, every id its `readFile` was given). A file over its provider's
+ * own lower size limit is one too, as the call can't tell it apart; it
+ * isn't sent either way.
+ */
+export function filesLeftOut(
+  messages: readonly ModelMessage[],
+  model: Pick<ModelInfo, 'features' | 'contextWindow'>,
+  asked: ReadonlySet<string>,
+): ReadonlySet<string> {
+  const options = planOptions(model);
+  const leftOut = messages
+    .flatMap((message) => message.files ?? [])
+    .filter((file) => !asked.has(file.artifactId) && isReadable(file, options));
+  return new Set(leftOut.map((file) => file.artifactId));
+}
+
+/** A call to `model`'s plan: `FILE_LIMITS`, with images and PDFs for a model that declares `vision`. */
+function planOptions(model: Pick<ModelInfo, 'features' | 'contextWindow'>): FilePlanOptions {
+  const vision = model.features.includes('vision');
+  return { images: vision, documents: vision, contextWindow: model.contextWindow };
 }
 
 /** An image or a PDF: a file a call sends as itself, never as text. */

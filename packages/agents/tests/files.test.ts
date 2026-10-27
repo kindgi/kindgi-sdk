@@ -48,6 +48,7 @@ import {
   TOOL_RESULT_FILES,
   admitHistoryFiles,
   agentSeesFiles,
+  filesLeftOut,
   messagesForCall,
 } from '../src/handlers/files.js';
 import { buildModelCallHandler } from '../src/handlers/model-call.js';
@@ -180,6 +181,48 @@ describe("whether an agent's model is shown images and PDFs", () => {
     // The journal's and the conversation's messages are untouched.
     expect(JSON.stringify(messages)).toBe(before);
     expect(messagesForCall(messages, true)).toBe(messages);
+  });
+});
+
+describe('a call sent again without the files it carried', () => {
+  const MODEL = { features: ['vision'], contextWindow: 200_000 } as const;
+  const messages: readonly ModelMessage[] = [
+    {
+      role: 'user',
+      content: 'Is it broken?',
+      files: [
+        recordOf('art-1'),
+        recordOf('txt-2'),
+        { ...recordOf('art-3'), notShown: 'gone' },
+        recordOf('art-4'),
+        recordOf('doc-5'),
+        recordOf('art-6'),
+      ],
+    },
+  ];
+
+  test('the files the first call left out: each one it reads when it fits, whose bytes it never asked for', () => {
+    const asked = new Set(['art-4', 'doc-5', 'art-6']);
+    expect([...filesLeftOut(messages, MODEL, asked)]).toEqual(['art-1', 'txt-2']);
+    // A model without `vision` reads only the text file.
+    expect([...filesLeftOut(messages, { ...MODEL, features: [] }, asked)]).toEqual(['txt-2']);
+  });
+
+  test('its copy marks those `limit`, text files too, and the ones it carried `refused`; a file already marked stays', () => {
+    const call = messagesForCall(
+      messages,
+      true,
+      new Set(['art-4', 'doc-5']),
+      new Set(['art-1', 'txt-2', 'art-3']),
+    );
+    expect(call[0]?.files?.map((f) => f.notShown)).toEqual([
+      'limit',
+      'limit',
+      'gone',
+      'refused',
+      'refused',
+      undefined,
+    ]);
   });
 });
 

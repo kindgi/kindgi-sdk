@@ -175,6 +175,17 @@ export function filesForCall(
 }
 
 /**
+ * Whether a call reads the file when its limits leave room for it: no
+ * reason yet not to show it, a type its model is shown, within its kind's
+ * size. `fileParts` reads such a file when it fits, and shows a `limit`
+ * line for it when it doesn't; any other file is the line saying why.
+ */
+export function isReadable(file: MessageFile, options: FilePlanOptions): boolean {
+  const plan = planOf(file, options, callLimits(options));
+  return plan === 'send' || plan === 'text';
+}
+
+/**
  * Which files the call reads, by place (`m:f`): the newest that fit. A file
  * that doesn't fit what's left is skipped, and the fit goes on.
  */

@@ -8,6 +8,7 @@ import {
   type ModelCallInput,
   type ModelCallResult,
   type ModelCallWarning,
+  type ModelInfo,
   type ModelMessage,
   type ModelProvider,
   type ModelUsageRecord,
@@ -21,7 +22,7 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
-import { agentSeesFiles, callFiles, isImageOrPdf, messagesForCall } from './files.js';
+import { agentSeesFiles, callFiles, filesLeftOut, isImageOrPdf, messagesForCall } from './files.js';
 import { replayTag } from './replay.js';
 import { chargeTurnMemory } from './turn-memory.js';
 import { type FileRead, addModelCallNode, filesReadOf } from './turn-provenance.js';
@@ -92,6 +93,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
           messages,
           nextMessages,
           seesFiles,
+          model: ctx.model,
           announce,
           send: senderOf(ctx, ctx.provider, {
             model,
@@ -247,6 +249,8 @@ interface StepCall {
   /** The messages as the journal keeps them. */
   readonly nextMessages: readonly ModelMessage[];
   readonly seesFiles: boolean;
+  /** The model it's sent to: which files the call's limits leave out depends on it. */
+  readonly model: ModelInfo;
   /** Emits a call's `model.call.started`. */
   readonly announce: () => Promise<void>;
   readonly send: (messages: readonly ModelMessage[]) => Promise<Sent>;
@@ -274,13 +278,17 @@ async function callModel(
   return { answered, warnings: [...(answered.result.warnings ?? []), ...marks] };
 }
 
-/** One call sent: its answer, or what it threw; and the images and PDFs it carried. */
+/**
+ * One call sent: its answer, or what it threw; and the images and PDFs it
+ * carried. A call that threw also says which files' bytes it asked for.
+ */
 type Sent =
   | { readonly result: ModelCallResult; readonly carried: readonly MessageFile[] }
   | {
       readonly cause: unknown;
       readonly startedAt: number;
       readonly carried: readonly MessageFile[];
+      readonly asked: ReadonlySet<string>;
     };
 
 /**
@@ -296,8 +304,10 @@ function senderOf(
 ): (messages: readonly ModelMessage[]) => Promise<Sent> {
   return async (messages) => {
     const binding = ctx.files;
+    const asked = new Set<string>();
     const read = new Set<string>();
     const readFile = async (artifactId: string) => {
+      asked.add(artifactId);
       const bytes = await binding?.read(artifactId);
       if (bytes !== undefined) read.add(artifactId);
       return bytes;
@@ -311,7 +321,7 @@ function senderOf(
       });
       return { result, carried: carriedFiles(messages, read) };
     } catch (cause) {
-      return { cause, startedAt, carried: carriedFiles(messages, read) };
+      return { cause, startedAt, carried: carriedFiles(messages, read), asked };
     }
   };
 }
@@ -338,9 +348,11 @@ function carriedFiles(
  * A call that threw. The provider refused it as an invalid request
  * (`invalidRequest`) while it carried images or PDFs, so one of them may be
  * what it can't read: the same call is sent once more, in the same step,
- * with a line in each one's place. When that call answers, it's the step's,
- * and the turn goes on without them. When it throws too, the step fails
- * with the first call's failure.
+ * with a line in each one's place. The files the first call left out for
+ * its limits are left out again (`filesLeftOut`), so the second call is the
+ * first without the files it carried. When that call answers, it's the
+ * step's, and the turn goes on without them. When it throws too, the step
+ * fails with the first call's failure.
  *
  * Any other failure fails the step as it is, and keeps the files: a 429, a
  * 5xx, no response, auth, a context too long, a content filter, an error
@@ -357,7 +369,7 @@ async function retryWithoutFiles(
   first: { readonly callId: string; readonly failed: Extract<Sent, { readonly cause: unknown }> },
 ): Promise<Answered> {
   const { step } = call;
-  const { cause, carried, startedAt } = first.failed;
+  const { cause, carried, startedAt, asked } = first.failed;
   const failure = { callId: first.callId, step, cause, startedAt };
   if (
     carried.length === 0 ||
@@ -378,7 +390,8 @@ async function retryWithoutFiles(
 
   ctx.filesRetried = true;
   const refused = new Set([...(ctx.refusedFiles ?? []), ...carried.map((f) => f.artifactId)]);
-  const messages = messagesForCall(call.nextMessages, call.seesFiles, refused);
+  const leftOut = filesLeftOut(call.messages, call.model, asked);
+  const messages = messagesForCall(call.nextMessages, call.seesFiles, refused, leftOut);
   const callId = randomUUID();
   await call.announce();
   const again = await call.send(messages);
@@ -394,9 +407,9 @@ async function retryWithoutFiles(
 }
 
 /**
- * The adapters' `ModelProviderError` of kind `invalid-request` (a 400, 404,
- * 413 or 422 whose words say no more), by its shape: agents doesn't
- * depend on the adapters.
+ * The adapters' `ModelProviderError` of kind `invalid-request` (any 4xx
+ * `kindOf` doesn't place otherwise), by its shape: agents doesn't depend on
+ * the adapters.
  */
 function invalidRequest(cause: unknown): boolean {
   return (
