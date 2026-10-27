@@ -138,6 +138,8 @@ function filesBinding(allowed: readonly string[]) {
       read.push(artifactId);
       return allowed.includes(artifactId) ? BYTES : undefined;
     },
+    shown: async () => {},
+    refuse: async () => {},
   };
   return { files, admitted, read };
 }
