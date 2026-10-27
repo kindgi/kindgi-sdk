@@ -508,15 +508,20 @@ Test run mypack.guardrails.AnswerLengthSuite finished: 0 failed, 0 ignored, 2 to
 
 ## In the console
 
-A project's **Guardrails** page lists its guardrails: "Checks on each agent
-answer: how each checks, what happens when it fires, which agents it
-covers." Each row has:
-- **How it checks:** "A rule in code, no model call", "A model judges each
-  answer, a model call each time" or "Another system checks it", with its
-  check, such as "Check: forbidden substring (built in)";
-- **When it fires:** "The turn fails", or "It is recorded; nothing stops";
-- **Applies:** "In runs and in CI", or "In runs only, not in CI";
-- **Named by:** how many agents name it, "1 agent", or "No agent".
+A project's **Guardrails** page lists its guardrails: "Checks on agents'
+answers: what each checks, what happens when an answer breaks it, and the
+agents it checks. A run checks an agent only with the guardrails its
+version names." Each row has:
+- **Guardrail:** its name and description;
+- **Check:** its check, such as "Forbidden substring", and how it checks:
+  "A rule in code", "A model judges it, a call per answer" or "Another
+  system checks it";
+- **If an answer breaks it:** "The turn fails" ("Its answer isn't kept"),
+  or "Recorded only" ("The answer goes out");
+- **Agents it checks:** the agents it checks here, by name, or "None yet",
+  which says why when you point at it. Under them, "Not in runs: in CI
+  only" for a guardrail only CI runs, and "Only for …" or "Only in flows …"
+  for one limited to some agents or flows.
 
 The list has a search box, sorts by a column's header, and **Columns**
 chooses which columns it shows.
@@ -524,8 +529,10 @@ chooses which columns it shows.
 ![The Guardrails page: "Checks on each agent answer: how each checks, what happens when it fires, which agents it covers.", a search box and the Columns menu, then No secrets in answers, Says thanks, No refund promises, No shouting and No placeholder text, each a rule in code with its built-in check, when it fires, where it applies and how many agents name it: 1 agent each, and No agent for No placeholder text.](../../../../assets/guardrails/guardrails-list.png)
 
 A guardrail's page has:
-- **What it checks:** how, the check, its settings, when it fires, its
-  severity and where it applies.
+- **What it checks:** how, the check, its settings, what happens if an
+  answer breaks it ("The turn fails: its answer isn't kept"), its severity,
+  and where it applies: "In every run", "In every run, not in CI" or "Not
+  in runs: in CI only".
 - **Agents it checks:** each agent version that names it and can run here,
   marked "(latest)", "(pinned)" or "(pinned and latest)".
 - **What it caught:** its outcomes by agent version, as
