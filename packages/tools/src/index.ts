@@ -22,7 +22,7 @@ export type {
 import './http.js';
 export { registerToolSpecSynthesizer, getToolSpecSynthesizer } from './spec-registry.js';
 export type { ToolSpecSynthesizer, ToolSpecSynthesizerOptions } from './spec-registry.js';
-export { MAX_STORED_FILES_PER_CALL } from './files.js';
+export { MAX_STORED_FILES_PER_CALL, MAX_STORED_FILE_BYTES } from './files.js';
 export type { FileNotStoredReason, FileStore, FileStoreAnswer, FileToStore } from './files.js';
 export { invokeTool, invokeToolOrPause, toolOutputIssues } from './invoke.js';
 export {

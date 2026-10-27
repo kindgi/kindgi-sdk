@@ -20,6 +20,13 @@ import type { FileNotShownReason, FileValue } from '@kindgi/types';
 /** The most files one call may store: the call's later stores answer `limit`. */
 export const MAX_STORED_FILES_PER_CALL = 10;
 
+/**
+ * The most bytes a stored file may have: the largest any type allows (a
+ * PDF's 10 MB). A pack's store of more answers `size` without sending its
+ * bytes.
+ */
+export const MAX_STORED_FILE_BYTES = 10_000_000;
+
 /** A file a tool stores: its name, the type its source declares, and its bytes. */
 export interface FileToStore {
   /** Its name, as its source gives it. An empty one is stored as `unnamed`. */

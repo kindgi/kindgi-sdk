@@ -10,7 +10,13 @@
  * answered. The handler never sees the link or the token.
  */
 
-import type { FileNotStoredReason, FileStore, FileStoreAnswer, FileToStore } from '@kindgi/tools';
+import {
+  type FileNotStoredReason,
+  type FileStore,
+  type FileStoreAnswer,
+  type FileToStore,
+  MAX_STORED_FILE_BYTES,
+} from '@kindgi/tools';
 import { bearerValueProblem, headerValueProblem, isFileValue } from '@kindgi/types';
 
 import type { FileUploadRef } from './protocol.js';
@@ -46,12 +52,14 @@ export function fileStoreOf(upload: FileUploadRef, signal?: AbortSignal): FileSt
   return Object.freeze({
     store: async (file: FileToStore): Promise<FileStoreAnswer> => {
       checkFile(file);
+      // Over every type's limit: the runtime would answer `size`, so nothing is sent.
+      if (file.bytes.byteLength > MAX_STORED_FILE_BYTES) return { notStored: 'size' };
       const response = await fetch(upload.url, {
         method: 'POST',
         headers: {
           authorization: `Bearer ${upload.token}`,
           'content-type': sendableType(file.contentType),
-          'kindgi-file-name': encodeURIComponent(file.name),
+          'kindgi-file-name': encodeURIComponent(wellFormed(file.name)),
         },
         body: file.bytes,
         ...(signal !== undefined && { signal }),
@@ -59,6 +67,15 @@ export function fileStoreOf(upload: FileUploadRef, signal?: AbortSignal): FileSt
       return answerOf(response);
     },
   });
+}
+
+/**
+ * `text` with each lone surrogate as U+FFFD, as `String.prototype.toWellFormed`
+ * (ES2024, past the language version this package compiles to) gives it: a
+ * name from JSON can hold one, and `encodeURIComponent` throws on it.
+ */
+function wellFormed(text: string): string {
+  return text.replace(/\p{Cs}/gu, '\uFFFD');
 }
 
 /** A JavaScript handler's file, checked: TypeScript can't hold it to `FileToStore`. */

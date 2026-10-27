@@ -23,6 +23,7 @@ import httpx
 
 __all__ = [
     "MAX_STORED_FILES_PER_CALL",
+    "MAX_STORED_FILE_BYTES",
     "FileStore",
     "FileStoreAnswer",
     "FileStoreError",
@@ -32,6 +33,10 @@ __all__ = [
 
 MAX_STORED_FILES_PER_CALL: Final = 10
 """The most files one call may store: the call's later stores answer `limit`."""
+
+MAX_STORED_FILE_BYTES: Final = 10_000_000
+"""The most bytes a stored file may have: the largest any type allows (a PDF's 10 MB). A store
+of more answers `size` without sending its bytes."""
 
 NotStoredReason = Literal["type", "size", "limit"]
 """Why a store kept nothing: `type` (the bytes aren't a type a model is shown, or not the type
@@ -84,6 +89,8 @@ class FileStore:
         the runtime checks the bytes against. Raises `FileStoreError` when the runtime refuses
         the store or can't be reached."""
         request = self._request(name, content_type, data)
+        if request is None:
+            return FileStoreAnswer(not_stored="size")
         try:
             with httpx.Client(timeout=_TIMEOUT) as client:
                 response = client.post(self._url, **request)
@@ -94,6 +101,8 @@ class FileStore:
     async def store_async(self, *, name: str, content_type: str, data: bytes) -> FileStoreAnswer:
         """`store`, from an async handler."""
         request = self._request(name, content_type, data)
+        if request is None:
+            return FileStoreAnswer(not_stored="size")
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 response = await client.post(self._url, **request)
@@ -101,18 +110,25 @@ class FileStore:
             raise FileStoreError(f"files.store: the runtime can't be reached: {cause}") from None
         return _answer_of(response)
 
-    def _request(self, name: str, content_type: str, data: bytes) -> dict[str, Any]:
+    def _request(self, name: object, content_type: object, data: object) -> dict[str, Any] | None:
+        """The store's request, or None for bytes over `MAX_STORED_FILE_BYTES`: the runtime
+        would answer `size`, so nothing is sent. Its arguments are checked as any values: a
+        handler's types aren't checked when it runs."""
         if not isinstance(name, str) or not isinstance(content_type, str):
             raise TypeError("files.store takes name: str, content_type: str, data: bytes")
-        if not isinstance(data, (bytes, bytearray, memoryview)):
+        # A memoryview's length counts its items, not its bytes.
+        content = data.tobytes() if isinstance(data, memoryview) else data
+        if not isinstance(content, (bytes, bytearray)):
             raise TypeError("files.store takes name: str, content_type: str, data: bytes")
+        if len(content) > MAX_STORED_FILE_BYTES:
+            return None
         return {
             "headers": {
                 "authorization": f"Bearer {self._token}",
                 "content-type": _sendable_type(content_type),
-                "kindgi-file-name": quote(name, safe=""),
+                "kindgi-file-name": quote(_well_formed(name), safe=""),
             },
-            "content": bytes(data),
+            "content": bytes(content),
         }
 
 
@@ -139,6 +155,12 @@ def _is_http_url(url: str) -> bool:
     return parts.scheme in ("http", "https") and parts.netloc != ""
 
 
+def _well_formed(text: str) -> str:
+    """`text` with each lone surrogate as U+FFFD, as JavaScript's `toWellFormed` gives it: a name
+    from JSON can hold one, and UTF-8 can't encode it. A pair of surrogates stays one character."""
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+
+
 def _sendable_type(content_type: str) -> str:
     """The declared type as a header can carry it; the runtime decides by the bytes."""
     if content_type == "" or not _is_header_safe(content_type):
@@ -162,7 +184,7 @@ def _answer_of(response: httpx.Response) -> FileStoreAnswer:
                 return FileStoreAnswer(file=cast("Mapping[str, Any]", answer["file"]))
             reason = answer.get("notStored")
             if reason in _NOT_STORED_REASONS:
-                return FileStoreAnswer(not_stored=cast("NotStoredReason", reason))
+                return FileStoreAnswer(not_stored=reason)
         raise FileStoreError("files.store: the runtime's answer isn't a stored file or a reason")
     code = _error_code(body)
     raise FileStoreError(

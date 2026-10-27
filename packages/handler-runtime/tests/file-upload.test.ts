@@ -10,7 +10,7 @@
 import { type IncomingHttpHeaders, type Server, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import type { FileStore, FileToStore } from '@kindgi/tools';
+import { type FileStore, type FileToStore, MAX_STORED_FILE_BYTES } from '@kindgi/tools';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 
 import { fileStoreOf, fileUploadOf } from '../src/file-upload.js';
@@ -145,6 +145,11 @@ describe('a tool that stores files', () => {
     expect(received[0]?.headers['kindgi-file-name']).toBe('Rechnung%20M%C3%A4rz%0D%0A.pdf');
   });
 
+  test('a lone surrogate in the name goes as U+FFFD; a pair stays one character', async () => {
+    await filesOf(fileContext()).store({ ...invoice, name: 'a\ud800b\ud83d\ude00.pdf' });
+    expect(received[0]?.headers['kindgi-file-name']).toBe('a%EF%BF%BDb%F0%9F%98%80.pdf');
+  });
+
   test.each([
     ['no type', ''],
     ['a line break', 'application/pdf\r\nx-acme: 1'],
@@ -195,6 +200,13 @@ describe('a tool that stores files', () => {
       '400 (token [redacted] refused)',
     );
     expect(JSON.stringify(outcome)).not.toContain(token);
+  });
+
+  test('a file over the largest any type allows answers size, and nothing is sent', async () => {
+    const store = fileStoreOf({ url, token });
+    const over = { ...invoice, bytes: new Uint8Array(MAX_STORED_FILE_BYTES + 1) };
+    await expect(store.store(over)).resolves.toEqual({ notStored: 'size' });
+    expect(received).toEqual([]);
   });
 
   test("a store the link doesn't answer stops with the call's abort signal", async () => {

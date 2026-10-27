@@ -41,7 +41,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
-import { FILE_LIMITS } from '@kindgi/capabilities';
+import { MAX_STORED_FILE_BYTES } from '@kindgi/tools';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { FileUploadBinding, FileUploadRefusal } from '../file-upload-binding.js';
@@ -55,12 +55,11 @@ import {
 import { readCapped } from '../read-capped.js';
 import type { AppEnv } from '../types.js';
 
-/** The most of a body that's read: the largest file a model is shown (a PDF's 10 MB). */
-export const FILE_UPLOAD_MAX_BYTES = Math.max(
-  FILE_LIMITS.imageBytes,
-  FILE_LIMITS.documentBytes,
-  FILE_LIMITS.textBytes,
-);
+/**
+ * The most of a body that's read: the largest file a model is shown (a
+ * PDF's 10 MB). A pack's store of more never sends it.
+ */
+export const FILE_UPLOAD_MAX_BYTES = MAX_STORED_FILE_BYTES;
 
 /**
  * Requests a client may make to the upload route in a minute, counted
