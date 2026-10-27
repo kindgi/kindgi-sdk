@@ -3,6 +3,7 @@
 
 import {
   DOCUMENT_FILE_TYPES,
+  type FileForm,
   type FilePlanOptions,
   IMAGE_FILE_TYPES,
   type MessageFile,
@@ -11,7 +12,7 @@ import {
   filesForCall,
   isReadable,
 } from '@kindgi/capabilities';
-import type { FileStore, FileStoreAnswer, FileToStore, Tool } from '@kindgi/tools';
+import type { FileReadAnswer, FileStore, FileStoreAnswer, FileToStore, Tool } from '@kindgi/tools';
 import { type FileValue, isFileValue } from '@kindgi/types';
 
 import type { Agent } from '../types.js';
@@ -41,14 +42,25 @@ export interface FileBinding {
    * never from the value. `notShown: 'gone'` when the file is deleted, or
    * `'changed'` when the value's sha256 isn't the record's. `undefined` when
    * the rule doesn't let the turn show it: the value stays plain JSON.
+   *
+   * Without `call`, that's all: the answer is kept, as the turn's input, a
+   * tool's result or a message's files. With `call`, it's one model call's
+   * copy, never kept (`withFileForms`): each file also carries what the
+   * runtime made of it for that call, sent in its place (`rendition`,
+   * `extracted`), found or made and waited for; or it's `notShown:
+   * 'reading'` while that's made, or why it isn't shown. `seesFiles`: the
+   * call's model is shown images and PDFs.
    */
-  admit(values: readonly FileValue[]): Promise<readonly (MessageFile | undefined)[]>;
+  admit(
+    values: readonly FileValue[],
+    call?: { readonly seesFiles: boolean },
+  ): Promise<readonly (MessageFile | undefined)[]>;
   /**
-   * A file's bytes, read for one model call (`ModelCallInput.readFile`),
-   * after the same rule is asked again. `undefined` when it's gone or the
-   * rule refuses it.
+   * A file's bytes, or a form made of it (`form`), read for one model call
+   * (`ModelCallInput.readFile`), after the same rule is asked again.
+   * `undefined` when it's gone, its form isn't made, or the rule refuses it.
    */
-  read(artifactId: string): Promise<Uint8Array | undefined>;
+  read(artifactId: string, form?: FileForm): Promise<Uint8Array | undefined>;
   /**
    * Store a file a tool's call fetched (`Tool.storesFiles`), as a file the
    * turn's run owns: the runtime checks the bytes and answers the file
@@ -61,6 +73,15 @@ export interface FileBinding {
     call: { readonly callKey: string; readonly toolId: string },
     file: FileToStore,
   ): Promise<FileStoreAnswer>;
+  /**
+   * A file's own bytes, as it was stored, never a copy made for a model,
+   * for a tool's call that reads files (`Tool.readsFiles`), after the
+   * run's rule is asked: `notRead: 'rule'` when the rule doesn't let the
+   * turn show it, and `gone`, `changed` or `size` as `FileStore.read` says.
+   * `signal` is the call's: a read still waiting for room in the runtime's
+   * memory stops when it aborts.
+   */
+  readSource(artifactId: string, signal?: AbortSignal): Promise<FileReadAnswer>;
   /**
    * A call that carried these files answered: its model was shown them.
    * That only decides which files a later `refuse` marks. Marking one
@@ -76,22 +97,52 @@ export interface FileBinding {
    * sent again. Marking one already marked changes nothing.
    */
   refuse(artifactIds: readonly string[]): Promise<void>;
+  /**
+   * Room for one model call's files while they're in flight: each one's
+   * bytes, their base64 and the request body, in the runtime's memory for
+   * files. A call holds it before it reads any of them, waiting its turn
+   * when there's none, and releases it once it answers or fails.
+   * `undefined` when there's no room in time, or the signal aborts the
+   * wait: the call is sent with a `limit` line for each of them, and a
+   * later call shows them again. Absent: a call holds nothing.
+   */
+  hold?(files: readonly MessageFile[], signal: AbortSignal): Promise<FileHold | undefined>;
+}
+
+/** A model call's room for its files (`FileBinding.hold`). Released once. */
+export interface FileHold {
+  release(): void;
 }
 
 /**
- * The call's file store (`ToolContext.files`): for a tool that declares
- * `storesFiles`, on a call with an idempotency key, which the dedupe and
- * the count go by. None otherwise, and a file the tool fetches is
- * `notShown: 'store'`.
+ * The call's files (`ToolContext.files`), for a tool that runs in this
+ * process, with only what it declares: `store` (`storesFiles`) on a call
+ * with an idempotency key, which the dedupe and the count go by, and
+ * `read` (`readsFiles`). None when it declares neither, or with no
+ * binding: a file the tool fetches is then `notShown: 'store'`. A pack's
+ * own code and an MCP tool run elsewhere: their runner gets the call's
+ * files, if any, from the runtime. A read passes on `signal`, the call's
+ * (`FileBinding.readSource`).
  */
 export function callFileStore(
   files: FileBinding | undefined,
-  tool: Pick<Tool, 'id' | 'storesFiles'>,
+  tool: Pick<Tool, 'id' | 'storesFiles' | 'readsFiles' | 'codeArtifactRef' | 'transport'>,
   callKey: string | undefined,
+  signal?: AbortSignal,
 ): FileStore | undefined {
-  if (files === undefined || tool.storesFiles !== true || callKey === undefined) return undefined;
-  const call = { callKey, toolId: tool.id as unknown as string };
-  return Object.freeze({ store: (file: FileToStore) => files.store(call, file) });
+  if (files === undefined || tool.codeArtifactRef !== undefined || tool.transport === 'mcp') {
+    return undefined;
+  }
+  const call =
+    tool.storesFiles === true && callKey !== undefined
+      ? { callKey, toolId: tool.id as unknown as string }
+      : undefined;
+  const reads = tool.readsFiles === true;
+  if (call === undefined && !reads) return undefined;
+  return Object.freeze({
+    ...(call !== undefined && { store: (file: FileToStore) => files.store(call, file) }),
+    ...(reads && { read: (artifactId: string) => files.readSource(artifactId, signal) }),
+  });
 }
 
 /**
@@ -118,9 +169,42 @@ export function agentSeesFiles(agent: Pick<Agent, 'capabilities'>): boolean {
 }
 
 /**
+ * The messages with each file's form for one call to the turn's model
+ * (`FileBinding.admit` with the call), in the call's copy only: the journal
+ * and the conversation keep the plain references, so each call finds its
+ * own, and a text made since an earlier call is sent. A file the rule no
+ * longer admits is `gone`. Without a binding, or a file to show, the
+ * messages are as they are.
+ */
+export async function withFileForms(
+  ctx: TurnContext,
+  messages: readonly ModelMessage[],
+  seesFiles: boolean,
+): Promise<readonly ModelMessage[]> {
+  const binding = ctx.files;
+  const shown = messages.flatMap((message) => message.files ?? []).filter(isShown);
+  if (binding === undefined || shown.length === 0) return messages;
+  const admitted = (await binding.admit(shown.map(asFileValue), { seesFiles })).values();
+  return messages.map((message) =>
+    message.files === undefined || !message.files.some(isShown)
+      ? message
+      : {
+          ...message,
+          files: message.files.map((file): MessageFile => {
+            if (!isShown(file)) return file;
+            return admitted.next().value ?? { ...file, notShown: 'gone' };
+          }),
+        },
+  );
+}
+
+const isShown = (file: MessageFile) => file.notShown === undefined;
+
+/**
  * The messages as one model call gets them. For an agent that doesn't need
- * `vision`, each image and PDF not already marked is `notShown: 'model'`, so
- * the model reads a line naming it, as an agent did before files. Only the
+ * `vision`, each image and PDF sent as itself, not already marked, is
+ * `notShown: 'model'`, so the model reads a line naming it, as an agent did
+ * before files; one with its text in its place is sent that. Only the
  * call's copy is marked: the journal and the conversation keep the plain
  * reference, and a later version of the agent that needs `vision` is shown
  * the file. Each image and PDF in `refused` (the turn's model couldn't read
@@ -138,7 +222,7 @@ export function messagesForCall(
   if (seesFiles && refused.size === 0 && leftOut.size === 0) return messages;
   const reasonOf = (file: MessageFile): 'model' | 'refused' | 'limit' | undefined => {
     if (file.notShown !== undefined) return undefined;
-    if (isImageOrPdf(file)) {
+    if (sentAsImageOrPdf(file)) {
       if (!seesFiles) return 'model';
       if (refused.has(file.artifactId)) return 'refused';
     }
@@ -195,7 +279,7 @@ function planOptions(model: Pick<ModelInfo, 'features' | 'contextWindow'>): File
   return { images: vision, documents: vision, contextWindow: model.contextWindow };
 }
 
-/** An image or a PDF: a file a call sends as itself, never as text. */
+/** An image or a PDF: a file a call sends as itself, unless its text is sent in its place. */
 export function isImageOrPdf(file: Pick<MessageFile, 'contentType'>): boolean {
   return (
     (IMAGE_FILE_TYPES as readonly string[]).includes(file.contentType) ||
@@ -203,9 +287,18 @@ export function isImageOrPdf(file: Pick<MessageFile, 'contentType'>): boolean {
   );
 }
 
-/** A file the turn admitted, as the value a conversation keeps. */
+/**
+ * A file a call sends as an image or a PDF: its `rendition`, or itself with
+ * no `extracted` text in its place.
+ */
+export function sentAsImageOrPdf(file: MessageFile): boolean {
+  if (file.extracted !== undefined) return false;
+  return file.rendition !== undefined || isImageOrPdf(file);
+}
+
+/** A file the turn admitted, as the value a conversation keeps: a file's fields only, no form. */
 export function asFileValue(file: MessageFile): FileValue {
-  return { type: 'kindgi.file', ...file };
+  return { type: 'kindgi.file', ...asMessageFile(file) };
 }
 
 /**
@@ -234,6 +327,8 @@ export async function admitInputFiles(
  * message: the run's rule asked again, once for the whole history. A value
  * it refuses has lost the record it was admitted by (the file is deleted or
  * going), so it's a `gone` line. Without a binding, each is a `store` line.
+ * No form is kept here, whatever the binding answers: a call's forms are its
+ * own copy's (`withFileForms`).
  */
 export async function admitHistoryFiles(
   ctx: TurnContext,
@@ -246,7 +341,7 @@ export async function admitHistoryFiles(
     binding === undefined ? values.map(() => undefined) : await binding.admit(values);
   const files = values.map((value, i): MessageFile => {
     const file = admitted[i];
-    if (file !== undefined) return file;
+    if (file !== undefined) return asMessageFile(file);
     return { ...asMessageFile(value), notShown: binding === undefined ? 'store' : 'gone' };
   });
   let next = 0;
@@ -298,7 +393,7 @@ function hasFilesField(
 }
 
 /** A kept file value as the file a model message carries: a file's fields only. */
-export function asMessageFile(value: FileValue): MessageFile {
+export function asMessageFile(value: Omit<FileValue, 'type'>): MessageFile {
   const { artifactId, name, contentType, size, sha256, pages, notShown } = value;
   return {
     artifactId,

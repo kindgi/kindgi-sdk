@@ -13,25 +13,35 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
-- `kindgi`: **a tool can store the files it fetches.** `@tool(stores_files=True)`
-  gives each call `ctx.files`: `ctx.files.store(name=…, content_type=…, data=…)`
-  (`store_async` from an async handler) stores a file, such as a mail's
-  attachment, as a file the call's run owns. The runtime checks the bytes and
-  answers the file's value, which the tool returns in its result's top-level
-  `files`, and an agent is shown the file; or it answers why nothing was stored
-  (`type`, `size`, or `limit` past 10 files a call). A file over
-  `MAX_STORED_FILE_BYTES` (10 MB, the most any type allows) answers `size`
-  without its bytes being sent. The same bytes again in the same call answer
-  the first file. The pack service posts the bytes to the
-  call's upload link, and the handler never sees the link or its token. A call
-  from a runtime before pack protocol 2.10.0 carries no upload, and
-  `ctx.files` is `None`. The pack's index carries it as `storesFiles`, and
-  the client's `Tool` gains `stores_files`.
+- `kindgi`: **a tool can store the files it fetches, and read the files it's
+  given.** `@tool(stores_files=True)` gives each call with an idempotency key
+  `ctx.files.store(name=…, content_type=…, data=…)` (`store_async` from an
+  async handler): it stores a file, such as a mail's attachment, as a file the
+  call's run owns. The runtime checks the bytes and answers the file's value,
+  which the tool returns in its result's top-level `files`, and an agent is
+  shown the file; or it answers why nothing was stored (`type`, `size`,
+  `limit` past 10 files a call, or `storage` when the tenant's storage is
+  full). A file over `MAX_STORED_FILE_BYTES` (10 MB, the most any type allows)
+  answers `size` without its bytes being sent. The same bytes again in the
+  same call answer the first file. `@tool(reads_files=True)` gives each call
+  `ctx.files.read(artifact_id)` (`read_async` from an async handler): the
+  bytes of a file the call's run may be shown, as `FileReadAnswer.data`, or
+  why there are none, as `not_read` (`rule`, `gone`, `changed` or `size`).
+  `ctx.files.stores` and `ctx.files.reads` say which a call has; the other
+  raises `FileStoreError`. The pack service posts a store's bytes to the
+  call's tool files link and gets a read's from under it, and the handler
+  never sees the link or its token. A call from a runtime before pack protocol
+  2.10.0 carries no tool files, and `ctx.files` is `None`. The pack's index
+  carries them as `storesFiles` and `readsFiles`, and the client's `Tool`
+  gains `stores_files` and `reads_files`.
 
 - `kindgi`: **a conversation's messages carry their files.** The client's
   `ConversationMessage` gains `files`: the stored files the message names, each
   a `FileValue` (`artifact_id`, `name`, `content_type`, `size`, `sha256`), as
   `conversations.messages` returns them. It's `None` on a message with none.
+  A file's `not_shown` is `reading` when what the model is sent in its place,
+  an image or a text made from it, isn't made yet, and `storage` when a tool's
+  store found the tenant's storage full.
 
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a

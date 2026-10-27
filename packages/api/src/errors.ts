@@ -74,8 +74,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'flow-not-found': 404,
   // No wait token matches the link (an unknown token and a wrong secret alike).
   'wait-token-not-found': 404,
-  // No file upload matches the bearer (no token, an unknown one and a wrong secret alike).
-  'file-upload-not-found': 404,
+  // No tool call's files match the bearer (no token, an unknown one, a wrong
+  // secret, and a call that may not do what's asked alike).
+  'tool-file-token-not-found': 404,
   // 409 — conflict
   'already-terminal': 409,
   'fact-changed': 409,
@@ -85,8 +86,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-lease-lost': 409,
   // The wait a token belongs to is over (`details.state`).
   'wait-token-closed': 409,
-  // A file upload whose call has answered, whose time has passed, or whose run has ended.
-  'file-upload-closed': 409,
+  // A tool call's files whose call has answered, whose time has passed, or whose run has ended.
+  'tool-file-token-closed': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
   'idempotency-key-replay-withheld': 409,
@@ -178,6 +179,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    * other method answers 500 (`mapThrownError`).
    */
   'database-busy': 503,
+  /**
+   * A pack tool's store or read of a file the runtime's memory for files has
+   * no room for now (`/v1/tool-files`, `Retry-After`).
+   */
+  'tool-files-busy': 503,
   // Waitpoint domain: "no pending token" or "already resolved" are
   // 409-shaped (a caller conflict with the run's current state).
   'waitpoint-error': 409,

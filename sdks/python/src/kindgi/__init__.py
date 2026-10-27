@@ -41,6 +41,7 @@ from .pack.define import (
 from .pack.files import (
     MAX_STORED_FILE_BYTES,
     MAX_STORED_FILES_PER_CALL,
+    FileReadAnswer,
     FileStore,
     FileStoreAnswer,
     FileStoreError,
@@ -57,6 +58,7 @@ __all__ = [
     "ConnectionAccount",
     "ConnectionRejected",
     "DefinitionError",
+    "FileReadAnswer",
     "FileStore",
     "FileStoreAnswer",
     "FileStoreError",

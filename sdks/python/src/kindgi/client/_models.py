@@ -3707,14 +3707,26 @@ class FileValue(BaseModel):
     """
     not_shown: Annotated[
         Annotated[
-            Literal["type", "size", "model", "limit", "store", "gone", "changed", "refused"] | str,
+            Literal[
+                "type",
+                "size",
+                "model",
+                "limit",
+                "store",
+                "gone",
+                "changed",
+                "refused",
+                "storage",
+                "reading",
+            ]
+            | str,
             _open.OPEN,
         ]
         | None,
         Field(alias="notShown"),
     ] = None
     """
-    Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached).
+    Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached), `storage` (a tool's store found the tenant's storage full), `reading` (what the model is sent in its place, an image or a text made from it, isn't made yet).
     """
 
 
@@ -10389,7 +10401,7 @@ class WaitTokenAccepted(BaseModel):
     status: Literal["accepted"]
 
 
-class FileUploadAnswer1(BaseModel):
+class ToolFileStoreAnswer1(BaseModel):
     """
     What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).
     """
@@ -10401,7 +10413,7 @@ class FileUploadAnswer1(BaseModel):
     file: FileValue
 
 
-class FileUploadAnswer2(BaseModel):
+class ToolFileStoreAnswer2(BaseModel):
     """
     What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).
     """
@@ -10410,16 +10422,31 @@ class FileUploadAnswer2(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    not_stored: Annotated[Literal["type", "size", "limit"], Field(alias="notStored")]
+    not_stored: Annotated[Literal["type", "size", "limit", "storage"], Field(alias="notStored")]
     """
-    Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files). The tool returns it as the file's `notShown` reason.
+    Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the tenant's storage is full). The tool returns it as the file's `notShown` reason.
     """
 
 
-class FileUploadAnswer(RootModel[FileUploadAnswer1 | FileUploadAnswer2]):
-    root: FileUploadAnswer1 | FileUploadAnswer2
+class ToolFileStoreAnswer(RootModel[ToolFileStoreAnswer1 | ToolFileStoreAnswer2]):
+    root: ToolFileStoreAnswer1 | ToolFileStoreAnswer2
     """
     What a pack tool's file store answers: the stored file (`file`), for the tool to return in its result's top-level `files`, or why nothing was stored (`notStored`).
+    """
+
+
+class ToolFileNotRead(BaseModel):
+    """
+    Why a pack tool's read of a stored file answered no bytes. The read's bytes come as `application/octet-stream` instead.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    not_read: Annotated[Literal["rule", "gone", "changed", "size"], Field(alias="notRead")]
+    """
+    `rule` (the call's run may not be shown a file of that id, whether or not the id names a file elsewhere), `gone` (deleted, or its bytes are missing), `changed` (its bytes aren't the ones that were checked), `size` (over its type's limit).
     """
 
 
@@ -14230,6 +14257,10 @@ class RegisterToolBody(BaseModel):
     """
     `true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
+    reads_files: Annotated[bool | None, Field(alias="readsFiles")] = None
+    """
+    `true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
     `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
@@ -16580,6 +16611,10 @@ class Tool(BaseModel):
     """
     `true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
+    reads_files: Annotated[bool | None, Field(alias="readsFiles")] = None
+    """
+    `true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """
     `true` when the tool's results are text from outside that nobody checked, such as a mail someone sent: an agent reads each result as data, not instructions, in that turn and in every later turn's history. Absent means `false`.
@@ -16696,6 +16731,10 @@ class ToolVersionRow(BaseModel):
     stores_files: Annotated[bool | None, Field(alias="storesFiles")] = None
     """
     `true` when the tool may store files for its run, such as a mail's attachments: each call can store up to 10, the runtime checks each one's bytes, and the tool returns the stored files in its result's top-level `files`, which an agent is shown. Only a pack tool with a handler can store files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
+    """
+    reads_files: Annotated[bool | None, Field(alias="readsFiles")] = None
+    """
+    `true` when the tool may read stored files' bytes, such as a PDF an agent was given, to parse it: each call can read a file its run may be shown, by its file value's `artifactId`, as it was stored. Only a pack tool with a handler can read files: not one with a declarative `spec`, nor an MCP tool. Absent means `false`.
     """
     result_is_outside_data: Annotated[bool | None, Field(alias="resultIsOutsideData")] = None
     """

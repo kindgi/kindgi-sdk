@@ -2519,7 +2519,8 @@
                       "type",
                       "size",
                       "limit",
-                      "store"
+                      "store",
+                      "storage"
                     ]
                   }
                 }
@@ -2662,7 +2663,8 @@
                       "type",
                       "size",
                       "limit",
-                      "store"
+                      "store",
+                      "storage"
                     ]
                   }
                 }
@@ -2805,7 +2807,8 @@
                       "type",
                       "size",
                       "limit",
-                      "store"
+                      "store",
+                      "storage"
                     ]
                   }
                 }
@@ -2948,7 +2951,8 @@
                       "type",
                       "size",
                       "limit",
-                      "store"
+                      "store",
+                      "storage"
                     ]
                   }
                 }

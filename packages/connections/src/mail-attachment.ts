@@ -26,10 +26,10 @@ export interface MailAttachmentGetInput {
   readonly attachment: number;
 }
 
-/** Why an attachment isn't stored: its type, its size, the call's limit, or no file store. */
+/** Why an attachment isn't stored: its type, its size, the call's limit, no file store, or the tenant's storage full. */
 export type MailAttachmentNotShownReason = Extract<
   FileNotShownReason,
-  'type' | 'size' | 'limit' | 'store'
+  'type' | 'size' | 'limit' | 'store' | 'storage'
 >;
 
 /** The stored file, for the agent to be shown; else the attachment's name and why it isn't. */
@@ -103,7 +103,7 @@ export const ATTACHMENT_OUTPUT = {
           required: ['name', 'reason'],
           properties: {
             name: { type: 'string' },
-            reason: { enum: ['type', 'size', 'limit', 'store'] },
+            reason: { enum: ['type', 'size', 'limit', 'store', 'storage'] },
           },
         },
       },
@@ -175,7 +175,7 @@ export async function storeAttachment(
     return notShown('type');
   }
   if (listed.size > max) return notShown('size');
-  if (ctx.files === undefined) return notShown('store');
+  if (ctx.files?.store === undefined) return notShown('store');
   const bytes = await fetchBytes(max);
   if (bytes === undefined) return notShown('size');
   const answer = await ctx.files.store({ name: listed.name, contentType: type, bytes });

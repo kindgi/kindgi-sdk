@@ -48,8 +48,11 @@ import {
   TOOL_RESULT_FILES,
   admitHistoryFiles,
   agentSeesFiles,
+  asFileValue,
+  callFileStore,
   filesLeftOut,
   messagesForCall,
+  sentAsImageOrPdf,
 } from '../src/handlers/files.js';
 import { buildModelCallHandler } from '../src/handlers/model-call.js';
 import { buildPersistUserMessageHandler } from '../src/handlers/persist-user-message.js';
@@ -132,6 +135,8 @@ const BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x61, 0x63, 0x6d, 0x65]);
 function filesBinding(allowed: readonly string[], stores: FileStoreAnswer[] = []) {
   const admitted: string[][] = [];
   const read: string[] = [];
+  const sourced: string[] = [];
+  const signals: (AbortSignal | undefined)[] = [];
   const stored: { readonly call: unknown; readonly file: FileToStore }[] = [];
   const files: FileBinding = {
     admit: async (values) => {
@@ -148,10 +153,15 @@ function filesBinding(allowed: readonly string[], stores: FileStoreAnswer[] = []
       stored.push({ call, file });
       return stores.shift() ?? { file: fileValue(allowed[0] ?? 'art-0') };
     },
+    readSource: async (artifactId, signal) => {
+      sourced.push(artifactId);
+      signals.push(signal);
+      return allowed.includes(artifactId) ? { bytes: BYTES } : { notRead: 'rule' };
+    },
     shown: async () => {},
     refuse: async () => {},
   };
-  return { files, admitted, read, stored };
+  return { files, admitted, read, sourced, signals, stored };
 }
 
 const kctx = (dryRun = false) =>
@@ -558,20 +568,29 @@ describe("a tool result's files", () => {
   });
 });
 
-describe('a tool that stores files', () => {
+describe('a tool that stores or reads files', () => {
   const attachment: FileToStore = {
     name: 'invoice.pdf',
     contentType: 'application/pdf',
     bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
   };
 
-  /** One call of a tool that stores `attachment` when it can, and says what its context held. */
+  /**
+   * One call of a tool that stores `attachment` when it can, and reads
+   * `art-1` and `art-9` when it can, and says what its context held.
+   */
   async function called(options: {
     readonly storesFiles?: boolean;
+    readonly readsFiles?: boolean;
     readonly binding?: FileBinding;
     readonly stepScope?: string;
   }) {
-    const seen: { files?: boolean; idempotencyKey?: string } = {};
+    const seen: {
+      files?: boolean;
+      store?: boolean;
+      idempotencyKey?: string;
+      reads?: readonly unknown[];
+    } = {};
     const defined = defineTool<Record<string, unknown>, Record<string, unknown>>({
       id: 'acme.mail.attachment-get' as ToolId,
       description: "Fetches a mail's attachment.",
@@ -580,10 +599,14 @@ describe('a tool that stores files', () => {
       output: { type: 'object', additionalProperties: true },
       effects: [],
       ...(options.storesFiles !== undefined && { storesFiles: options.storesFiles }),
+      ...(options.readsFiles !== undefined && { readsFiles: options.readsFiles }),
       handler: async (_input: Record<string, unknown>, ctx: ToolContext) => {
         seen.files = ctx.files !== undefined;
+        seen.store = ctx.files?.store !== undefined;
         if (ctx.idempotencyKey !== undefined) seen.idempotencyKey = ctx.idempotencyKey;
-        const answer = await ctx.files?.store(attachment);
+        const read = ctx.files?.read;
+        if (read !== undefined) seen.reads = [await read('art-1'), await read('art-9')];
+        const answer = await ctx.files?.store?.(attachment);
         return answer === undefined
           ? { notShown: 'store' }
           : 'file' in answer
@@ -671,9 +694,98 @@ describe('a tool that stores files', () => {
   });
 
   test('no files binding: no files', async () => {
-    const { seen, message } = await called({ storesFiles: true, stepScope: 's' });
+    const { seen, message } = await called({ storesFiles: true, readsFiles: true, stepScope: 's' });
     expect(seen.files).toBe(false);
     expect(message?.content).toBe(JSON.stringify({ notShown: 'store' }));
+  });
+
+  test("reads a file its run may be shown, by the run's rule, and only reads: no store", async () => {
+    const binding = filesBinding(['art-1']);
+    const { seen, message } = await called({
+      readsFiles: true,
+      binding: binding.files,
+      stepScope: 's',
+    });
+    expect(seen).toMatchObject({ files: true, store: false });
+    expect(seen.reads).toEqual([{ bytes: BYTES }, { notRead: 'rule' }]);
+    expect(binding.sourced).toEqual(['art-1', 'art-9']);
+    // Each with the turn's signal, so a read waiting for room stops with the turn.
+    expect(binding.signals).toHaveLength(2);
+    expect(binding.signals.every((signal) => signal instanceof AbortSignal)).toBe(true);
+    // The model call's read is another binding method: a tool's read never takes it.
+    expect(binding.read).toEqual([]);
+    expect(binding.stored).toEqual([]);
+    expect(message?.content).toBe(JSON.stringify({ notShown: 'store' }));
+  });
+
+  test('a call with no idempotency key still reads; one that declares both gets both', async () => {
+    const reading = await called({
+      storesFiles: true,
+      readsFiles: true,
+      binding: filesBinding(['art-1']).files,
+    });
+    expect(reading.seen).toMatchObject({ files: true, store: false });
+    expect(reading.seen.reads).toHaveLength(2);
+    const both = filesBinding(['art-1']);
+    const { seen } = await called({
+      storesFiles: true,
+      readsFiles: true,
+      binding: both.files,
+      stepScope: 's',
+    });
+    expect(seen).toMatchObject({ files: true, store: true });
+    expect(both.stored).toHaveLength(1);
+    expect(both.sourced).toEqual(['art-1', 'art-9']);
+  });
+
+  test("a read passes on the call's signal", async () => {
+    const binding = filesBinding(['art-1']);
+    const signal = new AbortController().signal;
+    const tool = { id: 'acme.docs.read' as ToolId, readsFiles: true } as const;
+    await callFileStore(binding.files, tool, undefined, signal)?.read?.('art-1');
+    expect(binding.signals).toEqual([signal]);
+  });
+
+  test("a pack's own code and an MCP tool run elsewhere: no files here, whatever they declare", () => {
+    const binding = filesBinding(['art-1']).files;
+    const tool = {
+      id: 'acme.docs.parse' as ToolId,
+      storesFiles: true,
+      readsFiles: true,
+    } as const;
+    expect(callFileStore(binding, tool, 'key')).toBeDefined();
+    const code = {
+      kind: 'oci',
+      imageRef: 'registry.example/acme/docs:1.0.0',
+      modulePath: 'tools/parse.mjs',
+      artifactVersion: '1.0.0',
+    } as const;
+    expect(callFileStore(binding, { ...tool, codeArtifactRef: code }, 'key')).toBeUndefined();
+    expect(callFileStore(binding, { ...tool, transport: 'mcp' }, 'key')).toBeUndefined();
+  });
+});
+
+describe("a file's forms", () => {
+  const TEXT = { size: 5, sha256: sha(7), cut: false };
+  const SMALL = { contentType: 'image/jpeg', size: 10, sha256: sha(8) } as const;
+
+  test('a file sent as an image or a PDF: its rendition, or itself with no text in its place', () => {
+    expect(sentAsImageOrPdf(recordOf('art-1'))).toBe(true);
+    expect(sentAsImageOrPdf(recordOf('doc-2'))).toBe(true);
+    expect(sentAsImageOrPdf({ ...recordOf('doc-2'), extracted: TEXT })).toBe(false);
+    expect(sentAsImageOrPdf(recordOf('txt-3'))).toBe(false);
+    const heic = { ...recordOf('art-4'), contentType: 'image/heic' };
+    expect(sentAsImageOrPdf(heic)).toBe(false);
+    expect(sentAsImageOrPdf({ ...heic, rendition: SMALL })).toBe(true);
+    // With both, its text is sent.
+    expect(sentAsImageOrPdf({ ...heic, rendition: SMALL, extracted: TEXT })).toBe(false);
+  });
+
+  test('a file kept as a value keeps no form', () => {
+    expect(asFileValue({ ...recordOf('art-1'), rendition: SMALL, extracted: TEXT })).toEqual({
+      type: 'kindgi.file',
+      ...recordOf('art-1'),
+    });
   });
 });
 
@@ -692,6 +804,7 @@ describe('a model call with files', () => {
     readonly vision?: boolean;
     readonly binding?: FileBinding;
     readonly provenance?: ProvenanceBuilder;
+    readonly dryRun?: boolean;
   }) {
     const sent: ModelCallInput[] = [];
     const charges: number[] = [];
@@ -734,7 +847,7 @@ describe('a model call with files', () => {
       ...(options.binding !== undefined && { files: options.binding }),
     } as unknown as TurnContext;
     const run = async (nextMessages: readonly ModelMessage[]) =>
-      (await buildModelCallHandler(ctx)({ nextMessages }, kctx())) as {
+      (await buildModelCallHandler(ctx)({ nextMessages }, kctx(options.dryRun))) as {
         readonly nextMessages: readonly ModelMessage[];
         readonly files?: readonly { artifactId: string; sha256: string }[];
       };
@@ -791,16 +904,81 @@ describe('a model call with files', () => {
   });
 
   test("the turn's memory charge adds 3 × the bytes of the files the call reads", async () => {
-    const files = [recordOf('art-1'), recordOf('doc-2'), recordOf('txt-3')];
-    const seen = call({ agent: seeing, binding: filesBinding([]).files });
+    const ids = ['art-1', 'doc-2', 'txt-3'];
+    const files = ids.map(recordOf);
+    const seen = call({ agent: seeing, binding: filesBinding(ids).files });
     await seen.run(withFiles(files));
     const all = 1001 + 2000 + 300;
     expect(seen.charges).toEqual([4 * sizeOf(seen.sent[0]?.messages ?? []) + 3 * all]);
 
     // A model without `vision` reads the text file only.
-    const textOnly = call({ agent: seeing, vision: false, binding: filesBinding([]).files });
+    const textOnly = call({ agent: seeing, vision: false, binding: filesBinding(ids).files });
     await textOnly.run(withFiles(files));
     expect(textOnly.charges).toEqual([4 * sizeOf(textOnly.sent[0]?.messages ?? []) + 3 * 300]);
+  });
+
+  /** A binding that admits each file with `form` made of it, and logs each call's `seesFiles` and each read's form. */
+  function formsBinding(form: Pick<MessageFile, 'rendition' | 'extracted'>) {
+    const calls: (boolean | undefined)[] = [];
+    const reads: [string, string | undefined][] = [];
+    const files: FileBinding = {
+      admit: async (values, forCall) => {
+        calls.push(forCall?.seesFiles);
+        return values.map((v) => ({ ...recordOf(v.artifactId), ...form }));
+      },
+      read: async (artifactId, asked) => {
+        reads.push([artifactId, asked]);
+        return undefined;
+      },
+      store: async () => ({ notStored: 'limit' }),
+      readSource: async () => ({ notRead: 'rule' }),
+      shown: async () => {},
+      refuse: async () => {},
+    };
+    return { files, calls, reads };
+  }
+
+  const TEXT = { size: 5, sha256: sha(7), cut: false };
+  const SMALL = { contentType: 'image/jpeg', size: 10, sha256: sha(8) } as const;
+
+  test("the call's copy carries each file's form, asked for the call; the step output keeps the plain reference", async () => {
+    const binding = formsBinding({ extracted: TEXT });
+    const c = call({ agent: blind, binding: binding.files });
+    const messages = withFiles([recordOf('doc-2')]);
+    const out = await c.run(messages);
+    expect(binding.calls).toEqual([false]);
+    // Its text is sent in its place, so it isn't a `model` line.
+    expect(c.sent[0]?.messages[1]?.files).toEqual([{ ...recordOf('doc-2'), extracted: TEXT }]);
+    expect(out.nextMessages).toEqual(messages);
+    await c.sent[0]?.readFile?.('doc-2', 'extracted');
+    expect(binding.reads).toContainEqual(['doc-2', 'extracted']);
+  });
+
+  test('a file the rule no longer admits when the call is sent is a `gone` line', async () => {
+    const c = call({ agent: seeing, binding: filesBinding([]).files });
+    await c.run(withFiles([recordOf('art-1')]));
+    expect(c.sent[0]?.messages[1]?.files?.[0]?.notShown).toBe('gone');
+  });
+
+  test('a dry run asks for no form', async () => {
+    const binding = filesBinding(['art-1']);
+    await call({ agent: seeing, binding: binding.files, dryRun: true }).run(
+      withFiles([recordOf('art-1')]),
+    );
+    expect(binding.admitted).toEqual([]);
+  });
+
+  test("the memory charge counts a form's bytes in its file's place", async () => {
+    const c = call({ agent: seeing, binding: formsBinding({ rendition: SMALL }).files });
+    await c.run(withFiles([recordOf('art-1')]));
+    expect(c.charges).toEqual([4 * sizeOf(c.sent[0]?.messages ?? []) + 3 * SMALL.size]);
+  });
+
+  test('a file with both forms is charged its text, the form that is sent', async () => {
+    const both = formsBinding({ rendition: SMALL, extracted: TEXT });
+    const c = call({ agent: seeing, binding: both.files });
+    await c.run(withFiles([recordOf('art-1')]));
+    expect(c.charges).toEqual([4 * sizeOf(c.sent[0]?.messages ?? []) + 3 * TEXT.size]);
   });
 
   test('over the per-call cap, the newest files are read', async () => {

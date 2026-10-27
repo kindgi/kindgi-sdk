@@ -45,7 +45,8 @@ export interface TurnMemoryBinding {
 /**
  * What a turn holds, by size, when it's about to make a model call after
  * `iterationsDone` iterations: (4 + n) × the conversation as sent, in
- * UTF-8 bytes, plus 3 × `fileBytes`, the stored files the call reads. Its
+ * UTF-8 bytes, plus 3 × `fileBytes`, what the call reads of the stored
+ * files (a form made of one, in its place, else the file). Its
  * journal keeps the conversation at each loop step, and the call holds it
  * more than once. A message holds its files by reference, so the journal
  * keeps no bytes of them; the call holds each one's bytes, their base64
@@ -76,7 +77,11 @@ export async function chargeTurnMemory(
 ): Promise<void> {
   const binding = ctx.bindings.turnMemory;
   if (binding === undefined) return;
-  const fileBytes = call.files.reduce((sum, file) => sum + file.size, 0);
+  // What's read of each: the form in its place, else the file.
+  const fileBytes = call.files.reduce(
+    (sum, file) => sum + (file.extracted ?? file.rendition ?? file).size,
+    0,
+  );
   const bytes = turnMemoryBytes(call.messages, iterationsDone, fileBytes);
   const charged = await binding.charge(bytes, { runId: turn.runId });
   if (charged.ok) return;

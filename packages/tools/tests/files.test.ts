@@ -28,7 +28,7 @@ describe('defineTool with storesFiles', () => {
       storesFiles: true,
       handler: async (_input, c) => {
         expectTypeOf(c.files).toEqualTypeOf<FileStore | undefined>();
-        if (c.files === undefined) return {};
+        if (c.files?.store === undefined) return {};
         const answer = await c.files.store({
           name: 'invoice.pdf',
           contentType: 'application/pdf',

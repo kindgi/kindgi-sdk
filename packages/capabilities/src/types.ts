@@ -3,7 +3,7 @@
 
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
-import type { MessageFile } from './message-files.js';
+import type { FileForm, MessageFile } from './message-files.js';
 
 /**
  * The closed set of feature flags an agent can require. Matches
@@ -488,9 +488,10 @@ export interface ModelCallInput {
    */
   readonly traceparent?: string;
   /**
-   * Reads a stored file's bytes for this call: `undefined` when it's no
-   * longer stored. The caller checks the file is one this call may show
-   * before it reads. Adapters read only the files they send, and keep
+   * Reads a stored file's bytes for this call, or a form made of it
+   * (`form`: its `rendition` or its `extracted` text): `undefined` when
+   * it's no longer stored, or the form isn't. The caller checks the file is
+   * one this call may show before it reads. Adapters read only the files they send, and keep
    * nothing. Absent: no file is read, and each is a line saying so.
    *
    * A rejection (the store is down) fails the call with that rejection,
@@ -498,7 +499,7 @@ export interface ModelCallInput {
    * as a missing file. An agent turn then fails with
    * `model-invocation-failed`, its cause the rejection.
    */
-  readonly readFile?: (artifactId: string) => Promise<Uint8Array | undefined>;
+  readonly readFile?: (artifactId: string, form?: FileForm) => Promise<Uint8Array | undefined>;
 }
 
 /**

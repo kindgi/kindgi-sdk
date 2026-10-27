@@ -8,9 +8,9 @@
     "runId": "run-1",
     "requestId": "toolu_01",
     "idempotencyKey": "3f1c2b8e-6a4d-5e7f-9b0a-1c2d3e4f5a6b",
-    "fileUpload": {
-      "url": "https://kindgi.example.com/v1/file-uploads",
-      "token": "kgi_fu_example"
+    "toolFiles": {
+      "url": "https://kindgi.example.com/v1/tool-files",
+      "token": "kgi_tf_example"
     }
   }
 }

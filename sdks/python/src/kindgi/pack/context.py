@@ -263,12 +263,15 @@ class ToolContext:
     runtime before protocol 2.9.0. Never in the context's `repr`. When the app refuses a token
     (a 401), raise `ConnectionRejected("mail")`."""
     files: FileStore | None = field(default=None, repr=False)
-    """The call's file store, for a tool that declares `stores_files=True`:
+    """The call's files, for a tool that declares `stores_files=True` or `reads_files=True`.
     `ctx.files.store(name=…, content_type=…, data=…)` (`store_async` from an async handler)
     stores a file the tool fetched as a file the call's run owns, and answers its value, to
-    return in the result's top-level `files`, or why nothing was stored. `None` for a tool that
-    doesn't declare it, and from a runtime before pack protocol 2.10.0: return the file's
-    `notShown` as `store` then."""
+    return in the result's top-level `files`, or why nothing was stored; a call has it when its
+    tool stores files and it has an idempotency key (`ctx.files.stores`).
+    `ctx.files.read(artifact_id)` (`read_async`) answers the bytes of a file the call's run may
+    be shown, or why there are none; a call has it when its tool reads files
+    (`ctx.files.reads`). `None` for a tool that declares neither, and from a runtime before
+    pack protocol 2.10.0: return a file's `notShown` as `store` then."""
     _wait_token: WaitToken | None = field(default=None, repr=False)
 
     @property
@@ -332,10 +335,12 @@ class ToolContext:
         *,
         pauses: bool = False,
         stores_files: bool = False,
+        reads_files: bool = False,
     ) -> ToolContext:
         """The context for a protocol v2 `ctx` (`tenantId`, `runId`, …). Its `waitToken` is kept
-        only for a tool that `pauses`, and its `fileUpload`, as `files`, only for a tool that
-        `stores_files`."""
+        only for a tool that `pauses`, and its `toolFiles`, as `files`, only for a tool that
+        `stores_files` (on a call with an `idempotencyKey`) or `reads_files`, with what it
+        declares."""
 
         def mapping(key: str) -> Mapping[str, Any]:
             value = ctx.get(key)
@@ -347,11 +352,12 @@ class ToolContext:
             value = ctx.get(key)
             return value if isinstance(value, str) else None
 
+        idempotency_key = text("idempotencyKey")
         return cls(
             tenant_id=str(ctx["tenantId"]),
             run_id=str(ctx["runId"]),
             request_id=text("requestId"),
-            idempotency_key=text("idempotencyKey"),
+            idempotency_key=idempotency_key,
             project_id=text("projectId"),
             org_id=text("orgId"),
             env=mapping("env"),
@@ -361,7 +367,9 @@ class ToolContext:
             cancellation=cancellation,
             log=log,
             connections=_connections(ctx.get("connections")),
-            files=file_store_from_wire(ctx) if stores_files else None,
+            files=file_store_from_wire(
+                ctx, stores=stores_files and idempotency_key is not None, reads=reads_files
+            ),
             _wait_token=wait_token_from_wire(ctx) if pauses else None,
         )
 

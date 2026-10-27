@@ -1069,7 +1069,7 @@ function toolContextFor(
     kctx.stepScope === undefined
       ? undefined
       : toolIdempotencyKey({ runId, stepScope: kctx.stepScope, toolId, callId: call.id });
-  const files = callFileStore(ctx.files, tool, idempotencyKey);
+  const files = callFileStore(ctx.files, tool, idempotencyKey, ctx.turnAbort.signal);
   return {
     tenantId: ctx.input.tenantId,
     runId,
@@ -1078,7 +1078,8 @@ function toolContextFor(
     ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
     requestId: call.id,
     ...(idempotencyKey !== undefined && { idempotencyKey }),
-    // Files the call stores, as files its run owns (`Tool.storesFiles`).
+    // Files the call stores, as files its run owns, and reads
+    // (`Tool.storesFiles`, `Tool.readsFiles`).
     ...(files !== undefined && { files }),
     ...(kctx.attempt !== undefined && { attempt: kctx.attempt }),
     abortSignal: ctx.turnAbort.signal,

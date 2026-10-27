@@ -23,8 +23,9 @@ export default {
   },
   effects: [],
   handler: async (input, ctx) => {
-    // No store: the call came from a runtime before pack protocol 2.10.0.
-    if (ctx.files === undefined) return { stored: false };
+    // No store: the call came from a runtime before pack protocol 2.10.0, or has no
+    // idempotency key.
+    if (ctx.files?.store === undefined) return { stored: false };
     const answer = await ctx.files.store({
       name: input.name,
       contentType: input.contentType,

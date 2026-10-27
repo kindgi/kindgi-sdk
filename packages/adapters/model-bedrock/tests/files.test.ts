@@ -60,9 +60,11 @@ const pdf = (id: string): MessageFile => ({
   pages: 1,
 });
 
+/** The request body Bedrock is sent; each file id the call reads goes in `read`. */
 async function converse(
   files: readonly MessageFile[],
   messages: ModelCallInput['messages'] = [{ role: 'user', content: 'Here they are.', files }],
+  read: string[] = [],
 ): Promise<Record<string, unknown>> {
   const bodies: Record<string, unknown>[] = [];
   const provider = bedrockAdapterFactory({
@@ -74,8 +76,16 @@ async function converse(
   const input: ModelCallInput = {
     model: MODEL,
     messages,
-    readFile: async (id) =>
-      id.startsWith('d') ? PDF : new Uint8Array(files.find((f) => f.artifactId === id)?.size ?? 0),
+    // Bedrock drops tool calls and their results from a call that offers no tools.
+    tools: [
+      { name: 'mail.attachment', description: 'An attachment.', inputSchema: { type: 'object' } },
+    ],
+    readFile: async (id) => {
+      read.push(id);
+      return id.startsWith('d')
+        ? PDF
+        : new Uint8Array(files.find((f) => f.artifactId === id)?.size ?? 0);
+    },
   };
   await provider.invoke(input);
   return bodies[0] as Record<string, unknown>;
@@ -101,12 +111,14 @@ describe("Bedrock's own file limits", () => {
 
   test("a PDF over 4.5 MB is a line, though under Kindgi's 10 MB; nothing is read", async () => {
     const big: MessageFile = { ...pdf('dbig'), size: 5_000_000 };
-    const body = await converse([pdf('d1'), big]);
+    const read: string[] = [];
+    const body = await converse([pdf('d1'), big], undefined, read);
     expect(JSON.stringify(body)).toContain(
       'File \\"dbig.pdf\\" (application/pdf, 5.0 MB): not shown: too large.',
     );
     const content = (body.messages as ConverseMessage[])[0]?.content ?? [];
     expect(content.filter((block) => 'document' in block)).toHaveLength(1);
+    expect(read).toEqual(['d1']);
   });
 
   test("a tool result's file rides in the user message after it, with a text block beside it", async () => {

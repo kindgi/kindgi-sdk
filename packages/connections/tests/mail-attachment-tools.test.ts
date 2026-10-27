@@ -328,17 +328,23 @@ describe('gmailAttachmentGet', () => {
     expect(stored).toEqual([]);
   });
 
-  it('fetches nothing for a call with no file store', async () => {
+  it('fetches nothing for a call with no file store, or files it may only read', async () => {
     const calls = answering(() =>
       Response.json(gmailWith([gmailPart('a.png', 'image/png', 10, 'x')])),
     );
-    const r = await invokeToolForTest(
-      tool,
-      { messageId: 'm3', attachment: 1 },
-      { connections: { mail: connection('google') } },
-    );
-    expect(r).toEqual({ kind: 'ok', value: { notShown: { name: 'a.png', reason: 'store' } } });
-    expect(calls).toHaveLength(1);
+    const asked = { messageId: 'm3', attachment: 1 };
+    const notShown = { kind: 'ok', value: { notShown: { name: 'a.png', reason: 'store' } } };
+    const none = await invokeToolForTest(tool, asked, {
+      connections: { mail: connection('google') },
+    });
+    expect(none).toEqual(notShown);
+    const readOnly: FileStore = { read: async () => ({ notRead: 'rule' }) };
+    const reads = await invokeToolForTest(tool, asked, {
+      connections: { mail: connection('google') },
+      files: readOnly,
+    });
+    expect(reads).toEqual(notShown);
+    expect(calls).toHaveLength(2);
   });
 
   it.each([
@@ -361,20 +367,23 @@ describe('gmailAttachmentGet', () => {
     expect(stored).toEqual([]);
   });
 
-  it("answers the store's reason when it keeps nothing", async () => {
-    answering((url) =>
-      url.includes('/attachments/')
-        ? Response.json({ size: 3, data: 'AQID' })
-        : Response.json(gmailWith([gmailPart('a.png', 'image/png', 3, 'x')])),
-    );
-    const { files } = storeAnswering({ notStored: 'type' });
-    const r = await invokeToolForTest(
-      tool,
-      { messageId: 'm3', attachment: 1 },
-      { connections: { mail: connection('google') }, files },
-    );
-    expect(r).toEqual({ kind: 'ok', value: { notShown: { name: 'a.png', reason: 'type' } } });
-  });
+  it.each(['type', 'storage'] as const)(
+    "answers the store's reason when it keeps nothing: %s",
+    async (reason) => {
+      answering((url) =>
+        url.includes('/attachments/')
+          ? Response.json({ size: 3, data: 'AQID' })
+          : Response.json(gmailWith([gmailPart('a.png', 'image/png', 3, 'x')])),
+      );
+      const { files } = storeAnswering({ notStored: reason });
+      const r = await invokeToolForTest(
+        tool,
+        { messageId: 'm3', attachment: 1 },
+        { connections: { mail: connection('google') }, files },
+      );
+      expect(r).toEqual({ kind: 'ok', value: { notShown: { name: 'a.png', reason } } });
+    },
+  );
 
   it('names the numbers the message lists when asked past them, and fetches nothing', async () => {
     const calls = answering(() =>
