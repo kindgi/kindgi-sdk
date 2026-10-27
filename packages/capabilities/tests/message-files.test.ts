@@ -11,6 +11,7 @@ import {
   type MessageFile,
   type ModelMessage,
   fileParts,
+  filesForCall,
   headedFileParts,
 } from '../src/index.js';
 
@@ -315,6 +316,42 @@ describe('fileParts: the call limits keep the newest files that fit', () => {
       limits: { imageBytes: FILE_LIMITS.imageBytes * 2 },
     });
     expect(texts(parts ?? [])[0]).toContain('not shown: too large.');
+  });
+});
+
+describe('filesForCall: the files fileParts reads, without reading', () => {
+  const NOTES = new TextEncoder().encode('Order 1234: the mug came broken.');
+  const images = Array.from({ length: FILE_LIMITS.filesPerCall + 2 }, (_, i) =>
+    file(`p${i}`, 'image/jpeg', JPEG),
+  );
+  const notes = file('notes', 'text/plain', NOTES);
+  const messages: readonly ModelMessage[] = [
+    user([...images.slice(0, 4), file('heic', 'image/heic', JPEG)]),
+    { role: 'assistant', content: 'Let me look.' },
+    user([
+      ...images.slice(4),
+      notes,
+      file('huge', 'image/png', JPEG, { size: FILE_LIMITS.imageBytes + 1 }),
+      file('gone', 'image/jpeg', JPEG, { notShown: 'gone' }),
+    ]),
+  ];
+  const bytes = Object.fromEntries([
+    ...images.map((f) => [f.artifactId, JPEG] as const),
+    ['notes', NOTES] as const,
+  ]);
+
+  test.each([
+    ['takes images and PDFs', ALL],
+    ["doesn't", { images: false, documents: false, contextWindow: 1_000_000 }],
+  ] as const)('a model that %s: the same files, in message order', async (_, options) => {
+    const readFile = store(bytes);
+    await fileParts(messages, { readFile, ...options });
+    const read = readFile.mock.calls.map(([id]) => id);
+    const planned = filesForCall(messages, options).map((f) => f.artifactId);
+    expect(planned).toEqual(
+      options.images ? [...images.slice(2).map((f) => f.artifactId), 'notes'] : ['notes'],
+    );
+    expect([...read].sort()).toEqual([...planned].sort());
   });
 });
 

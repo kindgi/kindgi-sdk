@@ -18,9 +18,10 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { agentSeesFiles, callFiles, messagesForCall } from './files.js';
 import { replayTag } from './replay.js';
 import { chargeTurnMemory } from './turn-memory.js';
-import { addModelCallNode } from './turn-provenance.js';
+import { type FileRead, addModelCallNode, filesReadOf } from './turn-provenance.js';
 
 /**
  * Loop-body node #1. Invoke the model with the current
@@ -52,10 +53,14 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     }
     const shaped = input as { readonly nextMessages?: readonly ModelMessage[] } | undefined;
     const nextMessages: readonly ModelMessage[] = shaped?.nextMessages ?? [];
+    // The call's own copy: an agent that doesn't need `vision` reads a line
+    // for each image and PDF. The journal keeps `nextMessages` as they are.
+    const messages = messagesForCall(nextMessages, agentSeesFiles(ctx.input.agent));
+    const files = callFiles(messages, ctx.model);
 
     // What the turn holds, charged before the model is called: the iterations
     // done so far are its steps (restored on a resume). A dry run holds nothing.
-    if (!kctx.dryRun) await chargeTurnMemory(ctx, kctx, nextMessages, ctx.usage.steps);
+    if (!kctx.dryRun) await chargeTurnMemory(ctx, kctx, { messages, files }, ctx.usage.steps);
 
     ctx.usage.steps += 1;
     const step = ctx.usage.steps;
@@ -85,11 +90,12 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     } else {
       const callInput: ModelCallInput = {
         model: ctx.model.name,
-        messages: nextMessages,
+        messages,
         ...(ctx.tools.definitions.length > 0 && {
           tools: ctx.tools.definitions,
         }),
         ...modelSettingsOf(ctx),
+        ...readFileOf(ctx),
         abortSignal: ctx.turnAbort.signal,
       };
 
@@ -127,6 +133,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
           provider: callResult.provider,
           finishReason: callResult.finishReason,
           at: new Date().toISOString() as Timestamp,
+          files,
         },
         ctx.userMessage.sequence,
         ctx.toolResultIds ?? [],
@@ -137,6 +144,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     const partial: Omit<AgentTurnIterationOutput, 'iterationAppended' | 'finishedTurn'> & {
       readonly step: number;
       readonly callId: string;
+      readonly files?: readonly FileRead[];
     } = {
       step: ctx.usage.steps,
       callId,
@@ -151,6 +159,8 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
       ...(callResult.warnings !== undefined &&
         callResult.warnings.length > 0 && { warnings: callResult.warnings }),
       nextMessages,
+      // For the turn's provenance when it's rebuilt on a resume.
+      ...filesReadOf(files),
     };
     return partial;
   };
@@ -297,4 +307,14 @@ function modelSettingsOf(
     ...(settings?.temperature !== undefined && { temperature: settings.temperature }),
     ...(settings?.maxOutputTokens !== undefined && { maxOutputTokens: settings.maxOutputTokens }),
   };
+}
+
+/**
+ * How the call reads a stored file's bytes: through the turn's files
+ * binding, which asks the run's rule again first. None without one: each
+ * file is a line saying it isn't stored.
+ */
+function readFileOf(ctx: TurnContext): Pick<ModelCallInput, 'readFile'> {
+  const files = ctx.bindings.files;
+  return files === undefined ? {} : { readFile: (artifactId) => files.read(artifactId) };
 }

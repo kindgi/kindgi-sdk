@@ -63,7 +63,7 @@ import {
   addRetrievalNodes,
   addStepToolNodes,
 } from './turn-provenance.js';
-import type { ToolApproval } from './turn-provenance.js';
+import type { FileRead, ToolApproval } from './turn-provenance.js';
 
 interface StepRecord {
   readonly nodeId: string;
@@ -226,6 +226,7 @@ interface ModelCallStepOutput {
   readonly callId?: string;
   readonly finishReason?: string;
   readonly provider?: { readonly id: string; readonly model: string };
+  readonly files?: readonly FileRead[];
 }
 
 /**
@@ -259,11 +260,11 @@ function rebuildProvenance(
     .map((s) => ({ at: s.at, out: s.output as ModelCallStepOutput }))
     .sort((a, b) => (a.out.step ?? 0) - (b.out.step ?? 0));
   for (const { at, out } of calls) {
-    const { step, callId, provider, finishReason } = out;
+    const { step, callId, provider, finishReason, files = [] } = out;
     if (step === undefined || callId === undefined || provider === undefined) continue;
     addModelCallNode(
       ctx.provenance,
-      { step, callId, provider, finishReason: finishReason ?? 'stop', at },
+      { step, callId, provider, finishReason: finishReason ?? 'stop', at, files },
       input.sequence,
       [...(ctx.toolResultIds ?? [])],
     );

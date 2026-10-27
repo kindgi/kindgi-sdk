@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { FileValue } from '@kindgi/capabilities';
 import type { RunBinding } from '@kindgi/runtime';
 import type { ListScope, ProjectId, Result, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
@@ -47,6 +48,8 @@ export interface AppendMessageInput {
   readonly toolCall?: { readonly toolId: string; readonly invocationId: string };
   /** The message came from outside (`ConversationMessage.fromEvent`): kept with it. */
   readonly fromEvent?: true;
+  /** Stored files the message carries (`ConversationMessage.files`): kept with it. */
+  readonly files?: readonly FileValue[];
   /**
    * When true, this message is a mid-turn assistant emission (e.g. the
    * assistant message that contains tool calls before the final

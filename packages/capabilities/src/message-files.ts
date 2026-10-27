@@ -54,6 +54,31 @@ export interface MessageFile {
   readonly notShown?: FileNotShownReason;
 }
 
+/**
+ * A stored file as a value: in a run's input, a tool's result, a
+ * conversation message or a flow's values. Plain JSON, so it travels like any
+ * value. Its fields say what its maker wrote: only `artifactId` is trusted,
+ * and a runtime admits a value by its own checked record of that file.
+ */
+export interface FileValue extends MessageFile {
+  readonly type: 'kindgi.file';
+}
+
+/** Whether `value` has a file value's shape. Its fields aren't checked against anything. */
+export function isFileValue(value: unknown): value is FileValue {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Readonly<Record<string, unknown>>;
+  return (
+    v.type === 'kindgi.file' &&
+    typeof v.artifactId === 'string' &&
+    v.artifactId.length > 0 &&
+    (v.name === undefined || typeof v.name === 'string') &&
+    typeof v.contentType === 'string' &&
+    typeof v.size === 'number' &&
+    typeof v.sha256 === 'string'
+  );
+}
+
 /** Images a model is shown as an image. */
 export const IMAGE_FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export type ImageFileType = (typeof IMAGE_FILE_TYPES)[number];
@@ -122,9 +147,8 @@ export type FilePart =
       readonly data: string;
     };
 
-export interface FilePartsOptions {
-  /** The call's `readFile`. Absent: a file to read is shown as `store`. */
-  readonly readFile: ModelCallInput['readFile'];
+/** What decides a call's files without reading them: what the model takes, and its limits. */
+export interface FilePlanOptions {
   /** The model takes images. False: each image is a `model` line. */
   readonly images: boolean;
   /** The model takes PDFs. False: each PDF is a `model` line. */
@@ -144,6 +168,11 @@ export interface FilePartsOptions {
    * quarter of the window and leave room for the prompt and the reply.
    */
   readonly contextWindow: number;
+}
+
+export interface FilePartsOptions extends FilePlanOptions {
+  /** The call's `readFile`. Absent: a file to read is shown as `store`. */
+  readonly readFile: ModelCallInput['readFile'];
 }
 
 /**
@@ -184,12 +213,27 @@ export async function fileParts(
 }
 
 /**
+ * The files a call reads, in message order, decided as `fileParts` decides
+ * them but reading nothing: the images, PDFs and text files that fit the
+ * call. A turn's memory charge counts their sizes, and its provenance names
+ * them. A provider's own lower limits, when not passed, only make it more
+ * than the call reads; so does a file found gone or changed when it's read.
+ */
+export function filesForCall(
+  messages: readonly ModelMessage[],
+  options: FilePlanOptions,
+): readonly MessageFile[] {
+  const sent = fitting(messages, options, callLimits(options));
+  return messages.flatMap((message, m) => filesOf(message).filter((_, f) => sent.has(`${m}:${f}`)));
+}
+
+/**
  * Which files the call reads, by place (`m:f`): the newest that fit. A file
  * that doesn't fit what's left is skipped, and the fit goes on.
  */
 function fitting(
   messages: readonly ModelMessage[],
-  options: FilePartsOptions,
+  options: FilePlanOptions,
   limits: CallLimits,
 ): ReadonlySet<string> {
   const readable = messages.flatMap((message, m) =>
@@ -287,7 +331,7 @@ interface CallLimits {
 }
 
 /** `FILE_LIMITS`, lowered where the provider's own are lower. */
-function callLimits(options: FilePartsOptions): CallLimits {
+function callLimits(options: FilePlanOptions): CallLimits {
   const lower = (ours: number, theirs: number | undefined) => Math.min(ours, theirs ?? ours);
   const filesPerCall = lower(FILE_LIMITS.filesPerCall, options.limits?.filesPerCall);
   return {
@@ -302,7 +346,7 @@ function callLimits(options: FilePartsOptions): CallLimits {
 type Plan = 'send' | 'text' | FileNotShownReason;
 
 /** What a file's own fields say about it, before any call limit or read. */
-function planOf(file: MessageFile, options: FilePartsOptions, limits: CallLimits): Plan {
+function planOf(file: MessageFile, options: FilePlanOptions, limits: CallLimits): Plan {
   if (file.notShown !== undefined) return file.notShown;
   const kind = kindOf(file.contentType);
   if (kind === undefined) return 'type';

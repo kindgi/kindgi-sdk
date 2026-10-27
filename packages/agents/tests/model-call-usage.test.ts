@@ -98,7 +98,11 @@ function turn(options: {
       } as ProviderMetadata,
       invoke: options.invoke,
     },
-    model: { name: 'claude-haiku-4-5' } as ModelInfo,
+    model: {
+      name: 'claude-haiku-4-5',
+      features: [],
+      contextWindow: 200_000,
+    } as unknown as ModelInfo,
     tools: { definitions: [], byName: new Map() },
     userMessage: { sequence: 1 },
     provenance: {

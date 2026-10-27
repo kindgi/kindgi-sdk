@@ -488,8 +488,10 @@ export interface ToolManifest {
    * agent reads each result of the tool as data, not instructions: in an
    * `<event>` block, and so again in every later turn's history. It
    * changes what the model is told, not what the tool may do: pair it
-   * with approvals for anything an agent could do with what it read.
-   * Absent = `false`.
+   * with approvals for anything an agent could do with what it read. A
+   * tool whose results carry stored files from outside (a mail's
+   * attachments) sets it too, so the rule that they're data is in the
+   * agent's system message from the turn's start. Absent = `false`.
    */
   readonly resultIsOutsideData?: boolean;
   /** Isolation posture — see `SandboxMode`. */

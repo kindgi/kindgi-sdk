@@ -96,6 +96,7 @@ export type {
   TurnMemoryLimitReachedError,
   TurnConnections,
   ConnectionCallCode,
+  FileBinding,
   UnresolvedToolError,
 } from './invoke.js';
 export {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ModelMessage } from '@kindgi/capabilities';
+import type { MessageFile, ModelMessage } from '@kindgi/capabilities';
 import type { RunId } from '@kindgi/types';
 
 import type { TurnContext } from './context.js';
@@ -45,14 +45,20 @@ export interface TurnMemoryBinding {
 /**
  * What a turn holds, by size, when it's about to make a model call after
  * `iterationsDone` iterations: (4 + n) × the conversation as sent, in
- * UTF-8 bytes. Its journal keeps the conversation at each loop step, and
- * the call holds it more than once.
+ * UTF-8 bytes, plus 3 × `fileBytes`, the stored files the call reads. Its
+ * journal keeps the conversation at each loop step, and the call holds it
+ * more than once. A message holds its files by reference, so the journal
+ * keeps no bytes of them; the call holds each one's bytes, their base64
+ * and the request body.
  */
 export function turnMemoryBytes(
   nextMessages: readonly ModelMessage[],
   iterationsDone: number,
+  fileBytes: number,
 ): number {
-  return (4 + iterationsDone) * Buffer.byteLength(JSON.stringify(nextMessages), 'utf8');
+  return (
+    (4 + iterationsDone) * Buffer.byteLength(JSON.stringify(nextMessages), 'utf8') + 3 * fileBytes
+  );
 }
 
 /**
@@ -65,14 +71,14 @@ export function turnMemoryBytes(
 export async function chargeTurnMemory(
   ctx: TurnContext,
   turn: { readonly runId: RunId },
-  nextMessages: readonly ModelMessage[],
+  call: { readonly messages: readonly ModelMessage[]; readonly files: readonly MessageFile[] },
   iterationsDone: number,
 ): Promise<void> {
   const binding = ctx.bindings.turnMemory;
   if (binding === undefined) return;
-  const charged = await binding.charge(turnMemoryBytes(nextMessages, iterationsDone), {
-    runId: turn.runId,
-  });
+  const fileBytes = call.files.reduce((sum, file) => sum + file.size, 0);
+  const bytes = turnMemoryBytes(call.messages, iterationsDone, fileBytes);
+  const charged = await binding.charge(bytes, { runId: turn.runId });
   if (charged.ok) return;
   const whose = charged.limit === 'tenant' ? "the tenant's share of" : "the runtime's";
   throwAgentTurnFailure({

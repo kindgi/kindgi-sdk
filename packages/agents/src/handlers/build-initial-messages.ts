@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
+import type { MessageFile, ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeHandler } from '@kindgi/handler';
 
 import {
@@ -20,6 +20,7 @@ import type { ConversationMessage } from '../types.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { admitHistoryFiles, asMessageFile } from './files.js';
 import { readHistory } from './history.js';
 import { outputSection } from './structured-output.js';
 
@@ -61,6 +62,13 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
     void input;
 
     const history = await readHistory(ctx);
+    // The run's rule, asked again for each earlier message's files.
+    const historyFiles = await admitHistoryFiles(
+      ctx,
+      history.map((m) => m.files),
+    );
+    // The turn's own files were admitted when its message was kept.
+    const files = (ctx.userMessage?.files ?? []).map(asMessageFile);
 
     const agent = ctx.input.agent;
     const policies = ctx.retrieved.filter((r) => isPolicyFact(agent, r));
@@ -79,11 +87,7 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
     }
 
     const isEvent = turnMessageIsEvent(ctx.input);
-    // A pausing tool's answer, or an outside-data tool's result, comes in
-    // the middle of the turn, so the rule is there from the turn's start,
-    // and the same on replay.
-    const readsEvent =
-      isEvent || offersOutsideDataTool(ctx) || history.some((m) => m.fromEvent === true);
+    const readsEvent = readsOutsideData(ctx, history, [files, ...historyFiles]);
     const system = [
       rendered,
       ...(memoryMessage !== undefined ? [MEMORY_DATA_RULE] : []),
@@ -96,16 +100,34 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
     ].join('\n\n');
     const modelMessages: ModelMessage[] = [
       { role: 'system', content: system },
-      ...history.map(conversationToModelMessage),
+      ...history.map((m, i) => conversationToModelMessage(m, historyFiles[i] ?? [])),
       ...(memoryMessage !== undefined ? [memoryMessage] : []),
-      {
-        role: 'user',
-        content: isEvent ? formatEventForPrompt(ctx.input.userMessage) : ctx.input.userMessage,
-      },
+      turnMessage(ctx, isEvent, files),
     ];
 
     return { nextMessages: modelMessages };
   };
+}
+
+/**
+ * Whether the turn reads outside data, so its system message holds the data
+ * rule: its message is an event's, its history holds one, a stored file is
+ * in its first messages, or a tool it offers may answer with outside data. A
+ * pausing tool's answer, or an outside-data tool's result, comes in the
+ * middle of the turn, so the rule is there from the turn's start, and the
+ * same on replay.
+ */
+function readsOutsideData(
+  ctx: TurnContext,
+  history: readonly ConversationMessage[],
+  files: readonly (readonly MessageFile[])[],
+): boolean {
+  return (
+    turnMessageIsEvent(ctx.input) ||
+    history.some((m) => m.fromEvent === true) ||
+    files.some((list) => list.length > 0) ||
+    offersOutsideDataTool(ctx)
+  );
 }
 
 /** Whether the turn's model calls offer tools: setup's, `remember` included. */
@@ -123,7 +145,28 @@ function offersOutsideDataTool(ctx: TurnContext): boolean {
   );
 }
 
-function conversationToModelMessage(msg: ConversationMessage): ModelMessage {
+/**
+ * The turn's own message: an `<event>` data block in a run a webhook, an
+ * event or a mail started, with the files it carries.
+ */
+function turnMessage(
+  ctx: TurnContext,
+  isEvent: boolean,
+  files: readonly MessageFile[],
+): ModelMessage {
+  const text = ctx.input.userMessage;
+  return {
+    role: 'user',
+    content: isEvent ? formatEventForPrompt(text) : text,
+    ...(files.length > 0 && { files }),
+  };
+}
+
+/** A history message as the model reads it, with its files as the run's rule admits them now. */
+function conversationToModelMessage(
+  msg: ConversationMessage,
+  files: readonly MessageFile[],
+): ModelMessage {
   if (msg.role === 'tool') {
     return {
       role: 'tool',
@@ -131,6 +174,7 @@ function conversationToModelMessage(msg: ConversationMessage): ModelMessage {
       // tool's result, stays data.
       content: toolResultForModel(msg.content, msg.fromEvent === true),
       ...(msg.toolCall !== undefined && { toolCallId: msg.toolCall.invocationId }),
+      ...(files.length > 0 && { files }),
     };
   }
   if (msg.role === 'agent' && typeof msg.content === 'object' && msg.content !== null) {
@@ -147,5 +191,10 @@ function conversationToModelMessage(msg: ConversationMessage): ModelMessage {
   const role: ModelMessage['role'] = msg.role === 'agent' ? 'assistant' : msg.role;
   const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
   // An event's message stays data in every later turn's history.
-  return { role, content: msg.fromEvent === true ? formatEventForPrompt(content) : content };
+  return {
+    role,
+    content: msg.fromEvent === true ? formatEventForPrompt(content) : content,
+    // Files ride on user messages (and tool results, above) only.
+    ...(role === 'user' && files.length > 0 && { files }),
+  };
 }

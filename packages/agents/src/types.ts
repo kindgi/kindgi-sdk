@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Capability } from '@kindgi/capabilities';
+import type { Capability, FileValue } from '@kindgi/capabilities';
 import type { Fact, MemoryScope, RecalledMessage } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
 import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
@@ -46,10 +46,17 @@ export interface ConversationMessage {
   readonly role: MessageRole;
   /**
    * Free-form text OR structured content. `string` is the common case
-   * (a chat message); `Record<string, unknown>` supports tool-result
-   * shapes and multi-modal payloads without a v2 bump.
+   * (a chat message); `Record<string, unknown>` holds a tool's result.
    */
   readonly content: string | Readonly<Record<string, unknown>>;
+  /**
+   * Stored files the message carries, for a user message (its run's input
+   * files) or a tool's result: references, never bytes. Each was admitted
+   * by the run's rule when the message was written, with the runtime's own
+   * checked fields. A later turn asks the rule again before its model is
+   * shown one.
+   */
+  readonly files?: readonly FileValue[];
   /**
    * For `role: 'tool'` messages: the tool id and the invocation id
    * that produced this output. Enables provenance edges from the
