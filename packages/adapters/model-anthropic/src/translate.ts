@@ -134,7 +134,7 @@ function userBlocks(
 function toolResultContent(
   text: string,
   parts: readonly FilePart[],
-): Anthropic.ToolResultBlockParam['content'] {
+): NonNullable<Anthropic.ToolResultBlockParam['content']> {
   return parts.length === 0 ? text : fileBlocks(text, parts);
 }
 
