@@ -115,10 +115,13 @@
 #                      list every change a real run would make, in order, with
 #                      the names it would use, and show the Terraform plan for
 #                      the new image, checked as a real run checks its plan
-#                      (read-only: no state lock, the var-file untouched, and
-#                      the plan file only in a temporary folder, removed when
-#                      it ends). The runtime's own checks run as jobs in your
-#                      project, so only a real run runs them.
+#                      (read-only: the var-file untouched, the plan taken with
+#                      no state lock, and its file only in a temporary folder,
+#                      removed when it ends). It writes nothing, but reading
+#                      the variables through `terraform console` briefly takes
+#                      the state lock, so a dry run stops, without harm, while
+#                      an apply holds it. The runtime's own checks run as jobs
+#                      in your project, so only a real run runs them.
 
 set -euo pipefail
 
@@ -458,7 +461,9 @@ trap cleanup EXIT
 
 # --- resolve the deployment's configuration ---------------------------------
 # Outputs come from `terraform output`; variables (including their defaults)
-# come from `terraform console`, which evaluates them without reading state.
+# come from `terraform console`. console takes the state lock while it runs
+# and has no -lock flag, so while an apply holds the lock this read fails,
+# without harm. It writes nothing.
 
 if [[ $DRY_RUN == true ]]; then
   printf '%s\n' "upgrade: DRY RUN. It reads only: nothing is mirrored, granted, exported, built, written or applied, and no job is run."
@@ -1009,7 +1014,8 @@ check_plan() {
 
 # A dry run stops here. It lists what the steps below would change, with the
 # names they'd use, prints the steps to confirm by hand, and shows the plan for
-# the new image without a state lock or a plan file. It changes nothing.
+# the new image, taken with no state lock and saved only in $WORK. It changes
+# nothing.
 if [[ $DRY_RUN == true ]]; then
   info "the read-only checks passed."
   [[ -n $SQL_SA ]] || die "couldn't read instance $DB_INSTANCE's service account; a real run would stop at the backup."

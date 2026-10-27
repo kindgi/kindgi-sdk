@@ -255,7 +255,8 @@ assert_docker_config_unchanged() {
 }
 # Every call the run made is a read: the deployment's and the registry's, the
 # module's outputs and variables, a plan with no state lock, and that plan read
-# back. So nothing writes to the state backend, and nothing else changes.
+# back. So nothing writes the state, and nothing else changes. (The real
+# terraform console takes the state lock briefly; the stub doesn't model it.)
 assert_reads_only() {
   local other
   other="$(grep -vE '^(gcloud (run services describe|artifacts docker images list|sql instances describe|sql ssl server-ca-certs list) |docker buildx imagetools inspect |terraform output -json$|terraform console( -var-file=[^ ]+)+$|terraform plan( -var-file=[^ ]+)+ -var server_image=[^ ]+ -lock=false -out=[^ ]+$|terraform show -json [^ ]+$)' "$STUB_CALLS_LOG")"
@@ -644,7 +645,7 @@ assert_out "0.1.11-rc.0 -> 0.2.0 applied"
 # would make with the names it would use, the steps to confirm by hand, and a
 # read-only plan for the new image. Nothing is mirrored, granted, exported,
 # built or applied, and no job is run; the var-file and docker's config are
-# untouched; no state lock is taken and no state is written.
+# untouched; the plan takes no state lock and no state is written.
 case_start "dry run"
 reset_env "$OLD_PACK"; export STUB_TAGS="0.1.10"; V_PACK="$OLD_PACK"
 PACK_DIR="$CASE_DIR/pack"; mkdir -p "$PACK_DIR"
