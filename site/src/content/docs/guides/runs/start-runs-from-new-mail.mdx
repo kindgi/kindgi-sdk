@@ -493,11 +493,12 @@ mail." Then:
   it's shared or personal, such as "Sam Lee · Personal", or "This project
   · Shared" when the project's own account owns it.
 - **Mail:** a summary, such as "Of its 3 mails, 2 started a run and 1 was
-  skipped.", **Runs it started →**, and each mail it found: when, what
-  happened, and the run it started. These are its
+  skipped.", **Runs it started →**, and its latest mails, up to 50: when,
+  what happened, and the run it started. These are its
   [fires](#see-what-each-mail-did) in words, such as "Over its
   runs-an-hour limit: this mail never runs", and a mail that never runs
-  adds "Answer it in the mailbox."
+  adds "Answer it in the mailbox." When there are more, the summary says
+  "Of the last …", and `kindgi mail-triggers fires` has the older ones.
 - **Details,** folded at the foot of the page: its trigger id, its owner,
   the account, its tools allowed unattended, and when it was made.
 
