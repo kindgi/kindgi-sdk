@@ -103,7 +103,7 @@ They're data only: `kindgi build` renders them into the image's Containerfile.
 
 1. **Discovers** files under `tools/`, `guardrails/`, `agents/`, `flows/` per `kindgi.config.ts` (`.ts` / `.js` / `.mjs` all accepted). Indexing a build (`bundleMap`), the map's source paths are the file list, classified by the same patterns — the source tree needn't be there — each imported from its bundle; the index still records the source path.
 2. **Kind-maps** each file by its containing directory (primary) or by structural detection on the default export (fallback for files matched by custom-discovery globs outside the four default folders).
-3. **Imports** each file and reads the `default` export — accepting either the raw primitive shape or a `Result`-wrapped envelope from `defineTool` / `defineGuardrail` / etc. Fails loud on: no default export, kind mismatch, or a `Result`-wrapped error.
+3. **Imports** each file and reads the `default` export — accepting either the raw primitive shape or a `Result`-wrapped envelope from `defineTool` / `validateGuardrail` / etc. Fails loud on: no default export, kind mismatch, or a `Result`-wrapped error.
 4. **Converts Zod schemas** — `tool.inputZod` / `tool.outputZod` / `check.configZod` — to their JSON Schema wire form via `@kindgi/schema.toJSONSchemaSync`. JSON-Schema-authored slots pass through verbatim.
 5. **Writes** the `v: 1` `index.json` envelope atomically (write to `.tmp-<pid>-<time>`, then rename) to the configured output path.
 

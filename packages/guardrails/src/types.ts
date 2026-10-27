@@ -31,7 +31,7 @@ import type { GuardrailConfigProblem } from './config-problems.js';
  *
  * The `BUILT_IN_GUARDRAIL_KINDS` constant enumerates the well-known values
  * (the schema lists them as `examples`); the schema accepts any non-empty
- * kind. `defineGuardrail` still requires a registered check of the same
+ * kind. `validateGuardrail` still requires a registered check of the same
  * kind, and runtime dispatch uses the registered strategies, not this
  * union.
  */
@@ -171,7 +171,7 @@ export type CodeArtifactRef =
  * `check` references a concrete check implementation:
  *   - For `zero-llm`: id of a check in the CheckRegistry (built-in or custom).
  *   - For `llm-judge`: id of a registered check of kind `llm-judge`
- *     (`defineGuardrail` resolves it); the judge itself is configured by
+ *     (`validateGuardrail` resolves it); the judge itself is configured by
  *     `config` (`LlmJudgeConfig`) + `judgeCapabilities`.
  *   - For `external` and adapter kinds: an id the kind's strategy understands.
  *
@@ -218,7 +218,7 @@ export interface Guardrail {
   /**
    * Check-specific configuration. Interpreted by the check
    * implementation (validated by the check's `validateConfig`, e.g.
-   * derived from its `configSchema`, when `defineGuardrail` runs).
+   * derived from its `configSchema`, when `validateGuardrail` runs).
    * Shape is opaque to the engine; e.g. `must-cite` reads
    * `{minCitations?: number}`, `output-matches` reads `{pattern: string}`.
    */
