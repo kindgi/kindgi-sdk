@@ -26,6 +26,7 @@ import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { headerValueProblem } from '@kindgi/types';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
+import { typedFailure } from './errors.js';
 import { fromGeminiResponse, toGeminiFunctions, toGeminiRequest } from './translate.js';
 
 /** The adapter id servers register `geminiAdapterFactory` under. */
@@ -267,11 +268,15 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
 
       const client = await resolveClient();
       const counted = await attempts.count(() =>
-        client.models.generateContent({
-          model: input.model,
-          contents: [...contents],
-          config,
-        }),
+        client.models
+          .generateContent({
+            model: input.model,
+            contents: [...contents],
+            config,
+          })
+          .catch((error: unknown) => {
+            throw typedFailure(error);
+          }),
       );
       const response = counted.value;
 
