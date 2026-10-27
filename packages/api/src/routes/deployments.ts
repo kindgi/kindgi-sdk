@@ -79,7 +79,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
-import { PublishRefused } from '../publish-refused.js';
+import { PROJECT_MISMATCH, PublishRefused, projectMismatchFix } from '../publish-refused.js';
 import {
   type ReferenceScopeBinding,
   agentReferences,
@@ -210,6 +210,14 @@ export interface DeploymentsRouterBindings {
    */
   readonly requirePrefixedPackChecks?: boolean;
   /**
+   * Whether each deployment runs its own pack service (per-deployment
+   * routing), so a copy of a pack with its own pack id runs beside it: the
+   * fix a `<primitive>-project-mismatch` names. Absent: one pack service
+   * serves every deployment, and the fix named is an environment order
+   * (with `environmentOrders`), or none.
+   */
+  readonly perDeploymentPacks?: boolean;
+  /**
    * Whether a project is suspended: nothing new deploys into one (the
    * named project, or the Default for a tenant-wide deploy), refused
    * `409 project-suspended` before anything is written. Absent: no check,
@@ -339,6 +347,12 @@ export function deploymentsRouter(
   // the project it serves as well (`readableDeployment`). (A key limited to
   // another project was already refused, `refuseOtherProjectForKey`.)
   const tenantAccess = tenantResourceAccess(authorizer);
+  // What this runtime offers a deploy refused as another project's: the fix
+  // its `<primitive>-project-mismatch` names (`projectMismatchFix`).
+  const packRuntime = {
+    perDeploymentPacks: bindings.perDeploymentPacks === true,
+    environmentOrders: bindings.environmentOrders !== undefined,
+  };
   r.use('*', async (c, next) => {
     // Without an authorizer, nothing here is checked: deploying is project
     // work, which a runtime without an authorization store leaves to every
@@ -1036,7 +1050,9 @@ export function deploymentsRouter(
           plan.issues.map((issue) => ({ primitive: 'block' as const, ...issue })),
         );
       }
-      if (plan.kind === 'refused') return publishRefusedResponse(c, requestId, plan.refusal);
+      if (plan.kind === 'refused') {
+        return publishRefusedResponse(c, requestId, plan.refusal, packRuntime);
+      }
       packBlocks = plan.planned;
       blockReads = withPackVersions(bindings.blockRegistry, targetProjectId, packBlocks);
     }
@@ -1051,7 +1067,9 @@ export function deploymentsRouter(
         targetProjectId,
         validated.tools,
       );
-      if (plan.kind === 'refused') return publishRefusedResponse(c, requestId, plan.refusal);
+      if (plan.kind === 'refused') {
+        return publishRefusedResponse(c, requestId, plan.refusal, packRuntime);
+      }
       packTools = plan.planned;
     }
     const blockPinsOf =
@@ -1233,7 +1251,9 @@ export function deploymentsRouter(
       // A primitive refused with a typed outcome is the caller's to fix:
       // that outcome's own status and code. Anything else propagates to the
       // central error handler (a 500 for this write).
-      if (cause instanceof PublishRefused) return publishRefusedResponse(c, requestId, cause);
+      if (cause instanceof PublishRefused) {
+        return publishRefusedResponse(c, requestId, cause, packRuntime);
+      }
       if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
       // Not a mapped outcome: to the central error handler (a 500 for this
       // write — the rollback above already ran; the whole error is logged).
@@ -1703,9 +1723,15 @@ function parseWireBody(body: unknown): ParseResult {
 /**
  * A primitive the deploy refused to publish (`PublishRefused`), with that
  * outcome's own status and code. A project mismatch logs the project the
- * primitive belongs to, which the answer never names.
+ * primitive belongs to, which the answer never names, and names the fix
+ * this runtime has (`projectMismatchFix`).
  */
-function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: PublishRefused) {
+function publishRefusedResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  cause: PublishRefused,
+  runtime: Parameters<typeof projectMismatchFix>[0],
+) {
   if (cause.projectId !== undefined) {
     c.get('log').info(`${cause.message}: deploy refused`, {
       primitive: cause.primitive,
@@ -1718,7 +1744,7 @@ function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: Pu
     toWireError(
       {
         code: cause.code,
-        message: `${cause.message}; nothing was deployed`,
+        message: `${cause.message}${fixOf(cause, runtime)}; nothing was deployed`,
         primitive: cause.primitive,
         id: cause.id,
         ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
@@ -1727,6 +1753,13 @@ function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: Pu
       requestId,
     ),
   );
+}
+
+/** A project mismatch's fix, as ` (<fix>)`, when this runtime has one; else nothing. */
+function fixOf(cause: PublishRefused, runtime: Parameters<typeof projectMismatchFix>[0]): string {
+  if (!cause.code.endsWith('-project-mismatch')) return '';
+  const fix = projectMismatchFix(runtime);
+  return fix === undefined ? '' : ` (${fix})`;
 }
 
 function validationFailed(c: Context<AppEnv>, issues: readonly ValidationDetail[]) {
@@ -1890,8 +1923,7 @@ async function keepRegisteredGuardrail(
       if (!(await guardrailInOrder(registry, orders, tenantId, projectId, guardrail.id))) {
         throw new PublishRefused('guardrail', guardrail.id, {
           code: 'guardrail-project-mismatch',
-          reason:
-            'it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id)',
+          reason: PROJECT_MISMATCH,
         });
       }
       if (!sameGuardrailDefinition(existing, guardrail)) {

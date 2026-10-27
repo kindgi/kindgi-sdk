@@ -28,6 +28,14 @@ which gives every id the new pack's id.
 [Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)
 shows how.
 
+A copy runs on a runtime that runs each deployment as a service of its
+own, as one serving many tenants does. A runtime with one pack service,
+such as a self-host serving one tenant, runs only the pack it was given,
+so a copy's code wouldn't run there. There, a second project gets the same
+items through an environment order: put both projects in one order
+(`kindgi environments set`), and `kindgi promote` the build from the first
+to the second. The `409` names the fix your runtime has.
+
 ## What a project's runs can use
 
 A run is in one project, and it can use only what that project reaches:

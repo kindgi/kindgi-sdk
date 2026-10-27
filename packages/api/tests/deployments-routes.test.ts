@@ -426,6 +426,14 @@ let lastAgentPublishProjectId: ProjectId | undefined;
 /** The project an agent of `elsewhereAgentId` belongs to, in these tests. */
 const ELSEWHERE_PROJECT_ID = randomUUID() as ProjectId;
 
+/** What a runtime routing pack calls per deployment passes. */
+const PER_DEPLOYMENT = {
+  systemDeployments: {
+    binding: {} as never,
+    endpointHostAllowed: () => false,
+  },
+} as const;
+
 function makeInMemoryAgentRegistry(
   opts: { failOnAgentId?: string; refuseAgentId?: string; elsewhereAgentId?: string } = {},
 ): AgentRegistryBinding {
@@ -2468,74 +2476,93 @@ describe('POST /v1/deployments — rollback', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
-  test('an agent that belongs to another project → 409 agent-project-mismatch, rolled back, nothing deployed', async () => {
-    const fixture = buildSignedDeploy({
-      index: {
-        v: 1,
-        artifactVersion: '20260920.1',
-        publishedAt: '2026-09-20T14:32:07.104Z',
-        tools: [
-          {
-            id: 'acme.verify-citation',
-            description: 'x',
-            version: '1.0.0',
-            input: { type: 'object' },
-            output: { type: 'object' },
-          },
-        ],
-        guardrails: [
-          {
-            id: 'acme.no-fabricated-quotes',
-            kind: 'zero-llm',
-            check: 'must-cite',
-            action: { 'on-violation': 'halt' },
-          },
-        ],
-        agents: [
-          {
-            id: 'acme.drafting',
-            version: '1.0.0',
-            name: 'Drafting',
-            instructions: 'do it',
-            capabilities: [{ feature: 'model.text.chat' }],
-            tools: [],
-          },
-        ],
-        flows: [],
-      },
-    });
-    const deploymentRegistry = makeInMemoryDeploymentBinding();
-    const { app, toolRegistry, guardrailRegistry } = makeApp({
-      fixture,
-      agentRegistry: makeInMemoryAgentRegistry({ elsewhereAgentId: 'acme.drafting' }),
-      deploymentRegistry,
-    });
-    const res = await app.request('/v1/deployments', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(fixture.wire),
-    });
-    expect(res.status).toBe(409);
-    const text = await res.text();
-    const body = JSON.parse(text) as {
-      error: { code: string; message: string; details?: Record<string, unknown> };
-    };
-    expect(body.error.code).toBe('agent-project-mismatch');
-    expect(body.error.message).toBe(
-      "The agent acme.drafting@1.0.0 wasn't published: it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id); nothing was deployed",
-    );
-    expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
-    // The project it belongs to stays off the wire.
-    expect(text).not.toContain(ELSEWHERE_PROJECT_ID);
-    // A deploy never moves it: what it published before is rolled back.
-    expect(
-      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
-    ).toBeNull();
-    expect(
-      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
-    ).toBeNull();
-    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
-  });
+  test.each([
+    {
+      runs: 'a pack service per deployment',
+      extra: PER_DEPLOYMENT,
+      fix: ' (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id)',
+    },
+    {
+      runs: 'one pack service, with environment orders',
+      extra: { environmentOrders: environmentOrders([]) },
+      fix: " (this runtime runs one pack service, so a copy of the pack wouldn't run: put both projects in one environment order (`kindgi environments set`) and `kindgi promote` the build to this one)",
+    },
+    { runs: 'one pack service, no environment orders', extra: {}, fix: '' },
+  ])(
+    'an agent that belongs to another project, on a runtime with $runs → 409 agent-project-mismatch naming the fix it has, rolled back, nothing deployed',
+    async ({ extra, fix }) => {
+      const fixture = buildSignedDeploy({
+        index: {
+          v: 1,
+          artifactVersion: '20260920.1',
+          publishedAt: '2026-09-20T14:32:07.104Z',
+          tools: [
+            {
+              id: 'acme.verify-citation',
+              description: 'x',
+              version: '1.0.0',
+              input: { type: 'object' },
+              output: { type: 'object' },
+            },
+          ],
+          guardrails: [
+            {
+              id: 'acme.no-fabricated-quotes',
+              kind: 'zero-llm',
+              check: 'must-cite',
+              action: { 'on-violation': 'halt' },
+            },
+          ],
+          agents: [
+            {
+              id: 'acme.drafting',
+              version: '1.0.0',
+              name: 'Drafting',
+              instructions: 'do it',
+              capabilities: [{ feature: 'model.text.chat' }],
+              tools: [],
+            },
+          ],
+          flows: [],
+        },
+      });
+      const deploymentRegistry = makeInMemoryDeploymentBinding();
+      const { app, toolRegistry, guardrailRegistry } = makeApp({
+        fixture,
+        agentRegistry: makeInMemoryAgentRegistry({ elsewhereAgentId: 'acme.drafting' }),
+        deploymentRegistry,
+        extra,
+      });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      expect(res.status).toBe(409);
+      const text = await res.text();
+      const body = JSON.parse(text) as {
+        error: { code: string; message: string; details?: Record<string, unknown> };
+      };
+      expect(body.error.code).toBe('agent-project-mismatch');
+      expect(body.error.message).toBe(
+        `The agent acme.drafting@1.0.0 wasn't published: it belongs to another project${fix}; nothing was deployed`,
+      );
+      expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
+      // The project it belongs to stays off the wire.
+      expect(text).not.toContain(ELSEWHERE_PROJECT_ID);
+      // A deploy never moves it: what it published before is rolled back.
+      expect(
+        await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+      ).toBeNull();
+      expect(
+        await guardrailRegistry.get({
+          tenantId,
+          guardrailId: 'acme.no-fabricated-quotes' as never,
+        }),
+      ).toBeNull();
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    },
+  );
 
   test('a flow refused with a typed outcome → its 404, the tool it shipped with rolled back (T205)', async () => {
     const fixture = buildSignedDeploy({
@@ -4968,7 +4995,8 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
     };
     expect(body.error.code).toBe('guardrail-project-mismatch');
     expect(body.error.message).toBe(
-      "The guardrail acme.no-fabricated-quotes wasn't published: it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id); nothing was deployed",
+      // One pack service and no environment orders: no fix to name.
+      "The guardrail acme.no-fabricated-quotes wasn't published: it belongs to another project; nothing was deployed",
     );
     expect(body.error.details).toEqual({ primitive: 'guardrail', id: 'acme.no-fabricated-quotes' });
     // The project it belongs to stays off the wire.
@@ -5993,13 +6021,6 @@ describe("POST /v1/deployments: a pack check carries its pack's id where checks 
         flows: [],
       },
     });
-  /** What a runtime routing pack calls per deployment passes. */
-  const perDeployment = {
-    systemDeployments: {
-      binding: {} as never,
-      endpointHostAllowed: () => false,
-    },
-  } as const;
   const post = (app: ReturnType<typeof makeApp>['app'], wire: unknown) =>
     app.request('/v1/deployments', {
       method: 'POST',
@@ -6009,7 +6030,7 @@ describe("POST /v1/deployments: a pack check carries its pack's id where checks 
 
   test('an unprefixed pack check is refused, naming the fix; nothing is registered', async () => {
     const fixture = withCheck('shared.checks.contact');
-    const { app, guardrailRegistry } = makeApp({ fixture, extra: perDeployment });
+    const { app, guardrailRegistry } = makeApp({ fixture, extra: PER_DEPLOYMENT });
     const res = await post(app, fixture.wire);
     expect(res.status).toBe(400);
     const body = (await res.json()) as {
@@ -6037,11 +6058,11 @@ describe("POST /v1/deployments: a pack check carries its pack's id where checks 
   test('a prefixed pack check deploys; so does a built-in one the guardrail merely names', async () => {
     const prefixed = withCheck('acme-shop.checks.contact');
     expect(
-      (await post(makeApp({ fixture: prefixed, extra: perDeployment }).app, prefixed.wire)).status,
+      (await post(makeApp({ fixture: prefixed, extra: PER_DEPLOYMENT }).app, prefixed.wire)).status,
     ).toBe(201);
     const builtIn = withCheck('must-cite', true);
     expect(
-      (await post(makeApp({ fixture: builtIn, extra: perDeployment }).app, builtIn.wire)).status,
+      (await post(makeApp({ fixture: builtIn, extra: PER_DEPLOYMENT }).app, builtIn.wire)).status,
     ).toBe(201);
   });
 

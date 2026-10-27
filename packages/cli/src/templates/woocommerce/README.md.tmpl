@@ -206,7 +206,9 @@ Ask the store agent something:
 
 This pack is one client's: every id in it starts with `{{PACK_ID}}.`. For
 another client, make another copy, so its ids start with that client's
-name:
+name. A copy runs where each deployment runs as a service of its own; a
+runtime with one pack service, such as a self-host serving one tenant,
+runs only the first pack's code, and its deploy's `409` says what to do:
 
 ```sh
 {{KINDGI}} init <client> --template=woocommerce
