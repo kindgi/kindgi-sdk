@@ -225,10 +225,11 @@ function attachmentText(a: MailAttachment): string {
   return `${headerText(a.name, NAME_MAX)} (${a.inline === true ? 'inline, ' : ''}${headerText(a.contentType, NAME_MAX)}, ${sizeText(a.size)})`;
 }
 
+/** In 1000s, as the file limits are, and rounded up: a size shown within a limit is within it. */
 function sizeText(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1000) return `${bytes} B`;
+  if (bytes < 1_000_000) return `${Math.ceil(bytes / 1000)} KB`;
+  return `${(Math.ceil(bytes / 100_000) / 10).toFixed(1)} MB`;
 }
 
 function personText(p: MailPerson): string {
