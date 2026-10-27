@@ -4,6 +4,7 @@
 "@kindgi/client": patch
 "@kindgi/compliance": patch
 "@kindgi/runtime": patch
+"@kindgi/sdk": patch
 "@kindgi/specs": patch
 "@kindgi/types": patch
 ---
@@ -18,3 +19,4 @@
 - `@kindgi/types` adds `PinScope`, `PinnedItemKind` and `FlowVersionVia`.
 - `@kindgi/runtime`: `RunFlowInput`, `StartRunParams` and `KernelRunRecord` gain the optional `flowVersionVia` and `flowPinnedScope`, recorded with the run.
 - `@kindgi/client`: `client.flows.pinned.{resolve, list, pin, unpin, history}`, and `Run.flowVersionVia` and `Run.flowPinnedScope`.
+- `@kindgi/sdk`: the four flow skills (`kindgi-authoring-flows` and its Java, Python and Scala ones) say a run keeps the flow version it started on, and that a run naming no version takes the version pinned for its project (or its org, or the tenant), else the newest the project reaches.
