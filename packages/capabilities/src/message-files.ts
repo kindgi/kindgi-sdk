@@ -105,7 +105,7 @@ export const FILE_LIMITS = {
 /**
  * Each provider's own limits on what a call carries, where they're lower
  * than Kindgi's (`FILE_LIMITS`), by adapter id. The adapter passes its
- * row as `FilePlanOptions.limits`, so a file over them is a line saying
+ * row as `FilePartsOptions.limits`, so a file over them is a line saying
  * why, not a refused call. A provider whose limits are all at or above
  * Kindgi's has no row.
  *   - Bedrock's Converse API, checked on 2026-10-27 against AWS's API
@@ -120,7 +120,7 @@ export const PROVIDER_FILE_LIMITS = {
     documentBytes: 4_500_000,
     documentsPerCall: 5,
   },
-} as const satisfies Readonly<Record<string, NonNullable<FilePlanOptions['limits']>>>;
+} as const satisfies Readonly<Record<string, NonNullable<FilePartsOptions['limits']>>>;
 
 /** One part of what a message shows the model of its files. */
 export type FilePart =
