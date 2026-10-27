@@ -179,6 +179,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
         readFile: input.readFile,
         images: vision,
         documents: vision,
+        contextWindow: modelInfo.contextWindow,
       });
       const translated = toAnthropicMessages(input.messages, files);
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):

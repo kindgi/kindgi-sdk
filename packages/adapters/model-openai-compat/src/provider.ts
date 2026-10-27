@@ -224,6 +224,7 @@ export function createOpenAICompatModelProvider(
         readFile: input.readFile,
         images: vision,
         documents: vision,
+        contextWindow: modelInfo.contextWindow,
       });
       const sampling = samplingFor(modelInfo, input);
       // A caller that wants as little thinking as the model allows (a judge).

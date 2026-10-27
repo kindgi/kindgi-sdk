@@ -35,7 +35,12 @@ describe('in-process — files', () => {
     const readFile = vi.fn(async (id: string) => STORED[id]);
     const message: ModelMessage = { role: 'user', content: 'Here it is.', files: [photo, notes] };
     // As `invoke` asks: a local model takes no images or documents.
-    const [files] = await fileParts([message], { readFile, images: false, documents: false });
+    const [files] = await fileParts([message], {
+      readFile,
+      images: false,
+      documents: false,
+      contextWindow: 8_192,
+    });
     expect(toChatTemplateMessage(message, files ?? [])).toEqual({
       role: 'user',
       content:

@@ -235,6 +235,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         readFile: input.readFile,
         images: vision,
         documents: vision,
+        contextWindow: model.contextWindow,
       });
       const { systemInstruction, contents } = toGeminiRequest(input.messages, files);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;

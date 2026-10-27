@@ -74,8 +74,9 @@ export const TEXT_FILE_TYPES = ['text/plain', 'text/markdown', 'text/csv'] as co
  *   - Anthropic takes images of at most 5 MB, and 100 PDF pages a request
  *     (under a 1M-token window), counted over the whole request. Bedrock's
  *     own lower limits apply there too.
- *   - Text files are read in on every call: 200,000 characters together is
- *     about 50,000 tokens, well inside every hosted model's window.
+ *   - Text files are read in on every call, so a call reads in at most
+ *     200,000 characters of them, and never more characters than its
+ *     model's window has tokens (`FilePartsOptions.contextWindow`).
  * A file's pixel and page limits are checked where it's stored, from its
  * bytes; a call checks what it can without parsing them.
  */
@@ -94,7 +95,10 @@ export const FILE_LIMITS = {
   bytesPerCall: 12_000_000,
   /** PDF pages one call sends. */
   pagesPerCall: 100,
-  /** Characters of text files one call reads in, each counted as at most `textChars`. */
+  /**
+   * Characters of text files one call reads in, each counted as at most
+   * `textChars`; lowered to the model's window (`FilePartsOptions.contextWindow`).
+   */
   textCharsPerCall: 200_000,
 } as const;
 
@@ -132,9 +136,14 @@ export interface FilePartsOptions {
     readonly filesPerCall?: number;
     /** PDFs one call sends, of its `filesPerCall`. */
     readonly documentsPerCall?: number;
-    /** Characters of text files one call reads in. */
-    readonly textCharsPerCall?: number;
   };
+  /**
+   * The model's context window, in tokens. A call reads in no more
+   * characters of text files than this, on purpose: a token is about four
+   * characters of prose (nearer 2.5 of a CSV), so the files take about a
+   * quarter of the window and leave room for the prompt and the reply.
+   */
+  readonly contextWindow: number;
 }
 
 /**
@@ -286,7 +295,7 @@ function callLimits(options: FilePartsOptions): CallLimits {
     documentBytes: lower(FILE_LIMITS.documentBytes, options.limits?.documentBytes),
     filesPerCall,
     documentsPerCall: lower(filesPerCall, options.limits?.documentsPerCall),
-    textCharsPerCall: lower(FILE_LIMITS.textCharsPerCall, options.limits?.textCharsPerCall),
+    textCharsPerCall: Math.min(FILE_LIMITS.textCharsPerCall, options.contextWindow),
   };
 }
 

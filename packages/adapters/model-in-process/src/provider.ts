@@ -114,13 +114,12 @@ export function createInProcessModelProvider(
       const spec = MODEL_SPECS[modelKey];
       const p = await loadPipeline(modelKey);
       // A local model takes text only: a text file is read in, and an image
-      // or a PDF is a line saying it isn't shown. Text files take at most a
-      // quarter of its window, at about four characters a token.
+      // or a PDF is a line saying it isn't shown.
       const files = await fileParts(input.messages, {
         readFile: input.readFile,
         images: false,
         documents: false,
-        limits: { textCharsPerCall: spec.contextWindow },
+        contextWindow: spec.contextWindow,
       });
       const messages = input.messages.map((m, i) => toChatTemplateMessage(m, files[i] ?? []));
       const startedAt = Date.now();

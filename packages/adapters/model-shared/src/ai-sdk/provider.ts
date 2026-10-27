@@ -149,6 +149,7 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
         readFile: input.readFile,
         images: vision,
         documents: vision,
+        contextWindow: model.contextWindow,
         ...(options.fileLimits !== undefined && { limits: options.fileLimits }),
       });
       const prompt = toPrompt(
