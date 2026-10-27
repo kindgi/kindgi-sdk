@@ -3,19 +3,14 @@
 
 import type { Context } from 'hono';
 
-import {
-  type TriggerTargetRef,
-  ref,
-  serviceAccountPrincipal,
-  targetAccess,
-  userPrincipal,
-} from '@kindgi/authz';
+import { type TriggerTargetRef, ref, serviceAccountPrincipal, userPrincipal } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { callerRef, isTenantAdmin } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
+import { type ItemRights, type RunAccess, runAccess, servedQuestionsOf } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { TriggerOwner } from '../trigger-binding.js';
@@ -103,11 +98,16 @@ export interface ResolveTriggerOwnerDeps {
   /** Whether the caller may not `act_as` the account (`true` → refused). */
   readonly actAsDenied: (serviceAccountId: string) => Promise<boolean>;
   /**
-   * Whether the account can't run the trigger's target, as every fire
-   * checks it (`true` → refused). Without an authorization model, `false`:
-   * a grant limits nothing there.
+   * The right the account lacks to run the trigger's target from the
+   * trigger's project, as every fire checks it (`runAccess`): refused when
+   * there's one. `undefined` when it can run it, and always without an
+   * authorization model, where a grant limits nothing.
    */
-  readonly cannotRun: (serviceAccountId: string, target: TriggerTargetRef) => Promise<boolean>;
+  readonly cannotRun: (
+    serviceAccountId: string,
+    target: TriggerTargetRef,
+    projectId: string | undefined,
+  ) => Promise<RunAccess | undefined>;
   /** Whether the caller is an admin of the project, who may run a trigger as it. */
   readonly isProjectAdmin: (projectId: string) => Promise<boolean>;
   /** Where a project's own account is made; absent → `runAsProject` is a 501. */
@@ -135,7 +135,8 @@ export interface ResolveTriggerOwnerDeps {
  *      accounts by naming ids.
  *   2. The **delegation gate** — `act_as` on the account, which tenant
  *      admins hold.
- *   3. The account can run `target`, as every fire checks it → else 409.
+ *   3. The account can run `target` from the trigger's project, as every
+ *      fire checks it (`runAccess`) → else 409.
  *      Only a caller past the gate reaches it, so it tells no one else
  *      anything; without it, each fire would be refused until the trigger
  *      paused.
@@ -211,30 +212,54 @@ export async function resolveTriggerOwner(
   if (await deps.actAsDenied(serviceAccountId)) {
     return { kind: 'refused', response: forbidden() };
   }
-  if (await deps.cannotRun(serviceAccountId, target)) {
+  const lacks = await deps.cannotRun(serviceAccountId, target, request.projectId);
+  if (lacks !== undefined) {
     return {
       kind: 'refused',
       response: ownerError(
         c,
         requestId,
         'trigger-owner-cannot-run-target',
-        cannotRunMessage(account.name, target),
+        cannotRunMessage(account.name, target, lacks),
       ),
     };
   }
   return { kind: 'owner', owner: { kind: 'service', id: serviceAccountId } };
 }
 
-/** Why a named account can't own the trigger, and what fixes it. */
-function cannotRunMessage(accountName: string, target: TriggerTargetRef): string {
-  return `Service account "${accountName}" can't ${targetWords(target)}, so the trigger can't run as it. Give the account the editor role on the target's project, or name another account.`;
+/** Why a named account can't own the trigger, and what fixes it: the right `runAccess` asked. */
+function cannotRunMessage(accountName: string, target: TriggerTargetRef, lacks: RunAccess): string {
+  return `Service account "${accountName}" can't ${targetWords(target, lacks)}, so the trigger can't run as it. Give the account ${roleWords(target, lacks)}, or name another account.`;
 }
 
-/** What the owner can't do to `target`: `run flow "f"`, `run agent "a"` or `publish agent "a"`. */
-function targetWords(target: TriggerTargetRef): string {
-  return target.kind === 'flow'
-    ? `run flow "${target.flowId}"`
-    : `${target.kind === 'improve' ? 'publish' : 'run'} agent "${target.agentId}"`;
+/**
+ * What the owner can't do to `target`: `run flow "f"`, `run agent "a"` or
+ * `publish agent "a"`, with ` in this project` when the right is the
+ * trigger's project's.
+ */
+function targetWords(target: TriggerTargetRef, lacks?: RunAccess): string {
+  const doing =
+    target.kind === 'flow'
+      ? `run flow "${target.flowId}"`
+      : `${target.kind === 'improve' ? 'publish' : 'run'} agent "${target.agentId}"`;
+  return lacks?.on === 'project' ? `${doing} in this project` : doing;
+}
+
+/**
+ * The role that gives the right `runAccess` asked, the narrowest one:
+ * `caller` (an agent) or `executor` (a flow) on the trigger's project,
+ * `editor` where an improved agent gets its new versions, else today's
+ * `editor` on the target's project.
+ */
+function roleWords(target: TriggerTargetRef, lacks: RunAccess): string {
+  switch (lacks.on) {
+    case 'project':
+      return `the ${target.kind === 'flow' ? 'executor' : 'caller'} role on this project`;
+    case 'made-in':
+      return `the editor role on project ${lacks.resource.id}, where agent "${target.kind === 'flow' ? target.flowId : target.agentId}" gets its new versions`;
+    case 'item':
+      return "the editor role on the target's project";
+  }
 }
 
 /**
@@ -285,7 +310,7 @@ async function projectAccountOwner(
         : message,
     );
   }
-  if (await deps.cannotRun(ensured.value.serviceAccountId, target)) {
+  if ((await deps.cannotRun(ensured.value.serviceAccountId, target, projectId)) !== undefined) {
     return refusedWith(c, 'trigger-owner-cannot-run-target', projectCannotRunMessage(target));
   }
   return {
@@ -342,13 +367,14 @@ export function triggerOwnerDeps(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
   serviceAccounts: Pick<ServiceAccountBinding, 'get' | 'projectAccounts'> | undefined,
+  itemRights: ItemRights | undefined,
 ): ResolveTriggerOwnerDeps {
   return {
     serviceAccounts,
     canReadServiceAccounts: () => isTenantAdmin(c, authorizer),
     actAsDenied: (serviceAccountId) => mayNotActAs(c, authorizer, serviceAccountId),
-    cannotRun: (serviceAccountId, target) =>
-      accountCannotRun(c, authorizer, serviceAccountId, target),
+    cannotRun: (serviceAccountId, target, projectId) =>
+      accountCannotRun(c, authorizer, itemRights, serviceAccountId, target, projectId),
     isProjectAdmin: (projectId) => isTriggerAdmin(c, authorizer, projectId),
     ...(serviceAccounts?.projectAccounts !== undefined && {
       projectAccounts: serviceAccounts.projectAccounts,
@@ -357,21 +383,29 @@ export function triggerOwnerDeps(
 }
 
 /**
- * Whether the service account can't run `target`: the fire's own check
- * (`targetAccess`), asked of the account, not the caller. Without an
- * authorization model, no: there a grant limits nothing, so the account's
- * runs aren't limited by one either. A store that fails throws, as the
- * `act_as` check does, so the request fails rather than letting it pass.
+ * The right the service account lacks to run `target` from the trigger's
+ * project: the fire's own check (`runAccess`), asked of the account, not
+ * the caller. `undefined` when it has it, and without an authorization
+ * model, where a grant limits nothing, so the account's runs aren't
+ * limited by one either. A store that fails throws, as the `act_as` check
+ * does, so the request fails rather than letting it pass.
  */
 async function accountCannotRun(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
+  itemRights: ItemRights | undefined,
   serviceAccountId: string,
   target: TriggerTargetRef,
-): Promise<boolean> {
-  if (authorizer === undefined) return false;
+  projectId: string | undefined,
+): Promise<RunAccess | undefined> {
+  if (authorizer === undefined) return undefined;
   const account = serviceAccountPrincipal(serviceAccountId, c.get('tenantId') as TenantId);
-  return !(await authorizer.canFor(c, account, ...targetAccess(target)));
+  const access = await runAccess(
+    itemRights === undefined ? undefined : servedQuestionsOf(c, itemRights),
+    target,
+    projectId,
+  );
+  return (await authorizer.canFor(c, account, access.action, access.resource)) ? undefined : access;
 }
 
 /**
@@ -420,7 +454,8 @@ export function callerOwns(c: Context<AppEnv>, owner: TriggerOwner): boolean {
 
 /**
  * A retarget's check of the trigger's owner, of any kind: whether it can run
- * the new target, the fire's own check (`targetAccess`), asked of the owner.
+ * the new target from the trigger's project, the fire's own check
+ * (`runAccess`), asked of the owner.
  * A `PATCH` keeps the owner, so without it a target the owner can't run is
  * accepted, and then every fire is refused until the trigger pauses. Nothing
  * to check:
@@ -437,6 +472,7 @@ export async function ownerCannotRunRefusal(
   names: TriggerOwnerNames | undefined,
   owner: TriggerOwner,
   target: TriggerTargetRef,
+  at: { readonly projectId: string | undefined; readonly itemRights: ItemRights | undefined },
 ): Promise<Response | undefined> {
   if (authorizer === undefined || callerOwns(c, owner)) return undefined;
   const tenantId = c.get('tenantId') as TenantId;
@@ -446,12 +482,17 @@ export async function ownerCannotRunRefusal(
     owner.kind === 'user'
       ? userPrincipal(owner.id, tenantId)
       : serviceAccountPrincipal(owner.id, tenantId);
-  if (await authorizer.canFor(c, principal, ...targetAccess(target))) return undefined;
+  const access = await runAccess(
+    at.itemRights === undefined ? undefined : servedQuestionsOf(c, at.itemRights),
+    target,
+    at.projectId,
+  );
+  if (await authorizer.canFor(c, principal, access.action, access.resource)) return undefined;
   return ownerError(
     c,
     c.get('requestId'),
     'trigger-owner-cannot-run-target',
-    retargetMessage(owner, read, target),
+    retargetMessage(owner, read, target, access),
   );
 }
 
@@ -483,22 +524,24 @@ async function readOwner(
 }
 
 /**
- * Why the trigger's owner can't run its new target, and who can fix it. A
- * project's own account has a fixed grant, so for it the fix is a take-over.
+ * Why the trigger's owner can't run its new target, and who can fix it,
+ * naming the right `runAccess` asked. A project's own account has a fixed
+ * grant, so for it the fix is a take-over.
  */
 function retargetMessage(
   owner: TriggerOwner,
   read: { readonly name?: string | undefined; readonly projectAccount?: boolean },
   target: TriggerTargetRef,
+  lacks: RunAccess,
 ): string {
   const name = read.name ?? owner.id;
   if (owner.kind === 'user') {
-    return `${name} can't ${targetWords(target)}, so the trigger can't run it as them. A project admin can take the trigger over first.`;
+    return `${name} can't ${targetWords(target, lacks)}, so the trigger can't run it as them. A project admin can take the trigger over first.`;
   }
   if (read.projectAccount === true) {
     return `The trigger can't ${targetWords(target)} as the project. ${PROJECT_ACCOUNT_RUNS}: a project admin can take the trigger over first, to own it or to run it as a service account that can.`;
   }
-  return `Service account "${name}" can't ${targetWords(target)}, so the trigger can't run it as that account. A tenant admin can give the account the editor role on the target's project, or a project admin can take the trigger over first.`;
+  return `Service account "${name}" can't ${targetWords(target, lacks)}, so the trigger can't run it as that account. A tenant admin can give the account ${roleWords(target, lacks)}, or a project admin can take the trigger over first.`;
 }
 
 type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];

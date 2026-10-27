@@ -22,7 +22,7 @@ import type {
 import { callerRef } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, runIn } from '../item-rights.js';
+import { type ItemRights, runAccess, runAccessRefusal, servedQuestionsOf } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import {
@@ -181,19 +181,25 @@ export function webhooksRouter(
     owner: row.owner,
   });
 
-  /** Running `flowId` from a trigger in `projectId`: `execute` on it, or for a flow more than one project serves, there (`runIn`). */
+  /**
+   * Running `flowId` from a trigger in `projectId`, of the caller:
+   * `runAccess`, the rule the owner is checked by at every fire and a run
+   * started by hand follows.
+   */
   async function flowRefused(
     c: Context<AppEnv>,
     flowId: string,
     projectId: string | undefined,
   ): Promise<Response | undefined> {
     const served =
-      authorizer === undefined ? undefined : await itemRights?.multi(c, 'flow', flowId);
-    return itemRights !== undefined &&
-      projectId !== undefined &&
-      served?.includes(projectId as ProjectId) === true
-      ? runIn(c, itemRights, { kind: 'flow', id: flowId }, projectId)
-      : denied(c, 'execute', ref('flow', flowId));
+      authorizer === undefined || itemRights === undefined
+        ? undefined
+        : servedQuestionsOf(c, itemRights);
+    const target = { kind: 'flow' as const, flowId };
+    const access = await runAccess(served, target, projectId);
+    return access.on === 'item' || itemRights === undefined
+      ? denied(c, access.action, access.resource)
+      : runAccessRefusal(c, itemRights, target, access);
   }
 
   /** Nothing, when allowed; else the authorizer's own 403. */
@@ -337,13 +343,15 @@ export function webhooksRouter(
       (projectId as string | undefined) ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
     const refused =
-      (project === undefined
+      project === undefined
         ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
-        : await denied(c, 'write', ref('project', project))) ??
-      (await flowRefused(c, flowId.value, project));
+        : await denied(c, 'write', ref('project', project));
     if (refused !== undefined) return refused;
     // The flow it runs, at its version, must be its project's to reach
-    // (`reference-scope.ts`).
+    // (`reference-scope.ts`), asked before the flow's right: a project that
+    // doesn't run that version yet is fixed by a promotion, which the 400
+    // names, where the right would answer a bare 403. Only a caller who
+    // may write the project gets this far.
     if (project !== undefined) {
       const outOfScope = await referencesOutOfScope(
         referenceScope,
@@ -353,6 +361,8 @@ export function webhooksRouter(
       );
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
+    const refusedFlow = await flowRefused(c, flowId.value, project);
+    if (refusedFlow !== undefined) return refusedFlow;
     // What its runs may call without a person's yes: a project admin's to
     // set, and only tools its flow calls (`trigger-tools.ts`).
     if (tools.kind === 'ok') {
@@ -403,7 +413,7 @@ export function webhooksRouter(
       c,
       ownerRequest,
       { kind: 'flow', flowId: flowId.value },
-      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts, itemRights),
     );
     if (resolved.kind === 'refused') return resolved.response;
     const owner = resolved.owner;
@@ -609,13 +619,8 @@ export function webhooksRouter(
       return bad(c, requestId, STANDARD_WEBHOOKS_DEDUPES);
     }
     if (typeof body.flowVersion === 'string') {
-      const refused = await flowRefused(
-        c,
-        found.value.flowId,
-        found.value.projectId as unknown as string,
-      );
-      if (refused !== undefined) return refused;
-      // The version it moves to must be its project's to reach, as at registration.
+      // The version it moves to must be its project's to reach, as at
+      // registration, and before the flow's right, as there.
       const outOfScope = await referencesOutOfScope(
         referenceScope,
         tenantId,
@@ -630,6 +635,12 @@ export function webhooksRouter(
         ],
       );
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+      const refused = await flowRefused(
+        c,
+        found.value.flowId,
+        found.value.projectId as unknown as string,
+      );
+      if (refused !== undefined) return refused;
     }
     if (typeof body.hmacSecretName === 'string') {
       const keyRefused = await providerKeyRefused(c, body.hmacSecretName);
@@ -872,7 +883,7 @@ export function webhooksRouter(
       c,
       ownerRequest,
       { kind: 'flow', flowId: found.value.flowId },
-      triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
+      triggerOwnerDeps(c, authorizer, names?.serviceAccounts, itemRights),
     );
     if (resolved.kind === 'refused') return resolved.response;
     const { tenantId, triggerId } = found.value;

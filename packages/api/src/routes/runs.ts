@@ -36,7 +36,7 @@ import type {
   RunTrace,
 } from '../handler-binding.js';
 import type { HitlBinding } from '../hitl-binding.js';
-import { type ItemRights, runIn } from '../item-rights.js';
+import { type ItemRights, runIn, servedQuestionsOf, servedThere } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
@@ -941,7 +941,7 @@ async function answerRefusal(
   const projectId = run.projectId as unknown as string;
   if (
     options.itemRights !== undefined &&
-    (await servedThere(c, options.itemRights, target, projectId))
+    (await servedThere(servedQuestionsOf(c, options.itemRights), target, projectId))
   ) {
     return runIn(c, options.itemRights, target, projectId);
   }
@@ -1130,7 +1130,7 @@ async function servedRun(
   if (itemRights === undefined) return undefined;
   const named = start.projectId as unknown as string | undefined;
   if (named !== undefined) {
-    return (await servedThere(c, itemRights, target, named))
+    return (await servedThere(servedQuestionsOf(c, itemRights), target, named))
       ? { start, refused: await runIn(c, itemRights, target, named) }
       : undefined;
   }
@@ -1152,24 +1152,6 @@ async function servedRun(
     start: keyed === undefined ? start : { ...start, projectId: keyed as ProjectId },
     refused: await runIn(c, itemRights, target, keyed ?? served.own),
   };
-}
-
-/**
- * Whether `projectId` is one of the target's projects, and more than one
- * serves it: its first one alone isn't enough.
- */
-async function servedThere(
-  c: Context<AppEnv>,
-  itemRights: ItemRights,
-  target: { readonly kind: 'agent' | 'flow'; readonly id: string },
-  projectId: string,
-): Promise<boolean> {
-  const there = await itemRights.servesIn(c, target.kind, target.id, projectId);
-  if (there === undefined || !there.serves) return false;
-  return (
-    projectId !== there.own ||
-    (await itemRights.servedElsewhere(c, target.kind, target.id))?.elsewhere === true
-  );
 }
 
 /** Whether `projectId` is one of the target's projects, `own` (its first) among them. */

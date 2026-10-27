@@ -13,11 +13,13 @@ export type TriggerTargetRef =
   | { readonly kind: 'agent' | 'improve'; readonly agentId: string };
 
 /**
- * What running a trigger's target takes, as starting it by hand does:
- * `execute` on the flow or agent a run starts; `publish` on the agent an
- * improvement pass works on (as `POST /v1/proposals/improve`). The one
- * mapping a trigger's checks use, when its owner is set and at every
- * fire, so the two can't disagree.
+ * What running a trigger's target takes of an item one project serves, as
+ * starting it by hand does: `execute` on the flow or agent a run starts;
+ * `publish` on the agent an improvement pass works on (as
+ * `POST /v1/proposals/improve`). The rule a trigger's checks use is
+ * `@kindgi/api`'s `runAccess`, at register, on a change and at every
+ * fire, so they can't disagree: for an item more than one project serves,
+ * it asks the trigger's project's right instead, and this answer otherwise.
  */
 export function targetAccess(target: TriggerTargetRef): [Action, ResourceRef] {
   switch (target.kind) {

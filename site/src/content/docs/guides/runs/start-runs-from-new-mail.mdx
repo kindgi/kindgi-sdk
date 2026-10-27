@@ -313,11 +313,16 @@ account. No change moves the owner: only a take-over does.
   authorization store. A service account named with
   `--run-as=<service-account-id>`, at create or take-over, that can't run
   the agent or flow is refused (`409 trigger-owner-cannot-run-target`):
-  give it the editor role on the target's project, or name another. So is
+  give it the role the message names, or name another: the caller role
+  on the trigger's project for an agent (the executor role for a flow)
+  when that project and another both run it, as across an environment
+  order once a build is promoted
+  ([A trigger in a later environment](../../../concepts/projects-packs-values/#what-a-projects-runs-can-use)),
+  else the editor role on the target's project. So is
   `--run-as=project` on one the project's editors can't run: run the
   trigger as a service account that can, or own it yourself. And since no
   change moves the owner, a new agent or flow must be one the owner can
-  run, a person or an account. That isn't checked when you're the owner,
+  run by the same rule, a person or an account. That isn't checked when you're the owner,
   nor for an owner that was unregistered or removed. A tenant admin can
   give an account the role (not the project's own account, whose role is
   fixed), or a project admin can take the trigger over first.
@@ -411,6 +416,12 @@ A trigger's `statusReason` says why it isn't reading mail:
   access, have a project admin take it over (a person's mailbox then
   starts afresh), or unregister it. The next look that opens the mailbox
   clears it.
+- **`target-out-of-reach`:** no version of its agent or flow runs in its
+  project: none was made there, and no build in place there ships one,
+  such as after the build that brought it to a later environment was
+  retired. The trigger keeps looking but reads nothing, and its looks
+  don't pause it. Once a build that ships one is promoted there, it reads
+  on from where it stopped, within the catch-up below.
 - **Paused:** after 5 fires in a row that were refused or failed, the
   trigger pauses itself, with the last reason. A refusal for the hourly
   limit, a missing connection, a missing thread or a busy runtime doesn't

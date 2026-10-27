@@ -51,6 +51,18 @@ project holds:
   `details.issues`. So does starting a run, in a project, of an agent or
   flow that project doesn't reach. For one tool, the message is:
   `This project can't reference tool "<id>": it isn't registered in this project, its org or the tenant`.
+- **A trigger in a later environment.** A schedule, webhook or mail
+  trigger in a project a build is promoted into runs what's been promoted
+  there. Registering one, or changing what it runs, before the first
+  build that ships its agent or flow is promoted there answers
+  `400 reference-out-of-scope` at `/target`. It's asked once the caller
+  may change the project's triggers, before their right to run the
+  target. For an agent named with no version, the message is:
+  `This project can't reference agent "<id>": it has no version that runs here (none was made in this project, and no build in place here ships one). If it's made in an earlier environment of this project's order, promote a build that ships it here; else make the trigger in the project that makes it`.
+  Once it's there, the trigger runs on its owner's right on that project,
+  as a run started there by hand does: `call` for an agent, `execute` for
+  a flow. While no build in place there ships what it runs, someone whose
+  right is only that project's can't take it over: promote first.
 - **When it runs.** A tool call from a run whose project doesn't reach the
   tool isn't run: `reference-out-of-scope`,
   `tool "<id>" isn't registered in this project, its org or the tenant`.

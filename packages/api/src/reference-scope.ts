@@ -39,6 +39,14 @@ export interface ItemReference {
    * the item itself, by its id.
    */
   readonly version?: string;
+  /**
+   * The agent as a run would choose its version, none named: reached when
+   * a run in the project reaches at least one version of it, made there or
+   * shipped there by a build in place. Set only with no `version`, and only
+   * for a trigger's agent (`triggerTargetReference`). A deployment that
+   * doesn't read it answers the item, as for a reference without it.
+   */
+  readonly anyVersion?: true;
 }
 
 export interface ReferenceScopeBinding {
@@ -88,18 +96,11 @@ export async function referencesOutOfScope(
   const issues: ReferenceOutOfScopeError['issues'][number][] = [];
   const refused: ItemReference[] = [];
   for (const ref of refs) {
-    const key = `${ref.kind}:${ref.id}@${ref.version ?? ''}`;
+    const asked = askedOf(ref);
+    const key = `${asked.kind}:${asked.id}@${asked.version ?? (asked.anyVersion === true ? '*' : '')}`;
     let answer = answers.get(key);
     if (answer === undefined) {
-      answer = scope.reachable({
-        tenantId,
-        fromProjectId,
-        ref: {
-          kind: ref.kind,
-          id: ref.id,
-          ...(ref.version !== undefined && { version: ref.version }),
-        },
-      });
+      answer = scope.reachable({ tenantId, fromProjectId, ref: asked });
       answers.set(key, answer);
     }
     if (!(await answer)) {
@@ -124,6 +125,14 @@ export async function referencesOutOfScope(
   };
 }
 
+/** The reference as the scope is asked it: a version, or else any version when it's named so. */
+function askedOf(ref: ItemReference): ItemReference {
+  if (ref.version !== undefined) return { kind: ref.kind, id: ref.id, version: ref.version };
+  return ref.anyVersion === true
+    ? { kind: ref.kind, id: ref.id, anyVersion: true }
+    : { kind: ref.kind, id: ref.id };
+}
+
 /** `agent "acme.desk"`, with its version when the reference is to one (`agent "acme.desk" 1.1.0`). */
 function named(ref: ItemReference): string {
   return `${NOUN[ref.kind]} "${ref.id}"${ref.version !== undefined ? ` ${ref.version}` : ''}`;
@@ -135,8 +144,14 @@ const REGISTERED = 'registered in this project, its org or the tenant';
  * Why a reference is refused. A version may be of an item the project has
  * elsewhere in its environment order (made in an earlier environment, not
  * yet promoted), so it says the version is what the project doesn't run.
+ * An agent named with no version (`anyVersion`) is refused when no version
+ * of it runs here, which a promotion fixes: the words say so, the same for
+ * one that doesn't exist.
  */
 function refusedBecause(ref: ItemReference): string {
+  if (ref.version === undefined && ref.anyVersion === true) {
+    return "has no version that runs here (none was made in this project, and no build in place here ships one). If it's made in an earlier environment of this project's order, promote a build that ships it here; else make the trigger in the project that makes it";
+  }
   return ref.version === undefined
     ? `isn't ${REGISTERED}`
     : `isn't a version this project runs (not ${REGISTERED}, nor deployed to it)`;
@@ -206,18 +221,18 @@ export function reservedToolMetadataMessage(key: string): string {
 /**
  * What a trigger (a schedule, a webhook, an event trigger) runs, as a
  * reference: a flow at its version, an agent at the version it names (none:
- * whichever its project runs), an improve pass's agent by its id.
+ * any version its project runs, `anyVersion`), an improve pass's agent by
+ * its id (a pass picks no version to run, so its reach is the item's).
  */
 export function triggerTargetReference(target: TriggerTarget): ItemReference {
   if (target.kind === 'flow') {
     return { kind: 'flow', id: target.flowId as unknown as string, version: target.flowVersion };
   }
-  return {
-    kind: 'agent',
-    id: target.agentId as unknown as string,
-    ...(target.kind === 'agent' &&
-      target.agentVersion !== undefined && { version: target.agentVersion }),
-  };
+  const id = target.agentId as unknown as string;
+  if (target.kind === 'improve') return { kind: 'agent', id };
+  return target.agentVersion !== undefined
+    ? { kind: 'agent', id, version: target.agentVersion }
+    : { kind: 'agent', id, anyVersion: true };
 }
 
 /** The `reference-out-of-scope` answer (400), the same from every route. */
