@@ -11,17 +11,21 @@
  * binding what its model was shown.
  */
 
+import { createHash } from 'node:crypto';
+
 import { describe, expect, test } from 'vitest';
 
-import type {
-  MessageFile,
-  ModelCallInput,
-  ModelCallResult,
-  ModelInfo,
-  ModelMessage,
-  ModelProvider,
-  ModelUsageRecord,
-  ProviderMetadata,
+import {
+  FILE_LIMITS,
+  type MessageFile,
+  type ModelCallInput,
+  type ModelCallResult,
+  type ModelInfo,
+  type ModelMessage,
+  type ModelProvider,
+  type ModelUsageRecord,
+  type ProviderMetadata,
+  fileParts,
 } from '@kindgi/capabilities';
 import type { NodeContext } from '@kindgi/handler';
 import type { NodeId, ProjectId, RunId, TenantId } from '@kindgi/types';
@@ -109,8 +113,30 @@ function agent(budget?: TurnBudget): Agent {
   return r.value;
 }
 
-/** The run's files: each id is stored, and every mark is logged. */
-function filesOf(options: { readonly refuse?: FileBinding['refuse'] } = {}) {
+/** `count` stored photos, oldest first, each with the bytes its checks found. */
+function storedPhotos(count: number) {
+  const bytes = new Map<string, Uint8Array>();
+  const photos = Array.from({ length: count }, (_, n): MessageFile => {
+    const data = new Uint8Array(100).fill(n);
+    bytes.set(`art-${n}`, data);
+    return {
+      artifactId: `art-${n}`,
+      name: `photo-${n}.jpg`,
+      contentType: 'image/jpeg',
+      size: data.byteLength,
+      sha256: createHash('sha256').update(data).digest('hex'),
+    };
+  });
+  return { photos, bytes };
+}
+
+/** The run's files: each id is stored (as `bytes`, or three bytes), and every mark is logged. */
+function filesOf(
+  options: {
+    readonly refuse?: FileBinding['refuse'];
+    readonly bytes?: ReadonlyMap<string, Uint8Array>;
+  } = {},
+) {
   const shown: string[][] = [];
   const refused: string[][] = [];
   const read: string[] = [];
@@ -118,7 +144,7 @@ function filesOf(options: { readonly refuse?: FileBinding['refuse'] } = {}) {
     admit: async () => [],
     read: async (artifactId) => {
       read.push(artifactId);
-      return new Uint8Array([1, 2, 3]);
+      return options.bytes?.get(artifactId) ?? new Uint8Array([1, 2, 3]);
     },
     store: async () => ({ notStored: 'limit' }),
     shown: async (ids) => {
@@ -134,11 +160,15 @@ function filesOf(options: { readonly refuse?: FileBinding['refuse'] } = {}) {
 }
 
 /**
- * A turn whose provider reads each file a call shows, as an adapter does,
- * then answers or throws as `outcomes` say, one per call.
+ * A turn whose provider reads each file a call shows, then answers or
+ * throws as `outcomes` say, one per call. With `unreadable`, it fits the
+ * files to the call's limits as an adapter does (`fileParts`), and refuses
+ * as an invalid request a call that sends one of these; it answers any
+ * other.
  */
 function turn(options: {
   readonly outcomes: (ModelCallResult | Error)[];
+  readonly unreadable?: ReadonlySet<string>;
   readonly files: FileBinding;
   readonly budget?: TurnBudget;
   readonly spentUsd?: number;
@@ -150,6 +180,7 @@ function turn(options: {
   const turnAbort = new AbortController();
   const invoke: ModelProvider['invoke'] = async (input) => {
     sent.push(input);
+    if (options.unreadable !== undefined) return await fitting(input, options.unreadable);
     for (const file of input.messages.flatMap((m) => m.files ?? [])) {
       if (file.notShown === undefined) await input.readFile?.(file.artifactId);
     }
@@ -195,6 +226,26 @@ function turn(options: {
       readonly refused?: readonly string[];
     };
   return { ctx, step, sent, recorded, events };
+}
+
+/** A provider that fits a call's files to its limits, as an adapter does, and can't read `unreadable`. */
+async function fitting(
+  input: ModelCallInput,
+  unreadable: ReadonlySet<string>,
+): Promise<ModelCallResult> {
+  const sentFiles: string[] = [];
+  await fileParts(input.messages, {
+    images: true,
+    documents: true,
+    contextWindow: 200_000,
+    readFile: async (artifactId) => {
+      const bytes = await input.readFile?.(artifactId);
+      if (bytes !== undefined) sentFiles.push(artifactId);
+      return bytes;
+    },
+  });
+  if (sentFiles.some((id) => unreadable.has(id))) throw refusedAsInvalid();
+  return answer();
 }
 
 const kctx = { runId: 'run-1' as RunId, nodeId: 'n' as NodeId, dryRun: false } as NodeContext;
@@ -449,6 +500,38 @@ describe('the cost budget', () => {
     });
     await t.step(withFiles(photo(1)));
     expect(t.sent).toHaveLength(2);
+  });
+});
+
+describe('the retry leaves out what the first call left out for its limits', () => {
+  test('a thread with an unreadable photo on each side of the limit: each turn answers, and marks one side', async () => {
+    // A call sends the ten newest photos, so the oldest is a `limit` line.
+    const { photos, bytes } = storedPhotos(FILE_LIMITS.filesPerCall + 1);
+    const ids = photos.map((p) => p.artifactId);
+    const [oldest, ...newer] = ids;
+    const unreadable = new Set([ids[0], ids.at(-1)] as string[]);
+    const files = filesOf({ bytes });
+
+    const t = turn({ outcomes: [], unreadable, files: files.binding });
+    const answered = await t.step(withFiles(...photos));
+    expect(answered.message.content).toBe('It is cracked.');
+    expect(filesSent(t.sent[0])).toEqual(ids);
+    expect(filesSent(t.sent[1])).toEqual([
+      `${oldest}:limit`,
+      ...newer.map((id) => `${id}:refused`),
+    ]);
+    expect(files.refused).toEqual([newer]);
+
+    // The next turn: the binding admits the newer ten as `refused`, so the
+    // oldest fits; its call is refused in turn, and the retry answers.
+    const next = turn({ outcomes: [], unreadable, files: files.binding });
+    const marked = photos.map((p, n) => (n === 0 ? p : { ...p, notShown: 'refused' as const }));
+    await next.step(withFiles(...marked));
+    expect(filesSent(next.sent[1])).toEqual([
+      `${oldest}:refused`,
+      ...newer.map((id) => `${id}:refused`),
+    ]);
+    expect(files.refused).toEqual([newer, [oldest]]);
   });
 });
 
