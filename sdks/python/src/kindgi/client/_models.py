@@ -3409,6 +3409,10 @@ class GuardrailAction(BaseModel):
     """
 
 
+class Tool1(RootModel[str]):
+    root: Annotated[str, Field(min_length=1, pattern="^[^*]*\\*?$")]
+
+
 class GuardrailScope(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3418,6 +3422,10 @@ class GuardrailScope(BaseModel):
     agents: list[str] | None = None
     flows: list[str] | None = None
     tenants: list[str] | None = None
+    tools: Annotated[list[Tool1] | None, Field(min_length=1)] = None
+    """
+    At `before-tool` and `after-tool`: the tools whose calls it checks, by id. A trailing `*` matches every id with that prefix, and a `*` anywhere else is refused. Absent: every tool.
+    """
 
 
 class Budget(BaseModel):
@@ -3455,6 +3463,19 @@ class Guardrail(BaseModel):
         None
     )
     scope: GuardrailScope | None = None
+    at: (
+        Annotated[
+            Literal["before-tool", "after-tool", "model-step", "final-answer"] | str, _open.OPEN
+        ]
+        | None
+    ) = "final-answer"
+    """
+    Where in the agent's turn the check runs: before a tool call runs, after it runs, on each model reply, or on the final answer. It must be one of the check's points.
+    """
+    sees: Annotated[Literal["turn", "conversation"] | str, _open.OPEN] | None = "turn"
+    """
+    What the check sees: this turn, or the conversation's earlier turns too.
+    """
     budget: Budget | None = None
     judge_capabilities: Annotated[dict[str, Any] | None, Field(alias="judgeCapabilities")] = None
 
@@ -3487,6 +3508,14 @@ class RegisterGuardrailBody(BaseModel):
     action: GuardrailAction
     severity: Literal["info", "warn", "error", "critical"] | None = None
     scope: GuardrailScope | None = None
+    at: Literal["before-tool", "after-tool", "model-step", "final-answer"] | None = "final-answer"
+    """
+    Where in the agent's turn the check runs: before a tool call runs, after it runs, on each model reply, or on the final answer. It must be one of the check's points.
+    """
+    sees: Literal["turn", "conversation"] | None = "turn"
+    """
+    What the check sees: this turn, or the conversation's earlier turns too.
+    """
     budget: Budget | None = None
     judge_capabilities: Annotated[dict[str, Any] | None, Field(alias="judgeCapabilities")] = None
 

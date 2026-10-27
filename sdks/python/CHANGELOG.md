@@ -188,6 +188,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   every tool call the replay refused, reads included.** The names don't
   change. `stopped` says "a refused tool call" where it said "a refused
   write".
+- `kindgi`: **a guardrail the client reads or registers carries where in the
+  agent's turn it runs.** `at` is `"before-tool"`, `"after-tool"`,
+  `"model-step"` or `"final-answer"` (left out, the final answer); `sees` is
+  `"turn"` or `"conversation"`; and the scope's `tools` names the tools a
+  guardrail at a tool point checks. Registering one at a point its check
+  doesn't run at answers `guardrail-config-invalid`. The Python pack's
+  `@guardrail` doesn't take them yet.
 
 ## 0.1.10
 

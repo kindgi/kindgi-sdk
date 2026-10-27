@@ -1487,6 +1487,112 @@ describe('POST /v1/deployments — happy path', () => {
     ]);
   });
 
+  const pointIndex = (guardrail: Record<string, unknown>) => ({
+    v: 1,
+    packId: 'acme.aperture',
+    packVersion: '1.0.0',
+    artifactVersion: '20260920.1',
+    publishedAt: '2026-09-20T14:32:07.104Z',
+    tools: [],
+    guardrails: [
+      {
+        id: 'acme.no-refunds',
+        kind: 'zero-llm',
+        action: { 'on-violation': 'halt' },
+        checkModulePath: './guardrails/no-refunds.js',
+        ...guardrail,
+      },
+    ],
+    agents: [],
+    flows: [],
+  });
+
+  test.each([
+    [
+      "a built-in at a point it doesn't run at",
+      { checkId: 'never-call-tool', config: { tools: ['acme.woo.refund'] }, at: 'model-step' },
+      'at "model-step" isn\'t one of the check\'s points (before-tool, final-answer).',
+    ],
+    [
+      "a pack check at a point its index doesn't list",
+      { checkId: 'acme.checks.args', checkPoints: ['before-tool'] },
+      'at "final-answer" isn\'t one of the check\'s points (before-tool).',
+    ],
+    [
+      "a pack check whose index lists no points (an older CLI's), anywhere but the final answer",
+      { checkId: 'acme.checks.args', at: 'before-tool' },
+      'at "before-tool" isn\'t one of the check\'s points (final-answer).',
+    ],
+  ])('%s: 400, the point named at /at', async (_what, guardrail, message) => {
+    const fixture = buildSignedDeploy({ index: pointIndex(guardrail) });
+    const { app } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      { primitive: 'guardrail', index: 0, id: 'acme.no-refunds', path: '/at', message },
+    ]);
+  });
+
+  test('a pack check at a point its index lists deploys, with its point', async () => {
+    const fixture = buildSignedDeploy({
+      index: pointIndex({
+        checkId: 'acme.checks.args',
+        checkPoints: ['before-tool', 'final-answer'],
+        at: 'before-tool',
+        sees: 'conversation',
+        scope: { tools: ['acme.woo.*'] },
+      }),
+    });
+    const { app, guardrailRegistry } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    const guardrail = (await guardrailRegistry.get({
+      tenantId,
+      guardrailId: 'acme.no-refunds' as never,
+    })) as unknown as Record<string, unknown>;
+    expect(guardrail).toMatchObject({
+      check: 'acme.checks.args',
+      at: 'before-tool',
+      sees: 'conversation',
+      scope: { tools: ['acme.woo.*'] },
+    });
+    // The index's list of the check's points is the deployment's to read, not the guardrail's.
+    expect(guardrail.checkPoints).toBeUndefined();
+  });
+
+  test("a guardrail naming a built-in, which the index lists no points for, takes the built-in's points", async () => {
+    const fixture = buildSignedDeploy({
+      index: pointIndex({
+        checkId: 'never-call-tool',
+        checkBuiltIn: true,
+        config: { tools: ['acme.woo.refund'] },
+        at: 'before-tool',
+      }),
+    });
+    const { app, guardrailRegistry } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-refunds' as never }),
+    ).toMatchObject({ check: 'never-call-tool', at: 'before-tool' });
+  });
+
   test("an index that declares the pack's process env deploys; the env is signed content, not a primitive", async () => {
     const fixture = buildSignedDeploy({
       index: {

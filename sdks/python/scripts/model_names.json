@@ -823,6 +823,7 @@
   "TimeRange": ["CostAggregateResult.timeRange"],
   "TokenSignInResult": ["TokenSignInResult"],
   "Tool": ["Tool"],
+  "Tool1": ["GuardrailScope.tools"],
   "ToolCall": ["ConversationMessage.toolCall"],
   "ToolCollectionPage": ["ToolCollectionPage"],
   "ToolEffect": ["ToolEffect"],

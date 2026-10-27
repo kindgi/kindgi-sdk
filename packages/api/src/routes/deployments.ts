@@ -19,9 +19,14 @@ import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
 import {
+  DEFAULT_CHECK_POINTS,
   GUARDRAIL_SPEC_KEYS,
   type Guardrail,
+  type GuardrailPoint,
+  checkPoints,
   createCheckRegistry,
+  guardrailCheckPointProblems,
+  isGuardrailPoint,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
@@ -2165,7 +2170,12 @@ function validatePrimitives(
     // the runtime checks a guardrail naming this check against it. A field
     // the guardrail spec doesn't have (an index from a newer CLI) is dropped,
     // never refused, so a newer CLI never breaks a deployment.
-    const { checkModulePath, checkId, ...indexed } = raw as Record<string, unknown>;
+    const {
+      checkModulePath,
+      checkId,
+      checkPoints: packCheckPoints,
+      ...indexed
+    } = raw as Record<string, unknown>;
     const dropped = Object.keys(indexed).filter((k) => !GUARDRAIL_SPEC_KEYS.includes(k));
     const rest = Object.fromEntries(
       Object.entries(indexed).filter(([k]) => GUARDRAIL_SPEC_KEYS.includes(k)),
@@ -2209,8 +2219,17 @@ function validatePrimitives(
       return;
     }
     // A guardrail naming a built-in check: its config against the built-in's.
+    // Its point against its check's points: a built-in's, or the pack
+    // check's as the index lists them. One that lists none (an older CLI's)
+    // runs at the final answer only, so a point it can't honor is refused.
     const builtIn = builtInChecks.get(r.value.check);
-    const configProblems = builtIn?.configProblems?.(r.value.config) ?? [];
+    const configProblems = [
+      ...(builtIn?.configProblems?.(r.value.config) ?? []),
+      ...guardrailCheckPointProblems(
+        r.value,
+        builtIn !== undefined ? checkPoints(builtIn) : indexedCheckPoints(packCheckPoints),
+      ),
+    ];
     if (configProblems.length > 0) {
       for (const problem of configProblems) {
         details.push({
@@ -2305,6 +2324,14 @@ function validatePrimitives(
       blocks: validatedBlocks,
     },
   };
+}
+
+/**
+ * A pack check's points as its index lists them (`checkPoints`), the ones
+ * this runtime knows. Absent: the final answer only.
+ */
+function indexedCheckPoints(value: unknown): readonly GuardrailPoint[] {
+  return Array.isArray(value) ? value.filter(isGuardrailPoint) : DEFAULT_CHECK_POINTS;
 }
 
 function readArray(value: unknown): readonly unknown[] {
