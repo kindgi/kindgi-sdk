@@ -46,7 +46,8 @@ s3:<bucket>[/<prefix>]     an S3 bucket, on AWS or in an S3-compatible store
 - **A prefix** keeps a setting's files apart in a shared bucket. Artifacts
   go under `tenants/<tenant id>/` in the bucket, then the prefix:
   `s3:acme-artifacts/prod` puts them under `tenants/<tenant id>/prod/`. The
-  ledger's copies and purge records go under the prefix itself.
+  ledger's copies go under the prefix itself, and purge records under
+  `<prefix>/purged/`.
   `gcs://` and `s3://` work too, and a trailing `/` is dropped.
 
 The `kindgi-runtime tenants` and `erasures` commands read the server's own
@@ -131,7 +132,8 @@ The IAM actions the identity needs on each bucket:
 
 Before it serves, the runtime checks the artifacts bucket: that it's in
 `KINDGI_S3_REGION`, that a tenant purge could delete everything in it, and
-that it may make the two lists every delete makes. It doesn't start without
+that it may list what a delete lists: unfinished uploads, and versions in a
+bucket that keeps them. It doesn't start without
 a way to sign in or a region, or when a check fails:
 
 ```text
@@ -184,8 +186,11 @@ KINDGI_S3_CREDENTIALS_PATH=/run/secrets/s3-keys.json
   (`KINDGI_AWS_IDENTITY`). It ignores what it ignores on AWS.
 - **What a store doesn't have:** a store that answers "not implemented" to
   a bucket-settings call, or to listing unfinished uploads, is taken to have
-  none of it. R2, for example, has no versioning or Object Lock. Checksums
-  are sent only where the store requires them.
+  none of it. R2, for example, has no versioning, and the runtime can't see
+  its bucket locks at start, since they're set through Cloudflare rather than
+  S3's Object Lock: keep them off the artifacts bucket, where a locked file
+  stops a purge. On the ledger's and the records' buckets they're fine.
+  Checksums are sent only where the store requires them.
 - **Unfinished uploads:** On MinIO a purge leaves an interrupted upload's
   parts until MinIO's own expiry, 24 h by default (`stale_uploads_expiry`),
   and they can't be read through the runtime in that time. Add a rule that
@@ -269,8 +274,9 @@ overwritten or deleted: `KINDGI_ERASURE_LEDGER_EXPORT`,
 - **Before it serves,** the runtime checks each of them: a directory takes
   a write, and a `gcs:` bucket must let it create files. An `s3:` bucket
   must be in its region and honor a conditional write (`If-None-Match`): the
-  runtime writes `.kindgi-conditional-write-probe` there twice, under the
-  prefix, and leaves it.
+  runtime writes `.kindgi-conditional-write-probe` under the prefix, and
+  when that write made the file, writes it again, which must be refused. The
+  file stays there.
 - **Retention on these buckets is fine:** the runtime only adds files.
   Keep the ledger's copies longer than your backups. If a bucket's rule
   deletes a purge record, the ledger's copy still names the tenant
@@ -308,9 +314,10 @@ as far as the bucket allows:
   versioned bucket keeps no noncurrent copy. A soft delete still keeps them
   restorable for its period: set it to 0 to make deletes final.
 
-A tenant purge also deletes what no row names under the tenant's keys, such
-as an upload whose row was never written. On AWS S3, that includes
-unfinished uploads. On MinIO a purge leaves an interrupted upload's parts
+A tenant purge also deletes what no row names under the tenant's keys for
+the artifacts setting (`tenants/<tenant id>/<prefix>/`), such as an upload
+whose row was never written, and leaves files under another prefix in the
+same bucket alone. On AWS S3, that includes unfinished uploads. On MinIO a purge leaves an interrupted upload's parts
 until MinIO's own expiry, 24 h by default (`stale_uploads_expiry`), and they
 can't be read through the runtime in that time.
 
