@@ -9,7 +9,8 @@ sidebar:
 This page lists what Kindgi's Cloud Run module sets up: its network, its
 secrets backend, the IAM it grants, and its limits.
 [Deploy on Google Cloud Run](../cloud-run/) walks through a deployment with
-it. The module's `README.md` lists every variable.
+it. The module's `variables.tf` lists every variable, with its description
+and default.
 
 ## A new VPC, or yours
 
@@ -36,6 +37,53 @@ egress, not the VPC, so the pack service has to accept all traffic. IAM still
 admits only the runtime's service account. The module refuses connector mode
 without `vpc_connector` or without that ingress, and says which.
 
+### Cloud NAT ports
+
+With `direct`, the server's calls to the internet go out through the
+module's Cloud NAT, and so does Cloud Run's Cloud SQL connection to a
+database on a public IP. The NAT gives each server instance ports, one per
+connection open at the same time to one destination (an address, port and
+protocol). A closed connection's port stays taken for
+`nat_tcp_time_wait_timeout_sec`, 30 seconds by default.
+
+Each server instance starts with `nat_min_ports_per_vm` ports, 64 by
+default. When it nears that limit, the NAT doubles its ports, up to
+`nat_max_ports_per_vm`, 4096 by default. While the NAT adds ports, a new
+connection can time out. The NAT's
+`router.googleapis.com/nat/dropped_sent_packets_count` metric counts such
+drops, with `reason = OUT_OF_RESOURCES`. If it shows any, raise
+`nat_min_ports_per_vm`. Each NAT address has 64,512 TCP ports for all
+instances together, and with `nat_static_ip` its one address is the ceiling
+([how Cloud NAT assigns ports](https://docs.cloud.google.com/nat/docs/ports-and-addresses)).
+
+Lowering `nat_max_ports_per_vm` later breaks the NAT's open connections
+([Google's list of NAT changes that drop connections](https://docs.cloud.google.com/nat/docs/tune-nat-configuration)).
+Upgrading from a module copy with fixed ports doesn't, as long as
+`nat_max_ports_per_vm` stays at 1024 or more. Cloud NAT bills by the
+instances using it, the data it processes and its addresses, not by port
+([Cloud NAT pricing](https://cloud.google.com/nat/pricing)).
+
+Dynamic ports need the NAT's endpoint-independent mapping off. Google's list
+covers turning the mapping off and turning dynamic ports on one at a time,
+not both in one update, and says an incompatible change fails. So before
+upgrading, check the mapping. The module names both the router and the NAT
+`<name_prefix>-nat`:
+
+```sh
+gcloud compute routers nats describe <name_prefix>-nat \
+  --router=<name_prefix>-nat --region=<region> \
+  --format='value(enableEndpointIndependentMapping)'
+```
+
+If it prints `True`, turn the mapping off on its own first, which drops no
+connections, then apply:
+
+```sh
+gcloud compute routers nats update <name_prefix>-nat \
+  --router=<name_prefix>-nat --region=<region> \
+  --no-enable-endpoint-independent-mapping
+```
+
 ## Without a KMS key
 
 By default, with `secrets_backend = "postgres"`, the secrets set through
@@ -48,13 +96,55 @@ webhook's secret. With `secrets_backend = "none"`:
 - **The runtime stores no secrets of its own.** `/v1/secrets` isn't served:
   it answers `404 route-not-found`, and the runtime checks no KMS key at
   start.
+- **No webhooks, in or out.** A webhook trigger's signing secret, and an
+  endpoint's, are kept in the store. So `/v1/webhooks`, `/v1/hooks` and
+  `/v1/webhook-endpoints` aren't served either: no webhook starts a run,
+  and none is sent.
+- **Sign-in:** Continue with Google, Microsoft or GitHub and the emailed
+  link work. A workspace's own identity provider needs `"postgres"`: its
+  client secret and keys are references into the store, so adding or
+  changing one answers `409 identity-providers-need-secrets-store`.
 - **Who it fits:** a deployment whose pack's secrets all come by reference,
-  in `pack_secret_env`, and whose model uses the service's own identity
-  ([Gemini on Vertex AI](../cloud-run/#use-gemini)). A provider whose API key
-  would be stored in Kindgi doesn't fit it.
+  in `pack_secret_env`, whose model uses the service's own identity
+  ([Gemini on Vertex AI](../cloud-run/#use-gemini)), and that takes and sends
+  no webhooks. A provider whose API key would be stored in Kindgi doesn't
+  fit it.
 - **An existing deployment stays as it is:** changing it from `"postgres"`
   stops the plan at the key's `prevent_destroy`, on purpose, since the
   secrets stored under it would become unreadable. Move them out first.
+
+### Turn the store on later
+
+Going from `"none"` to `"postgres"` moves nothing, since nothing was stored.
+The server's next revision reads the `$N-secrets-aad-key` secret, so the
+store's key and that secret come first, before the services change:
+
+1. Set `secrets_backend = "postgres"`. Leave `secrets_aad_key_version`
+   unset until step 4.
+2. Apply only what the store stands on: the KMS API, the key ring, the key
+   and the server's grant on it, and the new secret with the server's read
+   access.
+
+   ```sh
+   terraform apply -var-file=prod.tfvars \
+     -target=google_project_service.apis \
+     -target=google_kms_crypto_key_iam_member.server_wraps \
+     -target=google_secret_manager_secret_iam_member.server_reads
+   ```
+
+   Terraform warns that resource targeting is in effect and the applied
+   changes may be incomplete. Both are expected: step 4 completes them.
+
+3. Add the secret's first version, as in [The secrets](../cloud-run/#3-the-secrets):
+
+   ```sh
+   openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
+   ```
+
+4. Set `secrets_aad_key_version = "1"`, and apply in full, as in
+   [The services](../cloud-run/#4-the-services). The server's new revision
+   stores secrets in Postgres and checks the KMS key at start. Webhooks, and
+   a workspace's own identity providers, work from then on.
 
 ## How the runtime calls your pack's service
 

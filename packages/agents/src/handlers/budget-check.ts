@@ -43,7 +43,11 @@ import {
  *
  *   - The model's `finishReason` (anything other than `tool-use` with
  *     calls terminates).
- *   - `agent.budget.maxSteps` — enforced against `ctx.usage.steps`.
+ *   - `agent.budget.maxSteps` — enforced against `ctx.usage.steps`, and
+ *     held to `AGENT_TURN_LOOP_MAX_ITERATIONS`: the turn's loop runs no
+ *     more iterations than that, so a turn that would go on past it
+ *     fails here, as `budget-exceeded`, instead of the loop ending
+ *     with no answer.
  *   - `agent.budget.maxCostUsd` — enforced against cumulative cost.
  *   - Cooperative abort from `ctx.turnAbort`.
  *   - `agent.output` — a final answer that isn't JSON matching the
@@ -87,7 +91,8 @@ export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
       readonly hasToolCalls: boolean;
     };
 
-    const maxSteps = ctx.input.agent.budget?.maxSteps ?? DEFAULT_MAX_STEPS;
+    const declaredSteps = ctx.input.agent.budget?.maxSteps ?? DEFAULT_MAX_STEPS;
+    const maxSteps = Math.min(declaredSteps, AGENT_TURN_LOOP_MAX_ITERATIONS);
     const maxCostUsd = ctx.input.agent.budget?.maxCostUsd;
 
     // Cost cap is a hard failure — the caller sees `budget-exceeded`
@@ -103,11 +108,16 @@ export function buildBudgetCheckHandler(ctx: TurnContext): NodeHandler {
     }
 
     // Step cap — if the model still wants another tool call but we've
-    // used the allotted steps, fail the run.
+    // used the allotted steps, fail the run. A `maxSteps` above the
+    // loop's iterations stops at the loop's, and the message says why.
     if (partial.hasToolCalls && ctx.usage.steps >= maxSteps) {
+      const held =
+        maxSteps < declaredSteps
+          ? `: a turn makes at most ${AGENT_TURN_LOOP_MAX_ITERATIONS} model calls, fewer than its maxSteps of ${declaredSteps}`
+          : '';
       throwAgentTurnFailure({
         code: 'budget-exceeded',
-        message: `Agent turn steps budget exceeded (limit ${maxSteps}, observed ${ctx.usage.steps})`,
+        message: `Agent turn steps budget exceeded (limit ${maxSteps}, observed ${ctx.usage.steps})${held}`,
         kind: 'steps',
         limit: maxSteps,
         observed: ctx.usage.steps,

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { isLocalAddress, storedKeyFor } from './api-address.js';
+import { writePrivateFile } from './private-file.js';
 
 /**
  * Resolved configuration used by every command. Precedence at load
@@ -233,10 +234,19 @@ function parseJson(raw: string, path: string): FileConfig {
   }
 }
 
+/** `~/.kindgi` holds the API key: this account's only. */
+const HOME_DIR_MODE = 0o700;
+
 /**
  * Persist a config file at `~/.kindgi/config.json`. Called by
  * `kindgi auth login`. Merges with any existing file so a partial
  * write does not clobber other keys.
+ *
+ * The file is `0600` and `~/.kindgi` `0700`, an older looser one
+ * included: the new text is a new file that replaces the old one
+ * (`writePrivateFile`). A symlinked `config.json` stays a link, and the
+ * file it points to is the one replaced.
+ * Windows has no such modes: the write there is as before.
  */
 export async function saveHomeConfig(
   patch: FileConfig,
@@ -247,7 +257,15 @@ export async function saveHomeConfig(
   const existing = await defaultReadFile(path);
   const base = existing === null ? {} : (JSON.parse(existing) as FileConfig);
   const next = { ...base, ...patch };
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  const text = `${JSON.stringify(next, null, 2)}\n`;
+  await mkdir(dirname(path), { recursive: true, mode: HOME_DIR_MODE });
+  // One made earlier, by hand or by an older CLI, may be looser.
+  if (
+    process.platform !== 'win32' &&
+    ((await stat(dirname(path))).mode & 0o777 & ~HOME_DIR_MODE) !== 0
+  ) {
+    await chmod(dirname(path), HOME_DIR_MODE);
+  }
+  await writePrivateFile(path, text);
   return path;
 }

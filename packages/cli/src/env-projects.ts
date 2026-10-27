@@ -8,21 +8,16 @@
  * refusal into a later environment both name environments this way.
  */
 
-import { projectOfEnv } from './commands/build.js';
 import { type ProjectRow, resolveAgainst } from './project-ref.js';
+import type { PackEnvironments } from './value-target.js';
 
-/** Each environment of the pack config that names its project, in the config's order. */
+/** Each of the pack's environments (`environmentsOf`) that names its project, in the config's order. */
 export function envProjectRefs(
-  config: { readonly environments?: unknown } | undefined,
+  environments: PackEnvironments,
 ): { readonly name: string; readonly ref: string }[] {
-  const environments = config?.environments;
-  if (environments === null || typeof environments !== 'object') return [];
-  const named: { readonly name: string; readonly ref: string }[] = [];
-  for (const name of Object.keys(environments as Record<string, unknown>)) {
-    const ref = projectOfEnv(config, name);
-    if (ref !== undefined) named.push({ name, ref });
-  }
-  return named;
+  return Object.entries(environments).flatMap(([name, ref]) =>
+    ref === undefined ? [] : [{ name, ref }],
+  );
 }
 
 /**

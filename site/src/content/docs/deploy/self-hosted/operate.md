@@ -29,23 +29,28 @@ These pages continue [Self-host Kindgi](../self-host/): the same containers
 
 ## Upgrade the runtime
 
-**Upgrade at least every 90 days while Kindgi is in preview.** Until
-Kindgi 1.0, a release stops starting 90 days after it was released, and the
-runtime warns from 30 days before
+**Upgrade at least every 90 days.** A preview release stops starting 90
+days after it was released, and the runtime warns from 30 days before
 ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 A restart after that day doesn't come back up.
 
+**Before you start, read the upgrade steps of each release you're
+upgrading across:** [0.1.10's](../../../releases/0.1.10/#upgrade-steps),
+[0.1.9's](../../../releases/0.1.9/#upgrade-steps) and
+[0.1.8's](../../../releases/0.1.8/#upgrade-steps) are in their release
+notes, and earlier releases' are below.
+
 1. [Back up Postgres.](../back-up-and-restore/#back-up-postgres)
-2. Pull the new version, and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:
+2. Pull the new version, with Docker logged in to `registry.kindgi.com` with your license key ([Pull the runtime image](../pull-the-runtime-image/)), and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:
 
    ```sh
-   docker pull quay.io/kindgi/runtime:<version>
+   docker pull registry.kindgi.com/kindgi/runtime:<version>
    docker stop -t 30 kindgi-server
    docker rm kindgi-server
    docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
      --add-host registry.localhost:host-gateway \
      -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-     quay.io/kindgi/runtime:<version>
+     registry.kindgi.com/kindgi/runtime:<version>
    ```
 
 When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list them: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says `kindgi-runtime: fatal: Error: migration failed for …` and why.
@@ -58,14 +63,18 @@ From 0.1.6, the runtime image runs read-only checks against a database. They rea
 
 ```sh
 docker run --rm --network kindgi --env-file kindgi.env \
-  quay.io/kindgi/runtime:<version> check provider-keys
+  registry.kindgi.com/kindgi/runtime:<version> check provider-keys
 ```
+
+`registry.kindgi.com` has 0.2.0 and later. For an earlier version, use the
+image your server already runs.
 
 Nothing starts and nothing is written, and they print names and ids, never a value. Each exits `0` when it finds nothing, `1` when it lists what it found, and `2` when it can't run. `--tenant <uuid>` checks one tenant; by default they check every tenant in the database.
 
 | Check | What it lists |
 | --- | --- |
 | `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
+| `secret-scopes` | Each tool version, MCP endpoint and webhook trigger in a project or an org that reads a secret at the tenant, registered by an earlier runtime that didn't record where its secrets are read. They keep reading at the tenant. One a tenant admin registered can stay. Register each other one again so where its secrets are read is recorded: a tool, publish a new version; an MCP endpoint, unregister it and register it again; a webhook trigger, `kindgi webhooks update <trigger-id> --secret=<name>`. The check ends with what to do about each, and also lists an unregistered tool version a flow or agent version still pins. |
 | `mcp-header-credentials` | Each MCP endpoint that keeps a credential in plaintext `config.headers` (`X-Api-Key`, `Authorization`, …), registered by an earlier runtime that allowed it. They keep working, and their requests never follow a redirect. For each, store each header's value as a secret, and register the endpoint again with `auth` in place of the header. See [Not in `config.headers`](../../../guides/tools/mcp-servers/#not-in-configheaders). |
 | `stored-secrets` | Each live version of a stored secret that doesn't decrypt with the secrets' keys: the KMS key, the runtime's access to it, and the AAD key. Run it after a restore, before the runtime serves, since a restore brings back the database, not the keys. It needs `KINDGI_SECRETS_BACKEND=postgres`. See [Back up and restore](../back-up-and-restore/#restore-into-a-fresh-database). |
 | `purged-tenants` | Each tenant marked purged that still holds rows, with each table and its count: rows written after its mark, by work in flight then. Rows only, not the bytes under its prefix. Run it a day after a purge. For each tenant it lists, `kindgi-runtime tenants purge <tenant id> --confirm <its slug>`, with the server's `KINDGI_ARTIFACTS` and `KINDGI_OPENFGA_API_URL`, deletes them and leaves its mark and its record as they were. See [Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant). |
@@ -154,8 +163,8 @@ and since fires are kept 30 days, that's short.
 What to check before you upgrade, and what's different after:
 
 - **Rebuild your packs with the 0.1.7 CLI:**
-  - **A parameter named `input` is refused** when an agent or a prompt block
-    is defined, as `today`, `now`, `agent`, `conversation` and `settings`
+  - **A parameter named `input` is refused** when an agent's instructions
+    are defined, as `today`, `now`, `agent`, `conversation` and `settings`
     were. Before, it was accepted, and a turn's structured input silently
     replaced its value. Rename it.
   - **A pack's `providers` declarations are checked against their
@@ -172,14 +181,14 @@ What to check before you upgrade, and what's different after:
 - **The API:**
   - A page cursor a list didn't issue answers `400 bad-input` on the
     agents, flows, policies and eval-suites `/versions` lists and on an
-    agent's promotions, as it does on blocks' and tools' `/versions`.
+    agent's go-live history, as it does on blocks' and tools' `/versions`.
   - When an admin ends someone's sessions, it shows on that person's
     sign-in history (`GET /v1/audit/sign-ins?userId=`), with `byUserId`
     saying who, and no longer on the admin's.
   - Adding a team member who isn't a person of the tenant, was removed, or
     is named by a malformed id is refused with `404 identity-user-not-found`,
     as adding a project member is. Before, an unknown id was added.
-  - A judging rule's results count the runs their judgments come from
+  - A judging rule's results count the runs their corrections come from
     (`runsWithJudgments`).
 - **Models:**
   - Claude Haiku 4.5 asks for up to 16,000 output tokens by default in the
@@ -195,8 +204,9 @@ What to check before you upgrade, and what's different after:
 - **The console:**
   - Its data pages are one kind of table: headers that sort, a search box on
     the lists, a **Columns** menu, and each view kept in the page's address.
-    The judging queue's **Show more** reads **Load more**, and a flow run's
-    row on the Runs page opens to its agent turns.
+    **Show more** reads **Load more** on the answers waiting for a
+    correction, and a flow run's row on the Runs page opens to its agent
+    turns.
   - On a run's Overview, a step that ended with its run reads **Cancelled**
     ("Stopped: the run failed" in a failed run), and the Journal marks each
     such start
@@ -350,9 +360,9 @@ The database migrates when 0.1.6 starts.
   tool, an MCP endpoint or a webhook endpoint could name a model provider's
   key as its secret, and so hand the key to a pack's code or to another
   server. 0.1.6 refuses that (run `check provider-keys` first, below).
-- **Who may judge as a class was shown to every reader.** Anyone who could
-  read a judge class, a project viewer included, got the ids of the people
-  and service accounts allowed to judge as it. 0.1.6 sends those ids only to
+- **Who may correct as a class was shown to every reader.** Anyone who
+  could read a judge class, a project viewer included, got the ids of the
+  people and service accounts allowed to correct as it. 0.1.6 sends those ids only to
   an admin of the class's scope; everyone else gets their number
   (`assertableBy.principalCount`).
 - **A malformed MCP credential could appear in the runtime's log.** An MCP
@@ -505,9 +515,9 @@ What to check before you upgrade, and what's different after:
   plain SQL change) made them.
 - **Paging no longer skips or repeats rows recorded in the same millisecond**
   as a page's last row, on the lists that page by time: organizations,
-  projects, teams and their members, memory erasures, an agent's promotions,
+  projects, teams and their members, memory erasures, an agent's go-live history,
   a schedule's fires, cost records, observations, and the versions of agents,
-  flows, policies, test sets, blocks and tools.
+  flows, policies, test cases, blocks and tools.
 - **The sign-in options lookup limit holds across instances:** 30 lookups a
   minute per client (`GET /v1/auth/sign-in-options`), counted in Postgres
   rather than by each instance.
@@ -560,10 +570,10 @@ What to check before you upgrade, and what's different after:
   (in memory by default) to share the sign-in lookup limit across instances;
   a store that fails doesn't block sign-in.
 - **New in 0.1.6:**
-  - **Judging:** a project's judging rules queue the runs that need a
-    person's verdict, results per agent version, and comparisons and
-    proposals rescored after people judge the new answers
-    ([Judge a run's output](../../../guides/evals/judge-a-runs-output/),
+  - **Corrections:** a project's judging rules queue the runs that need a
+    person's verdict, results per agent version, and runs on the test cases
+    and suggested changes rescored after people correct the new answers
+    ([Correct a run's output](../../../guides/evals/judge-a-runs-output/),
     [Improve an agent](../../../guides/evals/improve-an-agent/)).
   - **What failed and why:** a project's failed runs grouped by cause and
     version (`GET /v1/runs/failures`) and a failure's `reason`
@@ -588,10 +598,10 @@ What to check before you upgrade, and what's different after:
     [members](../../authorization/#in-the-console-members), each with a page of
     its own, plus
     [Quality](../../../guides/evals/judging-reference/#in-the-console) for
-    judging, and [costs](../../../guides/observability/cost-per-run/#cost-in-the-console)
+    correcting runs, and [costs](../../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
     [Teams](../../authorization/#in-the-console-teams),
-    [Webhooks](../../../guides/webhooks/webhook-events/#in-the-console),
+    [Outgoing webhooks](../../../guides/webhooks/webhook-events/#in-the-console),
     [Sign-in](../../../guides/sso/#from-the-console), **My access** and its own
     costs. A page or action shows only to the roles that can use it
     ([The console, by role](../../authorization/#the-console-by-role)).
@@ -612,7 +622,7 @@ What to check before you upgrade, and what's different after:
     Retired export keys can stay listed, so older exports still verify.
   - **A tool's secret can be optional**
     ([An optional secret](../../../guides/tools/give-a-tool-a-secret/#an-optional-secret)).
-  - **A retired agent, flow, tool or test set can be found and brought back**
+  - **A retired agent, flow, tool or set of test cases can be found and brought back**
     ([Agent and tool versions](../../../guides/agents/agent-and-tool-versions/)).
   - **Schedules** list by project and name their owners.
   - **Coding agents:** `kindgi init` keeps one out of the files that hold
@@ -761,9 +771,9 @@ and what's different after:
   sessions. A project admin adds a member by email
   (`POST /v1/projects/<id>/memberships` with `email`), and a project admin's
   member key can manage that project's members.
-- **A project editor can start an eval run** (compare a version on a test
-  set); it took a project admin. Unregistering or reinstating a test set
-  version still does.
+- **A project editor can start an eval run** (try a version on the test
+  cases); it took a project admin. Unregistering or reinstating a version
+  of the test cases still does.
 - **The cost aggregate counts only what you may read.** Across projects (no
   scope, the tenant, or an org), it counts the projects the caller may read,
   and records with no project; a tenant admin's counts every project. `read`
@@ -780,8 +790,8 @@ and what's different after:
   the others.** In 0.1.4, one could leave a new project unreadable by its
   creator (`403`) until an operator replayed the outbox. 0.1.5 also carries
   the fixes in runtime 0.1.4.1 and 0.1.4.2 (below).
-- **An agent, flow, tool or test set stays in the project it was first
-  published into.** Publishing a version of one under another project is
+- **An agent, flow, tool or set of test cases stays in the project it was
+  first published into.** Publishing a version of one under another project is
   refused with a `409` (`agent-project-mismatch`, `flow-…`, `tool-…`,
   `eval-suite-project-mismatch`), even for an admin of both, and nothing is
   written; 0.1.4 accepted it. A deploy that includes one is refused whole,
@@ -913,7 +923,8 @@ and what's different after:
   that way are no longer read as anyone's. Pass the person's `participantId`
   on each run
   ([Give an agent memory](../../../guides/agents/give-an-agent-memory/)).
-- **A comparison's replays run for the past turn's end user,** with the same
+- **The replays of a run on the test cases run for the past turn's end
+  user,** with the same
   tools, `kindgi_remember` included (a replayed one stores nothing). A
   replay's conversation is never recalled as an earlier conversation.
 - **Your pack's service writes log records** on stderr, as the runtime does:
@@ -970,10 +981,11 @@ and what's different after:
     meaning through an embeddings endpoint (`KINDGI_MEMORY_EMBEDDINGS`). A
     tenant admin can erase an end user's words, their conversations and the
     runs that served them (`kindgi memory erasures`).
-  - **Improvement passes:** propose new settings or a new prompt for an
-    agent version, compare the candidate on a test set, and promote it
-    through the scope's gate after review (`kindgi proposals`). A pass can
-    look for better settings on its own, and a schedule can start one.
+  - **Improve:** suggest new settings or a new prompt for an agent
+    version, try the candidate on the test cases, and make it live through
+    the release gate policy where it goes live, after review
+    (`kindgi proposals`). Improve can look for better settings on its own,
+    and a schedule can start an Improve run.
   - **Files kept with a run** (artifacts) and the capability catalog
     ([Keep files with a run](../../../guides/runs/keep-files-with-a-run/)).
   - **A tool's env values per project** (`ctx.env`)
@@ -1073,7 +1085,8 @@ back, and when:
 - **A project or agent that answered `403`** reads again from the
   upgrade on, since the upgrade restarts the runtime. At every start, the
   runtime writes again the permissions that place each project, agent,
-  flow, tool, guardrail and test set of its tenant (`KINDGI_TENANT_ID`).
+  flow, tool, guardrail and set of test cases of its tenant
+  (`KINDGI_TENANT_ID`).
 - **The creator's own rights on an agent** come back when a new version of
   it is published on 0.1.4.1 or later.
 - **A project membership added while the bug hit** stays missing, through

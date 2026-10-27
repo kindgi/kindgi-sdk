@@ -192,7 +192,7 @@ async function servingIn(client: KindgiClient, projectId: string, packId: string
     // A runtime from before these filters ignores them and lists every deployment.
     if (page.projectId !== projectId || page.packId !== packId) {
       throw new Error(
-        "`kindgi promote` needs a runtime on Kindgi 0.1.8.1 or later: this one doesn't list deployments by environment and pack.",
+        "`kindgi promote` needs a runtime on Kindgi 0.1.9 or later: this one doesn't list deployments by environment and pack.",
       );
     }
     for (const d of page.data) (retiredReason(d) === undefined ? serving : retired).push(d);
@@ -291,7 +291,7 @@ export function movesText(
     }
   }
   lines.push(
-    `Test sets don't move: ${route.to} reads the ones made in ${route.from}, as it reads those of every environment before it in the order.`,
+    `Test cases don't move: ${route.to} reads the ones made in ${route.from}, as it reads those of every environment before it in the order.`,
   );
   return `${lines.join('\n')}\n`;
 }
@@ -371,9 +371,16 @@ function neededByText(n: DeploymentValue['neededBy']): string {
 /** The deployment the target got. */
 export function resultText(result: DeploymentPromotion, to: string): string {
   const id = result.deployment.deploymentId;
-  return result.created
+  const head = result.created
     ? `Promoted: deployment ${id} in ${to}.\n`
     : `${to} has this build already, as deployment ${id}: nothing new was deployed. The carried edits are recorded with it.\n`;
+  const live = result.live ?? [];
+  if (live.length === 0) return head;
+  const pin = (p: (typeof live)[number]) =>
+    p.pinned
+      ? `  ${p.id} ${p.version} — live`
+      : `  ${p.id} ${p.version} — ${p.gate?.status === 'pending-approval' ? 'waiting for an approval' : 'held by the gate'}`;
+  return `${head}Live in ${to}:\n${live.map(pin).join('\n')}\n`;
 }
 
 /** The values a `409 promotion-values-not-ready` names; `undefined` for any other error. */
@@ -414,6 +421,7 @@ async function promoteBuild(ctx: CommandContext): Promise<Answer> {
     result = await deployments.promote(deploymentId, {
       toProjectId: route.toProjectId,
       ...(reason !== undefined && { reason }),
+      ...(ctx.options['make-live'] === true && { makeLive: true }),
     });
   } catch (err) {
     // A value went missing since the check.
@@ -431,7 +439,7 @@ const promote: LeafCommand = {
   description:
     "Move a build to the next environment of its environment order, staging to prod, say: the same signed image, with the edits made since to its agents and flows. Prints what moves, then each value the build needs there that isn't set, with the command that sets it; exits 1 while one isn't. `--check` stops before moving anything. In a pack, --from and --to are its environment names; outside one, project ids or slugs.",
   usage:
-    'kindgi promote --from=<env> --to=<env> [--deployment=<id>] [--reason=<text>] [--check] [--path=<dir>]',
+    'kindgi promote --from=<env> --to=<env> [--deployment=<id>] [--reason=<text>] [--check] [--make-live] [--path=<dir>]',
   optionSpec: {
     from: {
       type: 'string',
@@ -452,6 +460,11 @@ const promote: LeafCommand = {
     check: {
       type: 'boolean',
       description: 'What would move, and the values not set in --to. Changes nothing.',
+    },
+    'make-live': {
+      type: 'boolean',
+      description:
+        "Make every agent version the promotion carries live in --to, each through its scope's gate. Prints each, and any waiting on a gate.",
     },
     path: { type: 'string', description: 'The pack root. Default: the current directory.' },
   },

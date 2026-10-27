@@ -21,7 +21,8 @@ import { ENV_GROUPS, KINDGI_ENV_SCHEMA } from '@kindgi/env-schema';
 import { ENV_DEFAULTS, ENV_EXAMPLES, ENV_GROUP_SEE_ALSO } from './entries/env-vars.mjs';
 import { distinctPages, linkTo } from './mentions.mjs';
 
-const SLUG = 'reference/env-vars';
+export const SLUG = 'reference/env-vars';
+export const TITLE = 'Environment variables';
 /** At most this many guides in a variable's "see also". */
 const GUIDE_LINKS = 4;
 
@@ -149,7 +150,7 @@ export function envVarsPage({ mentions, pages }) {
   }
   const out = [
     '---',
-    'title: Environment variables',
+    `title: ${TITLE}`,
     'description: Every KINDGI_* variable the Kindgi runtime and the pack service read.',
     '---',
     '',

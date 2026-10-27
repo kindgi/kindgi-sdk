@@ -96,7 +96,7 @@ def test_a_pack_indexes_to_the_spec(make_pack: Callable[..., Path]) -> None:
     root = full_pack(make_pack)
     report, index = index_of(root)
     assert report["fileErrors"] == []
-    assert report["counts"] == {"tools": 2, "guardrails": 1, "agents": 1, "flows": 1}
+    assert report["counts"] == {"tools": 2, "guardrails": 1, "agents": 1, "flows": 1, "blocks": 0}
     assert _spec("pack-index").issues(index) == []
     assert [t["id"] for t in index["tools"]] == ["acme.shout", "acme.whisper"]
     shout, whisper = index["tools"]
@@ -258,6 +258,31 @@ def test_an_agent_declares_how_it_uses_memory(make_pack: Callable[..., Path]) ->
     (entry,) = [a for a in index["agents"] if a["id"] == "acme.desk"]
     assert entry["memory"] == {"instructionTypes": ["acme.policy"]}
     assert entry["retrieval"] == [{"types": ["acme.note"], "scope": "same-user", "mode": "both"}]
+
+
+def test_an_agent_that_sets_auto_close_is_refused(make_pack: Callable[..., Path]) -> None:
+    # A conversation never closes by itself, so the setting isn't supported.
+    def desk(policy: str) -> str:
+        return (
+            "from kindgi import Agent\n"
+            'desk = Agent(id="acme.desk", version="1.0.0", name="Desk", instructions="Help.",'
+            f" conversation_policy={policy})\n"
+        )
+
+    report, index = index_of(
+        full_pack(make_pack, **{"agents/desk.py": desk('{"historyLimit": 5}')})
+    )
+    assert report["fileErrors"] == []
+    (entry,) = [a for a in index["agents"] if a["id"] == "acme.desk"]
+    assert entry["conversationPolicy"] == {"historyLimit": 5}
+    lingering = desk('{"historyLimit": 5, "autoCloseAfterInactiveSeconds": 600}')
+    outcome = run_indexer(full_pack(make_pack, **{"agents/desk.py": lingering}), **PINS)
+    assert outcome["kind"] == "err"
+    assert outcome["error"]["code"] == "manifest-validation-failed"
+    assert outcome["error"]["message"] == (
+        "The index does not match pack-index.schema.json at"
+        " /agents/1/conversationPolicy/autoCloseAfterInactiveSeconds: must NOT be valid"
+    )
 
 
 def test_an_invalid_flow_is_a_file_error(make_pack: Callable[..., Path]) -> None:
@@ -453,6 +478,18 @@ def read(input: Q) -> Q:
     return input
 
 
+@tool(id="acme.mail", mutating=False, result_is_outside_data=True)
+def mail(input: Q) -> Q:
+    "Reads mail."
+    return input
+
+
+@tool(id="acme.local", mutating=False, result_is_outside_data=False)
+def local(input: Q) -> Q:
+    "Reads local data."
+    return input
+
+
 @tool(id="acme.unsaid")
 def unsaid(input: Q) -> Q:
     "Says nothing about it."
@@ -463,6 +500,7 @@ charge = http_tool(
     id="acme.charge", description="Charges.", input=Q, output=Q,
     method="POST", url_template="https://api.example.com/{q}",
     needs_approval_when_unattended=True,
+    result_is_outside_data=True,
 )
 """
 
@@ -479,6 +517,20 @@ def test_the_index_carries_needs_approval_when_unattended_as_declared(
     assert by_id["acme.read"]["needsApprovalWhenUnattended"] is False
     assert "needsApprovalWhenUnattended" not in by_id["acme.unsaid"]  # absent: it needs no approval
     assert by_id["acme.charge"]["needsApprovalWhenUnattended"] is True
+
+
+def test_the_index_carries_result_is_outside_data_as_declared(
+    make_pack: Callable[..., Path],
+) -> None:
+    root = make_pack({"tools/q.py": APPROVAL_TOOLS})
+    report, index = index_of(root)
+    assert report["fileErrors"] == []
+    assert _spec("pack-index").issues(index) == []
+    by_id = {t["id"]: t for t in index["tools"]}
+    assert by_id["acme.mail"]["resultIsOutsideData"] is True
+    assert by_id["acme.local"]["resultIsOutsideData"] is False
+    assert "resultIsOutsideData" not in by_id["acme.unsaid"]  # absent: results are not outside data
+    assert by_id["acme.charge"]["resultIsOutsideData"] is True
 
 
 def _guardrail(id: str, check_id: str | None = None) -> str:

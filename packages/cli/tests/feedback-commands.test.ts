@@ -15,7 +15,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, describe, expect, test } from 'vitest';
+import { afterAll, describe, expect, test, vi } from 'vitest';
 
 import type { DoctorReport } from '../src/commands/doctor.js';
 import type { FeedbackSeam } from '../src/feedback/run.js';
@@ -914,6 +914,37 @@ describe('kindgi feedback withdraw', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(`${more[49]} may have been withdrawn: run it again`);
     expect(out.stderr).not.toContain('Some of');
+  });
+});
+
+describe('kindgi feedback write', () => {
+  test('says where the entry went, and nothing under --quiet; the entry is written either way', async () => {
+    const said: string[] = [];
+    const { cli, feedback } = await setup();
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      said.push(String(chunk));
+      return true;
+    });
+    const argv = (title: string) => [
+      'feedback',
+      'write',
+      '--kind=bug',
+      `--title=${title}`,
+      '--body=It broke.',
+      '--authored-by=claude-code',
+    ];
+    try {
+      const loud = await cli(argv('Loud'));
+      expect(loud.exitCode, loud.stderr).toBe(0);
+      expect(said.join('')).toContain(`✓ appended entry ${json(loud.stdout).id} to `);
+      said.length = 0;
+      const quiet = await cli([...argv('Quiet'), '--quiet']);
+      expect([quiet.exitCode, quiet.stdout, quiet.stderr]).toEqual([0, '', '']);
+      expect(said.join('')).toBe('');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await feedback()).toContain('Quiet');
   });
 });
 

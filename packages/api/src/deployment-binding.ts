@@ -272,7 +272,7 @@ export interface DeploymentEndpoint {
    * suspension that took its service down is lifted, and it lists as
    * needing one.
    * A `cleared` one carries this or `retired`, never both (from runtime
-   * 0.1.8.1; an older server sends neither).
+   * 0.1.9; an older server sends neither).
    */
   readonly waiting?: true;
   /**
@@ -288,7 +288,7 @@ export interface DeploymentEndpoint {
    * `ready` only: the pack service runs on the values it was last given,
    * since the newest ones can't be given to it (a required one was removed,
    * say), or didn't start (`pack-env-update-failed`). It's gone once they
-   * can, or do (from runtime 0.1.8.1).
+   * can, or do (from runtime 0.1.9).
    */
   readonly packEnvProblem?: {
     readonly code: PackEnvHeldCode;
@@ -361,7 +361,7 @@ export interface Deployment {
   /**
    * The names its pack service reads from its process environment, as the
    * image's index declares them (`env`). Absent when it declares none, and
-   * from a binding that doesn't keep them (from runtime 0.1.8.1).
+   * from a binding that doesn't keep them (from runtime 0.1.9).
    */
   readonly packEnv?: PackEnvDeclaration;
   /**
@@ -375,7 +375,9 @@ export interface Deployment {
   /**
    * Its pack service's status, when the server routes pack calls per
    * deployment. Absent otherwise (one pack service for every deployment),
-   * and from a binding that doesn't track it.
+   * for a deployment that ships nothing a pack service serves (no tool, and
+   * no guardrail check but built-in ones: a pack of agents and flows only),
+   * which needs none, and from a binding that doesn't track it.
    */
   readonly endpoint?: DeploymentEndpoint;
   /**

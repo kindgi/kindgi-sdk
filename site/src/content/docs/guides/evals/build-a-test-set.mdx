@@ -1,32 +1,32 @@
 ---
-title: Build a test set from judgments
-description: Gather an agent's judged runs into a versioned test set, with what people said about each item, to test new versions on.
+title: Build test cases from corrections
+description: Gather an agent's corrected runs into versioned test cases, with what people said about each item, to test new versions on.
 sidebar:
   order: 2
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-This guide gathers an agent's judged runs into a versioned test set, to test
-new versions on.
+This guide gathers an agent's corrected runs into versioned test cases, to
+test new versions on.
 
-A **test set** is a set of past runs that people judged. Each case is a copy
-of one run, with the judgments of each item of its output added up. You
-[compare a new agent version](../compare-an-agent-version/) on it to see
+**Test cases** are a set of past runs that people corrected. Each case is a
+copy of one run, with the corrections of each item of its output added up.
+You [try a new agent version](../compare-an-agent-version/) on them to see
 whether people would rate its answers higher, before anyone uses it.
 
 ## Before you start
 
 - **An agent with finished runs** in a project, on a runtime such as
-  `kindgi dev`, with Kindgi 0.1's CLI.
+  `kindgi dev`, with Kindgi 0.2's CLI.
 - **`admin` on the project,** when authorization is on.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+  Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
-## Judge some runs
+## Correct some runs
 
-A test set is made of judged runs, so judge some first. The examples on this
-page use an agent, `acme-ops.article-picker`, that picks
+Test cases are made of corrected runs, so correct some first. The examples
+on this page use an agent, `acme-ops.article-picker`, that picks
 the help articles answering a customer's question. Its
 [typed answer](../../agents/typed-answer/) is a list of articles, each with
 its own id:
@@ -41,7 +41,7 @@ its own id:
 }
 ```
 
-Judge each article by its id. Then a judgment of `kb-101` still applies when
+Correct each article by its id. Then a correction of `kb-101` still applies when
 a new version returns `kb-101`, at any place in its list.
 
 <Tabs syncKey="lang">
@@ -83,18 +83,18 @@ uv run kindgi judgments add --run=<run-id> --item=kb-102 --pointer=/output/artic
 - `--item` is the article's id, and `--pointer` where it is in the output.
 - `--rank` is its place in the list, 0 first.
 
-Each prints its judgment, as [Judge an item](../judge-a-runs-output/#judge-an-item)
-shows.
+Each prints its correction, as
+[Correct an item](../judge-a-runs-output/#correct-an-item) shows.
 
-In the console, a finished run's **Judge this run** opens its Judgments tab.
-It lists the answer, and each element of a list in the output, each with
-**Yes** and **No**. [Judge a run's output](../judge-a-runs-output/) has the
-rest: reasons, your users' judgments, and judge classes.
+In the console, a finished run's **Correct this run** opens its Corrections
+tab. It lists the answer, and each element of a list in the output, each with
+**Yes** and **No**. [Correct a run's output](../judge-a-runs-output/) has the
+rest: reasons, your users' corrections, and judge classes.
 
-## Build the test set
+## Build the test cases
 
-Build version 1.0.0 of a test set, `acme.article-picks`, from the agent's
-judged runs in a project:
+Build version 1.0.0 of the `acme.article-picks` test cases from the agent's
+corrected runs in a project:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -127,13 +127,13 @@ uv run kindgi eval-suites from-judgments acme.article-picks --suite-version=1.0.
 </TabItem>
 </Tabs>
 
-- `acme.article-picks` is the test set's id, and `--suite-version` its
+- `acme.article-picks` is the test cases' id, and `--suite-version` their
   version.
 - `--project=<project-id>` is the project the runs are in, where
   `<project-id>` is its id.
-- `--agent` is the agent whose judged runs it takes.
+- `--agent` is the agent whose corrected runs it takes.
 
-It prints the test set:
+It prints the test cases:
 
 ```json
 {
@@ -145,12 +145,13 @@ It prints the test set:
 }
 ```
 
-With [authorization](../../../deploy/authorization/) on, building a test set
+With [authorization](../../../deploy/authorization/) on, building test cases
 under a new id takes `admin` on the project it names.
 
-From your code, ask your coding agent: "I want a script that builds a test
-set from my agent's judged runs, and shows me its cases." For reference, the
-script looks like this, with the project's id as its argument:
+From your code, ask your coding agent: "I want a script that builds test
+cases from my agent's corrected runs, and shows me the cases." For
+reference, the script looks like this, with the project's id as its
+argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -219,26 +220,26 @@ My package hasn't arrived yet. Where is it? ['kb-301 1 yes, 0 no', 'kb-303 0 yes
 </TabItem>
 </Tabs>
 
-It prints how many cases the test set has, then each case's input and its
-items' counts.
+It prints how many cases there are, then each case's input and its items'
+counts.
 
 - **The project's id:** `kindgi projects get-default` prints the Default
   project, with its `id`, and `kindgi projects list` lists them all. In code,
   it's `kindgi.projects.getDefault()`, or `kindgi.projects.get_default()` in
   Python.
 - **Which runs:** every run of the agent in the project with at least one
-  judgment. These narrow it:
+  correction. These narrow it:
   - `--agent-version`: one version's runs;
-  - `--since` and `--until`: when the run was first judged;
-  - `--class`: count only judgments of these
-    [judge classes](../judge-a-runs-output/#weight-judges-by-class);
-  - `--min-judgments`: leave out runs with fewer.
+  - `--since` and `--until`: when the run was first corrected;
+  - `--class`: count only corrections of these
+    [judge classes](../judge-a-runs-output/#weight-corrections-by-judge-class);
+  - `--min-judgments`: leave out runs with fewer corrections.
 - **Up to 1000 cases.** `truncated: true` says there were more: narrow the
-  runs, or build several sets.
-- **Versions never change.** When more runs are judged, build the next
+  runs, or build several sets of test cases.
+- **Versions never change.** When more runs are corrected, build the next
   version: the same id and a new `--suite-version`. A taken version is
   refused: `Eval suite "acme.article-picks" version "1.0.0" is already registered.`
-- **Building a test set takes `admin` on the project.**
+- **Building test cases takes `admin` on the project.**
 
 ### Narrow it to a segment
 
@@ -280,7 +281,7 @@ uv run kindgi eval-suites from-judgments acme.rank-acme-segment --suite-version=
 </TabItem>
 </Tabs>
 
-`--description` says what the test set holds. It prints the test set:
+`--description` says what the test cases hold. It prints the test cases:
 
 ```json
 {
@@ -292,9 +293,9 @@ uv run kindgi eval-suites from-judgments acme.rank-acme-segment --suite-version=
 }
 ```
 
-A judged run keeps the segment path it was started with. A run judged
-without one, such as one an older runtime recorded, is in no segment, and a
-narrowed test set leaves it out.
+A corrected run keeps the segment path it was started with. A run corrected
+without one, such as one an older runtime recorded, is in no segment, and
+narrowed test cases leave it out.
 
 ## What a case keeps
 
@@ -347,7 +348,8 @@ One of them:
       "no": 0,
       "yesWeight": 1,
       "totalWeight": 1,
-      "restricted": { "yesWeight": 0, "totalWeight": 0 },
+      "restricted": { "yesWeight": 0, "totalWeight": 0, "judgmentIds": [] },
+      "judgmentIds": ["8f2c4e1a-6b0d-4c3e-9a57-2d1f0b7e4c93"],
       "reasons": [{ "verdict": "yes", "reason": "Resets the password" }]
     },
     …
@@ -357,31 +359,41 @@ One of them:
 }
 ```
 
-- **`caseId`** is the id of the judged run.
-- **`items`** has each judged item: its yes and no counts, the same weighted
+- **`caseId`** is the id of the corrected run.
+- **`items`** has each corrected item: its yes and no counts, the same weighted
   by judge class, and the reasons people gave. The weighted counts are
-  `yesWeight` of `totalWeight`, and a judgment with no class weighs 1.
+  `yesWeight` of `totalWeight`, and a correction with no class weighs 1.
   `restricted` has the weights of the
-  [restricted](../judge-a-runs-output/#restrict-who-may-judge-as-a-class)
-  judgments alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
-- **`output`** is the run's output, as it was judged.
+  [restricted](../judge-a-runs-output/#restrict-who-may-correct-as-a-class)
+  corrections alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
+  `judgmentIds` (runtime 0.2.0 or later) names every correction counted in
+  the item, and `restricted.judgmentIds` the restricted ones. Test cases
+  built before these ids have neither.
+- **`corrections`** (runtime 0.2.0 or later) has the run's corrections
+  that say [what it should have done](../judge-a-runs-output/#say-what-it-should-have-done),
+  whatever their verdict: each one's `calls` and `notCalled`, its
+  `judgmentId`, its `judgeClassId` when it had a class, and
+  `restricted: true` when that class was restricted. A case without them
+  has no `corrections`.
+- **`output`** is the run's output, as it was when people corrected it.
 - **`context`**, for an agent turn, is what the turn had before it answered:
-  the conversation so far, up to 200 messages, and what it retrieved. A
-  comparison replays the turn with the same context. Its `toolEnv` has the
-  [env values](../../tools/give-a-tool-env-values/) each tool was sent, by
-  tool id. A read-only tool the comparison runs live gets those, not the
+  the conversation so far, up to 200 messages, and what it retrieved. A run
+  on the test cases replays the turn with the same context. Its `toolEnv`
+  has the [env values](../../tools/give-a-tool-env-values/) each tool was
+  sent, by tool id. A read-only tool that run uses live gets those, not the
   values set now.
 
 ## In the console
 
-A project's **Test sets** section lists its test sets, and its form **Build a
-test set from judgments** takes the id, the agent, and optionally one version
-and the judgments a run needs. A test set's page shows its versions and its
-cases: each item with its yes and no counts, its weighted yes share, up to two
-reasons, and a link to the original run.
+A project's **Test cases** section lists its test cases, and its form **Build
+test cases from corrections** takes the id, the agent, and optionally one
+version and the corrections a run needs. Each set of test cases has a page
+that shows its versions and its cases: each item with its yes and no
+counts, its weighted yes share, up to two reasons, and a link to the
+original run.
 
 ## Next
 
-- [Compare a version on a test set](../compare-an-agent-version/)
-- [Judge a run's output](../judge-a-runs-output/)
-- [Judging reference](../judging-reference/)
+- [Try a version on the test cases](../compare-an-agent-version/)
+- [Correct a run's output](../judge-a-runs-output/)
+- [Corrections reference](../judging-reference/)

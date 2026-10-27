@@ -27,6 +27,7 @@ import type {
   UnknownEffectError,
 } from './errors.js';
 import { schemaOptions } from './invoke.js';
+import type { PauseContext, ToolPauseAnswer } from './pause.js';
 import { type ToolSpecSynthesizerOptions, getToolSpecSynthesizer } from './spec-registry.js';
 import toolSchema from './tool.schema.json' with { type: 'json' };
 import {
@@ -196,6 +197,36 @@ export interface DefineToolSpec<
 }
 
 /**
+ * The spec of a tool that may make its run wait for another system's
+ * answer (`pauses: true`). Its handler gets the call's wait token and
+ * `pause` beside the usual context, and returns either its output or
+ * `ctx.pause()`:
+ *
+ * ```ts
+ * handler: async ({ orderId }, ctx) => {
+ *   await carrier.requestPickup(orderId, { callbackUrl: ctx.waitToken.url });
+ *   return ctx.pause({ timeoutMs: 2 * 60 * 60 * 1000, name: "the carrier's pickup confirmation" });
+ * },
+ * ```
+ *
+ * The answer the carrier posts to the link, valid against `output`, is
+ * the call's result. Only a pack runs such a handler: it has no
+ * declarative `spec`.
+ */
+export interface DefinePausingToolSpec<
+  TInSchema extends AnySchema,
+  TOutSchema extends AnySchema,
+  THandlerIn = InferOutput<TInSchema>,
+  THandlerOut = InferOutput<TOutSchema>,
+> extends Omit<DefineToolSpec<TInSchema, TOutSchema, THandlerIn, THandlerOut>, 'handler' | 'spec'> {
+  readonly pauses: true;
+  readonly handler: (
+    input: THandlerIn,
+    ctx: ToolContext & PauseContext,
+  ) => Promise<THandlerOut | ToolPauseAnswer>;
+}
+
+/**
  * The concrete Tool returned by `defineTool`. When the author passes a
  * Zod schema at the `input` slot, `inputZod` is present and carries the
  * original schema so callers can `z.infer<typeof tool.inputZod>` at the
@@ -249,6 +280,15 @@ export function defineTool<
   THandlerIn = InferOutput<TInSchema>,
   THandlerOut = InferOutput<TOutSchema>,
 >(
+  spec: DefinePausingToolSpec<TInSchema, TOutSchema, THandlerIn, THandlerOut>,
+  options?: DefineToolOptions,
+): Result<DefinedTool<TInSchema, TOutSchema, THandlerIn, THandlerOut>, ToolError>;
+export function defineTool<
+  const TInSchema extends AnySchema,
+  const TOutSchema extends AnySchema,
+  THandlerIn = InferOutput<TInSchema>,
+  THandlerOut = InferOutput<TOutSchema>,
+>(
   spec: DefineToolSpec<TInSchema, TOutSchema, THandlerIn, THandlerOut>,
   options?: DefineToolOptions,
 ): Result<DefinedTool<TInSchema, TOutSchema, THandlerIn, THandlerOut>, ToolError>;
@@ -263,13 +303,13 @@ export function defineTool<TInput = unknown, TOutput = unknown>(
   options?: DefineToolOptions,
 ): Result<Tool<TInput, TOutput>, ToolError>;
 export function defineTool(
-  spec: DefineToolSpec<AnySchema, AnySchema>,
+  spec: DefineToolSpec<AnySchema, AnySchema> | DefinePausingToolSpec<AnySchema, AnySchema>,
   options: DefineToolOptions = {},
 ): Result<DefinedTool<AnySchema, AnySchema>, ToolError> {
   // Fast path: JSON-Schema-only authoring never needs the peer dep.
   const authoredWithZod = isZodSchema(spec.input) || isZodSchema(spec.output);
   const converter = authoredWithZod ? resolveZodConverterSync() : undefined;
-  return finalizeDefinition(spec, converter, options);
+  return finalizeDefinition(spec as DefineToolSpec<AnySchema, AnySchema>, converter, options);
 }
 
 /** How `defineTool` builds a tool; for the runtime, not for pack authors. */
@@ -291,12 +331,25 @@ export async function defineToolAsync<
   THandlerIn = InferOutput<TInSchema>,
   THandlerOut = InferOutput<TOutSchema>,
 >(
+  spec: DefinePausingToolSpec<TInSchema, TOutSchema, THandlerIn, THandlerOut>,
+  options?: DefineToolOptions,
+): Promise<Result<DefinedTool<TInSchema, TOutSchema, THandlerIn, THandlerOut>, ToolError>>;
+export async function defineToolAsync<
+  const TInSchema extends AnySchema,
+  const TOutSchema extends AnySchema,
+  THandlerIn = InferOutput<TInSchema>,
+  THandlerOut = InferOutput<TOutSchema>,
+>(
   spec: DefineToolSpec<TInSchema, TOutSchema, THandlerIn, THandlerOut>,
+  options?: DefineToolOptions,
+): Promise<Result<DefinedTool<TInSchema, TOutSchema, THandlerIn, THandlerOut>, ToolError>>;
+export async function defineToolAsync(
+  spec: DefineToolSpec<AnySchema, AnySchema> | DefinePausingToolSpec<AnySchema, AnySchema>,
   options: DefineToolOptions = {},
-): Promise<Result<DefinedTool<TInSchema, TOutSchema, THandlerIn, THandlerOut>, ToolError>> {
+): Promise<Result<DefinedTool<AnySchema, AnySchema>, ToolError>> {
   const authoredWithZod = isZodSchema(spec.input) || isZodSchema(spec.output);
   const converter = authoredWithZod ? await loadZodConverter() : undefined;
-  return finalizeDefinition(spec, converter, options);
+  return finalizeDefinition(spec as DefineToolSpec<AnySchema, AnySchema>, converter, options);
 }
 
 function finalizeDefinition<
@@ -358,6 +411,8 @@ function finalizeDefinition<
       },
     };
   }
+  const unpausable = pauseRefusal(spec, declarativeSpec);
+  if (unpausable !== undefined) return { kind: 'err', error: unpausable };
   let effectiveHandler = authorHandler as
     | ((input: THandlerIn, ctx: ToolContext) => Promise<THandlerOut>)
     | undefined;
@@ -426,6 +481,28 @@ function finalizeDefinition<
   return { kind: 'ok', value: tool };
 }
 
+/**
+ * Why a tool can't declare `pauses: true`, if it can't: only a pack's own
+ * run of a handler can answer with a pause. The runtime runs a declarative
+ * spec itself, and an MCP server can't.
+ */
+function pauseRefusal(spec: object, declarativeSpec: ToolSpec | undefined): ToolError | undefined {
+  const declared = spec as { readonly pauses?: unknown; readonly transport?: unknown };
+  if (declared.pauses !== true) return undefined;
+  if (declarativeSpec === undefined && declared.transport !== 'mcp') return undefined;
+  return {
+    code: 'invalid-tool-definition',
+    message:
+      "`pauses: true` needs a handler the pack runs: a tool with a declarative `spec` or an MCP transport can't pause.",
+    issues: [
+      {
+        path: declarativeSpec !== undefined ? '/spec' : '/transport',
+        message: 'pauses needs an imperative handler',
+      },
+    ],
+  };
+}
+
 function stripHandler<TInput, TOutput>(spec: Tool<TInput, TOutput>): ToolManifest {
   // Structural copy dropping `handler`. `handler` is a function and Ajv rejects
   // functions during validation, so it MUST be stripped before schema check.
@@ -452,7 +529,8 @@ function toDefinitionError(err: {
  * it loads the tool (`compileInlineSchema`), and an env value's `default` is a string. A runtime
  * that couldn't compile one would leave the whole tool out, so it's refused here, where the
  * tool is defined, registered (`POST /v1/tools`) or deployed, naming the tool, the slot and the
- * name.
+ * name. An HTTP spec's `connection` authorization names a connection `needsSpec.connections`
+ * declares.
  */
 function needsSpecProblem(manifest: ToolManifest): InvalidToolDefinitionError | undefined {
   const tool = manifest.id as unknown as string;
@@ -479,6 +557,22 @@ function needsSpecProblem(manifest: ToolManifest): InvalidToolDefinitionError | 
         };
       }
     }
+  }
+  const auth = manifest.spec?.authorization;
+  if (
+    auth?.kind === 'connection' &&
+    manifest.needsSpec?.connections?.[auth.connection] === undefined
+  ) {
+    return {
+      code: 'invalid-tool-definition',
+      message: `Tool "${tool}": spec.authorization sends the connection "${auth.connection}", which needsSpec.connections doesn't declare.`,
+      issues: [
+        {
+          path: '/spec/authorization/connection',
+          message: 'must name a connection needsSpec.connections declares',
+        },
+      ],
+    };
   }
   return undefined;
 }

@@ -7,8 +7,9 @@ sidebar:
 
 This page explains what keeps each tenant's data and secrets safe in Kindgi,
 so you know what to check before you deploy it. It covers what keeps one
-tenant's data from another's, who may call the API, what a tenant can't make
-the server do, and where secrets live.
+tenant's data from another's and one project's tool code from another's,
+who may call the API, what a tenant can't make the server do, and where
+secrets live.
 
 ## Tenants and isolation
 
@@ -24,6 +25,36 @@ one, it creates a new tenant at every start and prints its id. So set it for
 anything that should keep its data across restarts. For hard separation
 between customers or environments, give each its own runtime and database.
 
+## Your tools' code
+
+Your tools' code runs outside the runtime, in your pack's service, where
+row-level security doesn't reach. What keeps one project's tool code from
+another's is how that service runs:
+
+- **On a runtime you run yourself,** every project's tool calls go to the
+  one pack service the runtime names (`KINDGI_PACK_SERVICE_URL`), by
+  default. One pack's code handles them all, as one identity: whatever the
+  service runs as. Each call is given only the secrets and values its tool
+  declares, for its run (`ctx.secrets`, `ctx.env`). But calls from every
+  project share the service's processes, so code that keeps a value, in a
+  module-level variable say, can hand it to another project's call. And the
+  service's own environment is the same for every call
+  ([Run your pack's service](../../deploy/self-hosted/self-host/#4-run-your-packs-service)).
+  So trust that code with every project the runtime serves. To keep
+  projects apart, give each its own installation, with its own runtime,
+  database and pack service: a testing installation apart from
+  production, say, or one for each customer. A runtime that serves many
+  tenants can give each deployment its own pack service instead, to run
+  under an identity of its own (`KINDGI_PACK_ROUTING=per-deployment`,
+  which needs `KINDGI_TENANCY=multi`;
+  [Serve many tenants](../../deploy/self-hosted/serve-many-tenants/)).
+- **On Kindgi Cloud,** each deployment's tools' code runs in a pack service
+  of its own, apart from every other workspace's. Up to 3 of a workspace's
+  projects run their tools' code under an identity of their own, so other
+  projects' code can't read their secrets. Past that, projects share one
+  identity within the workspace
+  ([Limits](../../hosted/limits/#projects-with-their-own-tool-identity)).
+
 ## Calling the API
 
 Every `/v1` request carries the deployment's API token, in an
@@ -35,6 +66,12 @@ Tokens are compared in constant time. A wrong or missing token gets `401`:
 ```json
 {"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-88fd4597-bed6-4936-9906-83fafe44712d"}}
 ```
+
+The `curl` examples in these docs pass the header as
+`-H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")`. In bash or
+zsh it reaches curl through a pipe, so the token stays out of the process
+list (`ps`), where `-H "Authorization: Bearer $KINDGI_API_TOKEN"` would show
+it.
 
 To rotate the token, restart the runtime with a new value.
 
@@ -56,7 +93,7 @@ agent's turn with `model-invocation-failed`:
 No setting changes it.
 
 The template can render in a worker process instead of the server's own
-(it needs runtime 0.1.8.1 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
+(it needs runtime 0.1.9 or later): with `KINDGI_TEMPLATE_RENDER_WORKERS`
 at 1 or more, the default on a runtime serving many tenants
 (`KINDGI_TENANCY=multi`).
 The worker's heap has a cap of its own
@@ -114,7 +151,7 @@ A public run token is:
 With it, a browser can follow the run. The same request with `curl`:
 
 ```sh
-curl -H "Authorization: Bearer $PUBLIC_TOKEN" "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
+curl -H @<(printf 'Authorization: Bearer %s\n' "$PUBLIC_TOKEN") "$KINDGI_API_URL/v1/runs/$RUN_ID/progress"
 ```
 
 - `$PUBLIC_TOKEN` is the public run token, such as the run's
@@ -266,7 +303,7 @@ Amazon RDS and AlloyDB work. Create the `vector` extension once, as
   key that protects stored secrets.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::

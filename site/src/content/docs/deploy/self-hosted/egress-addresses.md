@@ -7,7 +7,7 @@ sidebar:
 
 Some sites admit calls only from addresses they know: a shop's API behind a
 firewall, an MCP server with an allowlist, a webhook receiver. A runtime can
-publish the IP addresses its calls to other sites come from (runtime 0.1.8.1
+publish the IP addresses its calls to other sites come from (runtime 0.1.9
 or later), and anyone who belongs to one of its tenants prints them with
 `kindgi egress`. Publishing them changes nothing about where calls go or
 where they come from.
@@ -20,8 +20,8 @@ where they come from.
 - **The runtime's settings:** `kindgi.env` for
   [Self-host Kindgi](../self-host/), or the module's `server_env` on
   [Cloud Run](../cloud-run/).
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Publish them
@@ -78,7 +78,7 @@ through Cloud Run's own egress, which has no fixed address.
 ## See them
 
 ```sh
-npx --yes @kindgi/cli@0.1 egress
+npx --yes @kindgi/cli@0.2 egress
 ```
 
 ```text

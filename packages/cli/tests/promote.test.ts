@@ -197,7 +197,7 @@ describe('kindgi promote', () => {
     expect(text).toContain(
       "agent acme.matcher 1.1.1: an edit of 1.1.0, which this build doesn't ship",
     );
-    expect(text).toContain("Test sets don't move");
+    expect(text).toContain("Test cases don't move");
     expect(text).toContain('Every value it needs is set in prod.');
     expect(text).toContain('Promoted: deployment dep-prod-1 in prod.');
     // What moves is printed before the result.
@@ -380,7 +380,7 @@ describe('kindgi promote', () => {
       pages: [{ data: [deployment('dep-a'), deployment('dep-b')], hasMore: false }],
     });
     expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('needs a runtime on Kindgi 0.1.8.1 or later');
+    expect(out.stderr).toContain('needs a runtime on Kindgi 0.1.9 or later');
     expect(named(calls, 'promoteCheck')).toEqual([]);
   });
 

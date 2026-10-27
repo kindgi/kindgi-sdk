@@ -246,16 +246,12 @@ export interface BlockRef {
 /**
  * Per-agent behavior for multi-turn conversations. The agent chooses:
  *   - How many prior messages to load (`historyLimit`; unset = all).
- *   - Whether to auto-close a conversation after a period of inactivity
- *     (`autoCloseAfterInactiveSeconds` — checked at read time; unset =
- *     never auto-close).
  *   - A turn count after which each new turn waits for HITL approval
  *     before it runs (`hitlAfterTurns`; `hitl.afterTurns` takes
  *     precedence when both are set).
  */
 export interface ConversationPolicy {
   readonly historyLimit?: number;
-  readonly autoCloseAfterInactiveSeconds?: number;
   readonly hitlAfterTurns?: number;
   /**
    * HITL policy: the session gate (`afterTurns`) and the tool-level
@@ -359,7 +355,11 @@ export interface ConversationHitlPolicy {
  * timer in `invokeAgent`.
  */
 export interface TurnBudget {
-  /** Maximum model→tool→model iterations per turn. Default 8. */
+  /**
+   * Maximum model→tool→model iterations per turn. Default 8. At most
+   * `AGENT_TURN_LOOP_MAX_ITERATIONS` (32), the most the turn's loop
+   * runs: a higher value acts as 32.
+   */
   readonly maxSteps?: number;
   /** Maximum USD spend per turn, summed over the turn's model calls. */
   readonly maxCostUsd?: number;
@@ -501,7 +501,9 @@ export interface Agent {
    *
    * The value is a `ProviderMetadata.id` string (e.g. `'anthropic'`).
    * Use in combination with `preferredModel` for `(provider, model)`
-   * tuple pinning. Unset = capability-match only.
+   * tuple pinning. Unset = capability-match only. A version whose
+   * model-settings block names the model (`providerId`, `model`) sets
+   * neither: the model is named in one place.
    */
   readonly preferredProvider?: string;
   /**
@@ -519,7 +521,8 @@ export interface Agent {
    * The value is a `ModelInfo.name` string (e.g. `'claude-sonnet-5-5'`).
    * Enables model-level A/B'ing under one connection: register
    * Anthropic once with `models: [sonnet, opus, haiku]`, then pin
-   * per-agent.
+   * per-agent. To let an improvement pass try other models, name the
+   * model in the model-settings block (`model`) instead: never both.
    */
   readonly preferredModel?: string;
   /**
@@ -568,8 +571,9 @@ export interface Agent {
   readonly settings?: readonly BlockRef[];
   /**
    * A settings block of model settings (`MODEL_SETTINGS_SCHEMA`:
-   * `temperature`, `maxOutputTokens`) the turn's model calls use. Pinned
-   * at publish with the other settings.
+   * `temperature`, `maxOutputTokens`, and the model it prefers,
+   * `providerId` and `model`) the turn's model calls use. Pinned at
+   * publish with the other settings.
    */
   readonly modelSettings?: BlockRef;
   /** `pinsDigest(pins)`, recorded when the version was published. */

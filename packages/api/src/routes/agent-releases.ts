@@ -4,6 +4,7 @@
 import type { Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
+import type { ReviewerRole } from '@kindgi/authz';
 import type { Cursor, LiveScope, OrgId, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
 
 import type { ProjectBinding } from '@kindgi/platform';
@@ -39,6 +40,21 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** The routes that change what's live: authorized as `promote` on the agent, not `admin`. */
 export function isPromotionWrite(method: string, path: string): boolean {
   return method === 'POST' && /\/(promotions|live\/rollback|live\/unpin)$/.test(path);
+}
+
+/** The promotion writes that set a live version — a pin or a rollback, not an unpin: only these span an order's environments. */
+export function isLiveSet(method: string, path: string): boolean {
+  return method === 'POST' && /\/(promotions|live\/rollback)$/.test(path);
+}
+
+/** `POST …/promotions`: a request that a version go live. */
+export function isPromotionRequest(method: string, path: string): boolean {
+  return method === 'POST' && path.endsWith('/promotions');
+}
+
+/** `POST …/live/rollback` and `…/live/unpin`: undoing what's live. */
+export function isLiveUndo(method: string, path: string): boolean {
+  return method === 'POST' && /\/live\/(rollback|unpin)$/.test(path);
 }
 
 /** `POST …/promotions/check` changes nothing: `read` on the agent. */
@@ -378,6 +394,14 @@ export async function requestPromotion(
   options: {
     /** An approval the promotion waits for even when the scope's policy asks for none. */
     readonly requireApproval?: GateApproval;
+    /**
+     * For a drafter's promotion: whether the tenant has a separate approver (a
+     * reviewer other than the requester who could decide) ranked at or above
+     * the given role. Consulted only when a scope policy sets
+     * `separateApprover: false`, so the drafter's rule is re-checked at the
+     * policy's role rather than the drafter's own `standard`.
+     */
+    readonly draftedEligibleAtRole?: (role: ReviewerRole) => Promise<boolean>;
   } = {},
 ): Promise<PromotionRequestOutcome> {
   // Every way a promotion is asked for comes through here (the route, a
@@ -410,7 +434,7 @@ export async function requestPromotion(
   }
   const gate = await runGate(registry, releases, deps, input, policy);
   if (gate.kind === 'err') return gate;
-  const approval = gate.result.approval ?? options.requireApproval;
+  const approval = await resolveApproval(gate.result.approval, options);
   const outcome = await releases.promotions.request({
     ...input,
     gate: {
@@ -428,8 +452,40 @@ export async function requestPromotion(
 }
 
 /**
+ * The approval a promotion request waits for. A scope policy's approval wins —
+ * its role and its reviewer eligibility. For a drafter's promotion the policy's
+ * rule is only a floor: the drafter's separate-approver rule can make it
+ * stricter, never looser, so whoever started the pass can't approve their own
+ * drafter's work. The policy's `separateApprover` defaults to `true`
+ * (`gateApproval`), so only an explicit `false` defers to the drafter's rule,
+ * re-checked at the policy's role (`draftedEligibleAtRole`) rather than the
+ * drafter's own `standard`. A policy with no approvals block, and any
+ * non-drafted promotion, are left unchanged.
+ */
+async function resolveApproval(
+  policyApproval: GateApproval | undefined,
+  options: {
+    readonly requireApproval?: GateApproval;
+    readonly draftedEligibleAtRole?: (role: ReviewerRole) => Promise<boolean>;
+  },
+): Promise<GateApproval | undefined> {
+  if (policyApproval === undefined) return options.requireApproval;
+  // A non-drafted promotion carries no drafter approval: the policy's stands.
+  if (options.requireApproval === undefined) return policyApproval;
+  // Already strict (the default, or an explicit true): nothing to add.
+  if (policyApproval.separateApprover) return policyApproval;
+  const separateApprover =
+    options.draftedEligibleAtRole !== undefined
+      ? await options.draftedEligibleAtRole(policyApproval.role)
+      : options.requireApproval.separateApprover;
+  return { ...policyApproval, separateApprover };
+}
+
+/**
  * The answer to a promotion request: 201 promoted, 202 waiting for
- * approval, 422 `gate-failed` with the checks, or the error.
+ * approval, 422 `gate-failed` with the checks, or the error. `extra` is
+ * merged into whichever answer comes out — the caller carries fields it
+ * knows the outcome alone can't, such as a make-live's pins so far.
  */
 export function promotionResponse(
   c: Ctx,
@@ -444,12 +500,13 @@ export function promotionResponse(
         {
           code: 'promotion-gate-unsupported',
           message: `Gate policy ${outcome.policy.id} ${outcome.policy.version} applies to this promotion, and this deployment can't record a gated promotion yet.`,
+          ...extra,
         },
         requestId,
       ),
     );
   }
-  if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
+  if (outcome.kind === 'err') return failed(c, requestId, outcome.error, extra);
   const { promotion } = outcome;
   if (promotion.status === 'refused') {
     const checks = promotion.checks ?? outcome.checks ?? [];
@@ -458,7 +515,7 @@ export function promotionResponse(
       toWireError(
         {
           code: 'gate-failed',
-          message: `The gate refused ${promotion.agentId} ${promotion.toVersion as unknown as string}: ${checks
+          message: `The release gate policy refused ${promotion.agentId} ${promotion.toVersion as unknown as string}: ${checks
             .filter((check) => !check.passed)
             .map((check) => check.message)
             .join(' ')}`,
@@ -495,9 +552,14 @@ function badInput(c: Ctx, requestId: string, message: string) {
   return c.json(toWireError({ code: 'bad-input', message }, requestId));
 }
 
-function failed(c: Ctx, requestId: string, error: { code: string; message: string }) {
+function failed(
+  c: Ctx,
+  requestId: string,
+  error: { code: string; message: string },
+  extra: Readonly<Record<string, unknown>> = {},
+) {
   c.status(statusFor(error.code) as never);
-  return c.json(toWireError(error, requestId));
+  return c.json(toWireError({ ...error, ...extra }, requestId));
 }
 
 /** Optional short strings (`reason`, `evalRunId`): absent, or a non-empty string. */

@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.3"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -152,10 +152,10 @@ public final class BriefWriter {
   `Map.of("overrides", Map.of("<tool id>", true))`) makes a tool's approval
   need someone other than whoever asked.
 - **`set("budget", …)`:** per turn. `maxSteps` counts model calls (default
-  8); `maxCostUsd`; `maxWallMs` (default 120 000). Exceeding the steps or the
-  cost fails the turn (`budget-exceeded`); running out of wall time aborts
-  it. Leave room for real models: a turn with tool calls can take tens of
-  seconds.
+  8, at most 32); `maxCostUsd`; `maxWallMs` (default 120 000). Exceeding
+  the steps or the cost fails the turn (`budget-exceeded`); running out of
+  wall time aborts it. Leave room for real models: a turn with tool calls
+  can take tens of seconds.
 - **`output(Type.class)`:** a typed answer, with its schema derived from the
   record. The final answer must be JSON matching it. A wrong one goes back
   to the model with the problems (`maxRepairs`, default 1), and then the
@@ -192,6 +192,8 @@ input, and can't give a typed answer: an agent with `output` fails with
 `output-schema-violation` until a real model is registered. To register one,
 see `kindgi-authoring-providers` (`./kindgiw providers register --preset=anthropic`,
 or `"providers": [{"preset": "anthropic"}]` in `kindgi.config.json`).
+Commit the declaration: it holds the key's name, never the key, and it's how
+a teammate's `kindgi dev`, or another worktree's, gets the same provider.
 
 ## Iterating
 

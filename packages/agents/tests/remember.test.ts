@@ -33,6 +33,7 @@ import { isReadOnlyTool } from '../src/handlers/replay.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import {
   REMEMBER_TOOL_ID,
+  REMEMBER_TOOL_VERSION,
   looksLikeInstruction,
   rememberTarget,
   reviewReasons,
@@ -77,7 +78,10 @@ async function rememberTurn(options: {
   readonly writer?: boolean;
   readonly pending?: boolean;
   /** The turn's `authorizeToolCall`; what it's asked is in `Turn.asked`. */
-  readonly authorize?: (input: { readonly toolId: string }) => Promise<ToolCallAuthorization>;
+  readonly authorize?: (input: {
+    readonly toolId: string;
+    readonly toolVersion?: string;
+  }) => Promise<ToolCallAuthorization>;
 }): Promise<Turn> {
   const writes: RememberFactInput[] = [];
   const asked: string[] = [];
@@ -137,7 +141,10 @@ async function rememberTurn(options: {
         },
       }),
       ...(authorize !== undefined && {
-        authorizeToolCall: async (input: { readonly toolId: string }) => {
+        authorizeToolCall: async (input: {
+          readonly toolId: string;
+          readonly toolVersion?: string;
+        }) => {
           asked.push(input.toolId);
           return authorize(input);
         },
@@ -337,13 +344,18 @@ describe("the turn's authorizeToolCall", () => {
     },
   );
 
-  test('a tenant-scope fact reaches every project: asked, under the built-in id', async () => {
+  test("a tenant-scope fact reaches every project: asked, under the built-in's id and version", async () => {
+    const versions: (string | undefined)[] = [];
     const turn = await rememberTurn({
       policy: { types: ['preference'], scope: 'tenant' },
       args: { type: 'preference', content: 'Prefers email' },
-      authorize: async () => ({ allowed: true }),
+      authorize: async (input) => {
+        versions.push(input.toolVersion);
+        return { allowed: true };
+      },
     });
     expect(turn.asked).toEqual([REMEMBER_TOOL_ID]);
+    expect(versions).toEqual([REMEMBER_TOOL_VERSION]);
     expect(turn.writes).toHaveLength(1);
   });
 

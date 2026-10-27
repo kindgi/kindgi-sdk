@@ -48,7 +48,7 @@ const FIRE = {
   missedCount: 9,
 };
 
-async function schedules(argv: readonly string[]) {
+async function schedules(argv: readonly string[], taken: Record<string, unknown> = SCHEDULE) {
   const calls: unknown[][] = [];
   const record =
     (name: string, result: unknown) =>
@@ -73,7 +73,7 @@ async function schedules(argv: readonly string[]) {
           unregister: record('unregister', { scheduleId: ID, unregistered: true }),
           fires: record('fires', { data: [FIRE], hasMore: false }),
           runNow: record('runNow', { ...FIRE, outcome: 'pending', manual: true }),
-          takeOwnership: record('takeOwnership', SCHEDULE),
+          takeOwnership: record('takeOwnership', taken),
         },
       }) as never,
   });
@@ -215,7 +215,8 @@ describe('kindgi schedules', () => {
                   runId: undefined,
                   missedCount: undefined,
                   outcome: 'skipped',
-                  detail: '4 of 5 trusted "no" judgments',
+                  detail:
+                    "Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong (enough: 3 runs, 2 experts).",
                 },
               ],
               hasMore: false,
@@ -225,7 +226,9 @@ describe('kindgi schedules', () => {
     });
     expect(fires.exitCode, fires.stderr).toBe(0);
     expect(fires.stdout).toContain(`pass ${passId}`);
-    expect(fires.stdout).toMatch(/skipped\s+4 of 5 trusted "no" judgments/);
+    expect(fires.stdout).toMatch(
+      /skipped\s+Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong/,
+    );
   });
 
   test('list as a table, with what each schedule runs', async () => {
@@ -235,12 +238,12 @@ describe('kindgi schedules', () => {
     expect(out.stdout).toMatch(/agent acme\.digest\s+0 7 \* \* 1-5\s+America\/Toronto\s+active/);
   });
 
-  test("list --project: one project's schedules; the table names each owner", async () => {
+  test("list --project: one project's schedules; the table names whom each runs as, personal or shared", async () => {
     const { out, calls } = await schedules(['list', `--project=${ID}`, '--table']);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['list', { projectId: ID }]]);
-    expect(out.stdout).toMatch(/OWNER/);
-    expect(out.stdout).toMatch(/Ada Lovelace/);
+    expect(out.stdout).toMatch(/RUNS AS/);
+    expect(out.stdout).toMatch(/Ada Lovelace \(personal\)/);
   });
 
   test('get with upcoming; update; the lifecycle verbs by id', async () => {
@@ -276,6 +279,87 @@ describe('kindgi schedules', () => {
 
     const take = await schedules(['take-ownership', ID, `--run-as=${BOT}`]);
     expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
+  });
+
+  test("--run-as=project names the project's own account on create and take-over", async () => {
+    const made = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      '--project=p-1',
+      '--run-as=project',
+    ]);
+    expect(made.out.exitCode, made.out.stderr).toBe(0);
+    expect(made.calls[0]).toMatchObject(['register', { runAsProject: true }]);
+    expect(made.calls[0]?.[1]).not.toHaveProperty('runAsServiceAccountId');
+
+    const take = await schedules(['take-ownership', ID, '--run-as=project']);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsProject: true }]]);
+  });
+
+  test('--allow-unattended: repeatable on create and update; `none` clears on update only', async () => {
+    const made = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      '--allow-unattended=acme.send',
+      '--allow-unattended=acme.archive',
+    ]);
+    expect(made.out.exitCode, made.out.stderr).toBe(0);
+    expect(made.calls[0]).toMatchObject([
+      'register',
+      { toolsAllowedUnattended: ['acme.send', 'acme.archive'] },
+    ]);
+    const cleared = await schedules(['update', ID, '--allow-unattended=none']);
+    expect(cleared.calls).toEqual([['update', ID, { toolsAllowedUnattended: [] }]]);
+    const retargeted = await schedules([
+      'update',
+      ID,
+      '--flow=acme.nightly',
+      '--flow-version=1.0.0',
+      '--allow-unattended=acme.refund',
+    ]);
+    expect(retargeted.calls).toEqual([
+      [
+        'update',
+        ID,
+        { flowId: 'acme.nightly', flowVersion: '1.0.0', toolsAllowedUnattended: ['acme.refund'] },
+      ],
+    ]);
+
+    const noneAtCreate = await schedules([
+      'create',
+      '--cron=0 2 * * *',
+      '--agent=acme.digest',
+      '--allow-unattended=none',
+    ]);
+    expect(noneAtCreate.out.exitCode).not.toBe(0);
+    expect(noneAtCreate.calls).toEqual([]);
+    const noneWithIds = await schedules([
+      'update',
+      ID,
+      '--allow-unattended=acme.send',
+      '--allow-unattended=none',
+    ]);
+    expect(noneWithIds.out.exitCode).not.toBe(0);
+    expect(noneWithIds.out.stderr).toContain('not with tool ids');
+    expect(noneWithIds.calls).toEqual([]);
+  });
+
+  test('take-ownership names the tools the schedule keeps allowed unattended, when it lists any', async () => {
+    const listed = await schedules(['take-ownership', ID], {
+      ...SCHEDULE,
+      toolsAllowedUnattended: ['acme.send'],
+    });
+    expect(listed.out.exitCode, listed.out.stderr).toBe(0);
+    expect(JSON.parse(listed.out.stdout)).toMatchObject({ toolsAllowedUnattended: ['acme.send'] });
+    expect(listed.out.stderr).toContain('It keeps its tools allowed unattended (acme.send)');
+    expect(listed.out.stderr).toContain(
+      "their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner.",
+    );
+    expect(listed.out.stderr).toContain(`kindgi schedules update ${ID} --allow-unattended=none`);
+    const none = await schedules(['take-ownership', ID]);
+    expect(none.out.stderr).not.toContain('allowed unattended');
   });
 
   test("update's help gives no defaults: a flag left out keeps the schedule's value", async () => {

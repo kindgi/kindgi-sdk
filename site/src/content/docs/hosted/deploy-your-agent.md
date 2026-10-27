@@ -22,7 +22,7 @@ providers on `prod`, before and after you go live. So everything here uses
 - **A pack with an agent,** with its tests passing, and the Kindgi skills
   that `kindgi init` installs in it. This guide uses the pack `acme-desk`,
   with the agent `acme-desk.reply-drafter`.
-- **Kindgi 0.1's CLI,** with Node 22.12 or later. You don't need Docker:
+- **Kindgi 0.2's CLI,** with Node 22.12 or later. You don't need Docker:
   Kindgi Cloud builds the pack's image.
 - **An API key from your AI provider,** with a spending limit.
 
@@ -39,7 +39,7 @@ into the chat.
 **Store secrets**. The secret shows once: **Copy** it.
 
 This key is the one every command in this guide uses. If you also run
-`kindgi dev`, its console and the token it prints belong to the runtime on
+`kindgi dev`, its console and its token belong to the runtime on
 your machine, not to Kindgi Cloud: paste only the key you made here.
 
 **Sign the CLI in, in a terminal of your own,** in the pack's folder. Paste
@@ -52,7 +52,8 @@ pnpm exec kindgi auth whoami
 ```
 
 `auth whoami` checks the key with Kindgi Cloud. The CLI keeps the key in
-`~/.kindgi/config.json`, for that address only.
+`~/.kindgi/config.json`, for that address only. On macOS and Linux, only
+your account can read that file.
 :::
 
 ## Sign the pack
@@ -134,13 +135,19 @@ pnpm exec kindgi deploy --hosted --env=prod
 ```
 
 - `--hosted` builds the pack on Kindgi Cloud, deploys what it built, and
-  waits up to 5 minutes for the pack service to be ready.
+  waits up to 5 minutes for its pack service to be ready, if it has one.
 - `--env=prod` picks the `prod` environment: its signing key.
 - With no `--project`, the pack goes into the Default project.
   `--project=<id-or-slug>` names another.
 
-The deploy prints what it registered, with each agent's version. It ends
-with `Deploy complete.`, then `Waiting for the pack service` and `✓ ready`.
+The deploy prints what it registered, with each agent's version, then
+`Deploy complete.` and which image new runs use. Then it waits:
+`Waiting for the pack service`, a `… <state>` line for each state it
+waits in, and `✓ ready`.
+A pack with no tools and no guardrail checks of its own, such as one of
+agents and flows whose guardrails use only built-in checks, has no pack
+service. Its deploy doesn't wait for one, and prints no `Waiting for the pack
+service`.
 
 ## Try it
 
@@ -164,7 +171,7 @@ Going live takes two steps, in this order.
 **1. Make the agent's version live.** Until an agent has a live version,
 each run gets its latest version, so every deploy changes what runs at
 once. Make the version you tried live in the project. Then later deploys
-change nothing until you promote again.
+change nothing until you make a version live again.
 
 Ask your coding agent: "Make the version of `acme-desk.reply-drafter` that I
 tried live in the Default project." For reference:
@@ -208,9 +215,9 @@ its version, before you make it live.
    `kindgi runs start --agent=acme-desk.reply-drafter --agent-version=<new version> --input=…`.
    This is a real run, in a project in production. It uses your
    workspace's keys and secrets, and its tools do what they do.
-3. **Compare it on a test set,** if you have one. A comparison replays the
-   test set's cases with the new version
-   ([Compare a version on a test set](../../guides/evals/compare-an-agent-version/)).
+3. **Try it on your test cases,** if you have some. A run on the test cases
+   replays them with the new version
+   ([Try a version on the test cases](../../guides/evals/compare-an-agent-version/)).
 4. **Make it live:**
    `kindgi agents promote acme-desk.reply-drafter <new version> --project=<project-id> --reason=…`.
    Runs get it from the next run, except that a conversation that's
@@ -221,12 +228,12 @@ its version, before you make it live.
    This puts back the version that was live before, at once.
 
 Several new versions can wait at once. Each deploy that changes the code
-registers a version, and you can run any of them by its number. Promoting
-makes one of them live; the others stay, and you can still run them.
+registers a version, and you can run any of them by its number. You make
+one of them live; the others stay, and you can still run them.
 
 [Release an agent version](../../guides/evals/release-an-agent-version/)
-shows each step, a release for some runs only, and a gate that needs a
-reviewer.
+shows each step, a release for some runs only, and a release gate policy
+that needs a reviewer.
 [Live versions reference](../../guides/evals/live-versions-reference/) has
 every rule and refusal.
 
@@ -237,13 +244,13 @@ model keys when it runs, from your workspace's values on `prod`. So the live
 version and every version that's waiting read the same values:
 
 - A new secret that only the new version reads can go in before you
-  promote.
+  make it live.
 - Changing a value that the live version reads changes live runs from the
-  next run, before you promote anything.
+  next run, before you make anything live.
 - `kindgi deploy --hosted --env=prod --sync-secrets` writes the pack's
   `.env.prod` values right after the deploy, into those same values. So it
-  can change what the live version reads, though you haven't promoted the
-  new version.
+  can change what the live version reads, though you haven't made the new
+  version live.
 
 ## If something goes wrong
 

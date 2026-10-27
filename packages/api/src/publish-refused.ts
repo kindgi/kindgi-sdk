@@ -4,18 +4,20 @@
 import type { ProjectId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
+import type { BlockRegistryBinding } from './block-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
 import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
-type PublishedPrimitive = 'tool' | 'guardrail' | 'agent' | 'flow';
+type PublishedPrimitive = 'tool' | 'guardrail' | 'agent' | 'flow' | 'block';
 
 /** A registry's answer to a deploy's publish, other than `ok` or `already-registered`. */
 type RefusedOutcome = Exclude<
   | Awaited<ReturnType<ToolRegistryBinding['publish']>>
   | Awaited<ReturnType<GuardrailRegistryBinding['register']>>
   | Awaited<ReturnType<AgentRegistryBinding['publish']>>
-  | Awaited<ReturnType<FlowRegistryBinding['publish']>>,
+  | Awaited<ReturnType<FlowRegistryBinding['publish']>>
+  | Awaited<ReturnType<BlockRegistryBinding['publish']>>,
   { readonly kind: 'ok' | 'already-registered' }
 >;
 
@@ -23,11 +25,21 @@ type RefusedOutcome = Exclude<
  * A refusal the deploy decides itself, when its registry answered
  * `already-registered` for a live guardrail it can't keep: one in another
  * project (whose project the registry doesn't say), or one in its own
- * project with a different definition.
+ * project with a different definition. Or a pack's data block whose
+ * version the registry holds with other content, or unregistered
+ * (`deploy-blocks.ts`). Or a pack's tool whose version the registry holds
+ * with another definition (`deploy-tools.ts`), with the fields that
+ * differ.
  */
 interface DeployRefusal {
-  readonly code: 'guardrail-project-mismatch' | 'guardrail-already-registered';
+  readonly code:
+    | 'guardrail-project-mismatch'
+    | 'guardrail-already-registered'
+    | 'block-already-registered'
+    | 'tool-already-registered';
   readonly reason: string;
+  /** With `tool-already-registered`: the fields of the tool's definition that differ. */
+  readonly fields?: readonly string[];
 }
 
 /**
@@ -59,6 +71,8 @@ export class PublishRefused extends Error {
   readonly projectId?: ProjectId;
   /** With `tool-kind-mismatch`: the MCP endpoint whose tool the id is, when it's one's. */
   readonly endpointId?: string;
+  /** With `tool-already-registered`: the fields of the tool's definition that differ. */
+  readonly fields?: readonly string[];
 
   /** The primitive refused. */
   readonly primitive: PublishedPrimitive;
@@ -76,6 +90,7 @@ export class PublishRefused extends Error {
     this.id = id;
     if ('code' in outcome) {
       this.code = outcome.code;
+      if (outcome.fields !== undefined) this.fields = outcome.fields;
     } else if (outcome.kind === 'kind-mismatch') {
       this.code = 'tool-kind-mismatch';
       if (outcome.endpointId !== undefined) this.endpointId = outcome.endpointId;

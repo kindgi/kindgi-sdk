@@ -206,7 +206,7 @@ const start: LeafCommand = {
   kind: 'leaf',
   name: 'start',
   description:
-    "Start an eval run. On a test set (a `judged` suite), the run compares a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) with the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
+    "Start an eval run. On test cases (a `judged` suite), the run tries a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) against the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
   usage:
     'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>:<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--dry-run] [--wait]',
   optionSpec: {
@@ -230,11 +230,11 @@ const start: LeafCommand = {
     baseline: {
       type: 'string',
       description:
-        "What a test set's run compares the agent version with: `recorded` (the default: each case's output as it was judged), `<agentId>@<version>` (another version, replayed the same way) or `live` (the version live in a project or segment). Only `recorded` runs today.",
+        "What a run on the test cases tries the agent version against: `recorded` (the default: each case's output as it was marked right or wrong), `<agentId>@<version>` (another version, replayed the same way) or `live` (the version live in a project or segment). Only `recorded` runs today.",
     },
     'baseline-project': {
       type: 'string',
-      description: 'With `--baseline=live`: the project whose live version to compare with.',
+      description: 'With `--baseline=live`: the project whose live version to try it against.',
     },
     'baseline-segment': {
       type: 'string',
@@ -259,7 +259,7 @@ const start: LeafCommand = {
     'class-weights': {
       type: 'string',
       description:
-        "Which judgments count: `as-recorded` (the default: each at its judge class's weight) or `restricted-only` (only judgments of classes restricted to some judges; a gate policy with `onlyRestrictedClasses` needs it).",
+        "Which corrections count: `as-recorded` (the default: each at its judge class's weight) or `restricted-only` (only corrections of classes restricted to experts; a release gate policy with `onlyRestrictedClasses` needs it).",
     },
     'dry-run': { type: 'boolean', description: 'Check the request without running anything.' },
     wait: {
@@ -358,7 +358,7 @@ const rescore: LeafCommand = {
   kind: 'leaf',
   name: 'rescore',
   description:
-    "Rescore a completed comparison of a test set: a new eval run that replays nothing and scores the run's replays again, with what people judged on them since (judge a changed answer on its replay, then rescore). The run rescored stays as it was.",
+    "Rescore a completed run on the test cases: a new eval run that replays nothing and scores the run's replays again, with what people corrected on them since (correct a changed answer on its replay, then rescore). The run rescored stays as it was.",
   usage: 'kindgi eval-runs rescore <run-id> [--project=<project-id>] [--wait]',
   optionSpec: {
     project: {
@@ -388,6 +388,6 @@ export const evalRunsCommand: Command = {
   kind: 'group',
   name: 'eval-runs',
   description:
-    'Eval runs: run an eval suite, or compare an agent version on a test set (start / show / list / cancel / rescore).',
+    'Eval runs: run an eval suite, or try an agent version on the test cases (start / show / list / cancel / rescore).',
   subcommands: [start, show, list, cancel, rescore],
 };

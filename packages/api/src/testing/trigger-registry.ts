@@ -8,7 +8,11 @@ import {
   DEFAULT_WEBHOOK_SIGNATURE,
   type FireWebhookInput,
   type ListTriggerFiresInput,
+  MAIL_TRIGGER_LIMITS,
+  type MailTriggerRecord,
+  type RegisterMailTriggerInput,
   type RegisterTriggerInput,
+  type RegisterWebhookTriggerInput,
   SCHEDULE_DEFAULTS,
   type TriggerFire,
   type TriggerFirePage,
@@ -16,6 +20,7 @@ import {
   type TriggerOwner,
   type TriggerRecord,
   type TriggerRegistryBinding,
+  type UpdateMailTriggerInput,
   type UpdateTriggerInput,
   WEBHOOK_BODY_LIMITS,
   WEBHOOK_RATE_LIMITS,
@@ -112,32 +117,21 @@ export function createInMemoryTriggerRegistry(
             startingDeadlineSeconds:
               input.startingDeadlineSeconds ?? SCHEDULE_DEFAULTS.startingDeadlineSeconds,
             nextFireAt: null,
+            ...toolsAllowed(input.toolsAllowedUnattended),
           }),
         };
       }
-      const flow = { flowId: input.flowId, flowVersion: input.flowVersion };
+      if (input.kind === 'mail') {
+        return { kind: 'ok', value: save(mailRecord(base, input, defaultProject)) };
+      }
       if (input.kind === 'event') {
+        const flow = { flowId: input.flowId, flowVersion: input.flowVersion };
         return {
           kind: 'ok',
           value: save({ ...base, ...flow, kind: 'event', config: input.config }),
         };
       }
-      const webhook: WebhookTriggerRecord = {
-        ...base,
-        ...flow,
-        kind: 'webhook',
-        projectId: input.projectId ?? defaultProject,
-        owner: input.owner,
-        config: input.config,
-        webhookId: input.webhookId,
-        hmacSecretName: input.hmacSecretName,
-        ...(input.hmacSecretScope !== undefined && { hmacSecretScope: input.hmacSecretScope }),
-        signature: input.signature ?? DEFAULT_WEBHOOK_SIGNATURE,
-        ...(input.deliveryIdHeader !== undefined && { deliveryIdHeader: input.deliveryIdHeader }),
-        bodyLimitBytes: input.bodyLimitBytes ?? WEBHOOK_BODY_LIMITS.defaultBytes,
-        rateLimitPerMinute: input.rateLimitPerMinute ?? WEBHOOK_RATE_LIMITS.defaultPerMinute,
-      };
-      return { kind: 'ok', value: save(webhook) };
+      return { kind: 'ok', value: save(webhookRecord(base, input, defaultProject)) };
     },
 
     async update(input: UpdateTriggerInput) {
@@ -151,7 +145,7 @@ export function createInMemoryTriggerRegistry(
         return {
           kind: 'ok',
           value: save({
-            ...row,
+            ...withToolsAllowed(row, input.toolsAllowedUnattended),
             ...common,
             config: { ...row.config, ...input.config },
             ...(input.target !== undefined && { target: input.target }),
@@ -164,9 +158,10 @@ export function createInMemoryTriggerRegistry(
         };
       }
       if (row.kind === 'webhook' && input.kind === 'webhook') {
-        const { deliveryIdHeader: _, ...kept } = row;
+        const listed = withToolsAllowed(row, input.toolsAllowedUnattended);
+        const { deliveryIdHeader: _, ...kept } = listed;
         const next: WebhookTriggerRecord = {
-          ...(input.deliveryIdHeader === null ? kept : row),
+          ...(input.deliveryIdHeader === null ? kept : listed),
           ...common,
           config: { ...row.config, ...input.config },
           ...(input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
@@ -184,6 +179,9 @@ export function createInMemoryTriggerRegistry(
           }),
         };
         return { kind: 'ok', value: save(next) };
+      }
+      if (row.kind === 'mail' && input.kind === 'mail') {
+        return { kind: 'ok', value: save(updatedMail(row, input, common)) };
       }
       return {
         kind: 'ok',
@@ -368,4 +366,118 @@ export function createInMemoryTriggerRegistry(
   }
 
   return registry;
+}
+
+/** A record's `toolsAllowedUnattended`: only when it lists any (absent is none). */
+function toolsAllowed(tools: readonly string[] | undefined): {
+  toolsAllowedUnattended?: readonly string[];
+} {
+  return tools !== undefined && tools.length > 0 ? { toolsAllowedUnattended: [...tools] } : {};
+}
+
+/** `row` with its list replaced by `tools` (`[]` clears it), or as it is when `tools` is absent. */
+function withToolsAllowed<T extends { readonly toolsAllowedUnattended?: readonly string[] }>(
+  row: T,
+  tools: readonly string[] | undefined,
+): T {
+  if (tools === undefined) return row;
+  const { toolsAllowedUnattended: _, ...rest } = row;
+  return { ...rest, ...toolsAllowed(tools) } as T;
+}
+
+/** A webhook trigger as registered, its defaults filled in. */
+function webhookRecord(
+  base: Omit<
+    WebhookTriggerRecord,
+    | 'kind'
+    | 'flowId'
+    | 'flowVersion'
+    | 'projectId'
+    | 'owner'
+    | 'config'
+    | 'webhookId'
+    | 'hmacSecretName'
+    | 'signature'
+    | 'bodyLimitBytes'
+    | 'rateLimitPerMinute'
+  >,
+  input: RegisterWebhookTriggerInput,
+  defaultProject: ProjectId,
+): WebhookTriggerRecord {
+  return {
+    ...base,
+    flowId: input.flowId,
+    flowVersion: input.flowVersion,
+    kind: 'webhook',
+    projectId: input.projectId ?? defaultProject,
+    owner: input.owner,
+    config: input.config,
+    webhookId: input.webhookId,
+    hmacSecretName: input.hmacSecretName,
+    ...(input.hmacSecretScope !== undefined && { hmacSecretScope: input.hmacSecretScope }),
+    signature: input.signature ?? DEFAULT_WEBHOOK_SIGNATURE,
+    ...(input.deliveryIdHeader !== undefined && { deliveryIdHeader: input.deliveryIdHeader }),
+    bodyLimitBytes: input.bodyLimitBytes ?? WEBHOOK_BODY_LIMITS.defaultBytes,
+    rateLimitPerMinute: input.rateLimitPerMinute ?? WEBHOOK_RATE_LIMITS.defaultPerMinute,
+    ...toolsAllowed(input.toolsAllowedUnattended),
+  };
+}
+
+/** A mail trigger as registered, its pace filled in. */
+function mailRecord(
+  base: Omit<
+    MailTriggerRecord,
+    'kind' | 'target' | 'projectId' | 'owner' | 'config' | 'nextFireAt'
+  >,
+  input: RegisterMailTriggerInput,
+  defaultProject: ProjectId,
+): MailTriggerRecord {
+  const { pollSeconds, runsPerHour } = MAIL_TRIGGER_LIMITS;
+  return {
+    ...base,
+    kind: 'mail',
+    target: input.target,
+    projectId: input.projectId ?? defaultProject,
+    owner: input.owner,
+    config: {
+      ...input.config,
+      pollSeconds: input.config.pollSeconds ?? pollSeconds.default,
+      runsPerHour: input.config.runsPerHour ?? runsPerHour.default,
+    },
+    nextFireAt: null,
+    ...toolsAllowed(input.toolsAllowedUnattended),
+  };
+}
+
+/** A mail trigger after an update: the config fields given replace its own. */
+function updatedMail(
+  row: MailTriggerRecord,
+  input: UpdateMailTriggerInput,
+  common: { readonly updatedAt: string; readonly label?: string | null },
+): MailTriggerRecord {
+  return {
+    ...withToolsAllowed(row, input.toolsAllowedUnattended),
+    ...common,
+    config: mailConfigAfter(row.config, input.config),
+    ...(input.target !== undefined && { target: input.target }),
+  };
+}
+
+/**
+ * A mail trigger's config after an update, as a runtime merges it. A folder
+ * or label id belongs to one mailbox, so another mailbox (the other app, or
+ * the other `as`) with no `folder` drops it: the trigger watches the new
+ * mailbox's inbox. The same mailbox sent again keeps it.
+ */
+function mailConfigAfter(
+  config: MailTriggerRecord['config'],
+  edit: UpdateMailTriggerInput['config'],
+): MailTriggerRecord['config'] {
+  const merged = { ...config, ...edit };
+  const moved =
+    edit?.mailbox !== undefined &&
+    (edit.mailbox.app !== config.mailbox.app || edit.mailbox.as !== config.mailbox.as);
+  if (!moved || edit?.folder !== undefined) return merged;
+  const { folder: _, ...inbox } = merged;
+  return inbox;
 }

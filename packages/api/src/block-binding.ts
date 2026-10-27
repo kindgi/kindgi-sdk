@@ -5,6 +5,8 @@ import type { BlockDefinition, BlockKind } from '@kindgi/agents';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
+import type { RegistryReadOnly } from './registry-read-only.js';
+
 /**
  * Caller-plugged surface for the data-block registry: prompts and
  * settings, versioned like tools (a head plus immutable versions, with
@@ -19,6 +21,13 @@ import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
  * Every method is tenant-scoped.
  */
 export interface BlockRegistryBinding {
+  /**
+   * Set when this registry takes no writes (under `kindgi dev`, the
+   * pack's files are the source of its blocks): every write is refused
+   * with `409 registry-read-only` and this reason, before the binding is
+   * called. See `RegistryReadOnly`.
+   */
+  readonly readOnly?: RegistryReadOnly;
   /** Each block's latest active version, by id, cursor-paginated. */
   list(input: BlockListInput): Promise<BlockPage>;
   /** A block's latest active version, or `null` (never published, or every version unregistered). */

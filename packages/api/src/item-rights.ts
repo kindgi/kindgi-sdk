@@ -39,8 +39,11 @@ import { routePath } from 'hono/route';
 import { type Action, type Decision, type ResourceRef, denyPayload, ref } from '@kindgi/authz';
 import type { LiveScope, ProjectId, TenantId } from '@kindgi/types';
 
-import { firstEnvironmentOf } from './environment-entry.js';
-import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
+import { firstEnvironmentOf, orderSpanning } from './environment-entry.js';
+import type {
+  EnvironmentOrderBinding,
+  EnvironmentOrderLocation,
+} from './environment-orders-binding.js';
 import { toWireError } from './errors.js';
 import type {
   ItemProjectsBinding,
@@ -102,6 +105,18 @@ export interface ItemRights {
    * route's checks are today's. Asked of the binding once per request.
    */
   multi(c: Ctx, kind: OrderItemKind, id: string): Promise<readonly ProjectId[] | undefined>;
+  /**
+   * The environment order any of the item's projects belongs to — the first
+   * such project's, by the item's project order — or `undefined` when none is
+   * in an order (or there's no order binding). A live change wider than one
+   * project for such an item would span that order's environments, whether one
+   * project serves the item or several. Asked of the binding once per request.
+   */
+  spannedOrder(
+    c: Ctx,
+    kind: OrderItemKind,
+    id: string,
+  ): Promise<EnvironmentOrderLocation | undefined>;
   /** `multi` for a page's items, in one ask: the ids more than one project serves. */
   multiOfMany(
     c: Ctx,
@@ -261,6 +276,13 @@ export function createItemRights(
 
   function servedElsewhere(c: Ctx, kind: OrderItemKind, id: string) {
     return binding.servedElsewhere({ tenantId: tenantOf(c), kind, id });
+  }
+
+  function spannedOrder(c: Ctx, kind: OrderItemKind, id: string) {
+    return once(c, `spannedOrder ${kind} ${id}`, async () => {
+      const all = await projects(c, kind, id);
+      return all === undefined ? undefined : orderSpanning(orders, tenantOf(c), all);
+    });
   }
 
   async function multiOfMany(c: Ctx, kind: OrderItemKind, ids: readonly string[]) {
@@ -552,6 +574,7 @@ export function createItemRights(
   return {
     projects,
     multi,
+    spannedOrder,
     multiOfMany,
     servesIn,
     servedElsewhere,
@@ -794,11 +817,16 @@ export function liveScopeCheck(scope: LiveScope | undefined): ItemCheck {
 /**
  * Whether a change to what's live for an agent at `scope` is refused,
  * whoever asks: the live routes (a promotion, a rollback, an unpin), and
- * a deployment's promotion that makes what it moved live. For an agent
- * more than one project serves, what `liveScopeCheck` names; else
- * today's check, `promote` on the agent, as the route's middleware asks
- * it. `undefined` when allowed; else the 403 to answer. It reads no body
- * and answers nothing itself.
+ * a deployment's promotion that makes what it moved live. Authorization
+ * first: for an agent more than one project serves, what `liveScopeCheck`
+ * names; else today's check, `promote` on the agent, as the route's
+ * middleware asks it. Then the width refusal: for an agent any of whose
+ * projects is in an order — one project or several — `setsLive` (a pin or
+ * a rollback, not an unpin) at a scope wider than one project is refused,
+ * since a tenant- or org-wide pin would act in every environment of that
+ * order at once (`widthRefusal`). The authorization is first, so an
+ * unauthorized wide pin is the 403, not the 409. `undefined` when allowed;
+ * else the response to answer. It reads no body and answers nothing itself.
  */
 export async function liveChangeRefusal(
   c: Ctx,
@@ -807,28 +835,110 @@ export async function liveChangeRefusal(
     readonly rights: ItemRights | undefined;
     readonly agentId: string;
     readonly scope: LiveScope | undefined;
+    /** A pin or a rollback (one that sets a live version), not an unpin: only such a change spans an order's environments. */
+    readonly setsLive?: boolean;
   },
 ): Promise<Response | undefined> {
+  // Authorization first, so an unauthorized wide change is the 403, not the 409.
   const projects = await how.rights?.multi(c, 'agent', how.agentId);
   if (how.rights !== undefined && projects !== undefined) {
+    // More than one project serves the agent: what `liveScopeCheck` names.
     const check = liveScopeCheck(how.scope);
-    return how.rights.enforce(c, 'agent', how.agentId, projects, check, namesNoVersion);
+    const refused = await how.rights.enforce(
+      c,
+      'agent',
+      how.agentId,
+      projects,
+      check,
+      namesNoVersion,
+    );
+    if (refused !== undefined) return refused;
+  } else {
+    // One project (or no item-rights binding): today's check, `promote` on the agent.
+    let allowed = false;
+    const refused = await how.authorizer.authorize('promote', () => ref('agent', how.agentId))(
+      c,
+      async () => {
+        allowed = true;
+      },
+    );
+    if (!allowed) {
+      if (refused instanceof Response) return refused;
+      throw new Error('The authorizer neither allowed the change nor refused it');
+    }
   }
-  let allowed = false;
-  const refused = await how.authorizer.authorize('promote', () => ref('agent', how.agentId))(
-    c,
-    async () => {
-      allowed = true;
-    },
-  );
-  if (allowed) return undefined;
-  if (refused instanceof Response) return refused;
-  throw new Error('The authorizer neither allowed the change nor refused it');
+  // Then the width refusal — only a pin or rollback spans an order; an unpin
+  // doesn't. Keyed on order membership, so one project or several, it fires
+  // only for an agent whose projects reach an order.
+  return how.setsLive === true
+    ? widthRefusal(c, { rights: how.rights, agentId: how.agentId, scope: how.scope })
+    : undefined;
 }
 
 /** `enforce`'s answer for a version the caller can't see: a live scope's check names no version, so it's never asked. */
 function namesNoVersion(): never {
   throw new Error("A live change's check names no version");
+}
+
+/** A live scope that reaches more than one project: the tenant's, an org's, or none given (tenant-wide). A project or one of its segments stays within one. */
+function spansEnvironmentsScope(scope: LiveScope | undefined): boolean {
+  return scope?.kind !== 'project' && scope?.kind !== 'segment';
+}
+
+/**
+ * The 409 a pin or rollback wider than one project answers for an agent in
+ * an order, in the envelope the other refusals use. It names the scope asked
+ * for and the order (by its parent), and says to make the agent live one
+ * environment at a time.
+ */
+function spansEnvironments(
+  c: Ctx,
+  scope: LiveScope | undefined,
+  order: EnvironmentOrderLocation,
+): Response {
+  const requestId = c.get('requestId');
+  c.status(409);
+  const scopeAsked =
+    scope?.kind === 'org'
+      ? `An org-wide pin (org ${scope.orgId as unknown as string})`
+      : 'A tenant-wide pin';
+  const orderName =
+    order.parent.kind === 'org'
+      ? `org ${order.parent.orgId as unknown as string}'s environment order`
+      : "the tenant's environment order";
+  return c.json(
+    toWireError(
+      {
+        code: 'live-scope-spans-environments',
+        message: `${scopeAsked} would act across every environment of ${orderName} at once. Make the agent live one environment at a time — pin it in each environment's project, or a segment of it.`,
+      },
+      typeof requestId === 'string' ? requestId : '',
+    ),
+  );
+}
+
+/**
+ * Whether a pin or rollback for an agent in an order is refused for spanning
+ * the order's environments: a tenant- or org-wide `scope` (one wider than a
+ * project), for an agent any of whose projects is in an order — one project
+ * or several. The 409 to answer, else `undefined`. For an agent in no order,
+ * with a project scope, or with no rights to ask, `undefined` — today's
+ * checks hold. It reads no body and answers nothing but the refusal. The
+ * proposals' request and rollback call it after their own `deny`, as the
+ * live routes and a deployment's make-live call it through
+ * `liveChangeRefusal`.
+ */
+export async function widthRefusal(
+  c: Ctx,
+  how: {
+    readonly rights: ItemRights | undefined;
+    readonly agentId: string;
+    readonly scope: LiveScope | undefined;
+  },
+): Promise<Response | undefined> {
+  if (how.rights === undefined || !spansEnvironmentsScope(how.scope)) return undefined;
+  const order = await how.rights.spannedOrder(c, 'agent', how.agentId);
+  return order === undefined ? undefined : spansEnvironments(c, how.scope, order);
 }
 
 /**

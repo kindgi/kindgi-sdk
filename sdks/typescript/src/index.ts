@@ -39,6 +39,9 @@ export type {
   RunAgent,
   RunTrigger,
   RunFailure,
+  RunWaitingApproval,
+  RunWaitingFor,
+  RunWaitingToken,
   RunsClient,
   ResumeRunInput,
   StartedRun,
@@ -84,7 +87,6 @@ export type {
   AuditClient,
   AuditExportInput,
   BatchDecideInput,
-  CompleteTokenInput,
   DecideInput,
   ReviewerFilter,
   ReviewersClient,
@@ -161,7 +163,7 @@ export type {
   MemoryErasuresClient,
 } from './resources/memory.js';
 export type { ProvenanceClient, ProvenanceExportInput } from './resources/provenance.js';
-export type { TenantClient, TenantConfigClient } from './resources/tenant.js';
+export type { RenameTenantInput, TenantClient, TenantConfigClient } from './resources/tenant.js';
 export type {
   BudgetsClient,
   CostClient,
@@ -264,6 +266,7 @@ export type {
   SiteCollectionPage,
   SiteEnrollmentCode,
   SiteKey,
+  SitePersonRestoreResult,
   SiteRoleGrant,
   SiteSignInBody,
   SiteSignInResult,
@@ -335,6 +338,28 @@ export type {
   UpdateScheduleInput,
 } from './resources/schedules.js';
 export type {
+  ConnectFinish,
+  ConnectInput,
+  ConnectRequest,
+  Connection,
+  ConnectionApp,
+  ConnectionAppPage,
+  ConnectionAppsClient,
+  ConnectionEntriesClient,
+  ConnectionEntry,
+  ConnectionPage,
+  ConnectionStartResult,
+  ConnectionsClient,
+  CreateConnectionAppInput,
+  FinishConnectInput,
+  ListConnectionAppsFilter,
+  ListConnectionsFilter,
+  RemoveConnectionAppOptions,
+  RemoveConnectionAppResult,
+  StartConnectInput,
+  UpdateConnectionAppInput,
+} from './resources/connections.js';
+export type {
   ApprovalRequestedEvent,
   CreateWebhookEndpointInput,
   FinishedRun,
@@ -369,6 +394,19 @@ export type {
   WebhookTriggerPage,
   WebhooksClient,
 } from './resources/webhooks.js';
+export type {
+  ListMailFiresFilter,
+  ListMailTriggersFilter,
+  MailFire,
+  MailFirePage,
+  MailTrigger,
+  MailTriggerMailbox,
+  MailTriggerPage,
+  MailTriggersClient,
+  RegisterMailTriggerInput,
+  UnregisterMailTriggerResult,
+  UpdateMailTriggerInput,
+} from './resources/mail-triggers.js';
 export type {
   ListSigningKeysFilter,
   RevokeSigningKeyResult,
@@ -411,7 +449,17 @@ export type {
   SystemTenantsClient,
   TenantAdminContact,
   TenantLimitsShape,
+  TenantPurge,
 } from './resources/system-tenants.js';
+export type {
+  SystemUsageClient,
+  SystemUsageQuery,
+  TenantUsageClient,
+  UsageGroup,
+  UsageGroupKey,
+  UsagePage,
+  UsageQuery,
+} from './resources/usage.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export { docsUrl } from './docs-links.js';
 export type {
@@ -651,6 +699,8 @@ export type {
   Judgment,
   JudgmentAssertedBy,
   JudgmentWithCopies,
+  Correction,
+  ExpectedCall,
   McpAgentExposure,
   McpEndpoint,
   McpEndpointConfig,

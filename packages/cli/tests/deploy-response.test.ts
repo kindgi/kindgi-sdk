@@ -35,7 +35,6 @@ describe('renderResponse: a refused deploy', () => {
       ['image-registry-unauthorized', undefined, "refused the runtime's credentials"],
       ['image-unreadable', undefined, "isn't an archive the server can read"],
       ['image-limit-exceeded', 'unpack', 'The same image is refused again'],
-      ['image-limit-exceeded', 'tenant-unpack-hour', 'Deploy again after the wait'],
       // The bound on /app/index.json itself: a smaller image wouldn't help.
       ['image-limit-exceeded', 'file', 'make the largest schemas smaller'],
       // A limit beside another cause: that cause's hint.
@@ -57,6 +56,25 @@ describe('renderResponse: a refused deploy', () => {
       expect(text.replaceAll(/\s+/g, ' ')).toContain(says);
       if (cause !== undefined) expect(text).toContain(`cause:   ${cause}`);
       else expect(text).not.toContain('cause:');
+    }
+  });
+
+  test("a 429 it didn't wait out: the tenant's hour of image reads has its hint, another limit none", () => {
+    const limited = (limit?: string): PostDeploymentResult => ({
+      kind: 'wire-error',
+      status: 429,
+      retryAfterSeconds: 2400,
+      error: {
+        code: 'rate-limit-exceeded',
+        message: 'Extract /app/index.json failed: try again in 40 min',
+        ...(limit !== undefined && { limit }),
+      },
+    });
+    expect(banner(limited('tenant-unpack-hour')).replaceAll(/\s+/g, ' ')).toContain(
+      "This tenant's image reads unpacked as much as the server allows in an hour. Deploy again after the wait the message names",
+    );
+    for (const limit of ['schema-compile-time', 'constructor', undefined]) {
+      expect(banner(limited(limit))).not.toContain('Hint:');
     }
   });
 

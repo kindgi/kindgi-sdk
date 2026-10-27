@@ -25,7 +25,7 @@ OPERATIONS: dict[str, Operation] = {
     "runs.failures": Operation("runs.failures", "GET", "/v1/runs/failures", "json", False),
     "runs.get": Operation("runs.get", "GET", "/v1/runs/{runId}", "json", False),
     "runs.cancel": Operation("runs.cancel", "POST", "/v1/runs/{runId}/cancel", "json", True),
-    "runs.resume": Operation("runs.resume", "POST", "/v1/runs/{runId}/resume", "empty", True),
+    "runs.resume": Operation("runs.resume", "POST", "/v1/runs/{runId}/resume", "json", True),
     "runs.journal": Operation("runs.journal", "GET", "/v1/runs/{runId}/journal", "json", False),
     "runs.stream": Operation("runs.stream", "GET", "/v1/runs/{runId}/stream", "sse", False),
     "runs.progress": Operation("runs.progress", "GET", "/v1/runs/{runId}/progress", "json", False),
@@ -60,6 +60,9 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.get": Operation(
         "systemTenants.get", "GET", "/v1/system/tenants/{tenantId}", "json", False
     ),
+    "systemTenants.update": Operation(
+        "systemTenants.update", "PATCH", "/v1/system/tenants/{tenantId}", "empty", True
+    ),
     "systemTenants.close": Operation(
         "systemTenants.close", "POST", "/v1/system/tenants/{tenantId}/close", "json", True
     ),
@@ -83,6 +86,9 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.admins": Operation(
         "systemTenants.admins", "GET", "/v1/system/tenants/{tenantId}/admins", "json", False
     ),
+    "systemTenants.purge": Operation(
+        "systemTenants.purge", "POST", "/v1/system/tenants/{tenantId}/purge", "json", True
+    ),
     "systemKeys.whoami": Operation("systemKeys.whoami", "GET", "/v1/system/whoami", "json", False),
     "systemTenants.setProductionAllowed": Operation(
         "systemTenants.setProductionAllowed",
@@ -97,6 +103,8 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.setLimits": Operation(
         "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
     ),
+    "systemUsage.read": Operation("systemUsage.read", "GET", "/v1/system/usage", "json", False),
+    "usage.read": Operation("usage.read", "GET", "/v1/usage", "json", False),
     "systemDeployments.list": Operation(
         "systemDeployments.list", "GET", "/v1/system/deployments", "json", False
     ),
@@ -403,6 +411,9 @@ OPERATIONS: dict[str, Operation] = {
     "proposals.create": Operation("proposals.create", "POST", "/v1/proposals", "json", True),
     "proposals.improve": Operation(
         "proposals.improve", "POST", "/v1/proposals/improve", "json", True
+    ),
+    "proposals.improveEstimate": Operation(
+        "proposals.improveEstimate", "POST", "/v1/proposals/improve/estimate", "json", False
     ),
     "proposals.get": Operation("proposals.get", "GET", "/v1/proposals/{proposalId}", "json", False),
     "proposals.evaluate": Operation(
@@ -896,6 +907,13 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         False,
     ),
+    "projects.judgingRules.queueRecent": Operation(
+        "projects.judgingRules.queueRecent",
+        "POST",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent",
+        "json",
+        False,
+    ),
     "projects.judgingQueue.list": Operation(
         "projects.judgingQueue.list", "GET", "/v1/projects/{projectId}/judging-queue", "json", False
     ),
@@ -963,6 +981,7 @@ OPERATIONS: dict[str, Operation] = {
         True,
     ),
     "tenant.get": Operation("tenant.get", "GET", "/v1/tenant", "json", False),
+    "tenant.update": Operation("tenant.update", "PATCH", "/v1/tenant", "empty", True),
     "tenant.config.list": Operation(
         "tenant.config.list", "GET", "/v1/tenant/config", "json", False
     ),
@@ -1061,6 +1080,31 @@ OPERATIONS: dict[str, Operation] = {
     "webhooks.takeOwnership": Operation(
         "webhooks.takeOwnership", "POST", "/v1/webhooks/{triggerId}/owner", "json", True
     ),
+    "mailTriggers.list": Operation("mailTriggers.list", "GET", "/v1/mail-triggers", "json", False),
+    "mailTriggers.register": Operation(
+        "mailTriggers.register", "POST", "/v1/mail-triggers", "json", True
+    ),
+    "mailTriggers.get": Operation(
+        "mailTriggers.get", "GET", "/v1/mail-triggers/{triggerId}", "json", False
+    ),
+    "mailTriggers.update": Operation(
+        "mailTriggers.update", "PATCH", "/v1/mail-triggers/{triggerId}", "json", True
+    ),
+    "mailTriggers.pause": Operation(
+        "mailTriggers.pause", "POST", "/v1/mail-triggers/{triggerId}/pause", "json", True
+    ),
+    "mailTriggers.resume": Operation(
+        "mailTriggers.resume", "POST", "/v1/mail-triggers/{triggerId}/resume", "json", True
+    ),
+    "mailTriggers.unregister": Operation(
+        "mailTriggers.unregister", "POST", "/v1/mail-triggers/{triggerId}/unregister", "json", True
+    ),
+    "mailTriggers.fires": Operation(
+        "mailTriggers.fires", "GET", "/v1/mail-triggers/{triggerId}/fires", "json", False
+    ),
+    "mailTriggers.takeOwnership": Operation(
+        "mailTriggers.takeOwnership", "POST", "/v1/mail-triggers/{triggerId}/owner", "json", True
+    ),
     "webhookEndpoints.list": Operation(
         "webhookEndpoints.list", "GET", "/v1/webhook-endpoints", "json", False
     ),
@@ -1103,6 +1147,47 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "webhookEndpoints.sendTest": Operation(
         "webhookEndpoints.sendTest", "POST", "/v1/webhook-endpoints/{endpointId}/test", "json", True
+    ),
+    "connectionEntries.list": Operation(
+        "connectionEntries.list", "GET", "/v1/connection-entries", "json", False
+    ),
+    "connectionApps.list": Operation(
+        "connectionApps.list", "GET", "/v1/connection-apps", "json", False
+    ),
+    "connectionApps.create": Operation(
+        "connectionApps.create", "POST", "/v1/connection-apps", "json", True
+    ),
+    "connectionApps.get": Operation(
+        "connectionApps.get", "GET", "/v1/connection-apps/{appId}", "json", False
+    ),
+    "connectionApps.update": Operation(
+        "connectionApps.update", "PATCH", "/v1/connection-apps/{appId}", "json", True
+    ),
+    "connectionApps.remove": Operation(
+        "connectionApps.remove", "DELETE", "/v1/connection-apps/{appId}", "json", True
+    ),
+    "connections.list": Operation("connections.list", "GET", "/v1/connections", "json", False),
+    "connections.connect": Operation(
+        "connections.connect", "POST", "/v1/connections", "json", True
+    ),
+    "connections.finish": Operation(
+        "connections.finish", "POST", "/v1/connections/finish", "json", True
+    ),
+    "connections.requests.get": Operation(
+        "connections.requests.get", "GET", "/v1/connections/requests/{requestId}", "json", False
+    ),
+    "connections.requests.start": Operation(
+        "connections.requests.start",
+        "POST",
+        "/v1/connections/requests/{requestId}/start",
+        "json",
+        True,
+    ),
+    "connections.get": Operation(
+        "connections.get", "GET", "/v1/connections/{connectionId}", "json", False
+    ),
+    "connections.disconnect": Operation(
+        "connections.disconnect", "DELETE", "/v1/connections/{connectionId}", "json", True
     ),
     "projects.sites.list": Operation(
         "projects.sites.list", "GET", "/v1/projects/{projectId}/sites", "json", False
@@ -1148,6 +1233,13 @@ OPERATIONS: dict[str, Operation] = {
         "projects.sites.revokeKey",
         "POST",
         "/v1/projects/{projectId}/sites/{siteId}/keys/{kid}/revoke",
+        "json",
+        True,
+    ),
+    "projects.sites.restorePerson": Operation(
+        "projects.sites.restorePerson",
+        "POST",
+        "/v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore",
         "json",
         True,
     ),
@@ -1365,10 +1457,10 @@ class RunsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> None:
-        """Resume a suspended run at a waitpoint (not available in this release). `POST /v1/runs/{runId}/resume`
+    ) -> _models.Run:
+        """Answer a run's wait for another system. `POST /v1/runs/{runId}/resume`
 
-        Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.
+        Answers a run paused on a tool call until another system answers (a pack tool that declares `pauses`; its waitpoint id starts with `pause:`, as the run's `waitingFor.tokens` lists it), as that system would through the wait token's link, and resumes the run in the same request. `value` is the tool's output, checked against its output schema; absent, `{}`. Answering stands in for the other system, and the run acts on the answer, so it needs `write` on the run's project and `execute` on the agent or flow it runs, as starting it does. The same answer again is accepted again, even after the run has ended; a different one to a wait that's over is `409 wait-token-closed`. Every other waitpoint belongs to an approval or to the runtime itself, and is `422 run-resume-not-supported`: a run waiting for an approval continues when a reviewer decides it (`POST /v1/approvals/{approvalId}/complete`).
         """
         return self._client._request(
             _OPERATIONS["runs.resume"],
@@ -1376,6 +1468,7 @@ class RunsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ResumeRunBody, body, fields),
+            response=_models.Run,
             timeout=timeout,
         )
 
@@ -1720,7 +1813,7 @@ class SystemKeysResource:
     def list(self, /, *, timeout: float | None = None) -> _models.SystemKeyList:
         """List system keys. `GET /v1/system/keys`
 
-        The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.
+        The operator's system keys (`kgi_sy_…`): each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them; on a runtime serving one tenant, the deployment's own token alone.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.list"],
@@ -1742,7 +1835,7 @@ class SystemKeysResource:
     ) -> _models.MintSystemKeyResult:
         """Mint a system key. `POST /v1/system/keys`
 
-        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.mint"],
@@ -1764,7 +1857,7 @@ class SystemKeysResource:
     ) -> _models.RevokeSystemKeyResult:
         """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
 
-        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
+        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them; on a runtime serving one tenant, the deployment's own token alone.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.revoke"],
@@ -1778,7 +1871,7 @@ class SystemKeysResource:
     def whoami(self, /, *, timeout: float | None = None) -> _models.SystemWhoami:
         """Which system key this is. `GET /v1/system/whoami`
 
-        A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.
+        A system key's own id, scopes and expiry, for a service checking its key: any system principal, on a runtime serving many tenants. A tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key. A runtime serving one tenant answers no one here: its own token is that tenant's outside `/v1/system/keys`, and a system key reads the license routes alone.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.whoami"],
@@ -1856,6 +1949,29 @@ class SystemTenantsResource:
             timeout=timeout,
         )
 
+    def update(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename a tenant. `PATCH /v1/system/tenants/{tenantId}`
+
+        Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.update"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
+            timeout=timeout,
+        )
+
     def close(
         self,
         tenant_id: str | UUID,
@@ -1866,7 +1982,7 @@ class SystemTenantsResource:
     ) -> _models.SystemTenant:
         """Close a tenant. `POST /v1/system/tenants/{tenantId}/close`
 
-        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
+        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.close"],
@@ -1889,7 +2005,7 @@ class SystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
@@ -1938,7 +2054,7 @@ class SystemTenantsResource:
     ) -> _models.ProjectSuspension:
         """Suspend one of a tenant's projects, or restore it. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`
 
-        Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: nothing new runs or deploys in the project, its unfinished runs, waiting ones included, are cancelled, and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setProjectSuspended"],
@@ -1963,6 +2079,30 @@ class SystemTenantsResource:
             query={},
             headers={},
             response=_models.TenantAdminContacts,
+            timeout=timeout,
+        )
+
+    def purge(
+        self,
+        tenant_id: str | UUID,
+        body: _models.PurgeTenantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenantPurge:
+        """Purge a closed tenant, for good. `POST /v1/system/tenants/{tenantId}/purge`
+
+        Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.purge"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PurgeTenantBody, body, fields),
+            response=_models.SystemTenantPurge,
             timeout=timeout,
         )
 
@@ -2027,6 +2167,96 @@ class SystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class SystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        tenant_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "tenantId": tenant_id,
+            },
+            headers={},
+            response=_models.UsagePage,
+            timeout=timeout,
+        )
+
+
+class UsageResource:
+    """`client.usage` — the `usage` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read your workspace's usage. `GET /v1/usage`
+
+        Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.
+        """
+        return self._client._request(
+            _OPERATIONS["usage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "projectId": project_id,
+            },
+            headers={},
+            response=_models.UsagePage,
             timeout=timeout,
         )
 
@@ -2350,7 +2580,7 @@ class ServiceAccountsResource:
     ) -> _models.ServiceAccount:
         """Unregister a service account. `POST /v1/service-accounts/{serviceAccountId}/unregister`
 
-        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.
+        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only. Unregistering a project's own account stops the triggers that run as it until an admin takes each over; the next `runAsProject` makes a new one.
         """
         return self._client._request(
             _OPERATIONS["serviceAccounts.unregister"],
@@ -4132,7 +4362,7 @@ class ProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -4141,6 +4371,28 @@ class ProposalsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
+    def improve_estimate(
+        self,
+        body: _models.ImproveBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImprovementPassEstimate:
+        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
+
+        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["proposals.improveEstimate"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.ImproveBody, body, fields),
+            response=_models.ImprovementPassEstimate,
             timeout=timeout,
         )
 
@@ -6446,7 +6698,7 @@ class AuthSettingsResource:
     def get(self, /, *, timeout: float | None = None) -> _models.AuthSettings:
         """The workspace's sign-in settings. `GET /v1/auth/settings`
 
-        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["auth.settings.get"],
@@ -6468,7 +6720,7 @@ class AuthSettingsResource:
     ) -> _models.AuthSettings:
         """Require a second factor at sign-in. `PATCH /v1/auth/settings`
 
-        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["auth.settings.update"],
@@ -6524,7 +6776,7 @@ class AuthResource:
     ) -> _models.SignInOptions:
         """How a person can sign in. `GET /v1/auth/sign-in-options`
 
-        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn't counted.
         """
         return self._client._request(
             _OPERATIONS["auth.signInOptions"],
@@ -6726,7 +6978,7 @@ class IdentityUsersResource:
     ) -> _models.InviteRenewed:
         """Renew a person's invitation. `POST /v1/identity/users/{userId}/invite`
 
-        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).
+        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.users.resendInvite"],
@@ -6742,7 +6994,7 @@ class IdentityUsersResource:
     ) -> _models.SecondFactorStatus:
         """A person's second factor. `GET /v1/identity/users/{userId}/second-factor`
 
-        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.users.secondFactor"],
@@ -6763,7 +7015,7 @@ class IdentityUsersResource:
     ) -> _models.SecondFactorRemoved:
         """Remove a person's second factor. `POST /v1/identity/users/{userId}/second-factor/remove`
 
-        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).
+        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.users.removeSecondFactor"],
@@ -6869,7 +7121,7 @@ class IdentityMeResource:
     def second_factor(self, /, *, timeout: float | None = None) -> _models.SecondFactorStatus:
         """My second factor. `GET /v1/identity/me/second-factor`
 
-        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.secondFactor"],
@@ -6891,7 +7143,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorKey:
         """Start setting up a second factor. `POST /v1/identity/me/second-factor`
 
-        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.startSecondFactor"],
@@ -6914,7 +7166,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """Confirm a new second factor. `POST /v1/identity/me/second-factor/confirm`
 
-        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.confirmSecondFactor"],
@@ -6937,7 +7189,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """New recovery codes. `POST /v1/identity/me/second-factor/recovery-codes`
 
-        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.newRecoveryCodes"],
@@ -6960,7 +7212,7 @@ class IdentityMeResource:
     ) -> _models.SecondFactorRemoved:
         """Take my second factor off. `POST /v1/identity/me/second-factor/remove`
 
-        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return self._client._request(
             _OPERATIONS["identity.me.removeSecondFactor"],
@@ -7026,7 +7278,7 @@ class DeploymentsValuesResource:
     ) -> _models.DeploymentValueList:
         """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
 
-        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.
         """
         return self._client._request(
             _OPERATIONS["deployments.values.list"],
@@ -7059,7 +7311,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
 
-        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
+        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the Default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
         """
         return self._client._request(
             _OPERATIONS["deployments.list"],
@@ -7088,7 +7340,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentRecord:
         """Register a signed deployment. `POST /v1/deployments`
 
-        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
+        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
         """
         return self._client._request(
             _OPERATIONS["deployments.register"],
@@ -7141,7 +7393,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentSecretsSyncResponse:
         """Sync secrets against a deployment. `POST /v1/deployments/{deploymentId}/secrets`
 
-        Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. Requires the `secrets:write` capability. Idempotency-Key applies.
+        Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the Default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["deployments.syncSecrets"],
@@ -7917,6 +8169,30 @@ class ProjectsJudgingRulesResource:
             timeout=timeout,
         )
 
+    def queue_recent(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        body: _models.JudgingQueueRecentInput | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRecentQueued:
+        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
+
+        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.queueRecent"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingQueueRecentInput, body, fields),
+            response=_models.JudgingRecentQueued,
+            timeout=timeout,
+        )
+
 
 class ProjectsJudgingQueueResource:
     """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
@@ -8453,6 +8729,29 @@ class ProjectsSitesResource:
             timeout=timeout,
         )
 
+    def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
+            timeout=timeout,
+        )
+
 
 class ProjectsResource:
     """`client.projects` — the `projects` operations."""
@@ -8574,7 +8873,10 @@ class ProjectsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`"""
+        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
+
+        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        """
         return self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
@@ -8655,6 +8957,28 @@ class TenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename the caller's tenant. `PATCH /v1/tenant`
+
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return self._client._request(
+            _OPERATIONS["tenant.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -9014,7 +9338,7 @@ class SecretsResource:
     ) -> _models.SecretRevokeResult:
         """Revoke a secret. `DELETE /v1/secrets/{name}`
 
-        Requires the `secrets:revoke` capability (soft-revoke) or `secrets:revoke:hard` when `?hard=true` (cryptographic erasure). Optional `?reason=<text>` records the revoke reason.
+        Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when. Optional `?reason=<text>` records the revoke reason.
         """
         return self._client._request(
             _OPERATIONS["secrets.revoke"],
@@ -9198,7 +9522,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering.
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["schedules.register"],
@@ -9240,7 +9564,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.
         """
         return self._client._request(
             _OPERATIONS["schedules.update"],
@@ -9262,7 +9586,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -9283,7 +9607,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -9304,7 +9628,7 @@ class SchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -9347,7 +9671,7 @@ class SchedulesResource:
     ) -> _models.ScheduleFire:
         """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
 
-        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner or a project admin fires it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["schedules.runNow"],
@@ -9370,7 +9694,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -9423,7 +9747,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Register a webhook trigger. `POST /v1/webhooks`
 
-        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["webhooks.register"],
@@ -9460,7 +9784,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after), never their values.
         """
         return self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -9482,7 +9806,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`
 
-        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back.
+        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back. A personal trigger's owner or a project admin pauses it; a shared one, any writer of its project.
         """
         return self._client._request(
             _OPERATIONS["webhooks.pause"],
@@ -9501,7 +9825,10 @@ class WebhooksResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerRecord:
-        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
+        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`
+
+        A personal trigger's owner or a project admin resumes it; a shared one, any writer of its project.
+        """
         return self._client._request(
             _OPERATIONS["webhooks.resume"],
             path={"triggerId": trigger_id},
@@ -9519,7 +9846,10 @@ class WebhooksResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerUnregisterResult:
-        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
+        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
+
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.
+        """
         return self._client._request(
             _OPERATIONS["webhooks.unregister"],
             path={"triggerId": trigger_id},
@@ -9563,7 +9893,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -9572,6 +9902,205 @@ class WebhooksResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+
+class MailTriggersResource:
+    """`client.mail_triggers` — the `mailTriggers` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerCollectionPage:
+        """List mail triggers. `GET /v1/mail-triggers`
+
+        The tenant's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.MailTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    def register(
+        self,
+        body: _models.RegisterMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Register a mail trigger. `POST /v1/mail-triggers`
+
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerRecord:
+        """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
+        return self._client._request(
+            _OPERATIONS["mailTriggers.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
+
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Pause a mail trigger. `POST /v1/mail-triggers/{triggerId}/pause`
+
+        A paused trigger doesn't poll. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Resume a mail trigger. `POST /v1/mail-triggers/{triggerId}/resume`
+
+        It starts afresh: mail that came while it was paused doesn't start runs. Who may resume it is as for a pause.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
+
+        Who may unregister it is as for a pause.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailFirePage:
+        """A mail trigger's mail. `GET /v1/mail-triggers/{triggerId}/fires`
+
+        Newest first: each mail the trigger found and what came of it (`MailFire`): the run it started, why it waits (`thread-busy:`), or why it was skipped, refused or failed.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
+
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
+            response=_models.MailTriggerRecord,
             timeout=timeout,
         )
 
@@ -9758,6 +10287,310 @@ class WebhookEndpointsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.WebhookDelivery,
+            timeout=timeout,
+        )
+
+
+class ConnectionEntriesResource:
+    """`client.connection_entries` — the `connectionEntries` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(self, /, *, timeout: float | None = None) -> _models.ConnectionEntryList:
+        """List the apps this server can connect to. `GET /v1/connection-entries`
+
+        Each app with who may own a connection to it, how a person signs in, the permissions a tool may ask for (in plain words, and whether each changes anything) and the guide an admin follows to register the app. Any signed-in member. Mounted when the deployment supplies a `ConnectionBinding`.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionEntries.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.ConnectionEntryList,
+            timeout=timeout,
+        )
+
+
+class ConnectionAppsResource:
+    """`client.connection_apps` — the `connectionApps` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionAppPage:
+        """List the tenant's app registrations. `GET /v1/connection-apps`
+
+        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionApps.list"],
+            path={},
+            query={"includeRemoved": include_removed, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionAppPage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateConnectionAppBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionApp:
+        """Register an app. `POST /v1/connection-apps`
+
+        Registers the tenant's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionApps.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateConnectionAppBody, body, fields),
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    def get(self, app_id: str | UUID, /, *, timeout: float | None = None) -> _models.ConnectionApp:
+        """Fetch an app registration. `GET /v1/connection-apps/{appId}`"""
+        return self._client._request(
+            _OPERATIONS["connectionApps.get"],
+            path={"appId": app_id},
+            query={},
+            headers={},
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        app_id: str | UUID,
+        body: _models.UpdateConnectionAppBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionApp:
+        """Update an app registration. `PATCH /v1/connection-apps/{appId}`
+
+        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionApps.update"],
+            path={"appId": app_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateConnectionAppBody, body, fields),
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    def remove(
+        self,
+        app_id: str | UUID,
+        /,
+        *,
+        with_connections: bool | None = None,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionAppRemoved:
+        """Remove an app registration. `DELETE /v1/connection-apps/{appId}`
+
+        Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionApps.remove"],
+            path={"appId": app_id},
+            query={"withConnections": with_connections},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ConnectionAppRemoved,
+            timeout=timeout,
+        )
+
+
+class ConnectionsRequestsResource:
+    """`client.connections.requests` — the `connections.requests` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(
+        self, request_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ConnectRequest:
+        """Fetch a connect request. `GET /v1/connections/requests/{requestId}`
+
+        A member's request is the member's alone; the company's is a tenant admin's. Anyone else gets the `404` of a request that doesn't exist.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.requests.get"],
+            path={"requestId": request_id},
+            query={},
+            headers={},
+            response=_models.ConnectRequest,
+            timeout=timeout,
+        )
+
+    def start(
+        self,
+        request_id: str | UUID,
+        body: _models.StartConnectBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectStart:
+        """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
+
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.requests.start"],
+            path={"requestId": request_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartConnectBody, body, fields),
+            response=_models.ConnectStart,
+            timeout=timeout,
+        )
+
+
+class ConnectionsResource:
+    """`client.connections` — the `connections` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+        self.requests = ConnectionsRequestsResource(client)
+
+    def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        app: str | None = None,
+        owner: Literal["me"] | None = None,
+        owner_kind: Literal["member", "company"] | None = None,
+        state: Literal["working", "needs-reconnecting", "removing", "removed"] | None = None,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionPage:
+        """List connections. `GET /v1/connections`
+
+        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.list"],
+            path={},
+            query={
+                "projectId": project_id,
+                "app": app,
+                "owner": owner,
+                "ownerKind": owner_kind,
+                "state": state,
+                "includeRemoved": include_removed,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.ConnectionPage,
+            timeout=timeout,
+        )
+
+    def connect(
+        self,
+        body: _models.CreateConnectRequestBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectRequest:
+        """Start a connect. `POST /v1/connections`
+
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        """
+        return self._client._request(
+            _OPERATIONS["connections.connect"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateConnectRequestBody, body, fields),
+            response=_models.ConnectRequest,
+            timeout=timeout,
+        )
+
+    def finish(
+        self,
+        body: _models.FinishConnectBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectFinish:
+        """Finish a connect. `POST /v1/connections/finish`
+
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
+        """
+        return self._client._request(
+            _OPERATIONS["connections.finish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.FinishConnectBody, body, fields),
+            response=_models.ConnectFinish,
+            timeout=timeout,
+        )
+
+    def get(
+        self, connection_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Connection:
+        """Fetch a connection. `GET /v1/connections/{connectionId}`
+
+        A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.get"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={},
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
+    def disconnect(
+        self,
+        connection_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Connection:
+        """Disconnect. `DELETE /v1/connections/{connectionId}`
+
+        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.disconnect"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Connection,
             timeout=timeout,
         )
 
@@ -9957,10 +10790,10 @@ class AsyncRunsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> None:
-        """Resume a suspended run at a waitpoint (not available in this release). `POST /v1/runs/{runId}/resume`
+    ) -> _models.Run:
+        """Answer a run's wait for another system. `POST /v1/runs/{runId}/resume`
 
-        Not available in this release: always `422 run-resume-not-supported`, and no waitpoint is completed. Every waitpoint a run can wait at belongs to an approval or to the runtime itself. A run waiting for an approval continues when a reviewer decides it: `POST /v1/approvals/{approvalId}/complete`.
+        Answers a run paused on a tool call until another system answers (a pack tool that declares `pauses`; its waitpoint id starts with `pause:`, as the run's `waitingFor.tokens` lists it), as that system would through the wait token's link, and resumes the run in the same request. `value` is the tool's output, checked against its output schema; absent, `{}`. Answering stands in for the other system, and the run acts on the answer, so it needs `write` on the run's project and `execute` on the agent or flow it runs, as starting it does. The same answer again is accepted again, even after the run has ended; a different one to a wait that's over is `409 wait-token-closed`. Every other waitpoint belongs to an approval or to the runtime itself, and is `422 run-resume-not-supported`: a run waiting for an approval continues when a reviewer decides it (`POST /v1/approvals/{approvalId}/complete`).
         """
         return await self._client._request(
             _OPERATIONS["runs.resume"],
@@ -9968,6 +10801,7 @@ class AsyncRunsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ResumeRunBody, body, fields),
+            response=_models.Run,
             timeout=timeout,
         )
 
@@ -10314,7 +11148,7 @@ class AsyncSystemKeysResource:
     async def list(self, /, *, timeout: float | None = None) -> _models.SystemKeyList:
         """List system keys. `GET /v1/system/keys`
 
-        The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.
+        The operator's system keys (`kgi_sy_…`): each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them; on a runtime serving one tenant, the deployment's own token alone.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.list"],
@@ -10336,7 +11170,7 @@ class AsyncSystemKeysResource:
     ) -> _models.MintSystemKeyResult:
         """Mint a system key. `POST /v1/system/keys`
 
-        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. On a runtime serving one tenant, only the deployment's own token reaches the system keys, and a key holds `system:license` alone: it reads `GET /v1/license` and `GET /v1/license/usage`, for the license renewal, and every other route refuses it.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.mint"],
@@ -10358,7 +11192,7 @@ class AsyncSystemKeysResource:
     ) -> _models.RevokeSystemKeyResult:
         """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
 
-        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
+        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them; on a runtime serving one tenant, the deployment's own token alone.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.revoke"],
@@ -10372,7 +11206,7 @@ class AsyncSystemKeysResource:
     async def whoami(self, /, *, timeout: float | None = None) -> _models.SystemWhoami:
         """Which system key this is. `GET /v1/system/whoami`
 
-        A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.
+        A system key's own id, scopes and expiry, for a service checking its key: any system principal, on a runtime serving many tenants. A tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key. A runtime serving one tenant answers no one here: its own token is that tenant's outside `/v1/system/keys`, and a system key reads the license routes alone.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.whoami"],
@@ -10450,6 +11284,29 @@ class AsyncSystemTenantsResource:
             timeout=timeout,
         )
 
+    async def update(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename a tenant. `PATCH /v1/system/tenants/{tenantId}`
+
+        Changes its name, its slug, or both, as the tenant's own admins can (`PATCH /v1/tenant`); a field left out stays as it is. Its id stays. The same values again change nothing. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`). A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.update"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
+            timeout=timeout,
+        )
+
     async def close(
         self,
         tenant_id: str | UUID,
@@ -10460,7 +11317,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.SystemTenant:
         """Close a tenant. `POST /v1/system/tenants/{tenantId}/close`
 
-        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
+        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.close"],
@@ -10483,7 +11340,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
@@ -10532,7 +11389,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.ProjectSuspension:
         """Suspend one of a tenant's projects, or restore it. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`
 
-        Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: nothing new runs or deploys in the project, its unfinished runs, waiting ones included, are cancelled, and its deployments retired; reads and the rest of the tenant are untouched. Its schedules' fires are recorded `skipped` (`project-suspended`) and don't count toward the auto-pause, so a schedule stays on and fires again once the project is restored. A delivery to one of its webhook triggers is answered `skipped: project-suspended`, and nothing is recorded. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setProjectSuspended"],
@@ -10557,6 +11414,30 @@ class AsyncSystemTenantsResource:
             query={},
             headers={},
             response=_models.TenantAdminContacts,
+            timeout=timeout,
+        )
+
+    async def purge(
+        self,
+        tenant_id: str | UUID,
+        body: _models.PurgeTenantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenantPurge:
+        """Purge a closed tenant, for good. `POST /v1/system/tenants/{tenantId}/purge`
+
+        Deletes a `closing` tenant whose 30-day export window has passed: every row of it, its artifacts' bytes and its authorization store. Once nothing of it is left, its purge record is written, so a restore from an older backup purges it again, and it's marked purged: its tenants row stays, and nothing of it signs in or is served. Then, once each server has seen the mark, it deletes again what work under way at the mark wrote meanwhile. Irreversible. `confirm` is the tenant's slug, a second check on the id. It answers when done. Safe to run again: a run that stopped part-way (`complete: false`, or a request that ended before its answer) is finished by the next, and on a tenant already purged it deletes what was written after its mark, leaving its mark and its record as they were. A run again is a new request: a new Idempotency-Key, or none. Takes its own scope, `system:tenants:purge`, which no other scope includes, or `kindgi:system`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.purge"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PurgeTenantBody, body, fields),
+            response=_models.SystemTenantPurge,
             timeout=timeout,
         )
 
@@ -10621,6 +11502,96 @@ class AsyncSystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TenantLimits, body, fields),
             response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class AsyncSystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        tenant_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (the kinds `kind` lists, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A test tenant's usage, and one whose setup is pending, are never in the answer, even when `tenantId` names one. Takes `system:usage:read`; the access record marks a read across every tenant, or of the one named. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "tenantId": tenant_id,
+            },
+            headers={},
+            response=_models.UsagePage,
+            timeout=timeout,
+        )
+
+
+class AsyncUsageResource:
+    """`client.usage` — the `usage` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.UsagePage:
+        """Read your workspace's usage. `GET /v1/usage`
+
+        Your workspace's usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Over the projects you may read: a tenant admin's covers every project and the records with none; anyone else's, only the projects they may read, and one they can't read is absent rather than an error. `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end; every page of one read carries the same watermark. A runtime that doesn't count usage (`KINDGI_USAGE_METERING` unset or `off`) answers 404. Model-call cost is on `/v1/cost`.
+        """
+        return await self._client._request(
+            _OPERATIONS["usage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "limit": limit,
+                "cursor": cursor,
+                "projectId": project_id,
+            },
+            headers={},
+            response=_models.UsagePage,
             timeout=timeout,
         )
 
@@ -10944,7 +11915,7 @@ class AsyncServiceAccountsResource:
     ) -> _models.ServiceAccount:
         """Unregister a service account. `POST /v1/service-accounts/{serviceAccountId}/unregister`
 
-        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only.
+        A tombstone: its grants go and its keys stop working; it stays readable. Idempotent. Tenant admins only. Unregistering a project's own account stops the triggers that run as it until an admin takes each over; the next `runAsProject` makes a new one.
         """
         return await self._client._request(
             _OPERATIONS["serviceAccounts.unregister"],
@@ -12736,7 +13707,7 @@ class AsyncProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts for an agent whose project is suspended (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -12745,6 +13716,28 @@ class AsyncProposalsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPass,
+            timeout=timeout,
+        )
+
+    async def improve_estimate(
+        self,
+        body: _models.ImproveBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImprovementPassEstimate:
+        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
+
+        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["proposals.improveEstimate"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.ImproveBody, body, fields),
+            response=_models.ImprovementPassEstimate,
             timeout=timeout,
         )
 
@@ -15058,7 +16051,7 @@ class AsyncAuthSettingsResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.AuthSettings:
         """The workspace's sign-in settings. `GET /v1/auth/settings`
 
-        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether signing in takes a second factor, and how many people's keys are still on the deployment's previous sign-in secret, or on neither. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["auth.settings.get"],
@@ -15080,7 +16073,7 @@ class AsyncAuthSettingsResource:
     ) -> _models.AuthSettings:
         """Require a second factor at sign-in. `PATCH /v1/auth/settings`
 
-        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Covers signing in by the deployment's own ways in (the emailed link, and providers like Google, Microsoft and GitHub). Signing in through the workspace's own identity provider is exempt: it owns MFA there. A site's people sign in through the site, which owns their second factor, so the setting doesn't apply to them. Once required, a session made without a second factor ends at its next request, and signing in to the console with an API token is refused. API keys aren't covered: keep them to service accounts, and rotate them. From a session, turning it on takes a session made with your own second factor (`409 second-factor-enroll-first`): it would end yours. Audited. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["auth.settings.update"],
@@ -15136,7 +16129,7 @@ class AsyncAuthResource:
     ) -> _models.SignInOptions:
         """How a person can sign in. `GET /v1/auth/sign-in-options`
 
-        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn't counted.
         """
         return await self._client._request(
             _OPERATIONS["auth.signInOptions"],
@@ -15340,7 +16333,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.InviteRenewed:
         """Renew a person's invitation. `POST /v1/identity/users/{userId}/invite`
 
-        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.8.1).
+        For a person who hasn't signed in yet (`invite` pending or expired): a new expiry, 7 days on, and the invitation emailed again where the deployment sends email (`inviteEmail` says whether it was). A person who has signed in, was added before invitations, or has no email gets `409 identity-user-not-invited`. Renewing one person again within a minute, more than 5 times in 24 hours, or past the invitation emails the workspace, or the whole deployment, may send in 24 hours, gets `429 invite-capped` with `Retry-After`, and changes nothing. To revoke an invitation, remove the person (`POST /v1/identity/users/{userId}/unregister`). Tenant admins only. Mounted when the identity directory invites people (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.resendInvite"],
@@ -15356,7 +16349,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.SecondFactorStatus:
         """A person's second factor. `GET /v1/identity/users/{userId}/second-factor`
 
-        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether they have a second factor set up, since when, how many recovery codes are left, and whether it can still be used. Never a key or a code. Tenant admins only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.secondFactor"],
@@ -15377,7 +16370,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.SecondFactorRemoved:
         """Remove a person's second factor. `POST /v1/identity/users/{userId}/second-factor/remove`
 
-        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.8.1).
+        For a lost phone, or lost recovery codes: their key is deleted, their recovery codes stop working, they're told by email where the deployment sends it, and it's audited. Their sessions stay: removing one gives no one access. Where the workspace requires one, they set one up at their next sign-in. `removed: false` when they had none. Tenant admins only, for anyone but themselves: an admin's own is taken off at `POST /v1/identity/me/second-factor/remove`, with a code from it (`403 permission-denied` here). Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.removeSecondFactor"],
@@ -15483,7 +16476,7 @@ class AsyncIdentityMeResource:
     async def second_factor(self, /, *, timeout: float | None = None) -> _models.SecondFactorStatus:
         """My second factor. `GET /v1/identity/me/second-factor`
 
-        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Whether you have a second factor set up (an authenticator app), since when, how many recovery codes are left, and whether your workspace requires one. From a session only: `400 auth-not-session-token` with an API key. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.secondFactor"],
@@ -15505,7 +16498,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorKey:
         """Start setting up a second factor. `POST /v1/identity/me/second-factor`
 
-        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        A new key for an authenticator app, shown this once: nothing changes until a code from it is confirmed (`POST /v1/identity/me/second-factor/confirm`), within the hour. With one set up already, a code from it (or a recovery code) is needed, and the new key replaces it at the confirm. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.startSecondFactor"],
@@ -15528,7 +16521,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """Confirm a new second factor. `POST /v1/identity/me/second-factor/confirm`
 
-        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        A code from the new key sets it up, and answers the 10 recovery codes, this once. Your sessions stay as they are; your next sign-in asks for a code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.confirmSecondFactor"],
@@ -15551,7 +16544,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorRecoveryCodes:
         """New recovery codes. `POST /v1/identity/me/second-factor/recovery-codes`
 
-        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        10 new recovery codes, shown this once; the old ones stop working. Takes a code from your app, or a recovery code. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.newRecoveryCodes"],
@@ -15574,7 +16567,7 @@ class AsyncIdentityMeResource:
     ) -> _models.SecondFactorRemoved:
         """Take my second factor off. `POST /v1/identity/me/second-factor/remove`
 
-        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.8.1).
+        Off, with a code from your app or a recovery code: the key is deleted and the recovery codes stop working. Refused while your workspace requires one (`403 second-factor-required`): replace it instead, or ask a tenant admin. From a session only. Mounted when the deployment keeps second factors (from 0.1.9).
         """
         return await self._client._request(
             _OPERATIONS["identity.me.removeSecondFactor"],
@@ -15640,7 +16633,7 @@ class AsyncDeploymentsValuesResource:
     ) -> _models.DeploymentValueList:
         """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
 
-        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), and `read` on the tenant, as every deployments route does.
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.
         """
         return await self._client._request(
             _OPERATIONS["deployments.values.list"],
@@ -15673,7 +16666,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentCollectionPage:
         """List signed deployments. `GET /v1/deployments`
 
-        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
+        Cursor-paginated. Sort order: `activatedAt` descending (binding-defined tiebreak on `deploymentId`). Only the deployments in projects the caller reads are listed (a deployment naming no project is the Default project's), so a page can hold fewer than `limit` with `hasMore` true: page by `nextCursor`, not by count. Optional `?imageRefPrefix=` narrows to deployments whose `imageRef` starts with the prefix; `?signerKeyId=` narrows to a specific signing key (useful for revocation audits); `?projectId=` to one environment (the Default also finds those naming no project); `?packId=` to one pack.
         """
         return await self._client._request(
             _OPERATIONS["deployments.list"],
@@ -15702,7 +16695,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentRecord:
         """Register a signed deployment. `POST /v1/deployments`
 
-        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
+        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's Default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
         """
         return await self._client._request(
             _OPERATIONS["deployments.register"],
@@ -15755,7 +16748,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentSecretsSyncResponse:
         """Sync secrets against a deployment. `POST /v1/deployments/{deploymentId}/secrets`
 
-        Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. Requires the `secrets:write` capability. Idempotency-Key applies.
+        Deployment-scoped bulk secret sync. Body carries `{ envName, secrets: Array<{ name, ref } | { name, value }> }`. `{ name, ref }` entries validate against `SecretBinding.get` — no bytes cross the wire; missing → 404 `secret-not-found`. `{ name, value }` entries write via `SecretBinding.set` with `writeMode: add-version` + `tags.deployment = deploymentId` and return the created reference. The write scope is derived from the deployment record itself (tenant scope, or project scope when the deployment carries a `projectId`) and CANNOT be overridden on the wire. A secret the tools of this deployment name that was set nowhere when a deploy or a promotion published them is read at that scope, when whoever published them administers it: a deploy needs `admin` there, while a promotion into the Default project needs it only on that project. Requires the `secrets:write` capability. Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["deployments.syncSecrets"],
@@ -16531,6 +17524,30 @@ class AsyncProjectsJudgingRulesResource:
             timeout=timeout,
         )
 
+    async def queue_recent(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        body: _models.JudgingQueueRecentInput | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRecentQueued:
+        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
+
+        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.queueRecent"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingQueueRecentInput, body, fields),
+            response=_models.JudgingRecentQueued,
+            timeout=timeout,
+        )
+
 
 class AsyncProjectsJudgingQueueResource:
     """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
@@ -17067,6 +18084,29 @@ class AsyncProjectsSitesResource:
             timeout=timeout,
         )
 
+    async def restore_person(
+        self,
+        project_id: str | UUID,
+        site_id: str | UUID,
+        user_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SitePersonRestoreResult:
+        """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
+
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.sites.restorePerson"],
+            path={"projectId": project_id, "siteId": site_id, "userId": user_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SitePersonRestoreResult,
+            timeout=timeout,
+        )
+
 
 class AsyncProjectsResource:
     """`client.projects` — the `projects` operations."""
@@ -17190,7 +18230,10 @@ class AsyncProjectsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`"""
+        """Delete a project (idempotent). `DELETE /v1/projects/{projectId}`
+
+        Once the project is deleted, its own service account (`runAsProject`), if it has one, is unregistered. That's best effort: a failure is logged, and the delete still answers 204.
+        """
         return await self._client._request(
             _OPERATIONS["projects.delete"],
             path={"projectId": project_id},
@@ -17271,6 +18314,28 @@ class AsyncTenantResource:
             query={},
             headers={},
             response=_models.Tenant,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        body: _models.TenantPatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Rename the caller's tenant. `PATCH /v1/tenant`
+
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        """
+        return await self._client._request(
+            _OPERATIONS["tenant.update"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantPatch, body, fields),
             timeout=timeout,
         )
 
@@ -17630,7 +18695,7 @@ class AsyncSecretsResource:
     ) -> _models.SecretRevokeResult:
         """Revoke a secret. `DELETE /v1/secrets/{name}`
 
-        Requires the `secrets:revoke` capability (soft-revoke) or `secrets:revoke:hard` when `?hard=true` (cryptographic erasure). Optional `?reason=<text>` records the revoke reason.
+        Requires the `secrets:revoke` capability (soft-revoke), or `secrets:revoke:hard` when `?hard=true`: that erases the value at Kindgi and hard-deletes it in a secret manager, and can't be undone. Backups, and a secret manager's own retention, may keep copies for a time. If your secret manager keeps a recoverable copy, the answer's `recoverableUntil` says until when. Optional `?reason=<text>` records the revoke reason.
         """
         return await self._client._request(
             _OPERATIONS["secrets.revoke"],
@@ -17814,7 +18879,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering.
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["schedules.register"],
@@ -17856,7 +18921,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.
         """
         return await self._client._request(
             _OPERATIONS["schedules.update"],
@@ -17878,7 +18943,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -17899,7 +18964,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -17920,7 +18985,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -17963,7 +19028,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleFire:
         """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
 
-        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged. A personal schedule's owner or a project admin fires it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["schedules.runNow"],
@@ -17986,7 +19051,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs.
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -18039,7 +19104,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Register a webhook trigger. `POST /v1/webhooks`
 
-        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.register"],
@@ -18076,7 +19141,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after), never their values.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -18098,7 +19163,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`
 
-        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back.
+        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back. A personal trigger's owner or a project admin pauses it; a shared one, any writer of its project.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.pause"],
@@ -18117,7 +19182,10 @@ class AsyncWebhooksResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerRecord:
-        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
+        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`
+
+        A personal trigger's owner or a project admin resumes it; a shared one, any writer of its project.
+        """
         return await self._client._request(
             _OPERATIONS["webhooks.resume"],
             path={"triggerId": trigger_id},
@@ -18135,7 +19203,10 @@ class AsyncWebhooksResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.WebhookTriggerUnregisterResult:
-        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
+        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`
+
+        A personal trigger's owner or a project admin deletes it; a shared one, any writer of its project.
+        """
         return await self._client._request(
             _OPERATIONS["webhooks.unregister"],
             path={"triggerId": trigger_id},
@@ -18179,7 +19250,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow.
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -18188,6 +19259,205 @@ class AsyncWebhooksResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.TakeTriggerOwnerBody, body, fields),
             response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+
+class AsyncMailTriggersResource:
+    """`client.mail_triggers` — the `mailTriggers` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerCollectionPage:
+        """List mail triggers. `GET /v1/mail-triggers`
+
+        The tenant's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.MailTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    async def register(
+        self,
+        body: _models.RegisterMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Register a mail trigger. `POST /v1/mail-triggers`
+
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerRecord:
+        """Fetch a mail trigger. `GET /v1/mail-triggers/{triggerId}`"""
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchMailTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
+
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchMailTriggerBody, body, fields),
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Pause a mail trigger. `POST /v1/mail-triggers/{triggerId}/pause`
+
+        A paused trigger doesn't poll. A personal trigger's pause is its owner's or a project admin's; a shared one's needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerRecord:
+        """Resume a mail trigger. `POST /v1/mail-triggers/{triggerId}/resume`
+
+        It starts afresh: mail that came while it was paused doesn't start runs. Who may resume it is as for a pause.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.MailTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a mail trigger (tombstone). `POST /v1/mail-triggers/{triggerId}/unregister`
+
+        Who may unregister it is as for a pause.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    async def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailFirePage:
+        """A mail trigger's mail. `GET /v1/mail-triggers/{triggerId}/fires`
+
+        Newest first: each mail the trigger found and what came of it (`MailFire`): the run it started, why it waits (`thread-busy:`), or why it was skipped, refused or failed.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    async def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        body: _models.TakeTriggerOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MailTriggerRecord:
+        """Take over a mail trigger. `POST /v1/mail-triggers/{triggerId}/owner`
+
+        The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TakeTriggerOwnerBody, body, fields),
+            response=_models.MailTriggerRecord,
             timeout=timeout,
         )
 
@@ -18380,6 +19650,312 @@ class AsyncWebhookEndpointsResource:
         )
 
 
+class AsyncConnectionEntriesResource:
+    """`client.connection_entries` — the `connectionEntries` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(self, /, *, timeout: float | None = None) -> _models.ConnectionEntryList:
+        """List the apps this server can connect to. `GET /v1/connection-entries`
+
+        Each app with who may own a connection to it, how a person signs in, the permissions a tool may ask for (in plain words, and whether each changes anything) and the guide an admin follows to register the app. Any signed-in member. Mounted when the deployment supplies a `ConnectionBinding`.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionEntries.list"],
+            path={},
+            query={},
+            headers={},
+            response=_models.ConnectionEntryList,
+            timeout=timeout,
+        )
+
+
+class AsyncConnectionAppsResource:
+    """`client.connection_apps` — the `connectionApps` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionAppPage:
+        """List the tenant's app registrations. `GET /v1/connection-apps`
+
+        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionApps.list"],
+            path={},
+            query={"includeRemoved": include_removed, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionAppPage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateConnectionAppBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionApp:
+        """Register an app. `POST /v1/connection-apps`
+
+        Registers the tenant's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionApps.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateConnectionAppBody, body, fields),
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, app_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ConnectionApp:
+        """Fetch an app registration. `GET /v1/connection-apps/{appId}`"""
+        return await self._client._request(
+            _OPERATIONS["connectionApps.get"],
+            path={"appId": app_id},
+            query={},
+            headers={},
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        app_id: str | UUID,
+        body: _models.UpdateConnectionAppBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionApp:
+        """Update an app registration. `PATCH /v1/connection-apps/{appId}`
+
+        Changes the label, the client or the projects that may use its connections. The app itself cannot change: register the other app on its own. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionApps.update"],
+            path={"appId": app_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateConnectionAppBody, body, fields),
+            response=_models.ConnectionApp,
+            timeout=timeout,
+        )
+
+    async def remove(
+        self,
+        app_id: str | UUID,
+        /,
+        *,
+        with_connections: bool | None = None,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionAppRemoved:
+        """Remove an app registration. `DELETE /v1/connection-apps/{appId}`
+
+        Without `withConnections=true`, a registration that still has live connections is refused (`connection-app-in-use`). With it, those connections are removed too. Tenant admins only.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionApps.remove"],
+            path={"appId": app_id},
+            query={"withConnections": with_connections},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ConnectionAppRemoved,
+            timeout=timeout,
+        )
+
+
+class AsyncConnectionsRequestsResource:
+    """`client.connections.requests` — the `connections.requests` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(
+        self, request_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ConnectRequest:
+        """Fetch a connect request. `GET /v1/connections/requests/{requestId}`
+
+        A member's request is the member's alone; the company's is a tenant admin's. Anyone else gets the `404` of a request that doesn't exist.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.requests.get"],
+            path={"requestId": request_id},
+            query={},
+            headers={},
+            response=_models.ConnectRequest,
+            timeout=timeout,
+        )
+
+    async def start(
+        self,
+        request_id: str | UUID,
+        body: _models.StartConnectBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectStart:
+        """Start a connect request. `POST /v1/connections/requests/{requestId}/start`
+
+        Makes a fresh sign-in state, good for 10 minutes, and returns the app's consent page to send the person to. Records who started it: only they may finish it. A repeat starts again and never gets the first answer back: with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`. A GitHub App's goes to the app's install page while the app has no installation, or with `newInstallation`; otherwise to GitHub's authorization, and the finish attaches the installation picked with `installationId`, one of the request's `installations`.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.requests.start"],
+            path={"requestId": request_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartConnectBody, body, fields),
+            response=_models.ConnectStart,
+            timeout=timeout,
+        )
+
+
+class AsyncConnectionsResource:
+    """`client.connections` — the `connections` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+        self.requests = AsyncConnectionsRequestsResource(client)
+
+    async def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        app: str | None = None,
+        owner: Literal["me"] | None = None,
+        owner_kind: Literal["member", "company"] | None = None,
+        state: Literal["working", "needs-reconnecting", "removing", "removed"] | None = None,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionPage:
+        """List connections. `GET /v1/connections`
+
+        A member sees their own; a tenant admin sees every one, unless `owner=me`. Removed connections are listed only with `state=removed`, or with the others under `includeRemoved=true`.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.list"],
+            path={},
+            query={
+                "projectId": project_id,
+                "app": app,
+                "owner": owner,
+                "ownerKind": owner_kind,
+                "state": state,
+                "includeRemoved": include_removed,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.ConnectionPage,
+            timeout=timeout,
+        )
+
+    async def connect(
+        self,
+        body: _models.CreateConnectRequestBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectRequest:
+        """Start a connect. `POST /v1/connections`
+
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.connect"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateConnectRequestBody, body, fields),
+            response=_models.ConnectRequest,
+            timeout=timeout,
+        )
+
+    async def finish(
+        self,
+        body: _models.FinishConnectBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectFinish:
+        """Finish a connect. `POST /v1/connections/finish`
+
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.finish"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.FinishConnectBody, body, fields),
+            response=_models.ConnectFinish,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, connection_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Connection:
+        """Fetch a connection. `GET /v1/connections/{connectionId}`
+
+        A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.get"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={},
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
+    async def disconnect(
+        self,
+        connection_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Connection:
+        """Disconnect. `DELETE /v1/connections/{connectionId}`
+
+        Withdraws access at the app where it can, destroys the token and removes the connection (`withdrawn` says what the app did). Its owner or a tenant admin. Repeating it on a connection still `removing` carries on from the withdrawal.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.disconnect"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
+
 class Resources:
     """Every resource, as attributes of `Kindgi`."""
 
@@ -18389,6 +19965,8 @@ class Resources:
     tokens: TokensResource
     system_keys: SystemKeysResource
     system_tenants: SystemTenantsResource
+    system_usage: SystemUsageResource
+    usage: UsageResource
     system_deployments: SystemDeploymentsResource
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
@@ -18433,7 +20011,11 @@ class Resources:
     secrets: SecretsResource
     schedules: SchedulesResource
     webhooks: WebhooksResource
+    mail_triggers: MailTriggersResource
     webhook_endpoints: WebhookEndpointsResource
+    connection_entries: ConnectionEntriesResource
+    connection_apps: ConnectionAppsResource
+    connections: ConnectionsResource
 
     def __init__(self) -> None:
         client = cast(SyncClientBase, self)
@@ -18443,6 +20025,8 @@ class Resources:
         self.tokens = TokensResource(client)
         self.system_keys = SystemKeysResource(client)
         self.system_tenants = SystemTenantsResource(client)
+        self.system_usage = SystemUsageResource(client)
+        self.usage = UsageResource(client)
         self.system_deployments = SystemDeploymentsResource(client)
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
@@ -18487,7 +20071,11 @@ class Resources:
         self.secrets = SecretsResource(client)
         self.schedules = SchedulesResource(client)
         self.webhooks = WebhooksResource(client)
+        self.mail_triggers = MailTriggersResource(client)
         self.webhook_endpoints = WebhookEndpointsResource(client)
+        self.connection_entries = ConnectionEntriesResource(client)
+        self.connection_apps = ConnectionAppsResource(client)
+        self.connections = ConnectionsResource(client)
 
 
 class AsyncResources:
@@ -18499,6 +20087,8 @@ class AsyncResources:
     tokens: AsyncTokensResource
     system_keys: AsyncSystemKeysResource
     system_tenants: AsyncSystemTenantsResource
+    system_usage: AsyncSystemUsageResource
+    usage: AsyncUsageResource
     system_deployments: AsyncSystemDeploymentsResource
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
@@ -18543,7 +20133,11 @@ class AsyncResources:
     secrets: AsyncSecretsResource
     schedules: AsyncSchedulesResource
     webhooks: AsyncWebhooksResource
+    mail_triggers: AsyncMailTriggersResource
     webhook_endpoints: AsyncWebhookEndpointsResource
+    connection_entries: AsyncConnectionEntriesResource
+    connection_apps: AsyncConnectionAppsResource
+    connections: AsyncConnectionsResource
 
     def __init__(self) -> None:
         client = cast(AsyncClientBase, self)
@@ -18553,6 +20147,8 @@ class AsyncResources:
         self.tokens = AsyncTokensResource(client)
         self.system_keys = AsyncSystemKeysResource(client)
         self.system_tenants = AsyncSystemTenantsResource(client)
+        self.system_usage = AsyncSystemUsageResource(client)
+        self.usage = AsyncUsageResource(client)
         self.system_deployments = AsyncSystemDeploymentsResource(client)
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)
@@ -18597,4 +20193,8 @@ class AsyncResources:
         self.secrets = AsyncSecretsResource(client)
         self.schedules = AsyncSchedulesResource(client)
         self.webhooks = AsyncWebhooksResource(client)
+        self.mail_triggers = AsyncMailTriggersResource(client)
         self.webhook_endpoints = AsyncWebhookEndpointsResource(client)
+        self.connection_entries = AsyncConnectionEntriesResource(client)
+        self.connection_apps = AsyncConnectionAppsResource(client)
+        self.connections = AsyncConnectionsResource(client)

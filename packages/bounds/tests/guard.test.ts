@@ -25,6 +25,10 @@ const ALLOWED: Readonly<Record<string, { readonly sites: number; readonly why: s
   },
   'api/src/middleware/public-run-routes.ts': { sites: 1, why: "Kindgi's own route paths" },
   'capabilities/src/tool-names.ts': { sites: 1, why: 'tool ids, escaped, as whole tokens' },
+  'connections/src/mail-text.ts': {
+    sites: 1,
+    why: "a link's address from the message, escaped, as a whole word",
+  },
   'handler-runtime/src/discovery.ts': {
     sites: 1,
     why: "a pack's discovery globs, in the pack's own process",
@@ -101,6 +105,7 @@ describe('no tenant pattern skips compileTenantPattern', () => {
       'api/src/image-ref.ts: listed, but has none',
       'api/src/middleware/public-run-routes.ts: listed, but has none',
       'capabilities/src/tool-names.ts: listed, but has none',
+      'connections/src/mail-text.ts: listed, but has none',
       'handler-runtime/src/discovery.ts: listed, but has none',
       'schema/src/bounded.ts: listed, but has none',
       'sdk/src/webhook-events.ts: listed, but has none',

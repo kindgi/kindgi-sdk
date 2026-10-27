@@ -28,6 +28,7 @@ import type {
   BlobStorageBinding,
   BlockRegistryBinding,
   CapabilityRegistryBinding,
+  ConnectionBinding,
   CostBinding,
   CreateAppInput,
   DeploymentBinding,
@@ -262,6 +263,29 @@ function publicRunTokensConfig(): PublicRunTokenConfig {
   };
 }
 
+const connectionNoop = {
+  kind: 'err',
+  error: { code: 'connection-store-failed', message: 'noop' },
+} as const;
+
+const noopConnections: ConnectionBinding = {
+  entries: () => [],
+  listApps: async () => ({ data: [] }),
+  getApp: async () => null,
+  createApp: async () => connectionNoop,
+  updateApp: async () => connectionNoop,
+  removeApp: async () => connectionNoop,
+  list: async () => ({ data: [] }),
+  get: async () => null,
+  disconnect: async () => connectionNoop,
+  createRequest: async () => connectionNoop,
+  getRequest: async () => null,
+  requestsForRun: async () => [],
+  startRequest: async () => connectionNoop,
+  finishRequest: async () => connectionNoop,
+  receiveNotice: async () => connectionNoop,
+};
+
 const noopWebhookEndpoints: WebhookEndpointBinding = {
   create: async () => ({ kind: 'url-refused', reason: 'noop' }),
   list: async () => ({ data: [] }),
@@ -358,6 +382,10 @@ const noopJudgingQueue: JudgingQueueBinding = {
     error: { code: 'judging-rule-not-found', message: 'noop' },
   }),
   updateRule: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
+  queueRecent: async () => ({
     kind: 'err',
     error: { code: 'judging-rule-not-found', message: 'noop' },
   }),
@@ -650,6 +678,7 @@ export function fullAppInput(): CreateAppInput {
     adapterRegistry: noopAdapterRegistry,
     triggerRegistry: noopTriggerRegistry,
     webhookEndpoints: noopWebhookEndpoints,
+    connections: noopConnections,
     publicRunTokens: publicRunTokensConfig(),
     policyRegistry: noopPolicyRegistry,
     retention: noopRetention,
@@ -757,6 +786,15 @@ export function fullAppInput(): CreateAppInput {
       setLimits: async () => {
         throw new Error('not used: no system principal in the sweeps');
       },
+    },
+    usage: {
+      acrossTenants: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      ofTenant: async () => ({
+        kind: 'ok',
+        page: { data: [], watermark: '2026-10-01T00:00:00.000Z' },
+      }),
     },
   };
 }

@@ -44,7 +44,7 @@ variable "kindgi_env" {
 # ---- images -------------------------------------------------------------------
 
 variable "server_image" {
-  description = "The Kindgi runtime image, by digest, in this module's Container Registry (mirrored from Quay; see README)."
+  description = "The Kindgi runtime image, by digest, in this module's Container Registry (mirrored from registry.kindgi.com; see README)."
   type        = string
 
   validation {
@@ -339,7 +339,7 @@ variable "erasure_ledger_key_version" {
 # ---- the server's own settings ------------------------------------------------------
 
 variable "public_url" {
-  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. When set, console sessions are accepted from this origin only. Empty leaves it unset."
+  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. Connections to other apps need it too, and a paused tool call's link is made from it: without it, that link names the address the server is bound to, which another system can't reach. When set, console sessions are accepted from this origin only. Empty leaves it unset."
   type        = string
   default     = ""
 
@@ -411,8 +411,19 @@ variable "license_renewer_secret" {
   }
 }
 
+variable "license_usage_key_secret" {
+  description = "The vault secret that holds a system key reading this deployment's use: one holding system:license alone, which you mint with the deployment's own token and put in the vault yourself (README, \"Renewing the license key\"). Terraform never holds it. With it, renewing carries counts of the deployment's use: the job (license_renewal_schedule) reads the key and passes --runtime and --runtime-token, as the license_renew_command output does. Empty (the default): renewing carries no counts."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_usage_key_secret == "" || can(regex("^[0-9A-Za-z-]{1,127}$", var.license_usage_key_secret))
+    error_message = "license_usage_key_secret: a Key Vault secret name (letters, digits and -, up to 127)."
+  }
+}
+
 variable "alert_action_groups" {
-  description = "Azure Monitor action groups (resource ids) the license renewal's alerts go to: a failed renewal, and a key within 7 days of expiring. Empty: they fire in Azure Monitor only. Only with license_renewal_schedule set."
+  description = "Azure Monitor action groups (resource ids) the license renewal's alerts go to: a failed renewal, a key within 7 days of expiring, and, with license_usage_key_secret, a renewal that sent no counts. Empty: they fire in Azure Monitor only. Only with license_renewal_schedule set."
   type        = list(string)
   default     = []
 

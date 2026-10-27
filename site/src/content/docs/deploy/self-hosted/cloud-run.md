@@ -17,9 +17,9 @@ Cloud SQL. A tool call from the runtime to your pack took 42 ms at the
 median, and 100 ms at p95.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -28,11 +28,16 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   own service account and one instance. It has public ingress on port 4000,
   which Cloud Run passes as `PORT`. Its CPU is always allocated, so a run
   started in the background keeps running after its answer.
-- **Your pack's service** (`kindgi-pack`): your tools' code. Internal ingress,
-  and IAM-protected: only the runtime's service account may call it, with a
-  Google ID token on every call.
+- **Your pack's service** (`kindgi-pack`): your tools' code, for every
+  project the runtime serves
+  ([Your tools' code](../../../concepts/security/#your-tools-code)).
+  Internal ingress, and IAM-protected: only the runtime's service account
+  may call it, with a Google ID token on every call. Its CPU is allocated only while a call runs,
+  so the instance `pack_min_instances` keeps up bills at Cloud Run's lower
+  idle rate between calls, and any others aren't billed then.
 - **Cloud SQL** (Postgres 16) for the runtime's data, reached through the
-  Cloud SQL socket.
+  Cloud SQL socket, which encrypts the connection and checks the server
+  ([Check the database's certificate](../database-tls/)).
 - **Artifact Registry** for both images. The runtime also reads your pack's
   image from it when you deploy.
 - **Secret Manager** for the runtime's secrets, and **a Cloud KMS key** that
@@ -64,17 +69,18 @@ Who calls whom:
 - **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
-- **For `kindgi` commands:** Kindgi 0.1's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.1` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.2's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.2` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build, `env plan` and deploy steps need the pack's folder, so they use
   `pnpm exec kindgi`.
 - **Runtime 0.1.1 or later.** Cloud SQL has no superuser; 0.1.0 can't start
   on it.
-- **Access to the runtime image** (`kindgi auth registry`; see
-  [Install](../../../start/install/)).
-- **A license key:** a non-production key covers staging. Write to
-  contact@kindgi.com for one.
+- **A license key:** a non-production key covers staging, and it also pulls
+  the runtime image. Get one at
+  [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
+- **Docker logged in to `registry.kindgi.com`** with that key
+  ([Pull the runtime image](../pull-the-runtime-image/)).
 - **A pack** that `kindgi build --local --push` builds, with an environment
   block for this deployment in its config.
 
@@ -127,15 +133,16 @@ otherwise defaults to `ENTERPRISE_PLUS`, which takes only the
 
 ## 2. The images into Artifact Registry
 
-Cloud Run pulls from Artifact Registry, not from the runtime's private
-registry. Copy the runtime image there by digest, with every platform it was
-built for:
+Cloud Run pulls from Artifact Registry. It can't pull from
+`registry.kindgi.com`, which takes your license key as its password. With
+Docker logged in there, copy the runtime image into Artifact Registry by
+digest, with every platform it was built for:
 
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.8" \
-  quay.io/kindgi/runtime:0.1.8@sha256:48b81defe532ec284abb2a9cd8fac5ff7543dea998e7cbf67704a163ce183358
+docker buildx imagetools create --tag "$REPO/runtime:0.1.10" \
+  quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -146,6 +153,10 @@ docker buildx imagetools create --tag "$REPO/runtime:0.1.8" \
 The copy keeps the release's digest. A plain `docker pull`, `tag` and `push`
 from an Apple silicon machine pushes only the arm64 image, which Cloud Run
 can't run.
+
+The copy goes through the machine you run it on, every layer down and back up,
+and takes both platforms (amd64 and arm64), so on a slow uplink it can take
+most of an hour.
 
 **A repository you already have** instead of the module's own:
 `image_repository = { project, location, repository }`. The module then creates
@@ -273,6 +284,19 @@ pnpm exec kindgi env plan --env prod > /tmp/pack-env.json
 jq '{pack_env: .env, pack_secret_env: .secret_env}' /tmp/pack-env.json > prod.pack-env.auto.tfvars.json
 ```
 
+Keep that file in the module's folder, and keep its name's ending,
+`.auto.tfvars.json`. Terraform reads `terraform.tfvars` and every
+`*.auto.tfvars` file in the folder it runs in by itself, `.json` forms
+included, for every `plan` and `apply` there, so the pack's env goes into
+each without a `-var-file`. A file named otherwise,
+`prod.pack-env.tfvars.json` say, is
+read only by a command that names it with `-var-file`. A plan made without
+it sets `pack_env` and `pack_secret_env` to nothing, and applying that plan
+takes the pack's env away: while a name the pack requires has no value, its
+service takes no calls. And since every such file in the folder is read,
+keep one deployment's there
+([Staging and production](#staging-and-production)).
+
 ## 4. The services
 
 With the images and the secrets in place, apply the whole module. It creates
@@ -323,6 +347,30 @@ Google Cloud is still applying it. It clears without a restart: in our run,
 the first tool call, 3½ minutes after the warning, worked. If tool calls still
 fail after that, check that the runtime's service account has
 `roles/run.invoker` on the pack's service.
+
+**Keep the pack's service warm when response time matters.** The default,
+`pack_min_instances = 1`, keeps one instance running, so the first tool
+call after a quiet spell doesn't wait for one to start. That instance runs
+around the clock ([Cloud Run pricing](https://cloud.google.com/run/pricing)).
+`pack_min_instances = 0` lets the service stop when it's idle, which suits
+a dev deployment: the first tool call after that waits for an instance to
+start.
+
+**When the runtime starts with the pack's service at zero**
+(`pack_min_instances = 0`), the line can read instead:
+
+```text
+⚠ Pack service at https://… didn't answer within 5 s. The server is up; pack tools and checks fail until it answers.
+```
+
+The runtime waits 5 seconds for the pack's service when it starts, and a
+service at zero takes longer than that to start an instance. It's harmless:
+the first tool call waits for the instance, for up to about two minutes (the
+service's startup check), and the runtime gives a call 120 seconds
+(`pack_call_timeout_ms`; raise it if starts run near that). If tool calls keep
+failing, read the pack's service logs: its startup check fails until every
+module has loaded and every `env.required` value is set, and its logs name
+what's missing.
 
 ### Call your app's Cloud Run services from a tool
 
@@ -548,7 +596,7 @@ endpoint ([Serve many tenants](#serve-many-tenants)).
 ```sh
 URL=$(terraform output -raw server_url)
 export KINDGI_API_TOKEN=$(gcloud secrets versions access latest --secret=$N-api-token)
-npx --yes @kindgi/cli@0.1 key trust acme-prod --url "$URL"
+npx --yes @kindgi/cli@0.2 key trust acme-prod --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -607,8 +655,8 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
 curl "$URL/health"                                  # {"ok":true}
-npx --yes @kindgi/cli@0.1 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.1 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
+npx --yes @kindgi/cli@0.2 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.2 runs start --flow=acme.greet-echo --input='{"name":"Ada"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.
@@ -655,14 +703,14 @@ read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url
 ```
 
 ```hcl excerpt
-public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
+public_url = "https://kindgi-server-abc123-pd.a.run.app" # terraform output -raw server_url
 server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
   KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
 }
 server_secret_env = {
-  KINDGI_AUTH_SECRET         = { secret = "kindgi-dev-auth-secret", version = "1" }
-  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-dev-smtp-url", version = "1" }
+  KINDGI_AUTH_SECRET         = { secret = "kindgi-auth-secret", version = "1" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-smtp-url", version = "1" }
 }
 ```
 
@@ -674,13 +722,50 @@ then reaches the runtime only when you change `version`.
   the emailed link comes with a second apply, or your own domain in front.
   Console sessions are then accepted from that address only. The plan
   refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
-  start.
-- **Continue with Google, Microsoft or GitHub, verified domains and
-  Turnstile** go the same way: each provider's client id,
-  `KINDGI_AUTH_VERIFIED_DOMAINS` and the Turnstile site key in `server_env`;
-  each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET` in
-  `server_secret_env`. The module mounts no files, so use the value forms of
-  the settings, not their `…_PATH` forms.
+  start. A tool that pauses hands other systems a link made from it too
+  ([On a server you run](../../../guides/tools/wait-for-another-system/#on-a-server-you-run)).
+
+**With Continue with Google,** you need the sign-in secret and `public_url`,
+as for the emailed link, and an OAuth client of type **Web application** in
+the Google Cloud console ([Google](../sign-in/#google)). Its authorized
+redirect URI is `public_url` followed by
+`/auth/kindgi/social/callback/google`:
+
+```text
+https://kindgi-server-abc123-pd.a.run.app/auth/kindgi/social/callback/google
+```
+
+Store the client's secret, then give the runtime the client's ID and the
+secret:
+
+```sh
+# The Google client's secret: paste it; it never goes in a file.
+read -rs GOOGLE_SECRET && printf '%s' "$GOOGLE_SECRET" | gcloud secrets create $N-google-client-secret --data-file=- && unset GOOGLE_SECRET
+```
+
+```hcl excerpt
+public_url = "https://kindgi-server-abc123-pd.a.run.app"
+server_env = {
+  KINDGI_AUTH_GOOGLE_CLIENT_ID = "<client id>"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET               = { secret = "kindgi-auth-secret", version = "1" }
+  KINDGI_AUTH_GOOGLE_CLIENT_SECRET = { secret = "kindgi-google-client-secret", version = "1" }
+}
+```
+
+- `<client id>` is the client's ID in the Google Cloud console, ending in
+  `.apps.googleusercontent.com`.
+- **Microsoft and GitHub** go the same way, with `MICROSOFT` or `GITHUB` in
+  the names, and a redirect URI ending in `microsoft` or `github`
+  ([Continue with Google, Microsoft or GitHub](../sign-in/#continue-with-google-microsoft-or-github)).
+  So do verified domains and Turnstile: `KINDGI_AUTH_VERIFIED_DOMAINS` and
+  the Turnstile site key in `server_env`, and `KINDGI_AUTH_TURNSTILE_SECRET`
+  in `server_secret_env`.
+- **Several ways in** share the two maps: with the emailed link too, they
+  hold both sets of settings.
+- **The module mounts no files,** so use the value forms of the settings,
+  such as `KINDGI_AUTH_GOOGLE_CLIENT_SECRET`, not their `…_PATH` forms.
 
 **Check it worked:** after the apply, the new revision's startup lines say
 where it's reached, and which ways in the console has, instead of the
@@ -704,7 +789,7 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-npx --yes @kindgi/cli@0.1 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
+npx --yes @kindgi/cli@0.2 providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url "$URL"
 ```
 
 ```text
@@ -727,23 +812,110 @@ Model call to gemini (gemini-2.5-flash) failed: {"error":{"code":403,"message":"
 
 A new grant can take a minute or two to apply.
 
+## Staging and production
+
+Run staging and production as two deployments of the module, so a change
+or an upgrade reaches staging first. Each has its own:
+
+- **Folder:** a copy of the module, at the same release. Terraform reads
+  every `*.auto.tfvars.json` in the folder, so two deployments' pack env in
+  one folder would both be read.
+- **State:** its own `prefix` at `terraform init`
+  (`-backend-config=prefix=staging`, say). Two deployments never share one.
+- **Variables:** `staging.tfvars` in one folder and `prod.tfvars` in the
+  other, each with its `project_id`, its `name_prefix`, and its
+  `kindgi_env`: the env its tools' stored secrets resolve in, the one you
+  name when you set them (`--env=staging`, say).
+- **Pack env:** `kindgi env plan --env staging` reads your pack config's
+  `staging` environment
+  ([Per-environment values](../../../guides/secrets/per-environment-values/)),
+  and its output goes into `staging.pack-env.auto.tfvars.json` in staging's
+  folder. Each environment in the pack config can also name its
+  deployment's address (`endpoint`), so `kindgi deploy --env staging`
+  deploys there.
+- **License key:** a non-production key covers staging, as long as it
+  serves no end users and processes no live business data
+  ([Two licenses](../../../concepts/licensing/#two-licenses)).
+
+The two can go in two Google Cloud projects, or in one:
+
+- **Two projects** keep them apart: each project's resources, roles and
+  quotas are its own, and both deployments can keep the default
+  `name_prefix`. Terraform takes the project from the var-file, but
+  `gcloud` acts on the one it's set to, so set it to the deployment's
+  before any `gcloud` command for it
+  (`gcloud config set project <project_id>`).
+- **One project** works with a `name_prefix` for each (`kindgi-staging`
+  and `kindgi`, say): every resource the module makes is named with it. The
+  module turns the project's APIs on and never off, so tearing one down
+  leaves them on for the other. But the roles the module grants on the
+  whole project, Cloud SQL Client for one, then cover both deployments'
+  resources.
+
 ## Operate it
 
-- **Upgrade at least every 90 days while Kindgi is in preview.** Until
-  Kindgi 1.0, a release stops starting 90 days after it was released. Cloud
-  Run starts new instances on its own, and after that day none comes up. The
+- **Upgrade at least every 90 days.** A preview release stops starting 90
+  days after it was released. Cloud Run starts new instances on its own,
+  and after that day none comes up. The
   runtime warns from 30 days before, at startup and once a day, in a log
   record with `jsonPayload.event = "kindgi.preview_expiry"`: set a log-based
   alert on it
   ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** back up Cloud SQL, copy the new runtime image by digest, set
-  `server_image`, and apply. The new revision takes all the traffic.
+  `server_image`, and apply ([Upgrade by hand](#upgrade-by-hand) has the
+  steps). The new revision takes all the traffic.
   Migrations only go forward: never run two runtime versions on one
   database, and go back by restoring the backup. From a module copy older
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
   it, `terraform plan` stops and asks for it.
+- **Or upgrade with the module's `upgrade.sh`:** a small dev deployment
+  (`network_mode = "none"`, on runtime 0.1.8 or later) can run it instead,
+  to 0.2.0 or later. It copies the new image from `registry.kindgi.com`, so
+  [log in there](../pull-the-runtime-image/) first. It runs the upgrade
+  checks against the database, then backs the database up, and changes the
+  running deployment only when you type `yes`, which applies exactly the
+  saved plan it showed. Terraform made that plan with every
+  `*.auto.tfvars.json` in the folder too, your pack's env among them. If
+  the new revision doesn't
+  come up, it prints the way back rather than rolling back on its own. To
+  see what it would do first, add `--dry-run`: it lists every change a real
+  run would make, in order, and shows Terraform's plan for the new image,
+  but changes nothing and never asks for `yes`. It doesn't run the upgrade
+  checks against the database, since they run as jobs in your project. Use
+  the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
+  you're upgrading to, or, before that release is out, its newest
+  `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
+  and refuses a later `--to`. A server-only release, such as 0.2.0.1, is a
+  server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
+  `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. The
+  module's README has the rest, under
+  [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading),
+  and `./upgrade.sh --help` lists its options.
+- **Backups:** Cloud SQL backs the database up daily, with point-in-time
+  recovery. On the module's edition (`ENTERPRISE`) it keeps 7 backups and
+  7 days of transaction logs by default, in the multi-region nearest the
+  instance ([Google: Cloud SQL backup options](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options)).
+  To keep more, or choose where they're stored, set
+  `database_backup_retention`, `database_point_in_time_days` (at most 7 on
+  `ENTERPRISE`, and at most as many days as backups kept) and
+  `database_backup_location`. A restore reaches any second within the
+  logs' days, or one of the kept backups.
+  - **Where the backups are kept:** the nearest multi-region can be
+    outside the instance's region and country. When you promise where
+    backups are kept, set `database_backup_location` to a region
+    (`northamerica-northeast2`, say) or a multi-region (`us`, `eu`,
+    `asia`); a zone is refused at plan. Point-in-time recovery's
+    transaction logs stay in the instance's own location
+    ([Google: transaction log retention](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options#sb-log-retention)).
+  - **Setting it on a running deployment** changes the instance in place.
+    The backups taken before stay where they were
+    ([Google: custom backup locations](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options#sb-custom-backup-location)).
+  - **On a host or a restored instance:** these set the module's own
+    instance only. With `database_host_instance` they're refused at plan:
+    the host's backups are the app's, set where that instance is managed.
+    An instance `database_instance` names keeps its own.
 - **Restore Cloud SQL:** a point-in-time recovery always makes a new
   instance, and a backup can go into one too (restored into the serving
   instance, it overwrites everything on it). `database_instance` moves the
@@ -767,6 +939,21 @@ A new grant can take a minute or two to apply.
   see the caller. Behind an external Application Load Balancer, set `"2"`:
   it adds the client and then its own address
   ([Google: X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+- **Database timeouts** (they need runtime 0.1.9 or later): the server's
+  connections carry their own, 60 s a statement, 30 s waiting for a lock,
+  and 30 s idle in a transaction, and a query waits at most 10 s for
+  one of the server's pooled connections. `KINDGI_DB_STATEMENT_TIMEOUT_MS`,
+  `KINDGI_DB_LOCK_TIMEOUT_MS`, `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` and
+  `KINDGI_DB_POOL_WAIT_TIMEOUT_MS` in `server_env` change them; `0` turns
+  one off. A GET or HEAD the statement or lock timeout or the pool wait
+  ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a
+  browser signing in is sent back to the sign-in page instead), any other
+  request 500, and the log has a `db` warning naming the setting, its value
+  and its variable. The instance itself ends any other session left idle in a
+  transaction for 10 minutes (`database_idle_in_transaction_timeout_ms`, `0`
+  for off). An instance from before that variable gets the flag at the next
+  apply, in place: Cloud SQL lists it as needing no restart
+  ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **Erasures, after a restore:** a memory erasure keeps a keyed hash of whom
   it erased, so it can be replayed after you restore a backup. The key goes
   in Secret Manager, named in `server_secret_env`:
@@ -777,7 +964,7 @@ A new grant can take a minute or two to apply.
 
   ```hcl excerpt
   server_secret_env = {
-    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-dev-erasure-ledger-key", version = "1" }
+    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-erasure-ledger-key", version = "1" }
   }
   ```
 
@@ -796,6 +983,195 @@ A new grant can take a minute or two to apply.
   the `lines` of its `boot` record, as in
   [The startup log](../restart-and-check-health/#the-startup-log). See
   [Logs](../logs/).
+
+## Upgrade by hand
+
+`upgrade.sh` covers the small dev shape only. With `network_mode`
+`direct` or `connector`, upgrade by hand, staging first
+([Staging and production](#staging-and-production)). Run the steps in the
+module's folder, as the identity that deploys the module, with `gcloud` set
+to this deployment's project, the `project_id` in its var-file:
+
+```sh
+gcloud config set project <project_id>
+```
+
+Terraform acts on the var-file's project, and `gcloud` on the one it's set
+to. Set to another deployment's project with the same `name_prefix`, the
+backup in step 4 would back that one up, and the apply would then upgrade
+this one with no backup. `N` is your `name_prefix`, and `REPO` the
+repository from
+[2. The images into Artifact Registry](#2-the-images-into-artifact-registry).
+
+1. **Read the upgrade steps** of each release you're upgrading across, in
+   its release notes, and take the new release's digest from its notes.
+2. **Copy the new runtime image** into Artifact Registry by digest, every
+   platform included, as in
+   [2. The images into Artifact Registry](#2-the-images-into-artifact-registry),
+   from `registry.kindgi.com` (it has 0.2.0 and later):
+
+   ```sh
+   docker buildx imagetools create --tag "$REPO/runtime:<version>" \
+     registry.kindgi.com/kindgi/runtime:<version>@sha256:<digest>
+   ```
+
+3. **Run the new version's read-only checks** against the database
+   ([Checks you can run before upgrading](../operate/#checks-you-can-run-before-upgrading)),
+   as a Cloud Run job that reaches it the way the server does. With
+   `direct` and a private-IP database:
+
+   ```sh
+   SA=$(terraform output -json service_accounts | jq -r .server)
+   gcloud run jobs create $N-upgrade-check --region=<region> \
+     --image="$REPO/runtime@sha256:<new digest>" --service-account="$SA" \
+     --set-secrets=KINDGI_DATABASE_URL=$N-database-url:latest \
+     --network=$N --subnet=$N-run --vpc-egress=all-traffic \
+     --args=check,provider-keys --max-retries=0
+   gcloud run jobs execute $N-upgrade-check --region=<region> --wait
+   ```
+
+   - **Other shapes:** with `connector` and a private-IP database, use
+     `--vpc-connector=<your connector> --vpc-egress=private-ranges-only`
+     in place of the three network flags. With a database on a public IP,
+     add `--set-cloudsql-instances=<its connection name>`; with
+     `connector`, the job then needs no network flags at all.
+   - **Serving from a restored instance** (`database_instance` set): the
+     server's URL is in that setting's `url_secret`, not
+     `$N-database-url`. Name that secret in `--set-secrets`, and that
+     instance's connection name in `--set-cloudsql-instances`.
+   - **For each other check** the release notes name, change the job's
+     `--args` with `gcloud run jobs update`, and run it again.
+   - A check that finds something exits `1`, and one that can't run exits
+     `2`: either way its run fails, and its logs say why. Delete the job
+     when you're done (`gcloud run jobs delete`).
+   - In private-IP mode the server also checks that the database's
+     certificate chains to the instance's CAs
+     (`KINDGI_DATABASE_SERVER_CA`). The job doesn't: with the URL's
+     `sslmode=require` alone, it encrypts the connection and checks no
+     certificate. It only reads, over the private network.
+4. **Back up the database,** just before you apply:
+   - **The module's own instance** (`$N`), which holds only Kindgi's
+     database, or the one `database_instance` names: an on-demand backup.
+
+     ```sh
+     gcloud sql backups create --instance=$N --description="before <version>"
+     ```
+
+   - **With `database_host_instance`,** the instance's backups are the
+     app's: export Kindgi's database instead, as `upgrade.sh` does. The
+     instance's own service account writes the export, so give it write on
+     the bucket first:
+
+     ```sh
+     SQL_SA=$(gcloud sql instances describe <instance> --format='value(serviceAccountEmailAddress)')
+     gcloud storage buckets add-iam-policy-binding gs://<bucket> \
+       --member="serviceAccount:$SQL_SA" --role=roles/storage.objectAdmin
+     gcloud sql export sql <instance> gs://<bucket>/<file>.sql.gz --database=<database_name>
+     ```
+
+   Writes made after the backup aren't in it.
+5. **Set the new image:** `server_image` in `prod.tfvars`, to
+   `$REPO/runtime@sha256:<new digest>`. If the release notes say to rebuild
+   the pack, rebuild it and set `pack_image` too. Keep a copy of the file as
+   it was: it's your way back.
+6. **Plan, and save the plan:**
+
+   ```sh
+   (umask 077 && terraform plan -var-file=prod.tfvars -out=upgrade.tfplan)
+   ```
+
+   Terraform also reads every `*.auto.tfvars.json` in the folder, your
+   pack's env among them. Read the plan: it should change the services'
+   images, and what the release notes say. A plan that removes the pack's
+   env was made without its file ([3. The secrets](#3-the-secrets)).
+
+   The plan holds your variables' values, secret ones too: `umask 077`
+   keeps it readable by you alone, and you delete it once it's applied.
+7. **Apply exactly that plan:**
+
+   ```sh
+   terraform apply upgrade.tfplan
+   rm upgrade.tfplan
+   ```
+
+   A saved plan applies as you read it, with the variables it was made
+   with, so it takes no `-var-file`. If the state changed since, Terraform
+   refuses it as stale: plan again. The new revision takes all the traffic
+   once it's ready.
+8. **Check it,** as in [6. Check it](#6-check-it).
+
+**If it doesn't come up, go back.** Nothing rolls back on its own, and
+migrations only go forward, so never point the old version at the migrated
+database:
+
+1. **First, export the erasure ledger** from the server serving now
+   ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
+   It holds every erasure so far, those made after the backup too. If no
+   server answers, the backup's own ledger is all there is.
+2. **Save the plan that goes back, before you bring the database back.**
+   Put `server_image`, and `pack_image`, back from the copy of
+   `prod.tfvars` you kept, then plan, and read it:
+
+   ```sh
+   (umask 077 && terraform plan -var-file=prod.tfvars -out=back.tfplan)
+   ```
+
+   Like the upgrade's plan, this one holds your secret values too.
+
+   The server runs its migrations each time one of its instances starts.
+   So apply this plan as soon as the database is back: an instance of the
+   new version that starts in between, on a restart or a scale-up, would
+   migrate the database forward again.
+3. **Bring the database back, then apply that plan at once:**
+   - **From a backup:** restore it into the instance it came from. That
+     overwrites everything on the instance, which is what going back
+     needs:
+
+     ```sh
+     gcloud sql backups list --instance=$N
+     gcloud sql backups restore <backup id> --restore-instance=$N
+     ```
+
+     The new version serves until the apply, and a restore takes the
+     instance down for minutes. If the new version's revision started an
+     instance after the restore finished (its logs show it), restore once
+     more after the apply: by then only the old revision serves.
+
+     With a database on a public IP, you can restore into a new instance
+     instead, and move the server onto it, as **Restore Cloud SQL** under
+     [Operate it](#operate-it) says: set `database_instance` along with the
+     old images, and plan again for the apply. The server then moves and
+     goes back in one revision, so the new version never serves from the
+     restored instance. Private-IP mode can't serve from another instance.
+   - **From an export:** make a fresh database on the instance, import the
+     export into it as `kindgi`, and add a version of the server's database
+     URL secret that names the fresh database, with the password set as in
+     [3. The secrets](#3-the-secrets), never in a command's arguments. Add
+     that version last, right before the apply. Don't change
+     `database_name` instead: the module would drop the migrated database,
+     then fail to create the fresh one.
+
+     ```sh
+     gcloud sql databases create <fresh> --instance=<instance>
+     gcloud sql import sql <instance> gs://<bucket>/<file>.sql.gz \
+       --database=<fresh> --user=kindgi
+     ```
+
+   Then apply the saved plan:
+
+   ```sh
+   terraform apply back.tfplan
+   rm back.tfplan
+   ```
+
+   If Terraform refuses it as stale, plan again and apply at once.
+4. **Replay the erasures before anyone uses it**
+   ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
+   A replay matches only when the server has its ledger key
+   (**Erasures, after a restore** under [Operate it](#operate-it)). With
+   `secrets_backend = "postgres"`, also run the old version's
+   `check stored-secrets`, as a job like the checks in the upgrade's
+   step 3, with the server's secrets settings as well as its database URL.
 
 ## Tear it down
 

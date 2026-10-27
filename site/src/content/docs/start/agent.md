@@ -19,9 +19,11 @@ thing at a time, and wait until they say they've done it.
 
 Read this page whole. If your fetch tool cut it short or summarized it,
 fetch <https://docs.kindgi.com/start/agent.md> again with a tool that
-returns the text as it is, such as `curl -s`. Every page of these docs has
-a Markdown version like this one: replace the slash at the end of a page's
-URL with `.md`.
+returns the text as it is, such as `curl -s`, and read what it prints
+rather than saving it to a file: if your tool asks the person before it
+reads a file outside the folder it works in, a saved copy would need their
+OK. Every page of these docs has a Markdown version like this one: replace
+the slash at the end of a page's URL with `.md`.
 
 ## Rules for the whole setup
 
@@ -38,9 +40,9 @@ URL with `.md`.
   change them, and ask before you change anything else. That includes an
   app's `package.json` name (pass `--pack-id` instead), its `zod` version,
   and its package manager's settings, such as pnpm's `minimumReleaseAge`.
-- **The commands run the CLI as `npx --yes @kindgi/cli@0.1` until step 2
+- **The commands run the CLI as `npx --yes @kindgi/cli@0.2` until step 2
   makes a project,** if `node --version` works. For someone using Python
-  without Node, use `uvx --from "kindgi-cli>=0.1,<0.2" kindgi` in its place
+  without Node, use `uvx --from "kindgi-cli>=0.2,<0.3" kindgi` in its place
   (the CLI from PyPI; it needs no Node). From step 2 on, they write
   `pnpm exec kindgi`, run from the project's folder. Use the project's form
   in its place:
@@ -68,21 +70,26 @@ clipboard command:
 | Windows | use the fallback (next paragraph) | |
 
 Before you pipe the clipboard, check it isn't empty, without printing it:
-`[ -n "$(pbpaste)" ]` (with this OS's command). If the clipboard command
+`pbpaste | grep -q .` (with this OS's command). If the clipboard command
 fails (on a server, over SSH or in a container there's no clipboard) or the
 clipboard is empty, use the fallback: the person runs the command in their
 own terminal, where it asks for the value without showing it. On Windows,
 always use the fallback.
 
-Then run doctor:
+Then run doctor, as a command of its own:
 
 ```sh
-npx --yes @kindgi/cli@0.1 doctor --json
+npx --yes @kindgi/cli@0.2 doctor --json
 ```
 
-It prints one JSON object and exits `0` when nothing fails, `1` when a check
-fails (and `2` on a usage error). Here, in a project with `kindgi dev`
-running and no model key yet:
+Run it like that here and in every later step: nothing before or after it,
+such as `cd … &&`, `;`, a pipe, `sleep` or `echo $?`. To run it in another
+folder, `cd` there first, as a command of its own. If your tool asks the
+person before it runs a command, a plain command is one they can allow for
+good, and the next run of the same command needn't ask. It prints one JSON
+object, whose `ok` is `false` when a check fails; it also exits `1` then
+(`0` when nothing fails, `2` on a usage error). Here, in a project with
+`kindgi dev` running and no model key yet:
 
 ```json
 {
@@ -169,22 +176,20 @@ step 1.
 If doctor's `registry` check passes, this machine can already pull the
 runtime: skip this step.
 
-1. Ask the person: "Sign in at https://access.kindgi.com with GitHub. Under
-   **1. Pull the runtime image**, copy the token, and tell me when you're
-   done. Also tell me the robot name in its command, after `--username` (it
-   isn't secret)." If the page doesn't give them a token, stop here until
-   they have one.
-2. When they say they're done, pipe the clipboard into the login, with the
-   robot name they gave you:
+1. Ask the person: "Sign in at https://access.kindgi.com with GitHub or your
+   email address. Under **1. Your license key**, copy the key (it starts with
+   `kgi_lk_`), and tell me when you're done." If the page doesn't give them a
+   key, stop here until they have one.
+2. When they say they're done, pipe the clipboard into the login:
 
    ```sh
-   <read the clipboard> | npx --yes @kindgi/cli@0.1 auth registry --username <robot name> --password-stdin
+   <read the clipboard> | npx --yes @kindgi/cli@0.2 auth registry --password-stdin
    ```
 
    It ends with:
 
    ```text
-   ✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
+   ✓ You can pull registry.kindgi.com/kindgi/runtime:…@sha256:…, the image this CLI runs.
    ```
 
 3. Clear the clipboard, if this OS lets you.
@@ -215,28 +220,28 @@ that uses it, as that page shows. Otherwise:
 
    ```sh
    # TypeScript
-   npx --yes @kindgi/cli@0.1 init my-agents
+   npx --yes @kindgi/cli@0.2 init my-agents
    cd my-agents
    pnpm install     # if pnpm --version works; else: npm install
    ```
 
    ```sh
    # Python (no Node needed)
-   uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-agents --template=python
+   uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-agents --template=python
    cd my-agents
    uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```
 
    ```sh
    # Java (preview)
-   npx --yes @kindgi/cli@0.1 init my-agents --template=java   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.2 init my-agents --template=java   # from now on: ./kindgiw …
    cd my-agents
    ./mvnw -q test
    ```
 
    ```sh
    # Scala (preview)
-   npx --yes @kindgi/cli@0.1 init my-agents --template=scala   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.2 init my-agents --template=scala   # from now on: ./kindgiw …
    cd my-agents
    sbt -batch test
    ```
@@ -273,15 +278,17 @@ and agents for this project.
 ## Step 3: start Kindgi
 
 Start `kindgi dev` from the project's folder so that it keeps running after
-your turn ends, with its output in `.kindgi/dev.log` (`.kindgi/` is
-git-ignored). Run `mkdir -p .kindgi` first, on its own, so the log's
-folder exists. Then:
+your turn ends. As with doctor, `cd` there first, in a command of its own;
+then:
 
 - **If your tool runs commands in the background itself** (Claude Code's
-  background tasks do), start it that way: `kindgi dev`, as a background
-  task, with its output in `.kindgi/dev.log`, and no `&` or `nohup`: the
-  task is in the background already. Your tool can stop it.
-- **Otherwise,** start it detached, and note its process id:
+  background tasks do), start it that way: `kindgi dev` (the project's form
+  of the CLI) on its own, as a background task, with no `&`, `nohup` or
+  redirect. The task is in the background already, and your tool keeps its
+  output. Your tool can stop it.
+- **Otherwise,** start it detached, with its output in `.kindgi/dev.log`
+  (`.kindgi/` is git-ignored), and note its process id. Run
+  `mkdir -p .kindgi` first, on its own, so the log's folder exists. Then:
 
   ```sh
   nohup pnpm exec kindgi dev > .kindgi/dev.log 2>&1 &
@@ -297,14 +304,16 @@ Use the project's form of the CLI in place of `pnpm exec kindgi`. It
 starts the runtime in Docker and answers with a stand-in model,
 `dev-echo`, until step 4 adds a real one.
 
-Run doctor every few seconds until `runtime` passes. `model-key` and
+Run doctor again until `runtime` passes, a few seconds apart: each run on
+its own, as in step 0, not in a loop or after `sleep … &&`. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
 it's running, and how to stop it: `kill <the process id>`, or, if your
 tool started it, how your tool stops it. If your tool's background tasks end
 with your session, tell them `kindgi dev` stops then too. Also tell them
-where the console is: the `Console` line of `.kindgi/dev.log`, its first
-address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
-opens it in their browser). They sign in there with **Sign in as seeded
+where the console is: the `Console` line of `kindgi dev`'s output (in
+`.kindgi/dev.log` if you started it detached), its first address
+(`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console` opens
+it in their browser). They sign in there with **Sign in as seeded
 user**, which needs no token: don't print the token in the chat.
 
 ## Step 4: the model key
@@ -410,9 +419,14 @@ Tell the person, in your own words:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let
 >    the agent call it".
-> 2. **Judge a few answers:** say yes or no to what it answered, so later
->    versions can be checked against your judgments
->    ([Judge a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
+> 2. **Correct a few answers:** say yes or no to what it answered, so later
+>    versions can be checked against your corrections
+>    ([Correct a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
->    judgments rate the new version higher
->    ([Compare a version on a test set](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).
+>    corrections rate the new version higher
+>    ([Try a version on the test cases](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).
+
+If the person then asks for an app that starts the agent's runs, read
+[Start runs from your app](https://docs.kindgi.com/start/call-from-your-app.md)
+before you write it: it says how the client finds Kindgi's URL and token, and
+that `runs.start` waits for the answer.

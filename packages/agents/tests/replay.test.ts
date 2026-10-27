@@ -8,6 +8,7 @@ import { defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
 import type { ProjectId, RunId, TenantId, ToolId } from '@kindgi/types';
 
+import type { HitlRejectedError } from '../src/guardrails-gate.js';
 import type { InvokeAgentBindings } from '../src/handlers/context.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
@@ -557,6 +558,15 @@ describe('the gate of a replay at the session approval', () => {
     await expect(failed).rejects.toMatchObject({
       payload: { code: 'hitl-rejected', rationale: 'no' },
     });
+    // A declared error: a typed caller narrows to it.
+    const payload = await failed.then(
+      () => undefined,
+      (e: AgentTurnFailure) => e.payload,
+    );
+    if (payload?.code === 'hitl-rejected') {
+      const declared: HitlRejectedError = payload;
+      expect(declared.rationale).toBe('no');
+    }
   });
 });
 

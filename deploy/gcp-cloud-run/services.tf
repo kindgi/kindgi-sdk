@@ -5,20 +5,26 @@
 # internal only) and the server (the API, agent and flow execution).
 
 locals {
-  # The instance the server serves from: the module's own, or database_instance's.
-  sql_connection = (var.database_instance == null
-    ? google_sql_database_instance.kindgi.connection_name
-  : data.google_sql_database_instance.served[0].connection_name)
+  # The instance the server serves from: database_instance's (a restore
+  # pointer), else database_host_instance's (a shared instance), else the
+  # module's own.
+  sql_connection = (
+    var.database_instance != null ? data.google_sql_database_instance.served[0].connection_name :
+    var.database_host_instance != null ? data.google_sql_database_instance.host[0].connection_name :
+    google_sql_database_instance.kindgi[0].connection_name
+  )
   database_url_secret = (var.database_instance == null
     ? google_secret_manager_secret.server["database_url"].secret_id
   : var.database_instance.url_secret)
   registry_host = "${local.own_repository ? var.region : var.image_repository.location}-docker.pkg.dev"
 
   # Every name the module sets on the server (some only with an option on),
-  # plus KINDGI_DEV: server_env and server_secret_env can't set these.
+  # plus KINDGI_DEV and KINDGI_DATABASE_SERVER_CA_PATH (the database's CA
+  # comes from the module): server_env and server_secret_env can't set these.
   # KINDGI_PUBLIC_URL comes from var.public_url.
   server_module_env = toset([
-    "KINDGI_API_TOKEN", "KINDGI_CORS_ORIGINS", "KINDGI_DATABASE_URL", "KINDGI_DEV", "KINDGI_ENV",
+    "KINDGI_API_TOKEN", "KINDGI_CORS_ORIGINS", "KINDGI_DATABASE_SERVER_CA",
+    "KINDGI_DATABASE_SERVER_CA_PATH", "KINDGI_DATABASE_URL", "KINDGI_DEV", "KINDGI_ENV",
     "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY", "KINDGI_IMAGE_REGISTRY_AUTH",
     "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_OPENFGA_API_URL",
     "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_SERVICE_AUTH", "KINDGI_PACK_SERVICE_TOKEN",
@@ -61,9 +67,10 @@ resource "google_cloud_run_v2_service" "pack" {
     }
 
     # Connector mode: the pack's code reaches private IPs (an app
-    # database) through the existing connector.
+    # database) through the existing connector. Not in direct mode (the pack
+    # is internal) or none (no VPC).
     dynamic "vpc_access" {
-      for_each = local.direct ? [] : [1]
+      for_each = var.network_mode == "connector" ? [1] : []
       content {
         connector = var.vpc_connector
         egress    = "PRIVATE_RANGES_ONLY"
@@ -92,6 +99,13 @@ resource "google_cloud_run_v2_service" "pack" {
           cpu    = "1"
           memory = "1Gi"
         }
+        # CPU only while a call runs: the service does no work between
+        # calls, so the instance pack_min_instances keeps up bills at the
+        # idle rate. Named because with limits set, Cloud Run otherwise
+        # keeps CPU allocated. The boost shortens the start, which imports
+        # every module before it listens.
+        cpu_idle          = true
+        startup_cpu_boost = true
       }
 
       env {
@@ -146,14 +160,18 @@ resource "google_cloud_run_v2_service" "pack" {
       # Not ready until every module is loaded and every env.required name
       # is set: a revision missing one never takes traffic, and its logs
       # (and /v1/info) name what's missing.
+      # Two minutes in all, asked every 2 s: a started instance takes no
+      # request until the probe passes, so a cold start's first tool call
+      # waits about 1 s for it, where every 5 s made that about 2.5 s. The
+      # timeout stays under the period.
       startup_probe {
         http_get {
           path = "/readyz"
           port = 8080
         }
-        period_seconds    = 5
-        timeout_seconds   = 3
-        failure_threshold = 24
+        period_seconds    = 2
+        timeout_seconds   = 1
+        failure_threshold = 60
       }
       liveness_probe {
         http_get {
@@ -218,7 +236,7 @@ resource "google_cloud_run_v2_service" "server" {
     # connector; everything else leaves through Cloud Run's own egress.
     # With the /cloudsql socket the server needs no VPC at all.
     dynamic "vpc_access" {
-      for_each = !local.direct && local.database_private ? [1] : []
+      for_each = var.network_mode == "connector" && local.database_private ? [1] : []
       content {
         connector = var.vpc_connector
         egress    = "PRIVATE_RANGES_ONLY"
@@ -291,6 +309,16 @@ resource "google_cloud_run_v2_service" "server" {
             secret  = local.database_url_secret
             version = "latest"
           }
+        }
+      }
+      # Private-IP mode: the instance's CAs, which the database's
+      # certificate must chain to (data.tf). The /cloudsql socket is the
+      # connector's, which checks the instance itself.
+      dynamic "env" {
+        for_each = local.database_private ? [local.database_server_ca] : []
+        content {
+          name  = "KINDGI_DATABASE_SERVER_CA"
+          value = env.value
         }
       }
       # The tenant: with "single", the one the server seeds and serves, and
@@ -504,12 +532,12 @@ resource "google_cloud_run_v2_service" "server" {
 
   lifecycle {
     precondition {
-      condition     = var.network_mode == "direct" || var.vpc_connector != ""
+      condition     = var.network_mode != "connector" || var.vpc_connector != ""
       error_message = "network_mode = \"connector\" needs vpc_connector (projects/<project>/locations/<region>/connectors/<name>)."
     }
     precondition {
       condition     = !local.pack || var.network_mode == "direct" || var.pack_ingress == "INGRESS_TRAFFIC_ALL"
-      error_message = "network_mode = \"connector\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a private-ranges-only server can't reach an internal-only pack service (IAM still guards it)."
+      error_message = "network_mode = \"connector\" or \"none\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a server without a VPC reaches the pack service over its public URL (IAM still admits only the server's account)."
     }
     precondition {
       condition = local.pack || (
@@ -549,6 +577,30 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition     = try(var.database_instance.url_secret != local.server_secrets.database_url, true)
       error_message = "database_instance.url_secret is the module's own ${local.server_secrets.database_url}, whose URL names the module's own instance: put the other instance's URL in a secret of its own."
+    }
+    precondition {
+      condition     = var.database_host_instance == null || var.database_private_network == ""
+      error_message = "database_host_instance reaches the shared instance through the /cloudsql volume, which private-IP mode (database_private_network) doesn't use: unset one."
+    }
+    precondition {
+      condition     = try(var.database_host_instance != var.name_prefix, true)
+      error_message = "database_host_instance (${var.name_prefix}) names what the module's own instance would be called: the host is a separate, existing instance, so give its own name or leave database_host_instance null."
+    }
+    precondition {
+      condition     = try(var.database_instance.name != var.database_host_instance, true)
+      error_message = "database_instance (the instance the server serves from) names database_host_instance, where Kindgi's database already lives: serve from a clone of it, not from itself."
+    }
+    precondition {
+      condition     = var.database_private_network == "" || var.network_mode != "none"
+      error_message = "network_mode = \"none\" creates no VPC: a private-IP database (database_private_network) needs \"direct\" or \"connector\"."
+    }
+    precondition {
+      condition     = var.network_mode != "none" || !var.nat_static_ip
+      error_message = "network_mode = \"none\" creates no Cloud NAT, so nat_static_ip has nothing to reserve; it applies in \"direct\" and is ignored in \"connector\"."
+    }
+    precondition {
+      condition     = var.network_mode != "direct" || var.nat_max_ports_per_vm > var.nat_min_ports_per_vm
+      error_message = "nat_max_ports_per_vm must be above nat_min_ports_per_vm: the Cloud NAT doubles an instance's ports from the minimum up to the maximum."
     }
     precondition {
       condition     = !(var.server_public && var.server_invoker_iam_disabled)

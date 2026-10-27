@@ -98,6 +98,8 @@ if (why !== undefined) {
     packDir,
     command: ['sh', launcher, '-cp', classpath, 'com.kindgi.pack.Main', 'serve'],
     env: javaHome ? { JAVA_HOME: javaHome } : {},
+    // The JVM pack service doesn't answer with a pause yet.
+    unsupported: ['pause'],
     async buildIndex(outputPath, pins) {
       let stdout: string;
       try {

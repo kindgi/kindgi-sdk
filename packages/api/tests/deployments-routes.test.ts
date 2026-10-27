@@ -13,13 +13,21 @@ import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
 import type { Project, ProjectBinding } from '@kindgi/platform';
 import { latestVersion } from '@kindgi/tools';
-import type { Cursor, EnvName, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
+import type {
+  Cursor,
+  EnvName,
+  OrgId,
+  ProjectId,
+  Semver,
+  SigningKeyId,
+  TenantId,
+} from '@kindgi/types';
 
 import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp } from '../src/index.js';
+import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
@@ -1670,20 +1678,6 @@ describe('POST /v1/deployments — image verification', () => {
         message: 'Extract /app/index.json failed: unpacks past 4 GiB',
         details: { imageRef: fixture.imageRef, cause: 'image-limit-exceeded', limit: 'unpack' },
       },
-      {
-        step: 'extractFile',
-        error: {
-          code: 'image-limit-exceeded',
-          message: 'try again in 12 min',
-          limit: 'tenant-unpack-hour',
-        },
-        message: 'Extract /app/index.json failed: try again in 12 min',
-        details: {
-          imageRef: fixture.imageRef,
-          cause: 'image-limit-exceeded',
-          limit: 'tenant-unpack-hour',
-        },
-      },
       // A binding's own `cause` (an Error here) never reaches the wire.
       {
         step: 'extractFile',
@@ -1720,6 +1714,80 @@ describe('POST /v1/deployments — image verification', () => {
       expect(body.error.details).toEqual(details);
       expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
     }
+  });
+
+  test("the tenant's hour of image reads passes: 429 rate-limit-exceeded with details.limit and Retry-After, the binding's wait rounded up, else the hour", async () => {
+    const fixture = buildSignedDeploy();
+    const served = makeMockImageRegistry([
+      { imageRef: fixture.imageRef, digest: fixture.digest, indexBytes: fixture.indexBytes },
+    ]);
+    const cases: readonly { readonly retryAfterMs?: number; readonly retryAfter: string }[] = [
+      { retryAfterMs: 12 * 60_000 + 1, retryAfter: '721' },
+      { retryAfterMs: 0, retryAfter: '1' },
+      { retryAfter: '3600' },
+      { retryAfterMs: Number.NaN, retryAfter: '3600' },
+    ];
+    for (const { retryAfterMs, retryAfter } of cases) {
+      const error: ImageRegistryError = {
+        code: 'image-limit-exceeded',
+        message: 'try again in 13 min',
+        limit: 'tenant-unpack-hour',
+        ...(retryAfterMs !== undefined && { retryAfterMs }),
+      };
+      const imageRegistry: ImageRegistryBinding = {
+        ...served,
+        extractFile: async () => ({ kind: 'err' as const, error }),
+      };
+      const { app, deploymentRegistry } = makeApp({ fixture, imageRegistry });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      expect(res.status).toBe(429);
+      expect(res.headers.get('retry-after')).toBe(retryAfter);
+      const body = (await res.json()) as {
+        error: { code: string; message: string; details?: Record<string, unknown> };
+      };
+      expect(body.error).toEqual({
+        code: 'rate-limit-exceeded',
+        message: 'Extract /app/index.json failed: try again in 13 min',
+        details: { limit: 'tenant-unpack-hour' },
+        requestId: expect.any(String),
+      });
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(0);
+    }
+  });
+
+  test("an image's own bound with a wait is still the image's: 400 image-unverifiable, no Retry-After", async () => {
+    const fixture = buildSignedDeploy();
+    const served = makeMockImageRegistry([
+      { imageRef: fixture.imageRef, digest: fixture.digest, indexBytes: fixture.indexBytes },
+    ]);
+    const error: ImageRegistryError = {
+      code: 'image-limit-exceeded',
+      message: 'unpacks past 4 GiB',
+      limit: 'unpack',
+      retryAfterMs: 60_000,
+    };
+    const { app } = makeApp({
+      fixture,
+      imageRegistry: { ...served, extractFile: async () => ({ kind: 'err' as const, error }) },
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    expect(res.headers.get('retry-after')).toBeNull();
+    const body = (await res.json()) as { error: { code: string; details?: unknown } };
+    expect(body.error.code).toBe('image-unverifiable');
+    expect(body.error.details).toEqual({
+      imageRef: fixture.imageRef,
+      cause: 'image-limit-exceeded',
+      limit: 'unpack',
+    });
   });
 
   test('a check after a read that succeeded names no cause', async () => {
@@ -1981,6 +2049,37 @@ describe('POST /v1/deployments — manifest validation', () => {
     const body = (await res.json()) as { contents: { agents: unknown[] } };
     expect(body.contents.agents).toEqual([{ id: 'acme.summary', version: '1.0.0' }]);
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+  });
+
+  test('a pack built before autoCloseAfterInactiveSeconds was taken out still deploys, and its agent answers without it', async () => {
+    const policy = { historyLimit: 5, autoCloseAfterInactiveSeconds: 600 };
+    const index = indexWith(undefined);
+    const fixture = buildSignedDeploy({
+      index: { ...index, agents: index.agents.map((a) => ({ ...a, conversationPolicy: policy })) },
+    });
+    const agents = makeInMemoryAgentRegistry();
+    const written: Agent[] = [];
+    const { app } = makeApp({
+      fixture,
+      agentRegistry: {
+        ...agents,
+        publish: async (input) => {
+          written.push(input.agent);
+          return agents.publish(input);
+        },
+        get: async () => written[0] ?? null,
+      },
+    });
+    const res = await post(app, fixture.wire);
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(written.map((a) => a.conversationPolicy)).toEqual([policy]);
+    const answered = await app.request('/v1/agents/acme.summary', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(answered.status, await answered.clone().text()).toBe(200);
+    expect(
+      ((await answered.json()) as { conversationPolicy?: unknown }).conversationPolicy,
+    ).toEqual({ historyLimit: 5 });
   });
 
   test("its agents' and flows' schema compiles count against the tenant's budget: refused, nothing is deployed", async () => {
@@ -4071,8 +4170,9 @@ function makeVersionedToolRegistry(): ToolRegistryBinding & { versions: (id: str
     async get() {
       return null;
     },
-    async getVersion() {
-      return null;
+    async getVersion({ toolId, version }) {
+      return (rows.get(toolId as unknown as string)?.get(version as unknown as string) ??
+        null) as never;
     },
     async headExists({ toolId }) {
       return rows.has(toolId as unknown as string);
@@ -4799,15 +4899,21 @@ function indexWith(
 
 const SECOND_KEY_ID = 'aperture-staging-2026-02' as SigningKeyId;
 
-/** An app that trusts two images of the pack: the first, and a later one (`second`). */
-function twoImages(second: SignedDeploy, opts: { refreshes?: boolean } = {}) {
-  const first = buildSignedDeploy({
-    artifactVersion: '20260920.1',
-    index: indexWith('20260920.1'),
-  });
+/** An app that trusts two images of the pack: the first (`opts.first`, else the fixture's), and a later one (`second`). */
+function twoImages(
+  second: SignedDeploy,
+  opts: { refreshes?: boolean; first?: SignedDeploy; toolRegistry?: ToolRegistryBinding } = {},
+) {
+  const first =
+    opts.first ??
+    buildSignedDeploy({
+      artifactVersion: '20260920.1',
+      index: indexWith('20260920.1'),
+    });
   const made = makeApp({
     fixture: first,
     ...(opts.refreshes === true && { refreshes: true }),
+    ...(opts.toolRegistry !== undefined && { toolRegistry: opts.toolRegistry }),
     extraTrust: [
       {
         keyId: SECOND_KEY_ID,
@@ -4977,6 +5083,389 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
     expect(
       await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
     ).not.toBeNull();
+  });
+});
+
+describe("POST /v1/deployments — a tool version that's already published", () => {
+  const TOOL_ID = 'acme.verify-citation';
+  /** The fixture's index for `artifactVersion`, its tool changed by `tool`. */
+  const indexWithTool = (artifactVersion: string, tool: Record<string, unknown>) => {
+    const index = indexWith(artifactVersion) as { tools: Record<string, unknown>[] };
+    return { ...index, tools: index.tools.map((t) => ({ ...t, ...tool })) };
+  };
+  const firstImage = (tool: Record<string, unknown> = {}) =>
+    buildSignedDeploy({ artifactVersion: '20260920.1', index: indexWithTool('20260920.1', tool) });
+  const laterToolImage = (tool: Record<string, unknown>) =>
+    buildSignedDeploy({
+      artifactVersion: '20260921.1',
+      keyId: SECOND_KEY_ID,
+      index: indexWithTool('20260921.1', tool),
+    });
+  const PERSON = { mail: { app: 'google', permissions: ['gmail.send'], as: 'person' } };
+  const COMPANY = { mail: { app: 'google', permissions: ['gmail.send'], as: 'company' } };
+  const errorOf = (text: string) =>
+    (JSON.parse(text) as { error: { code: string; message: string; details?: unknown } }).error;
+  /** Counts the registry's publishes and code-pointer refreshes from now on. */
+  const countWrites = (registry: ToolRegistryBinding) => {
+    const counts = { publish: 0, refresh: 0 };
+    const publish = registry.publish.bind(registry);
+    const refresh = registry.refreshCodeArtifactRef?.bind(registry);
+    const writable = registry as {
+      publish: ToolRegistryBinding['publish'];
+      refreshCodeArtifactRef?: ToolRegistryBinding['refreshCodeArtifactRef'];
+    };
+    writable.publish = async (input) => {
+      counts.publish += 1;
+      return publish(input);
+    };
+    if (refresh !== undefined) {
+      writable.refreshCodeArtifactRef = async (input) => {
+        counts.refresh += 1;
+        return refresh(input);
+      };
+    }
+    return counts;
+  };
+
+  test.each([
+    [
+      'its input',
+      {},
+      {
+        input: {
+          type: 'object',
+          properties: { citation: { type: 'string' }, court: { type: 'string' } },
+        },
+      },
+      ['input'],
+    ],
+    [
+      "whose account a connection it needs is (a mail's `as`)",
+      { needsSpec: { connections: PERSON } },
+      { needsSpec: { connections: COMPANY } },
+      ['needsSpec'],
+    ],
+    ['whether it changes anything', {}, { mutating: false }, ['mutating']],
+    ['its metadata', {}, { metadata: { team: 'legal' } }, ['metadata']],
+    [
+      'where its code lives in the pack',
+      {},
+      { modulePath: './tools/legal/verify.js' },
+      ['modulePath'],
+    ],
+    [
+      'its input and whether it changes anything',
+      {},
+      { mutating: true, input: { type: 'object' } },
+      ['input', 'mutating'],
+    ],
+  ])(
+    'the same version with another %s: 409 tool-already-registered naming the fields, nothing written',
+    async (_why, was, now, fields) => {
+      const second = laterToolImage({ ...was, ...now });
+      const made = twoImages(second, { refreshes: true, first: firstImage(was) });
+      expect((await made.deploy(made.first)).status).toBe(201);
+      const stored = await made.toolRegistry.get({ tenantId, toolId: TOOL_ID as never });
+      const writes = countWrites(made.toolRegistry);
+
+      const answer = await made.deploy(second);
+      expect(answer.status, answer.text).toBe(409);
+      const error = errorOf(answer.text);
+      expect(error.code).toBe('tool-already-registered');
+      expect(error.message).toBe(
+        `The tool ${TOOL_ID}@1.0.0 wasn't published: version 1.0.0 is already published with another definition (it differs in ${fields.join(', ')}); a version never changes, so give the pack's tool a new version; nothing was deployed`,
+      );
+      expect(error.details).toEqual({ primitive: 'tool', id: `${TOOL_ID}@1.0.0`, fields });
+      // Refused before the first write: no publish (so no secret scopes
+      // recorded), no pointer moved, no deployment recorded.
+      expect(writes).toEqual({ publish: 0, refresh: 0 });
+      expect(await made.toolRegistry.get({ tenantId, toolId: TOOL_ID as never })).toEqual(stored);
+      expect((await made.deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+    },
+  );
+
+  test('stored with what a deploy derives (another image, its project, its secret scopes): kept, the deploy goes through', async () => {
+    const fixture = firstImage();
+    const { app, toolRegistry } = makeApp({ fixture, refreshes: true });
+    const published = await toolRegistry.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      tool: {
+        id: TOOL_ID,
+        description: 'Verify a legal citation.',
+        version: '1.0.0',
+        output: { properties: { verified: { type: 'boolean' } }, type: 'object' },
+        input: { type: 'object', properties: { citation: { type: 'string' } } },
+        codeArtifactRef: {
+          kind: 'oci',
+          imageRef: 'ghcr.io/acme/aperture@sha256:0123',
+          modulePath: './tools/legal/verify-citation.js',
+          artifactVersion: '20260901.1',
+        },
+        projectId: DEFAULT_PROJECT_ID,
+        madeInProjectId: DEFAULT_PROJECT_ID,
+        secretScopes: {},
+      } as never,
+      enqueueTuples: () => [],
+    });
+    expect(published.kind).toBe('ok');
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.text()).toBe(201);
+    const kept = (await toolRegistry.get({ tenantId, toolId: TOOL_ID as never })) as unknown as {
+      codeArtifactRef: { artifactVersion: string };
+    };
+    expect(kept.codeArtifactRef.artifactVersion).toBe('20260920.1');
+  });
+
+  /** A registry that lists the tool's version as unregistered (`unregisteredAt`). */
+  const listedUnregistered = (registry: ToolRegistryBinding) => {
+    const listVersions = registry.listVersions.bind(registry);
+    (registry as { listVersions: ToolRegistryBinding['listVersions'] }).listVersions = async (
+      input,
+    ) => {
+      const page = await listVersions(input);
+      return {
+        ...page,
+        data: page.data.map((row) => ({ ...row, unregisteredAt: '2026-09-20T15:00:00.000Z' })),
+      };
+    };
+  };
+
+  test('unregistered, the same definition: kept as before, the deploy goes through', async () => {
+    const second = laterImage();
+    const made = twoImages(second);
+    expect((await made.deploy(made.first)).status).toBe(201);
+    listedUnregistered(made.toolRegistry);
+    expect((await made.deploy(second)).status).toBe(201);
+  });
+
+  test('unregistered, another definition: 409 tool-already-registered, saying it is unregistered', async () => {
+    const second = laterToolImage({ mutating: false });
+    const made = twoImages(second);
+    expect((await made.deploy(made.first)).status).toBe(201);
+    listedUnregistered(made.toolRegistry);
+    const answer = await made.deploy(second);
+    expect(answer.status).toBe(409);
+    const error = errorOf(answer.text);
+    expect(error.code).toBe('tool-already-registered');
+    expect(error.message).toBe(
+      `The tool ${TOOL_ID}@1.0.0 wasn't published: version 1.0.0 is already published (now unregistered) with another definition (it differs in mutating); a version never changes, so give the pack's tool a new version; nothing was deployed`,
+    );
+  });
+
+  test('published with another definition after the deploy checked: 409, and what it wrote before is rolled back', async () => {
+    const tool = (id: string, input: Record<string, unknown>) => ({
+      id,
+      description: 'x',
+      version: '1.0.0',
+      input,
+      output: { type: 'object' },
+      modulePath: `./tools/${id}.js`,
+    });
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [tool('acme.search', { type: 'object' }), tool(TOOL_ID, { type: 'object' })],
+        guardrails: [],
+        agents: [],
+        flows: [],
+      },
+    });
+    const tools = makeInMemoryToolRegistry();
+    // Another deploy publishes the tool's version, with another input,
+    // between this deploy's check and its write.
+    let checked = false;
+    const toolRegistry: ToolRegistryBinding = {
+      ...tools,
+      getVersion: async (input) => {
+        if ((input.toolId as unknown as string) === TOOL_ID && !checked) {
+          checked = true;
+          return null;
+        }
+        return tools.getVersion(input);
+      },
+      publish: async (input) => {
+        if ((input.tool.id as unknown as string) === TOOL_ID) {
+          await tools.publish({
+            ...input,
+            tool: {
+              ...input.tool,
+              input: { type: 'object', properties: { q: { type: 'string' } } },
+            },
+          });
+        }
+        return tools.publish(input);
+      },
+    };
+    const { app, deploymentRegistry } = makeApp({ fixture, toolRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(409);
+    const error = errorOf(await res.text());
+    expect(error.code).toBe('tool-already-registered');
+    expect(error.details).toEqual({ primitive: 'tool', id: `${TOOL_ID}@1.0.0`, fields: ['input'] });
+    // The tool it published first is rolled back.
+    expect(await tools.get({ tenantId, toolId: 'acme.search' as never })).toBeNull();
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test("published after the deploy checked, but its version can't be read at the write: 500, nothing kept, what it wrote before rolled back", async () => {
+    const tool = (id: string) => ({
+      id,
+      description: 'x',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+      modulePath: `./tools/${id}.js`,
+    });
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [tool('acme.search'), tool(TOOL_ID)],
+        guardrails: [],
+        agents: [],
+        flows: [],
+      },
+    });
+    const tools = makeInMemoryToolRegistry();
+    let reads = 0;
+    const refreshes: unknown[] = [];
+    const toolRegistry: ToolRegistryBinding = {
+      ...tools,
+      // The check's read and the write's fail; a later one would find it.
+      getVersion: async (input) => {
+        if ((input.toolId as unknown as string) === TOOL_ID && ++reads <= 2) return null;
+        return tools.getVersion(input);
+      },
+      // Another deploy publishes the version, from another image, between
+      // this deploy's check and its write.
+      publish: async (input) => {
+        if ((input.tool.id as unknown as string) === TOOL_ID) {
+          await tools.publish({
+            ...input,
+            tool: {
+              ...input.tool,
+              codeArtifactRef: {
+                ...input.tool.codeArtifactRef,
+                imageRef: `ghcr.io/acme/elsewhere@sha256:${'b'.repeat(64)}`,
+              } as never,
+            },
+          });
+        }
+        return tools.publish(input);
+      },
+      async refreshCodeArtifactRef(input) {
+        refreshes.push(input);
+        return { refreshed: false };
+      },
+    };
+    const { app, deploymentRegistry } = makeApp({ fixture, toolRegistry });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    expect(errorOf(await res.text()).code).toBe('internal-server-error');
+    // It stops at the read that failed: the version isn't pointed at this image uncompared.
+    expect(reads).toBe(2);
+    expect(refreshes).toEqual([]);
+    // The tool it published first is rolled back.
+    expect(await tools.get({ tenantId, toolId: 'acme.search' as never })).toBeNull();
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  describe('held where its publish decides', () => {
+    const elsewhere = randomUUID() as ProjectId;
+    /** The registry holds the tool's version as `stored`, and its publish answers `publish`. */
+    const holding = (
+      stored: Record<string, unknown>,
+      publish: Awaited<ReturnType<ToolRegistryBinding['publish']>>,
+    ): ToolRegistryBinding => {
+      const tools = makeInMemoryToolRegistry();
+      return {
+        ...tools,
+        getVersion: async (input) =>
+          (input.toolId as unknown as string) === TOOL_ID
+            ? (stored as never)
+            : tools.getVersion(input),
+        publish: async (input) =>
+          (input.tool.id as unknown as string) === TOOL_ID ? publish : tools.publish(input),
+      };
+    };
+    const changed = {
+      id: TOOL_ID,
+      description: 'Verify a legal citation.',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+    };
+    const deployWith = async (toolRegistry: ToolRegistryBinding) => {
+      const fixture = firstImage();
+      const { app } = makeApp({ fixture, toolRegistry });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      return { status: res.status, text: await res.text() };
+    };
+
+    test("another project's, with another definition: 409 tool-project-mismatch as before, its project unnamed", async () => {
+      const answer = await deployWith(
+        holding({ ...changed, projectId: elsewhere }, {
+          kind: 'project-mismatch',
+          projectId: elsewhere,
+        } as never),
+      );
+      expect(answer.status).toBe(409);
+      expect(errorOf(answer.text).code).toBe('tool-project-mismatch');
+      expect(answer.text).not.toContain(elsewhere);
+    });
+
+    test('in another project of its environment order, with another definition: 409 tool-already-registered at the write', async () => {
+      const answer = await deployWith(
+        holding(
+          { ...changed, projectId: elsewhere },
+          { kind: 'already-registered', toolId: TOOL_ID as never, version: '1.0.0' as never },
+        ),
+      );
+      expect(answer.status).toBe(409);
+      const error = errorOf(answer.text);
+      expect(error.code).toBe('tool-already-registered');
+      expect(error.details).toEqual({
+        primitive: 'tool',
+        id: `${TOOL_ID}@1.0.0`,
+        fields: ['input', 'output', 'modulePath'],
+      });
+    });
+
+    test("an MCP endpoint's tool: 409 tool-kind-mismatch as before", async () => {
+      const answer = await deployWith(
+        holding(
+          { ...changed, transport: 'mcp', projectId: DEFAULT_PROJECT_ID },
+          {
+            kind: 'kind-mismatch',
+            toolId: TOOL_ID as never,
+            version: '1.0.0' as never,
+            endpointId: 'acme',
+          },
+        ),
+      );
+      expect(answer.status).toBe(409);
+      expect(errorOf(answer.text).code).toBe('tool-kind-mismatch');
+    });
   });
 });
 
@@ -5740,5 +6229,660 @@ describe('POST /v1/deployments/:deploymentId/secrets on a runtime that refuses o
       ['staging', 'search.key'],
     ]);
     expect(reads).toBe(1);
+  });
+});
+
+// ------------------------------------------------------------------
+// A deploy into a project, then its secrets sync: where a call reads them
+// ------------------------------------------------------------------
+
+describe('POST /v1/deployments into a project, then its secrets sync: a call reads what the sync stored', () => {
+  /** A pack whose one tool, `acme.lookup@1.0.0`, declares `ACME_LOOKUP_KEY`. */
+  const lookupPack = (artifactVersion: string) =>
+    buildSignedDeploy({
+      artifactVersion,
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion,
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.lookup',
+            description: 'Looks things up with its own key.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/lookup.js',
+            needsSpec: { secrets: { ACME_LOOKUP_KEY: { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+
+  /** CLIENT_A's org, so a tool there looks at the project, the org, then the tenant. */
+  const ORG = 'o-acme-clients' as OrgId;
+  /** The scopes each role administers, as the authorizer is asked them (no inheritance here). */
+  const ROLES = {
+    'tenant-admin': [`admin tenant:${tenantId}`, `admin org:${ORG}`, `admin project:${CLIENT_A}`],
+    'org-admin': [`admin org:${ORG}`, `admin project:${CLIENT_A}`],
+    'project-admin': [`admin project:${CLIENT_A}`],
+  } as const;
+  type Role = keyof typeof ROLES;
+  const roleToken = (role: Role) => `deployments-role-${role}`;
+
+  /** An authorizer that grants `role` its scopes, with CLIENT_A in ORG. */
+  function authorizedAs(role: Role): Partial<Parameters<typeof createApp>[0]> {
+    const grants: readonly string[] = [...ROLES[role], `read tenant:${tenantId}`];
+    const decide = (_p: unknown, action: string, resource: { type: string; id: string }) => {
+      const allowed = grants.includes(`${action} ${resource.type}:${resource.id}`);
+      return {
+        allowed,
+        reason: allowed ? 'test: granted' : 'test: not granted',
+        evidence: {
+          action,
+          relation: '',
+          resource: `${resource.type}:${resource.id}`,
+          actorSubject: '',
+        },
+      };
+    };
+    const projects = makeMockProjectBinding();
+    return {
+      resolveToken: async (token) =>
+        token === roleToken(role)
+          ? { tenantId, userId: role as never }
+          : resolveTokenWithCaps(token),
+      authz: {
+        fgaApiUrl: 'http://fga.invalid',
+        authzCheckBinding: {
+          check: async (p, a, r) => decide(p, a, r) as never,
+          checkBatch: async (p, a, rs) => rs.map((r) => decide(p, a, r)) as never,
+        },
+      },
+      projectBinding: {
+        ...projects,
+        get: async (t, id) => {
+          const project = await projects.get(t, id);
+          return project !== undefined && id === CLIENT_A ? { ...project, orgId: ORG } : project;
+        },
+      },
+    };
+  }
+
+  /**
+   * No authorizer unless `as` names a role (without one every scope counts,
+   * as a tenant admin's would), no secret set anywhere yet unless `seed`
+   * sets one, and stores that act as the runtime's do: the secrets store
+   * reads only at the scope it's asked (`exact`), and the tool registry
+   * keeps a version's first record, so publishing it again records nothing.
+   */
+  function setup(
+    packs: readonly SignedDeploy[],
+    opts: { readonly as?: Role; readonly seed?: readonly Scope[] } = {},
+  ) {
+    const secrets = makeFixtureSecretBinding(
+      (opts.seed ?? []).map((scope) => ({
+        scope,
+        envName: 'prod',
+        name: 'ACME_LOOKUP_KEY',
+        currentVersion: 1,
+      })),
+    );
+    const secretsBinding: SecretBinding = {
+      ...secrets.binding,
+      async resolve(input) {
+        const set = secrets.recordedSets.findLast(
+          (s) =>
+            scopeKey(s.scope) === scopeKey(input.scope) &&
+            s.envName === (input.envName as unknown as string) &&
+            s.name === input.name,
+        );
+        if (set === undefined) {
+          return {
+            kind: 'err',
+            error: { code: 'secret-not-found', message: 'not set', name: input.name },
+          };
+        }
+        return {
+          kind: 'ok',
+          value: { name: input.name, versionId: 1, value: set.value, scope: set.scope },
+        };
+      },
+    };
+    const tools = makeVersionedToolRegistry();
+    const recorded = new Map<string, ToolPublishScopes>();
+    const toolRegistry = {
+      ...tools,
+      publish: async (input: Parameters<ToolRegistryBinding['publish']>[0]) => {
+        const key = `${input.tool.id as unknown as string}@${input.tool.version}`;
+        if (!recorded.has(key)) recorded.set(key, input.secretScopes);
+        return tools.publish(input);
+      },
+    } as ToolRegistryBinding;
+    const { app } = makeApp({
+      toolRegistry,
+      extraTrust: packs.map((f) => ({
+        keyId: KEY_ID,
+        tenantId,
+        publicKey: Buffer.from(f.publicKeyRaw).toString('base64'),
+      })),
+      extraImages: packs.map((f) => ({
+        imageRef: f.imageRef,
+        digest: f.digest,
+        indexBytes: f.indexBytes,
+      })),
+      ...(opts.as !== undefined && { omitProjectBinding: true }),
+      extra: {
+        secretsBinding,
+        envName: 'prod' as never,
+        resolveToken: resolveTokenWithCaps,
+        ...(opts.as !== undefined && authorizedAs(opts.as)),
+      },
+    });
+    const token = opts.as !== undefined ? roleToken(opts.as) : TOKEN;
+    const deploy = async (f: SignedDeploy, projectId?: ProjectId) => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...f.wire, ...(projectId !== undefined && { projectId }) }),
+      });
+      expect(res.status, await res.clone().text()).toBe(201);
+      return ((await res.json()) as { deploymentId: string }).deploymentId;
+    };
+    // What `kindgi deploy --sync-secrets` does once the deploy lands.
+    const sync = async (deploymentId: string) => {
+      const res = await app.request(`/v1/deployments/${deploymentId}/secrets`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${SECRETS_TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          envName: 'prod',
+          secrets: [{ name: 'ACME_LOOKUP_KEY', value: 'acme-lookup-key-value' }],
+        }),
+      });
+      expect(res.status, await res.clone().text()).toBe(200);
+    };
+    // The scope recorded for the version's secret.
+    const recordedAt = () => recorded.get('acme.lookup@1.0.0')?.ACME_LOOKUP_KEY;
+    // As a call reads it: at the scope recorded for the version, and there only.
+    const read = async () => {
+      const at = recordedAt();
+      if (at === undefined || at === null) throw new Error(`nothing recorded: ${String(at)}`);
+      const resolved = await resolveAtScope(secretsBinding, {
+        scope: scopeOfRecorded(tenantId, at),
+        envName: 'prod' as EnvName,
+        name: 'ACME_LOOKUP_KEY',
+        resolveContext: { caller: 'dispatch' },
+      });
+      return { at, resolved };
+    };
+    return { deploy, sync, read, recordedAt, synced: secrets.recordedSets };
+  }
+
+  test('a first deploy into a named project, with the secret set nowhere yet', async () => {
+    const pack = lookupPack('20260920.1');
+    const { deploy, sync, read, synced } = setup([pack]);
+    await sync(await deploy(pack, CLIENT_A));
+    expect(synced.map((s) => s.scope)).toEqual([
+      { kind: 'project', tenantId, projectId: CLIENT_A },
+    ]);
+    const { at, resolved } = await read();
+    expect(resolved, JSON.stringify(resolved)).toMatchObject({
+      kind: 'ok',
+      value: { value: 'acme-lookup-key-value' },
+    });
+    expect(at).toEqual({ kind: 'project', projectId: CLIENT_A });
+  });
+
+  test('a later deploy of the same tool version, after that first one', async () => {
+    const first = lookupPack('20260920.1');
+    const second = lookupPack('20260920.2');
+    const { deploy, sync, read } = setup([first, second]);
+    await sync(await deploy(first, CLIENT_A));
+    await sync(await deploy(second, CLIENT_A));
+    const { resolved } = await read();
+    expect(resolved, JSON.stringify(resolved)).toMatchObject({
+      kind: 'ok',
+      value: { value: 'acme-lookup-key-value' },
+    });
+  });
+
+  test('a deploy with no project: its tools go to the Default project, and it syncs the tenant', async () => {
+    const pack = lookupPack('20260920.1');
+    const { deploy, sync, read, synced } = setup([pack]);
+    await sync(await deploy(pack));
+    expect(synced.map((s) => s.scope)).toEqual([{ kind: 'tenant', tenantId }]);
+    const { at, resolved } = await read();
+    expect(resolved, JSON.stringify(resolved)).toMatchObject({
+      kind: 'ok',
+      value: { value: 'acme-lookup-key-value' },
+    });
+    expect(at).toEqual({ kind: 'tenant' });
+  });
+
+  test("with an authorizer, a first deploy into a named project records it for the tenant's admin, an org's admin and the project's", async () => {
+    for (const role of ['tenant-admin', 'org-admin', 'project-admin'] as const) {
+      const pack = lookupPack('20260920.1');
+      const { deploy, recordedAt } = setup([pack], { as: role });
+      await deploy(pack, CLIENT_A);
+      expect(recordedAt(), role).toEqual({ kind: 'project', projectId: CLIENT_A });
+    }
+  });
+
+  test('a name already set at a broader scope the deployer administers is still recorded there', async () => {
+    const pack = lookupPack('20260920.1');
+    const atOrg = setup([pack], { as: 'org-admin', seed: [{ kind: 'org', tenantId, orgId: ORG }] });
+    await atOrg.deploy(pack, CLIENT_A);
+    expect(atOrg.recordedAt()).toEqual({ kind: 'org', orgId: ORG });
+    const atTenant = setup([pack], { as: 'tenant-admin', seed: [{ kind: 'tenant', tenantId }] });
+    await atTenant.deploy(pack, CLIENT_A);
+    expect(atTenant.recordedAt()).toEqual({ kind: 'tenant' });
+  });
+});
+
+type ToolPublishScopes = Parameters<ToolRegistryBinding['publish']>[0]['secretScopes'];
+
+// ---------------- the pack's data blocks ----------------
+
+describe("POST /v1/deployments — the pack's data blocks are published with it", () => {
+  const REPLY = {
+    id: 'acme.reply',
+    version: '1.0.0',
+    kind: 'prompt',
+    content: { template: 'Reply to {{ name }}.' },
+    modulePath: 'blocks/reply.json',
+  };
+  const STYLE = {
+    id: 'acme.style',
+    version: '1.0.0',
+    kind: 'settings',
+    content: { values: { tone: 'warm' } },
+    modulePath: 'blocks/style.json',
+  };
+
+  /** A pack whose agent takes its prompt and settings from blocks; `blocks` absent when not given. */
+  function pack(blocks?: readonly Record<string, unknown>[], artifactVersion = '20261020.1') {
+    const publishedAt = '2026-10-20T21:00:00.000Z';
+    return buildSignedDeploy({
+      artifactVersion,
+      publishedAt,
+      index: {
+        v: 1,
+        packId: 'acme.support',
+        packVersion: '1.0.0',
+        artifactVersion,
+        publishedAt,
+        tools: [],
+        guardrails: [],
+        agents: [
+          {
+            id: 'acme.replier',
+            version: '1.0.0',
+            name: 'Replier',
+            instructions: { prompt: 'acme.reply', version: '^1.0.0' },
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+            settings: [{ id: 'acme.style', version: '^1.0.0' }],
+          },
+        ],
+        flows: [],
+        ...(blocks !== undefined && { blocks }),
+      },
+    });
+  }
+
+  function setup(
+    opts: { withBlocks?: boolean; agentFails?: boolean; blocksReadOnly?: string } = {},
+  ) {
+    const blocks = inMemoryBlocks();
+    const agents = makeInMemoryAgentRegistry();
+    const failing = { agent: opts.agentFails === true };
+    const pinned: unknown[] = [];
+    const written: string[] = [];
+    const asked: string[] = [];
+    const deploy = async (f: SignedDeploy) => {
+      const { app } = makeApp({
+        fixture: f,
+        agentRegistry: {
+          ...agents,
+          publish: async (input) => {
+            if (failing.agent) throw new Error('agent store down');
+            written.push(`agent ${input.agent.id as unknown as string}`);
+            pinned.push(input.agent.pins);
+            return agents.publish(input);
+          },
+        },
+        extra: {
+          ...(opts.withBlocks !== false && {
+            blockRegistry: {
+              ...blocks,
+              ...(opts.blocksReadOnly !== undefined && {
+                readOnly: { reason: opts.blocksReadOnly },
+              }),
+              publish: async (input) => {
+                const outcome = await blocks.publish(input);
+                written.push(`block ${input.block.id}@${input.block.version} ${outcome.kind}`);
+                return outcome;
+              },
+            },
+          }),
+          referenceScope: {
+            reachable: async ({ ref }) => {
+              asked.push(`${ref.kind}:${ref.id}`);
+              return true;
+            },
+          },
+        },
+      });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(f.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    const held = (blockId: string, version: string) =>
+      blocks.getVersion({ tenantId, blockId, version });
+    return { blocks, deploy, held, pinned, written, asked, failing };
+  }
+
+  test('a read-only block registry refuses the deploy before anything is written', async () => {
+    const reason =
+      "Under kindgi dev, the pack is the source of data blocks: change the block in the pack's files.";
+    const { deploy, held, written } = setup({ blocksReadOnly: reason });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({ code: 'registry-read-only', message: reason });
+    expect(written).toEqual([]);
+    expect(await held('acme.reply', '1.0.0')).toBeNull();
+  });
+
+  test("its new blocks are published into the deploy's project first, and its agent pins them", async () => {
+    const { deploy, held, pinned, written, asked } = setup();
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(written).toEqual([
+      'block acme.reply@1.0.0 ok',
+      'block acme.style@1.0.0 ok',
+      'agent acme.replier',
+    ]);
+    expect(await held('acme.reply', '1.0.0')).toMatchObject({
+      kind: 'prompt',
+      content: { template: 'Reply to {{ name }}.' },
+      projectId: DEFAULT_PROJECT_ID,
+    });
+    // Its file in the pack isn't part of the block.
+    expect(await held('acme.reply', '1.0.0')).not.toHaveProperty('modulePath');
+    expect(pinned).toEqual([
+      expect.objectContaining({
+        prompts: { 'acme.reply': '1.0.0' },
+        settings: { 'acme.style': '1.0.0' },
+      }),
+    ]);
+    // What the deploy brings needn't be reachable from elsewhere.
+    expect(asked.filter((a) => a.startsWith('block:'))).toEqual([]);
+  });
+
+  test('a version it holds with the same content is kept, a settings version keeping its schema included', async () => {
+    const { blocks, deploy, held, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: {
+        id: 'acme.style',
+        version: '0.9.0',
+        kind: 'settings',
+        content: { values: { tone: 'brief' }, schema: { type: 'object' } },
+      },
+    });
+    expect((await deploy(pack([REPLY, STYLE]))).status).toBe(201);
+    // Stored with the schema it keeps from 0.9.0; the pack's file gives none.
+    expect(await held('acme.style', '1.0.0')).toMatchObject({
+      content: { values: { tone: 'warm' }, schema: { type: 'object' } },
+    });
+    written.length = 0;
+    const again = await deploy(pack([REPLY, STYLE], '20261020.2'));
+    expect(again.status, JSON.stringify(again.body)).toBe(201);
+    expect(written.filter((w) => w.startsWith('block '))).toEqual([
+      'block acme.reply@1.0.0 already-registered',
+      'block acme.style@1.0.0 already-registered',
+    ]);
+  });
+
+  test('a version it holds with other content is refused before anything is written: give it a new version', async () => {
+    const { blocks, deploy, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: { id: 'acme.reply', version: '1.0.0', kind: 'prompt', content: { template: 'Hi.' } },
+    });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'block-already-registered',
+      details: { primitive: 'block', id: 'acme.reply@1.0.0' },
+    });
+    expect(res.body.error.message).toBe(
+      "The block acme.reply@1.0.0 wasn't published: version 1.0.0 is already published with other content; a version never changes, so give the pack's block a new version; nothing was deployed",
+    );
+    expect(written).toEqual([]);
+  });
+
+  test('an unregistered version is refused, naming how to reinstate it', async () => {
+    const { blocks, deploy, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
+    });
+    await blocks.unregister({ tenantId, blockId: 'acme.style', version: '1.0.0' });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('block-already-registered');
+    expect(res.body.error.message).toBe(
+      "The block acme.style@1.0.0 wasn't published: version 1.0.0 is unregistered (by hand, or by a deploy that failed after publishing it): reinstate it (`kindgi blocks reinstate acme.style --block-version=1.0.0`), or give the pack's block a new version; nothing was deployed",
+    );
+    expect(written).toEqual([]);
+  });
+
+  test("a block that doesn't hold up, or a version of another kind: deployment-validation-failed, at its place in blocks", async () => {
+    const { blocks, deploy, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: { id: 'acme.style', version: '0.9.0', kind: 'prompt', content: { template: 'x' } },
+    });
+    const broken = { ...REPLY, content: { template: 'Reply to {{ name ' } };
+    const invalid = await deploy(pack([broken, STYLE]));
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.code).toBe('deployment-validation-failed');
+    expect(invalid.body.error.details.issues).toEqual([
+      expect.objectContaining({
+        primitive: 'block',
+        index: 0,
+        id: 'acme.reply',
+        path: '/content/template',
+      }),
+    ]);
+
+    const otherKind = await deploy(pack([REPLY, STYLE], '20261020.2'));
+    expect(otherKind.status).toBe(400);
+    expect(otherKind.body.error.details.issues).toEqual([
+      expect.objectContaining({ primitive: 'block', index: 1, id: 'acme.style', path: '/kind' }),
+    ]);
+    expect(written).toEqual([]);
+  });
+
+  test('a block whose versions live in another project is refused, even unchanged; nothing stays published', async () => {
+    const { blocks, deploy, written } = setup();
+    await blocks.publish({
+      tenantId,
+      projectId: ELSEWHERE_PROJECT_ID,
+      block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
+    });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'block-project-mismatch',
+      details: { primitive: 'block', id: 'acme.style@1.0.0' },
+    });
+    expect(written).toEqual([
+      'block acme.reply@1.0.0 ok',
+      'block acme.style@1.0.0 project-mismatch',
+    ]);
+    // The one it published is rolled back.
+    expect(await blocks.get({ tenantId, blockId: 'acme.reply' })).toBeNull();
+  });
+
+  test('a write that fails after them rolls its new blocks back', async () => {
+    const { blocks, deploy, held } = setup({ agentFails: true });
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
+    });
+    expect((await deploy(pack([REPLY, STYLE]))).status).toBe(500);
+    expect(await held('acme.reply', '1.0.0')).toHaveProperty('unregisteredAt');
+    // The one it kept was never the deploy's to roll back.
+    expect(await held('acme.style', '1.0.0')).not.toHaveProperty('unregisteredAt');
+  });
+
+  test('its retry is refused, naming each block it rolled back and the command that reinstates it; reinstated, the pack deploys', async () => {
+    const { blocks, deploy, held, pinned, written, failing } = setup({ agentFails: true });
+    const f = pack([REPLY, STYLE]);
+    expect((await deploy(f)).status).toBe(500);
+    failing.agent = false;
+    written.length = 0;
+
+    // The registry doesn't record who unregistered a version: the deploy never reinstates one.
+    const retry = await deploy(f);
+    expect(retry.status).toBe(409);
+    expect(retry.body.error).toMatchObject({
+      code: 'block-already-registered',
+      details: { primitive: 'block', id: 'acme.reply@1.0.0' },
+    });
+    expect(retry.body.error.message).toBe(
+      "The block acme.reply@1.0.0 wasn't published: version 1.0.0 is unregistered, and so is acme.style@1.0.0 (by hand, or by a deploy that failed after publishing them): reinstate each (`kindgi blocks reinstate acme.reply --block-version=1.0.0`, `kindgi blocks reinstate acme.style --block-version=1.0.0`), or give the pack's blocks new versions; nothing was deployed",
+    );
+    expect(written).toEqual([]);
+
+    for (const blockId of ['acme.reply', 'acme.style']) {
+      await blocks.reinstateVersion({ tenantId, blockId, version: '1.0.0' });
+    }
+    const reinstated = await deploy(f);
+    expect(reinstated.status, JSON.stringify(reinstated.body)).toBe(201);
+    expect(written).toEqual([
+      'block acme.reply@1.0.0 already-registered',
+      'block acme.style@1.0.0 already-registered',
+      'agent acme.replier',
+    ]);
+    expect(pinned).toEqual([
+      expect.objectContaining({
+        prompts: { 'acme.reply': '1.0.0' },
+        settings: { 'acme.style': '1.0.0' },
+      }),
+    ]);
+    expect(await held('acme.reply', '1.0.0')).not.toHaveProperty('unregisteredAt');
+  });
+
+  /** Publish a version of the prompt block straight to the runtime, as `kindgi blocks publish` does. */
+  async function publishReply(blocks: ReturnType<typeof inMemoryBlocks>, version: string) {
+    await blocks.publish({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      block: { id: 'acme.reply', version, kind: 'prompt', content: { template: 'Hello.' } },
+    });
+  }
+
+  test("an agent pins the pack's own version of a block it brings, not a newer one in range", async () => {
+    const { blocks, deploy, held, pinned } = setup();
+    await publishReply(blocks, '1.0.0');
+    await publishReply(blocks, '1.5.0');
+    const res = await deploy(pack([{ ...REPLY, version: '1.2.0' }, STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(await held('acme.reply', '1.2.0')).not.toBeNull();
+    expect(pinned).toEqual([
+      expect.objectContaining({
+        prompts: { 'acme.reply': '1.2.0' },
+        settings: { 'acme.style': '1.0.0' },
+      }),
+    ]);
+  });
+
+  test("a block the pack doesn't bring pins the newest published version in range, as before", async () => {
+    const { blocks, deploy, pinned } = setup();
+    await publishReply(blocks, '1.0.0');
+    await publishReply(blocks, '1.5.0');
+    const res = await deploy(pack([STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(pinned).toEqual([
+      expect.objectContaining({
+        prompts: { 'acme.reply': '1.5.0' },
+        settings: { 'acme.style': '1.0.0' },
+      }),
+    ]);
+  });
+
+  test("a range that doesn't take the pack's version is refused, naming both, before anything is written", async () => {
+    const { blocks, deploy, held, written } = setup();
+    // The runtime holds a version the range takes; the pack's files are the agent, so it isn't used.
+    await publishReply(blocks, '1.0.0');
+    const res = await deploy(pack([{ ...REPLY, version: '2.0.0' }, STYLE]));
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.message).toContain(
+      "use tool, agent or block versions that aren't published",
+    );
+    expect(JSON.stringify(res.body.error.details)).toContain(
+      'prompt block \\"acme.reply\\": the pack brings version 2.0.0, which \\"^1.0.0\\" doesn\'t take; change the agent\'s range or the block\'s version',
+    );
+    expect(written).toEqual([]);
+    expect(await held('acme.reply', '2.0.0')).toBeNull();
+  });
+
+  test("an index without blocks (a CLI from before them) pins what's published, and refuses what isn't", async () => {
+    const { deploy, written } = setup();
+    const res = await deploy(pack());
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(JSON.stringify(res.body.error.details)).toContain(
+      'prompt block \\"acme.reply\\" has no published version; publish the block first',
+    );
+    expect(written).toEqual([]);
+  });
+
+  test('a runtime with no block registry takes no blocks', async () => {
+    const { deploy, written } = setup({ withBlocks: false });
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('deployment-validation-failed');
+    expect(res.body.error.details.issues).toEqual([
+      {
+        primitive: 'block',
+        index: 0,
+        id: 'acme.reply',
+        path: '',
+        message: 'this runtime serves no data blocks',
+      },
+      {
+        primitive: 'block',
+        index: 1,
+        id: 'acme.style',
+        path: '',
+        message: 'this runtime serves no data blocks',
+      },
+    ]);
+    expect(written).toEqual([]);
+  });
+
+  test('the runtime says so in /v1/openapi.json: info["x-kindgi-capabilities"] lists deploy-publishes-pack-blocks', async () => {
+    const { app } = makeApp({});
+    const doc = (await (await app.request('/v1/openapi.json')).json()) as {
+      info: Record<string, unknown>;
+    };
+    expect(doc.info['x-kindgi-capabilities']).toContain('deploy-publishes-pack-blocks');
+    expect(doc.info.version).toBe('0.1.0');
   });
 });

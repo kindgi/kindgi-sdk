@@ -12,6 +12,7 @@ import { defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
 import type { RunId, TenantId, ToolId } from '@kindgi/types';
 
+import type { HitlCancelledError, HitlWithdrawnError } from '../src/guardrails-gate.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
@@ -343,23 +344,34 @@ describe('dispatch-tools — a gated call whose wait is cancelled', () => {
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(AgentTurnFailure);
-    return (error as AgentTurnFailure).payload as unknown as Record<string, unknown>;
+    return (error as AgentTurnFailure).payload;
   };
 
   test('withdrawn by a reviewer: the turn fails with hitl-withdrawn, and the tool never runs', async () => {
-    expect(await failureOf(APPROVAL_WITHDRAWN_REASON)).toEqual({
+    const failure = await failureOf(APPROVAL_WITHDRAWN_REASON);
+    expect(failure).toEqual({
       code: 'hitl-withdrawn',
       message: 'The approval for tool call pack.lookup was withdrawn',
       reason: APPROVAL_WITHDRAWN_REASON,
     });
+    // A declared error: a typed caller narrows to it.
+    if (failure.code === 'hitl-withdrawn') {
+      const declared: HitlWithdrawnError = failure;
+      expect(declared.reason).toBe(APPROVAL_WITHDRAWN_REASON);
+    }
   });
 
   test('cancelled otherwise (a timeout): hitl-cancelled, as before', async () => {
-    expect(await failureOf('timeout')).toEqual({
+    const failure = await failureOf('timeout');
+    expect(failure).toEqual({
       code: 'hitl-cancelled',
       message: 'Tool-call HITL cancelled for pack.lookup: timeout',
       reason: 'timeout',
     });
+    if (failure.code === 'hitl-cancelled') {
+      const declared: HitlCancelledError = failure;
+      expect(declared.reason).toBe('timeout');
+    }
   });
 });
 

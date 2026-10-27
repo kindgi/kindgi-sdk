@@ -9,6 +9,7 @@
 //
 //   authorize(action, resourceGetter)  → Hono middleware, 403s on deny
 //   can(c, action, resource)           → boolean, for conditional logic
+//   canFor(c, who, action, resource)   → boolean, for someone the request names
 //   check(c, action, resource)         → full Decision, for advanced cases
 //   filterByCan(c, action, items, fn)  → the items the principal may act on
 //
@@ -47,6 +48,19 @@ export interface Authorizer {
   readonly authorize: (action: Action, getResource: ResourceGetter) => MiddlewareHandler<AppEnv>;
   readonly can: (c: Context<AppEnv>, action: Action, resource: ResourceRef) => Promise<boolean>;
   readonly check: (c: Context<AppEnv>, action: Action, resource: ResourceRef) => Promise<Decision>;
+  /**
+   * Whether `principal`, not the caller, may take `action` on `resource`:
+   * for someone a request names, such as a trigger's owner. The store
+   * decides alone (the caller's API key limits only the caller), with the
+   * request's id as the correlation id, as the caller's own checks carry.
+   * A store that fails throws: there is no answer to fall back to.
+   */
+  readonly canFor: (
+    c: Context<AppEnv>,
+    principal: Principal,
+    action: Action,
+    resource: ResourceRef,
+  ) => Promise<boolean>;
   /**
    * `check`, for an item more than one project serves (`item-rights.ts`).
    * A caller whose API key is limited to a project reaches the item when
@@ -271,6 +285,10 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     },
     async can(c, action, resource) {
       const d = await checkInternal(c, action, resource);
+      return d.allowed;
+    },
+    async canFor(c, principal, action, resource) {
+      const d = await binding.check(principal, action, resource, contextOf(c));
       return d.allowed;
     },
     authorize(action, getResource) {

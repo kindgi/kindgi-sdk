@@ -4,7 +4,7 @@
 import type { AgentId } from '@kindgi/agents';
 import type { Principal } from '@kindgi/authz';
 import type { FlowVersionOverrides } from '@kindgi/flow';
-import type { RunIdempotencyKey, RunStartedBy, RunTriggerRef } from '@kindgi/runtime';
+import type { RunIdempotencyKey, RunMailbox, RunStartedBy, RunTriggerRef } from '@kindgi/runtime';
 import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 /**
@@ -129,6 +129,19 @@ export interface InvokeAgentBindingInput {
    */
   readonly startedBy?: RunStartedBy;
   /**
+   * What the run may call without a person's yes though no person started
+   * it (`RunFlowInput.toolsAllowedUnattended`): set by a webhook's, a
+   * schedule's or a mail trigger's fire from its trigger, never by a route
+   * from a body. The run records it.
+   */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The mailbox the run's mail came from (`RunFlowInput.mailbox`): set by
+   * a mail trigger's fire, never by a route from a body. The run records
+   * it.
+   */
+  readonly mailbox?: RunMailbox;
+  /**
    * Who started the run (the authenticated caller), when known: whom the
    * turn acts for, e.g. whose own memory its retrievals may read. Set by
    * the route, never from the body. On its own it enforces nothing.
@@ -164,6 +177,10 @@ export interface InvokeFlowBindingInput {
   readonly trigger?: RunTriggerRef;
   /** How the run started, as for `InvokeAgentBindingInput.startedBy`. */
   readonly startedBy?: RunStartedBy;
+  /** What it may call without a person's yes, as for `InvokeAgentBindingInput.toolsAllowedUnattended`. */
+  readonly toolsAllowedUnattended?: readonly string[];
+  /** The mailbox a mail trigger's run came from, as for `InvokeAgentBindingInput.mailbox`. */
+  readonly mailbox?: RunMailbox;
   /** Agents and tools to run at other exact versions than the flow version's pins (`RunFlowInput.versions`). */
   readonly versions?: FlowVersionOverrides;
   /** Who started the run, as for `InvokeAgentBindingInput.principal`: its agent steps act for them. */

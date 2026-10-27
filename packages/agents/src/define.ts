@@ -247,10 +247,13 @@ export interface DefineAgentSpec {
   readonly conversationPolicy?: ConversationPolicy;
   /**
    * Turn budget caps. `maxSteps` limits model+tool call loop
-   * iterations per turn; `maxCostUsd` caps model spend per turn;
-   * `maxWallMs` bounds turn wall-clock time. Exceeding any cap
-   * ends the turn with a `budget-exceeded` failure. Sensible dev
-   * defaults: `{maxSteps: 6, maxCostUsd: 0.1, maxWallMs: 30_000}`.
+   * iterations per turn (default 8, and at most
+   * `AGENT_TURN_LOOP_MAX_ITERATIONS`, 32: a higher value acts as 32);
+   * `maxCostUsd` caps model spend per turn (no cap by default);
+   * `maxWallMs` bounds turn wall-clock time (default 120_000, 2 min).
+   * Running out of steps or cost ends the turn with a
+   * `budget-exceeded` failure; running out of time aborts it
+   * (`agent-turn-aborted`, reason `timeout`).
    */
   readonly budget?: TurnBudget;
   /** Free-form tags for catalog filtering. Not interpreted by the runtime. */
@@ -637,16 +640,7 @@ function validateConversationPolicy(
       message: 'historyLimit must be a positive integer',
     });
   }
-  if (
-    policy.autoCloseAfterInactiveSeconds !== undefined &&
-    (!Number.isInteger(policy.autoCloseAfterInactiveSeconds) ||
-      policy.autoCloseAfterInactiveSeconds <= 0)
-  ) {
-    out.push({
-      path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
-      message: 'autoCloseAfterInactiveSeconds must be a positive integer',
-    });
-  }
+  out.push(...validateAutoClose(policy));
   if (
     policy.hitlAfterTurns !== undefined &&
     (!Number.isInteger(policy.hitlAfterTurns) || policy.hitlAfterTurns <= 0)
@@ -766,6 +760,23 @@ function validateSeparateApprover(value: unknown, toolIds?: ReadonlySet<string>)
     }
   }
   return out;
+}
+
+/**
+ * `autoCloseAfterInactiveSeconds`: refused, whatever its value. It was
+ * accepted and never acted on: a conversation closes only when someone
+ * closes it.
+ */
+function validateAutoClose(policy: ConversationPolicy): Issue[] {
+  const { autoCloseAfterInactiveSeconds } = policy as { autoCloseAfterInactiveSeconds?: unknown };
+  if (autoCloseAfterInactiveSeconds === undefined) return [];
+  return [
+    {
+      path: '/conversationPolicy/autoCloseAfterInactiveSeconds',
+      message:
+        "autoCloseAfterInactiveSeconds isn't supported: a conversation never closes by itself. It closes when someone closes it: Close in the console, kindgi conversations close, or POST /v1/conversations/{id}/close. Leave it out.",
+    },
+  ];
 }
 
 /**

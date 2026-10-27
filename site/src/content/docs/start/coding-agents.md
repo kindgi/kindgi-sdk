@@ -38,7 +38,7 @@ agent that uses it, a flow around both) loads each one in turn.
 
 | Skill | Loaded when |
 |---|---|
-| `kindgi-getting-started`, `kindgi-python-getting-started`, `kindgi-java-getting-started`, `kindgi-scala-getting-started` | Setting up or orienting in a pack |
+| `kindgi-getting-started`, `kindgi-python-getting-started`, `kindgi-java-getting-started`, `kindgi-scala-getting-started` | Setting up or orienting in a pack, or upgrading a self-hosted deployment |
 | `kindgi-authoring-tools`, `kindgi-python-authoring-tools`, `kindgi-java-authoring-tools`, `kindgi-scala-authoring-tools` | Writing a tool: typed input and output, side effects, secrets, HTTP tools |
 | `kindgi-authoring-agents`, `kindgi-python-authoring-agents`, `kindgi-java-authoring-agents`, `kindgi-scala-authoring-agents` | Writing an agent: instructions, tools, typed output, budgets |
 | `kindgi-authoring-flows`, `kindgi-python-authoring-flows`, `kindgi-java-authoring-flows`, `kindgi-scala-authoring-flows` | Writing a flow: steps, edges, conditions, loops, fanout |
@@ -61,8 +61,8 @@ A pack gets the skills for its language, plus the shared ones.
 
 The skills ship with the CLI, so `kindgi init` copies the ones written for
 the Kindgi version it installs. The agent writes against the API you have,
-not one it half-remembers. After an upgrade, `kindgi dev` tells you the
-skills are behind, and `kindgi skills sync` refreshes them (see
+not one it half-remembers. After an upgrade, `kindgi dev` refreshes them as
+it starts, and `kindgi skills sync` refreshes them any time (see
 [Keeping them current](#keeping-them-current)).
 
 ### What else it reads
@@ -99,7 +99,7 @@ works the way you would: write, run, look, fix.
 | `kindgi runs get`, `runs journal` | Finds out what a run did, step by step, and why it failed |
 | `kindgi providers register` | Connects a model, once its key is in your env file |
 | `kindgi mcp add` | Gives itself access to a database or another service |
-| `kindgi skills sync` | Refreshes its skills after an upgrade |
+| `kindgi skills sync` | Refreshes its skills any time |
 | `kindgi feedback write` | Records a bug it found in Kindgi itself |
 | `kindgi feedback submit` | Shows you that record as it would be sent, and sends it only after you say yes |
 | `kindgi feedback status` | Tells you what became of what you sent: known, fixed, or won't be fixed |
@@ -129,7 +129,7 @@ agent uses yours (with `--json`, it gets the same as
   ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
 
 Logging in to the runtime image's registry is yours too:
-`kindgi auth registry` asks for your token the same way
+`kindgi auth registry` asks for your license key the same way
 ([Install](../install/)).
 
 ## Keep it out of your keys
@@ -371,8 +371,20 @@ the agent uses yours.
 ## Keeping them current
 
 The skills are copies, made when you ran `kindgi init`: one in
-`.claude/skills/`, one in `.agents/skills/`. After upgrading Kindgi, refresh
-both:
+`.claude/skills/`, one in `.agents/skills/`. After you upgrade Kindgi, the
+next `kindgi dev` refreshes both as it starts, and says so:
+
+```text
+  ✓ Framework skills: 2 updated, 1 added.
+    · 1 you edited is kept: `pnpm exec kindgi skills sync --force` replaces it.
+```
+
+It keeps skills you edited, as `kindgi skills sync` does. A skill you
+deleted stays deleted, and so does a skills folder you deleted: it says
+which are behind, and the command that brings them back. Without the
+manifest (below), it changes nothing and only says the skills are behind.
+
+To refresh them yourself, at any time:
 
 ```sh
 pnpm exec kindgi skills sync
@@ -388,7 +400,7 @@ Which release each copy came from, in both folders, is recorded in
 `.claude/skills/.kindgi-manifest.json`. Keep it, even if you don't use
 Claude Code: without it, `kindgi skills sync` can't tell a copy that's
 behind from one you edited, so it keeps every copy that's behind (`--force`
-replaces them).
+replaces them), and `kindgi dev` doesn't refresh them.
 
 It says what it did in each folder, then prints the same as JSON (with
 `--json`, the JSON alone):
@@ -421,9 +433,9 @@ SDK release: …
 }
 ```
 
-`kindgi dev` tells you when the installed skills are behind the CLI's, in
-either folder. `.claude/skills/.kindgi-manifest.json` records what was
-installed in both.
+`kindgi dev` refreshes the installed skills when they're behind the CLI's,
+in either folder, and says what it left behind. `.claude/skills/.kindgi-manifest.json`
+records what was installed in both.
 
 ## MCP servers for your coding agent
 
