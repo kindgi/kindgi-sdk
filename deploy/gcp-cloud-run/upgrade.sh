@@ -106,7 +106,8 @@
 #                      preview from the runtime's main such as 0.3.0-preview.2)
 #                      when it can't be read from the deployment (no version
 #                      tag on the running image). A preview is read from its
-#                      tag too, and upgrades to its release's rcs or final.
+#                      tag too, and upgrades to its release's rcs, its final,
+#                      or a later release.
 #   --pack-dir         Rebuild and push the pack from here with `kindgi build`
 #                      (only if the deployment has a pack service). Without it,
 #                      the runtime is upgraded alone and the pack is left as is.

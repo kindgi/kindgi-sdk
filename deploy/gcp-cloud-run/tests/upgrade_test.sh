@@ -1315,7 +1315,8 @@ assert_out "also set       TF_VAR_pack_image (in the environment)"
 # --- previews ---------------------------------------------------------------
 # A preview built from the runtime's main (X.Y.Z-preview.N) is a version a
 # deployment can run: it's read from its tag (beside the moving "preview"
-# one), ranks below its release's rcs, and upgrades to them or to the final.
+# one), ranks below its release's rcs, and upgrades to them, to the final or
+# to a later release.
 # It's never a target, since it has no release steps.
 case_start "a preview read from its tag, to its release's final"
 reset_env; export STUB_TAGS="0.2.0-preview.0;preview"
@@ -1330,6 +1331,13 @@ reset_env; export STUB_TAGS="0.2.0-preview.3"
 run "yes" --to 0.2.0-rc.0
 assert_rc 0 "preview -> rc runs"
 assert_out "upgrading 0.2.0-preview.3 -> 0.2.0-rc.0, crossing: 0.2.0"
+
+case_start "a preview to a later release"
+reset_env; export STUB_TAGS="0.2.0-preview.0"
+run "yes" --to 0.3.0
+assert_rc 0 "preview -> a later release runs"
+assert_out "upgrading 0.2.0-preview.0 -> 0.3.0, crossing: 0.2.0 0.3.0"
+assert_out "0.2.0-preview.0 -> 0.3.0 applied"
 
 case_start "--from a preview"
 reset_env

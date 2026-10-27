@@ -899,7 +899,8 @@ The two can go in two Google Cloud projects, or in one:
   server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
   `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. A
   deployment on a preview, such as 0.3.0-preview.2, upgrades the same way to
-  that release's rcs or its final; a preview is never a `--to`. The
+  that release's rcs, its final, or a later release; a preview is never a
+  `--to`. The
   module's README has the rest, under
   [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading),
   and `./upgrade.sh --help` lists its options.
