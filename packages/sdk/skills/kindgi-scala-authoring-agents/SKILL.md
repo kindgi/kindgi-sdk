@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -132,9 +132,9 @@ object BriefWriter {
   **`tool(id, range)`** is a tool of another pack, with a semver **range**
   (`"^1.0.0"`); the highest active matching version is picked at turn
   start. An agent with no tools is chat-only.
-- **`guardrail(guardrail)`** or **`guardrail(id)`:** evaluated once per turn
-  on the final answer, before it is stored. An id with no registered
-  guardrail fails the turn.
+- **`guardrail(guardrail)`** or **`guardrail(id)`:** checks the final answer,
+  before it is stored. One whose action is `retry` sends the answer back to
+  the model for a new one. An id with no registered guardrail fails the turn.
 - **`set("parameters", List(Map("name" -> …, "type" -> …, "required" -> …)))`:**
   inputs the caller supplies per run. They fill `{{ … }}` in the
   instructions.

@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -124,9 +124,10 @@ brief_writer = Agent(
   `version` is a semver **range**; the highest active matching version
   is picked at turn start. A bare string is rejected. Empty = a
   chat-only agent.
-- **`guardrails`** — `Guardrail` objects or ids. Evaluated once per
-  turn on the final answer, before it is stored. An id with no
-  registered guardrail fails the turn (`unresolved-guardrail`).
+- **`guardrails`** — `Guardrail` objects or ids. They check the final
+  answer, before it is stored; one whose action is `retry` sends the
+  answer back to the model for a new one. An id with no registered
+  guardrail fails the turn (`unresolved-guardrail`).
 - **`parameters`** — inputs the caller supplies per run
   (`{"name", "type", "required"}`); they fill `{{ … }}` in the
   instructions.
