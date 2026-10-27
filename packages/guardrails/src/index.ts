@@ -59,7 +59,6 @@ export type {
   CheckRegistry,
   CheckResult,
   CodeArtifactRef,
-  EscalationRole,
   EvaluationBindings,
   EvaluationResult,
   Guardrail,
@@ -88,7 +87,6 @@ export type {
 export {
   BUILT_IN_GUARDRAIL_KINDS,
   BUILT_IN_ON_VIOLATIONS,
-  ESCALATION_ROLES,
   GUARDRAIL_POINTS,
 } from './types.js';
 export {

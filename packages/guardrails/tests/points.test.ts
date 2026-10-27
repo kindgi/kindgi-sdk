@@ -103,51 +103,23 @@ describe('points', () => {
 });
 
 describe('guardrailPointIssues', () => {
-  test('escalate before a tool call names the role that decides', () => {
-    expect(
-      guardrailPointIssues({ at: 'before-tool', action: { 'on-violation': 'escalate' } }),
-    ).toEqual([
-      {
-        path: '/action/escalateTo',
-        message: 'before a tool call, "escalate" names the role that decides: standard, senior, admin',
-      },
-    ]);
-    expect(
-      guardrailPointIssues({
-        at: 'before-tool',
-        action: { 'on-violation': 'escalate', escalateTo: 'manager' },
-      }).map((i) => i.path),
-    ).toEqual(['/action/escalateTo']);
-    expect(
-      guardrailPointIssues({
-        at: 'before-tool',
-        action: { 'on-violation': 'escalate', escalateTo: 'senior' },
-      }),
-    ).toEqual([]);
-  });
-
-  test('escalate runs only before a tool call, or at the final answer as today', () => {
-    for (const at of ['after-tool', 'model-step'] as const) {
-      expect(guardrailPointIssues({ at, action: { 'on-violation': 'escalate' } })).toEqual([
-        {
-          path: '/action/on-violation',
-          message: `"escalate" runs only before a tool call ("before-tool"), not at "${at}"`,
-        },
-      ]);
+  test('escalate and compensate are recorded at the final answer only', () => {
+    for (const action of ['escalate', 'compensate'] as const) {
+      for (const at of ['before-tool', 'after-tool', 'model-step'] as const) {
+        expect(
+          guardrailPointIssues({ at, action: { 'on-violation': action, escalateTo: 'senior' } }),
+        ).toEqual([
+          {
+            path: '/action/on-violation',
+            message: `"${action}" is recorded at the final answer only, not at "${at}"`,
+          },
+        ]);
+      }
+      expect(guardrailPointIssues({ action: { 'on-violation': action } })).toEqual([]);
+      expect(guardrailPointIssues({ at: 'final-answer', action: { 'on-violation': action } })).toEqual(
+        [],
+      );
     }
-    expect(guardrailPointIssues({ action: { 'on-violation': 'escalate' } })).toEqual([]);
-  });
-
-  test('compensate is recorded at the final answer only', () => {
-    expect(
-      guardrailPointIssues({ at: 'after-tool', action: { 'on-violation': 'compensate' } }),
-    ).toEqual([
-      {
-        path: '/action/on-violation',
-        message: '"compensate" is recorded at the final answer only, not at "after-tool"',
-      },
-    ]);
-    expect(guardrailPointIssues({ action: { 'on-violation': 'compensate' } })).toEqual([]);
   });
 
   test('scope.tools is for the tool points', () => {
@@ -411,7 +383,7 @@ describe('validateGuardrail at a point', () => {
       expect(r.kind === 'err' && r.error).toMatchObject({
         code: 'invalid-guardrail',
         message:
-          'Guardrail "acme.guardrails.t": "escalate" runs only before a tool call ("before-tool"), not at "after-tool"',
+          'Guardrail "acme.guardrails.t": "escalate" is recorded at the final answer only, not at "after-tool"',
         issues: [{ path: '/action/on-violation' }],
       });
     }

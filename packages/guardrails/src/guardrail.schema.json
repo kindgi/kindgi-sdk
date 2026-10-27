@@ -57,7 +57,7 @@
       "type": "string",
       "enum": ["before-tool", "after-tool", "model-step", "final-answer"],
       "default": "final-answer",
-      "description": "Where in the agent's turn the check runs. 'before-tool': a call the model asked for, before it runs and before any approval is asked (the trace's `call`). 'after-tool': a call that ran, before the model sees its result (`call` and `result`). 'model-step': each model reply, before any of its calls runs (`step`). 'final-answer': the answer that would be stored (`output`). The check must support the point (its `points`). 'escalate' runs only at 'before-tool', where `escalateTo` names a role ('standard', 'senior' or 'admin'), and 'compensate' only at the final answer."
+      "description": "Where in the agent's turn the check runs. 'before-tool': a call the model asked for, before it runs and before any approval is asked (the trace's `call`). 'after-tool': a call that ran, before the model sees its result (`call` and `result`). 'model-step': each model reply, before any of its calls runs (`step`). 'final-answer': the answer that would be stored (`output`). The check must support the point (its `points`). 'escalate' and 'compensate' are recorded at the final answer only."
     },
     "sees": {
       "type": "string",

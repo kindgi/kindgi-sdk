@@ -14,7 +14,6 @@
 
 import type { GuardrailConfigProblem } from './config-problems.js';
 import {
-  ESCALATION_ROLES,
   GUARDRAIL_POINTS,
   type Guardrail,
   type GuardrailPoint,
@@ -46,9 +45,7 @@ const TOOL_POINTS: readonly GuardrailPoint[] = ['before-tool', 'after-tool'];
  * What the declaration asks for that its point can't do, as issues
  * (paths into the declaration). Nothing at the final answer, which takes
  * every action it takes today.
- * - `'escalate'` runs only before a tool call, where a person decides
- *   whether the call runs, and there it names one of `ESCALATION_ROLES`.
- * - `'compensate'` is recorded at the final answer only.
+ * - `'escalate'` and `'compensate'` are recorded at the final answer only.
  * - `scope.tools` is for the tool points.
  *
  * Any other action, a custom one included, is taken as at the final answer.
@@ -59,23 +56,10 @@ export function guardrailPointIssues(
   const at = guardrailPoint(guardrail);
   const issues: { path: string; message: string }[] = [];
   const action = guardrail.action['on-violation'];
-  if (action === 'escalate' && at !== 'final-answer') {
-    if (at !== 'before-tool') {
-      issues.push({
-        path: '/action/on-violation',
-        message: `"escalate" runs only before a tool call ("before-tool"), not at "${at}"`,
-      });
-    } else if (!(ESCALATION_ROLES as readonly string[]).includes(guardrail.action.escalateTo ?? '')) {
-      issues.push({
-        path: '/action/escalateTo',
-        message: `before a tool call, "escalate" names the role that decides: ${ESCALATION_ROLES.join(', ')}`,
-      });
-    }
-  }
-  if (action === 'compensate' && at !== 'final-answer') {
+  if ((action === 'escalate' || action === 'compensate') && at !== 'final-answer') {
     issues.push({
       path: '/action/on-violation',
-      message: `"compensate" is recorded at the final answer only, not at "${at}"`,
+      message: `"${action}" is recorded at the final answer only, not at "${at}"`,
     });
   }
   if (guardrail.scope?.tools !== undefined && !TOOL_POINTS.includes(at)) {

@@ -87,10 +87,6 @@ export type GuardrailPoint = (typeof GUARDRAIL_POINTS)[number];
  */
 export type GuardrailSees = 'turn' | 'conversation';
 
-/** The roles an `'escalate'` before a tool call names, lowest first. */
-export const ESCALATION_ROLES = ['standard', 'senior', 'admin'] as const;
-export type EscalationRole = (typeof ESCALATION_ROLES)[number];
-
 export interface Action {
   /**
    * What a failed check does to the agent turn. In 0.1 the runtime acts
