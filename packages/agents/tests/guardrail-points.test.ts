@@ -171,7 +171,7 @@ function toolOf(
     output: { type: 'object', additionalProperties: true },
     effects: [],
     mutating: false,
-    handler: async (args) => {
+    handler: async (args: Record<string, unknown>) => {
       seen.runs.set(id, (seen.runs.get(id) ?? 0) + 1);
       return result(args);
     },
