@@ -298,7 +298,9 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   highest version, with `unregisteredAt`. The lists of blocks, policies and
   gate policies take `?includeRetired=true` too, as
   `client.blocks.list({ includeRetired: true })` does, and the same for
-  `policies` and `gatePolicies`.
+  `policies` and `gatePolicies`. From the CLI, ask with
+  `kindgi blocks list --include-retired` or
+  `kindgi gate-policies list --include-retired`.
 - **A run waiting on an approval** resumes after its version is
   unregistered.
 

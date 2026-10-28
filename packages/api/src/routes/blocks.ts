@@ -149,6 +149,7 @@ export function blocksRouter(
                 versionOf: (b) => b.version,
                 getVersion: (id, version) => binding.getVersion({ tenantId, blockId: id, version }),
               },
+              retired: (b) => b.unregisteredAt !== undefined,
             });
     return c.json({
       data: visible.map(serializeBlock),
