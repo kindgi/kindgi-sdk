@@ -8,6 +8,8 @@ import type { ConversationBinding } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref } from '@kindgi/authz';
 import type { ExportSigningBinding } from '@kindgi/crypto';
+import { stepNodePlacer } from '@kindgi/provenance';
+import type { Provenance } from '@kindgi/provenance';
 import type { RunBinding } from '@kindgi/runtime';
 import type { ConversationId, FlowId, RunId, TenantId } from '@kindgi/types';
 
@@ -21,6 +23,8 @@ import type {
   ProvenanceBindingError,
   ProvenanceListCursor,
   ProvenanceRecordSummary,
+  StepRunsUsage,
+  StepUsage,
   StepUsageByNodeId,
 } from '../provenance-binding.js';
 import {
@@ -441,12 +445,15 @@ function provenanceNotFound(
 /**
  * A flow record's usage per step, when the binding has a cost ledger and
  * the record has `step` nodes with usage. A turn's record has none, so
- * it's never read for one.
+ * it's never read for one. Each step's row goes to the node that counts
+ * its runs; a row the record has no node for (its step was cut with the
+ * record's middle) is left out, so the steps' sum can be less than the
+ * run's.
  */
 async function readStepUsage(
   binding: ProvenanceBinding,
   tenantId: TenantId,
-  provenance: { readonly runId: RunId; readonly nodes: readonly { readonly kind: string }[] },
+  provenance: Pick<Provenance, 'runId' | 'nodes'>,
 ): Promise<
   | { readonly kind: 'ok'; readonly value: StepUsageByNodeId | undefined }
   | { readonly kind: 'err'; readonly error: ProvenanceBindingError }
@@ -455,7 +462,28 @@ async function readStepUsage(
   if (!provenance.nodes.some((n) => n.kind === 'step')) return { kind: 'ok', value: undefined };
   const read = await binding.getStepUsage(tenantId, provenance.runId);
   if (read.kind === 'err') return read;
-  return { kind: 'ok', value: Object.keys(read.value).length > 0 ? read.value : undefined };
+  const place = stepNodePlacer(provenance.nodes);
+  const byNode = new Map<string, StepUsage>();
+  for (const row of read.value) {
+    const node = place(row);
+    if (node !== undefined) byNode.set(node, addUsage(byNode.get(node), row));
+  }
+  return { kind: 'ok', value: byNode.size > 0 ? Object.fromEntries(byNode) : undefined };
+}
+
+function addUsage(sum: StepUsage | undefined, row: StepRunsUsage): StepUsage {
+  if (sum === undefined) return { calls: row.calls, costUsd: row.costUsd, tokens: row.tokens };
+  return {
+    calls: sum.calls + row.calls,
+    costUsd: sum.costUsd + row.costUsd,
+    tokens: {
+      prompt: sum.tokens.prompt + row.tokens.prompt,
+      completion: sum.tokens.completion + row.tokens.completion,
+      cacheRead: sum.tokens.cacheRead + row.tokens.cacheRead,
+      cacheWrite: sum.tokens.cacheWrite + row.tokens.cacheWrite,
+      reasoning: sum.tokens.reasoning + row.tokens.reasoning,
+    },
+  };
 }
 
 /** The run's call usage, when the binding has a cost ledger and the run made calls. */

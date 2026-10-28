@@ -205,17 +205,20 @@ export interface ProvenanceBinding {
   ): Promise<Result<CallUsageByCallId, ProvenanceBindingError>>;
 
   /**
-   * A flow record's model usage per step, by the `step` node's id: the
-   * model calls of the runs each step started, and of theirs, from the
-   * cost ledger. A folded loop node sums its iterations'. Optional, as
-   * `getCallUsage` is; the routes add it to a read of a record with
-   * `step` nodes as `stepUsage`, outside the signed DAG, and a signed
-   * export includes it as it stood when signed.
+   * A flow run's model usage by the step that started each of its runs:
+   * the model calls of those runs, and of theirs, from the cost ledger,
+   * one row per step as the run rows name it. Optional, as
+   * `getCallUsage` is. The routes place each row on the record's node
+   * that counts the step's runs (`stepNodePlacer` from
+   * `@kindgi/provenance`), so a folded loop node sums its iterations',
+   * and a row with no node is left out. They add the sums to a read of a
+   * record with `step` nodes as `stepUsage`, outside the signed DAG, and
+   * a signed export includes it as it stood when signed.
    */
   getStepUsage?(
     tenantId: TenantId,
     runId: RunId,
-  ): Promise<Result<StepUsageByNodeId, ProvenanceBindingError>>;
+  ): Promise<Result<readonly StepRunsUsage[], ProvenanceBindingError>>;
 }
 
 /** One model call's usage, as the cost ledger has it. */
@@ -233,6 +236,19 @@ export interface CallUsage {
 }
 
 export type CallUsageByCallId = Readonly<Record<string, CallUsage>>;
+
+/**
+ * The model usage of the runs one step started, and of theirs, summed:
+ * the step as its runs' rows name it, `parentScope` `''` for a step of
+ * the flow itself or the JSON of its loop path, innermost first.
+ */
+export interface StepRunsUsage {
+  readonly parentNodeId: string;
+  readonly parentScope: string;
+  readonly calls: number;
+  readonly costUsd: number;
+  readonly tokens: CostTokenTotals;
+}
 
 /** One step's model usage: the calls of the runs it started, and of theirs, summed. */
 export interface StepUsage {

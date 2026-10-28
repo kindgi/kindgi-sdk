@@ -29,6 +29,7 @@ import type {
   ProvenanceBinding,
   ProvenanceBindingError,
   RunHandlerBinding,
+  StepRunsUsage,
   StepUsageByNodeId,
   TokenResolver,
 } from '../src/index.js';
@@ -78,13 +79,25 @@ const turnRecord: Provenance = {
   edges: [],
 };
 
-const stepUsage: StepUsageByNodeId = {
-  'step:write': {
-    calls: 2,
-    costUsd: 0.0061,
-    tokens: { prompt: 1800, completion: 420, cacheRead: 1000, cacheWrite: 0, reasoning: 0 },
-  },
+const writeUsage = {
+  calls: 2,
+  costUsd: 0.0061,
+  tokens: { prompt: 1800, completion: 420, cacheRead: 1000, cacheWrite: 0, reasoning: 0 },
 };
+/** The ledger's rows: one per step, as its runs' rows name it. */
+const stepRows: readonly StepRunsUsage[] = [
+  { parentNodeId: 'write', parentScope: '', ...writeUsage },
+];
+/** What the routes make of them: by the node that counts the step's runs. */
+const stepUsage: StepUsageByNodeId = { 'step:write': writeUsage };
+
+const tokens = (prompt: number, completion: number) => ({
+  prompt,
+  completion,
+  cacheRead: 0,
+  cacheWrite: 0,
+  reasoning: 0,
+});
 
 function binding(
   getStepUsage?: ProvenanceBinding['getStepUsage'],
@@ -126,7 +139,7 @@ describe('GET /v1/provenance/:runId — stepUsage', () => {
     const res = await app(
       binding(async (_tenant, runId) => {
         asked.push(runId);
-        return { kind: 'ok', value: stepUsage };
+        return { kind: 'ok', value: stepRows };
       }),
     ).request(`/v1/provenance/${flowRunId}`, { headers: auth });
     expect(res.status).toBe(200);
@@ -136,12 +149,59 @@ describe('GET /v1/provenance/:runId — stepUsage', () => {
     expect(asked).toEqual([flowRunId]);
   });
 
+  test("each step's row goes to the node that counts its runs; one with no node is left out", async () => {
+    const loopRunId = randomUUID() as RunId;
+    const step = (attributes: Record<string, unknown>) => ({
+      kind: 'step',
+      timestamp: AT,
+      attributes: { status: 'completed', attempts: 1, ...attributes },
+    });
+    const loopRecord: Provenance = {
+      ...flowRecord,
+      id: randomUUID() as ProvenanceId,
+      runId: loopRunId,
+      nodes: [
+        { id: 'input', kind: 'input', timestamp: AT },
+        { id: 'step:L', ...step({ nodeId: 'L', nodeKind: 'loop' }) },
+        { id: 'step:w@L#0', ...step({ nodeId: 'w', nodeKind: 'agent', iteration: 0 }) },
+        {
+          id: 'step:L#folded',
+          kind: 'step',
+          timestamp: AT,
+          attributes: {
+            nodeId: 'L',
+            folded: { from: 1, to: 2, count: 2, byStatus: { completed: 2 }, runs: 2 },
+          },
+        },
+      ] as Provenance['nodes'],
+      edges: [],
+    };
+    const inL = (iteration: number) => JSON.stringify([{ loopNodeId: 'L', iteration }]);
+    const rows: StepRunsUsage[] = [
+      { parentNodeId: 'w', parentScope: inL(0), calls: 1, costUsd: 0.125, tokens: tokens(100, 10) },
+      { parentNodeId: 'w', parentScope: inL(1), calls: 2, costUsd: 0.25, tokens: tokens(200, 20) },
+      { parentNodeId: 'w', parentScope: inL(2), calls: 3, costUsd: 0.5, tokens: tokens(300, 30) },
+      // Iteration 3's step isn't in the record: it was cut with the record's middle.
+      { parentNodeId: 'w', parentScope: inL(3), calls: 5, costUsd: 1, tokens: tokens(500, 50) },
+    ];
+    const res = await app(
+      binding(async () => ({ kind: 'ok', value: rows }), {
+        getByRunId: async () => ({ kind: 'ok', value: loopRecord }),
+      }),
+    ).request(`/v1/provenance/${loopRunId}`, { headers: auth });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { stepUsage?: unknown }).stepUsage).toEqual({
+      'step:w@L#0': { calls: 1, costUsd: 0.125, tokens: tokens(100, 10) },
+      'step:L#folded': { calls: 5, costUsd: 0.75, tokens: tokens(500, 50) },
+    });
+  });
+
   test('never read for a record with no step nodes: a turn has its callUsage', async () => {
     let reads = 0;
     const res = await app(
       binding(async () => {
         reads += 1;
-        return { kind: 'ok', value: stepUsage };
+        return { kind: 'ok', value: stepRows };
       }),
     ).request(`/v1/provenance/${turnRunId}`, { headers: auth });
     expect(res.status).toBe(200);
@@ -149,8 +209,19 @@ describe('GET /v1/provenance/:runId — stepUsage', () => {
     expect(reads).toBe(0);
   });
 
-  test('no stepUsage when the steps made no calls, or the deployment has no ledger', async () => {
-    for (const read of [binding(async () => ({ kind: 'ok', value: {} })), binding()]) {
+  test('no stepUsage when the steps made no calls, none has a node, or there is no ledger', async () => {
+    const noNode: StepRunsUsage = {
+      parentNodeId: 'gone',
+      parentScope: '',
+      calls: 1,
+      costUsd: 0.5,
+      tokens: tokens(10, 1),
+    };
+    for (const read of [
+      binding(async () => ({ kind: 'ok', value: [] })),
+      binding(async () => ({ kind: 'ok', value: [noNode] })),
+      binding(),
+    ]) {
       const res = await app(read).request(`/v1/provenance/${flowRunId}`, { headers: auth });
       expect(res.status).toBe(200);
       expect(await res.json()).not.toHaveProperty('stepUsage');
@@ -173,7 +244,7 @@ describe('GET /v1/provenance/:runId — stepUsage', () => {
 
 describe('POST /v1/provenance/:runId/export — stepUsage is signed', () => {
   test('bundle 1.3.0 carries stepUsage, and the signature covers it', async () => {
-    const res = await app(binding(async () => ({ kind: 'ok', value: stepUsage }))).request(
+    const res = await app(binding(async () => ({ kind: 'ok', value: stepRows }))).request(
       `/v1/provenance/${flowRunId}/export`,
       {
         method: 'POST',

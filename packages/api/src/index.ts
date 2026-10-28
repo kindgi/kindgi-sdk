@@ -1217,6 +1217,7 @@ export type {
   ProvenanceBindingError,
   ProvenanceListCursor,
   ProvenanceRecordSummary,
+  StepRunsUsage,
   StepUsage,
   StepUsageByNodeId,
 } from './provenance-binding.js';
