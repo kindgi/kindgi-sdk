@@ -8,9 +8,9 @@ sidebar:
 This page lists everything about live agent versions: how a run gets its
 version, what conversations and flows keep, what requests to make a version
 live, rollbacks and unpins refuse, the go-live history, every pin that
-covers a project, release gate policies, and what the console shows. On the CLI, making a version live is
-`kindgi agents promote`. To release a version, follow
-[Release an agent version](../release-an-agent-version/).
+covers a project, release gate policies, and what the console shows. On the
+CLI, making a version live is `kindgi agents promote`. To release a version,
+follow [Release an agent version](../release-an-agent-version/).
 
 ## How a run gets its version
 
@@ -172,8 +172,9 @@ A run in the project takes the most specific of them that covers it, as
 Reading it takes `read` on the project. It lists only the pins of agents
 and versions you can read, as an agent's own list does, so a page can hold
 fewer pins than `limit`, or none, and still have more: page on `nextCursor`,
-not on the count. Otherwise it pages like other lists. In the TypeScript
-client it's `projects.pinnedVersions.list`, and in the Python client
+not on the count. `limit` is 25 by default and at most 100, and
+`cursor=<nextCursor>` gets the next page. In the TypeScript client it's
+`projects.pinnedVersions.list`, and in the Python client
 `projects.pinned_versions.list`. A runtime that can't list them answers
 `501 pinned-versions-not-supported`.
 
