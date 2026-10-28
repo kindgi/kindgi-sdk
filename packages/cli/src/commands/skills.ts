@@ -40,6 +40,7 @@ import { type KindgiConfig, type PackLanguage, packLanguage } from '@kindgi/hand
 import { FORMATTER_IGNORE_PATTERNS, patchPrettierignore } from '../init/gitignore-patcher.js';
 import { type OutputFormat, renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
+import { type SaidLine, note, warning } from '../progress-lines.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import { defaultSdkSkillsRoot } from './init.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
@@ -361,16 +362,6 @@ export async function refreshSkillsForDev(inputs: {
   return { kind: 'refreshed', report, leftOut: synced.leftOut };
 }
 
-/** A line of `kindgi dev`'s boot log, and whether it's a warning: said under `--quiet` too. */
-export interface DevSkillsLine {
-  readonly text: string;
-  readonly problem: boolean;
-}
-
-const say = (text: string): DevSkillsLine => ({ text, problem: false });
-// A warning.
-const problem = (text: string): DevSkillsLine => ({ text, problem: true });
-
 /**
  * The refresh in lines for `kindgi dev`: what it wrote, and each kind of
  * copy left behind the bundle, with the command that moves it on. None
@@ -380,13 +371,13 @@ const problem = (text: string): DevSkillsLine => ({ text, problem: true });
 export function describeDevSkillsRefresh(
   refresh: DevSkillsRefresh,
   commands: { readonly sync: string; readonly force: string },
-): DevSkillsLine[] {
+): SaidLine[] {
   if (refresh.kind === 'no-manifest') {
     return refresh.drift === undefined
       ? []
       : [
-          problem(`  ⚠ Framework skills: ${refresh.drift}.`),
-          problem(`    Run \`${commands.sync}\` to pull the latest.`),
+          warning(`  ⚠ Framework skills: ${refresh.drift}.`),
+          warning(`    Run \`${commands.sync}\` to pull the latest.`),
         ];
   }
   const { outcomes, prettierignore } = refresh.report;
@@ -399,13 +390,13 @@ export function describeDevSkillsRefresh(
     ...(added.length > 0 ? [`${added.length} added`] : []),
   ];
   const behind = behindLines(refresh, commands);
-  const lines = [...behind.lines.map(problem), ...formatterIgnoreLines(prettierignore)];
+  const lines = [...behind.lines.map(warning), ...formatterIgnoreLines(prettierignore)];
   if (wrote.length > 0) {
     const heading = `  ✓ Framework skills: ${wrote.join(', ')}.`;
     return [{ text: heading, problem: lines.some((line) => line.problem) }, ...lines];
   }
   return behind.count > 0
-    ? [problem(`  ⚠ Framework skills: ${behind.count} out of date.`), ...lines]
+    ? [warning(`  ⚠ Framework skills: ${behind.count} out of date.`), ...lines]
     : [];
 }
 
@@ -448,13 +439,13 @@ function behindLines(
 }
 
 /** What the refresh did to the pack's `.prettierignore`, when it changed it or couldn't. */
-function formatterIgnoreLines(outcome: FormatterIgnoreOutcome | undefined): DevSkillsLine[] {
+function formatterIgnoreLines(outcome: FormatterIgnoreOutcome | undefined): SaidLine[] {
   if (outcome?.status === 'patched') {
-    return [say(`    · Added ${outcome.appended.join(' and ')} to ${outcome.path}.`)];
+    return [note(`    · Added ${outcome.appended.join(' and ')} to ${outcome.path}.`)];
   }
   if (outcome?.status === 'error') {
     return [
-      problem(`    · Couldn't add the skills' folders to ${outcome.path}: ${outcome.message}`),
+      warning(`    · Couldn't add the skills' folders to ${outcome.path}: ${outcome.message}`),
     ];
   }
   return [];

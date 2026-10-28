@@ -21,7 +21,7 @@ import type {
   TriggerId,
 } from '@kindgi/types';
 
-import type { RunActsFor, RunAgentRef, RunStartedBy, RunTriggerRef } from './inputs.js';
+import type { RunActsFor, RunAgentRef, RunMailbox, RunStartedBy, RunTriggerRef } from './inputs.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -83,10 +83,15 @@ export interface KernelRunRecord {
   readonly actsFor?: RunActsFor;
   /**
    * The tools it may call without a person's yes though no person started
-   * it (`RunFlowInput.toolsAllowedUnattended`), from the webhook or
-   * schedule that started it. Absent when there are none.
+   * it (`RunFlowInput.toolsAllowedUnattended`), from the webhook, schedule
+   * or mail trigger that started it. Absent when there are none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
+  /**
+   * The mailbox its mail came from (`RunFlowInput.mailbox`), on a run a
+   * mail trigger started. Absent on every other run.
+   */
+  readonly mailbox?: RunMailbox;
   /**
    * When an erasure cleared the run's content (its input, output, failure
    * message and journal payloads). Absent on every other run.

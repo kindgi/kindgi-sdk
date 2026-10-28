@@ -28,7 +28,7 @@ variable "kindgi_env" {
 # ---- images -------------------------------------------------------------------
 
 variable "server_image" {
-  description = "The Kindgi runtime image, by digest, in Artifact Registry (Cloud Run can't pull a private Quay image; see README)."
+  description = "The Kindgi runtime image, by digest, in Artifact Registry (Cloud Run can't pull from a registry that takes a password, like registry.kindgi.com; see README)."
   type        = string
 
   validation {
@@ -155,15 +155,23 @@ variable "tenancy" {
 }
 
 variable "seed_tenant_id" {
-  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses. Pin it, or every start seeds a new one. Needed with tenancy = \"single\", refused with \"multi\"."
+  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses, a uuid. Pin it, or every start seeds a new one. Needed with tenancy = \"single\", refused with \"multi\"."
   type        = string
   default     = null
+  validation {
+    condition     = var.seed_tenant_id == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_tenant_id))
+    error_message = "seed_tenant_id must be a uuid (a tenant id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
+  }
 }
 
 variable "seed_user_id" {
-  description = "KINDGI_SEED_USER_ID: pinned so the FGA admin@tenant tuple stays stable across revisions. Needed with tenancy = \"single\", refused with \"multi\"."
+  description = "KINDGI_SEED_USER_ID: a uuid, pinned so the FGA admin@tenant tuple stays stable across revisions. Needed with tenancy = \"single\", refused with \"multi\"."
   type        = string
   default     = null
+  validation {
+    condition     = var.seed_user_id == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_user_id))
+    error_message = "seed_user_id must be a uuid (a user id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
+  }
 }
 
 # ---- the pack service ---------------------------------------------------------
@@ -482,7 +490,7 @@ variable "trusted_proxies" {
 }
 
 variable "public_url" {
-  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. When set, console sessions are accepted from this origin only. Empty leaves it unset."
+  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. Connections to other apps need it too, and a paused tool call's link is made from it: without it, that link names the address the server is bound to, which another system can't reach. When set, console sessions are accepted from this origin only. Empty leaves it unset."
   type        = string
   default     = ""
 

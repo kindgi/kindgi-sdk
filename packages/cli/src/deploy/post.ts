@@ -79,14 +79,38 @@ export function buildPostBody(envelope: DeployEnvelope): PostDeploymentBody {
       'buildPostBody() called on an unsigned envelope. Check with `isEnvelopeSigned` first.',
     );
   }
+  // publishedAt stays last, the order a released CLI sends: the server's
+  // idempotency check fingerprints the body's bytes, so the same envelope
+  // deployed again under the same key by another CLI version, its keys
+  // reordered, would be refused as a different body.
+  const { publishedAt, ...fields } = unsignedPostBody(envelope);
+  return {
+    ...fields,
+    signerKeyId: envelope.signerKeyId,
+    signerPublicKey: envelope.signerPublicKey,
+    signature: envelope.signature,
+    publishedAt,
+  };
+}
+
+/** The wire body without the signature's three fields: all an unsigned envelope has. */
+export type UnsignedPostBody = Omit<
+  PostDeploymentBody,
+  'signerKeyId' | 'signerPublicKey' | 'signature'
+>;
+
+/**
+ * The body less the signature's fields: what `--dry-run` shows for an
+ * unsigned envelope, and what `buildPostBody` adds the signature to, so
+ * a field the wire gains is in both. The server refuses it as it is, so
+ * nothing sends it.
+ */
+export function unsignedPostBody(envelope: DeployEnvelope): UnsignedPostBody {
   return {
     imageRef: envelope.imageRef,
     artifactVersion: envelope.artifactVersion,
     index: envelope.index,
     indexHash: envelope.indexHash,
-    signerKeyId: envelope.signerKeyId,
-    signerPublicKey: envelope.signerPublicKey,
-    signature: envelope.signature,
     publishedAt: envelope.publishedAt,
   };
 }

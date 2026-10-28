@@ -28,12 +28,21 @@ which gives every id the new pack's id.
 [Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)
 shows how.
 
+An environment order, such as staging and then production, is the one way
+a build reaches more than one project: `kindgi promote` carries the same
+build on to the order's next project. Its items still belong to the project
+they were first published in, and they also run in each project a
+deployment that isn't retired carried the build to, so a change to one of
+them reaches each. For an agent,
+`GET /v1/agents/{agentId}/projects` lists those projects, its first one
+first, naming only the ones you can read.
+
 ## What a project's runs can use
 
 A run is in one project, and it can use only what that project reaches:
 
 - **A pack's items**, its tools, agents, flows, guardrails, data blocks and
-  test sets, reach only runs in their own project.
+  test cases, reach only runs in their own project.
 - **An MCP server's tools** reach the projects its endpoint was registered
   for: every project in the tenant, every project in one org, or one
   project

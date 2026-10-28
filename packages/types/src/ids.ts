@@ -115,7 +115,7 @@ export type ToolId = Brand<string, 'ToolId'>;
  * (kebab-case, dot-namespaced) — e.g. `acme.no-fabricated-quotes`,
  * `demo.response-not-empty`. `<guardrail-name>` describes the
  * property being asserted (usually a positive rule the agent turn
- * must satisfy). Enforced by `defineGuardrail` at author time.
+ * must satisfy). Enforced by `validateGuardrail` at author time.
  */
 export type GuardrailId = Brand<string, 'GuardrailId'>;
 

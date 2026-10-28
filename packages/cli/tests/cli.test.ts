@@ -807,9 +807,17 @@ describe('kindgi runs start', () => {
     );
   });
 
-  test('--quiet: nothing printed, and the exit code still says it failed', async () => {
-    const out = await startThenRead(['--agent=pack.agent', '--quiet'], { status: 'failed' });
-    expect([out.exitCode, out.stdout, out.stderr]).toEqual([1, '', '']);
+  test('--quiet: the warnings and the error line still, as --quiet keeps errors', async () => {
+    const out = await startThenRead(['--agent=pack.agent', '--quiet'], {
+      status: 'failed',
+      failureMessage: routing,
+      output: { warnings: [{ code: 'fallback-provider', message: 'Answered by a fallback' }] },
+    });
+    expect([out.exitCode, out.stdout, out.stderr]).toEqual([
+      1,
+      '',
+      '⚠ Answered by a fallback\nError [capability-routing-failed]: No registered provider satisfies the capability declaration\n',
+    ]);
   });
 
   test.each(['completed', 'cancelled', 'suspended'])(

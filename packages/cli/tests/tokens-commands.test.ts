@@ -72,6 +72,7 @@ const SETTINGS = { required: false, onPreviousSecret: 0, unusable: 0 };
 
 /** What `users.*` answers, where a test needs another answer. */
 interface UsersAnswers {
+  readonly accounts?: unknown;
   readonly create?: unknown;
   readonly list?: unknown;
   readonly resendInvite?: unknown;
@@ -118,7 +119,7 @@ async function run(argv: readonly string[], answers: UsersAnswers = {}) {
         },
         serviceAccounts: {
           create: rec('sa.create', ACCOUNT),
-          list: rec('sa.list', { data: [ACCOUNT], hasMore: false }),
+          list: rec('sa.list', answers.accounts ?? { data: [ACCOUNT], hasMore: false }),
           get: rec('sa.get', ACCOUNT),
           grant: rec('sa.grant', ACCOUNT),
           ungrant: rec('sa.ungrant', ACCOUNT),
@@ -199,6 +200,13 @@ describe('kindgi tokens', () => {
     const { out, calls } = await run(['tokens', 'create']);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['tokens.create', {}]]);
+  });
+
+  test('create --quiet: the secret alone on stdout, and the warning without "above"', async () => {
+    const { out } = await run(['tokens', 'create', '--quiet']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('kgi_ak_secret\n');
+    expect(out.stderr).toBe('⚠ The secret of key tok-1 is shown once: store it now.\n');
   });
 
   test.each([
@@ -317,6 +325,21 @@ describe('kindgi service-accounts', () => {
     expect(out.stdout).toContain(`tenant admin; tenant member; editor on ${PROJECT}`);
     const gone = await run(['service-accounts', 'unregister', 'sa-1']);
     expect(gone.calls).toEqual([['sa.unregister', 'sa-1']]);
+  });
+
+  test("list marks a project's own account", async () => {
+    const own = {
+      ...ACCOUNT,
+      serviceAccountId: 'sa-2',
+      name: `project-${PROJECT}`,
+      grants: [{ kind: 'project', projectId: PROJECT, role: 'editor' }],
+      projectId: PROJECT,
+    };
+    const { out } = await run(['service-accounts', 'list', '--table'], {
+      accounts: { data: [ACCOUNT, own], hasMore: false },
+    });
+    expect(out.stdout).toContain(`project's own: ${PROJECT}; editor on ${PROJECT}`);
+    expect(out.stdout).toContain(`tenant admin; tenant member; editor on ${PROJECT}`);
   });
 });
 

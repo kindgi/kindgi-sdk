@@ -34,14 +34,14 @@ each one by the name in the second column.
 | `agent` | Deleted agents | unregistered agent versions |
 | `flow` | Deleted flows | unregistered flow versions |
 | `tool` | Deleted tools | unregistered tool versions |
-| `eval_suite` | Deleted eval suites | unregistered versions of test sets and other eval suites |
+| `eval_suite` | Deleted eval suites | unregistered versions of test cases and other eval suites |
 | `guardrail` | Deleted guardrails | unregistered guardrails |
 | `mcp_endpoint` | Removed MCP servers | unregistered MCP endpoints |
 | `env` | Deleted environment values | deleted environment values |
 | `secret` | Deleted secrets | revoked secrets |
 | `run` | Deleted runs | **finished runs**, counted from when they finished |
 | `policy` | Retired policy versions | unregistered policy versions |
-| `judgment` | Removed judgments | removed judgments, and the judging queue's history: closed items and skipped runs |
+| `judgment` | Removed corrections | removed corrections, and the history of the answers waiting for a correction: closed items and skipped runs |
 | `judge_class` | Retired judge classes | retired judge classes |
 | `org` | Deleted orgs | deleted orgs, once their environments' and MCP endpoints' records are purged |
 | `provider` | Removed model providers | unregistered model providers |
@@ -66,11 +66,12 @@ while purging the rest, give `run` a policy of its own.
 A purged run takes its journal, provenance and snapshot with it. These stay,
 under their own setting:
 
-- **Judgments,** with the copy of the run's input and output each judged
-  run keeps. A judgment that isn't removed stays for good. A removed one
-  goes under `judgment`.
-- **The judging queue's history:** items that closed (judged, dismissed,
-  or `erased`) and runs a rule skipped at its cap. They hold ids, versions,
+- **Corrections,** with the copy of the run's input and output each
+  corrected run keeps. A correction that isn't removed stays for good. A
+  removed one goes under `judgment`.
+- **The history of the answers waiting for a correction:** items that
+  closed (`judged`, `dismissed` or `erased`) and runs a rule skipped at its
+  cap. They hold ids, versions,
   statuses and times only. They go under `judgment`, counted from when they
   closed or were skipped. A purged run's waiting item closes as `erased`.
 - **Model-call costs,** which are billing history and stay.
@@ -93,6 +94,19 @@ A skipped, refused or repeated delivery's body is never kept.
   address is in the [audit](#audit-events), as `evidence.clientAddress`,
   under the audit's retention. A request to an unknown trigger is in the
   server's log, under your log retention.
+
+### Mail triggers' fires
+
+A [mail trigger](../../guides/runs/start-runs-from-new-mail/)'s fires, one
+for each mail it found, are kept for 30 days too, whatever the policies
+say, and longer while a fire's run isn't finished, such as one waiting
+for a person's yes. A fire keeps the mail's and its thread's ids, never
+the mail. The mail and its thread are the run's input, kept and removed
+with the run under `run` retention. For an agent, they're also turns of
+its conversation, under `conversation` retention once the conversation
+is deleted. As in a webhook's event, the people in a mail aren't Kindgi
+identities, so erasing a person in Kindgi doesn't find them in a run's
+input.
 
 ## 1. Set a policy
 
@@ -515,7 +529,7 @@ then every hour, in the tenants it serves:
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
 | Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), answers to a paused tool call (`wait-token-completed`, `wait-token-discarded`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
-| Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, people's access and connections, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
+| Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, triggers' owners, people's access and connections, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
 
 Run outcomes and guardrail violations are recorded (runtime 0.1.9 or
@@ -548,15 +562,22 @@ describes:
 The changes on legal hold are these kinds:
 
 - **Approvals:** `hitl-decision`, and
-  `trigger-tools-allowed-unattended-set`, a change to a schedule's or
-  webhook trigger's
-  [tools allowed unattended](../../guides/approvals/ask-before-a-tool-runs/#tools-allowed-unattended);
+  `trigger-tools-allowed-unattended-set`, a change to the
+  [tools allowed unattended](../../guides/approvals/ask-before-a-tool-runs/#tools-allowed-unattended)
+  of a schedule, webhook trigger or
+  [mail trigger](../../guides/runs/start-runs-from-new-mail/);
 - **Secrets:** `secret-set`, `secret-rotated`, `secret-rotation`,
   `secret-rotation-started`, `secret-rotation-failed`, `secret-revoked`,
   `secret-hard-revoked`;
 - **API keys:** `api-key-minted`, `api-key-revoked`;
 - **Service accounts:** `service-account-created`, `service-account-granted`,
   `service-account-ungranted`, `service-account-unregistered`;
+- **Triggers' owners** (runtime 0.2.0 or later): `trigger-owner-set`, a
+  schedule, webhook trigger or
+  [mail trigger](../../guides/runs/start-runs-from-new-mail/) made to run
+  as a service account, and each take-over; `trigger-changed-for-owner`, a
+  project admin's change to a trigger a person owns
+  ([Shared or personal](../../guides/runs/run-on-a-schedule/#shared-or-personal));
 - **People:** `person-added`, `person-invite-sent`, `person-granted`,
   `person-ungranted`;
 - **Connections:** `connection-created`, `connection-removed`,

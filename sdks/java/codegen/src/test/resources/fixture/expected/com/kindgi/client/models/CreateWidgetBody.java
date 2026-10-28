@@ -24,6 +24,7 @@ public record CreateWidgetBody(@JsonProperty("name") String name,
     @Override
     public void validate(Checks checks) {
         checks.minLength("name", name, 1);
+        checks.nested("state", state);
         checks.nested("shape", shape);
     }
 

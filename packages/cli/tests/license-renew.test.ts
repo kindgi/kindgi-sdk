@@ -194,7 +194,7 @@ describe('a renewal', () => {
       deps(s.fetchImpl),
     );
     expect(noRenewer.kind === 'failed' && noRenewer.message).toContain(
-      'kindgi license enroll --for',
+      'Enroll this deployment first: kindgi license enroll --for <your GitHub login, or the em- id your key page shows> --renewer <where to keep its key>.',
     );
 
     const down = (async () => {

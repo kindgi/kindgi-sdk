@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A turn's message from outside: in a run a webhook or an event started,
+ * A turn's message from outside: in a run a webhook, an event or a mail started,
  * the model reads it as an <event> data block, with the rule in the system
  * message that it's data, not instructions. Its text is encoded once:
  * every `<` as `\u003c`, so nothing in it can close the block, and a JSON
@@ -136,7 +136,7 @@ describe('formatEventForPrompt', () => {
 });
 
 describe("a turn's message, by how its run started", () => {
-  test.each(['webhook', 'event'] as const)(
+  test.each(['webhook', 'event', 'mail'] as const)(
     'started by %s: an <event> block, and the rule in the system message',
     async (by) => {
       expect(messageIsEvent(by)).toBe(true);
@@ -223,13 +223,16 @@ describe("a turn's message is kept marked when it's an event's", () => {
     return { appended, message: ctx.userMessage };
   }
 
-  test.each(['webhook', 'event'] as const)('started by %s: marked, as it came', async (by) => {
-    const { appended, message } = await kept(by, false);
-    expect(appended).toEqual([expect.objectContaining({ content: delivery, fromEvent: true })]);
-    expect(message?.fromEvent).toBe(true);
-    // A dry run's message is marked the same.
-    expect((await kept(by, true)).message?.fromEvent).toBe(true);
-  });
+  test.each(['webhook', 'event', 'mail'] as const)(
+    'started by %s: marked, as it came',
+    async (by) => {
+      const { appended, message } = await kept(by, false);
+      expect(appended).toEqual([expect.objectContaining({ content: delivery, fromEvent: true })]);
+      expect(message?.fromEvent).toBe(true);
+      // A dry run's message is marked the same.
+      expect((await kept(by, true)).message?.fromEvent).toBe(true);
+    },
+  );
 
   test.each(['person', 'key', 'schedule', undefined] as const)(
     'started by %s: not marked',

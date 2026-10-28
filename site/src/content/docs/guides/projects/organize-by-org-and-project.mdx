@@ -18,7 +18,7 @@ published in. For what `kindgi deploy` registers, that's the project the
 deploy named (`--project`), else Default. A turn in a conversation stays in
 the conversation's project.
 
-An agent, flow, tool or test set belongs to the project its first version
+An agent, flow, tool or set of test cases belongs to the project its first version
 was published into, and never moves. Publishing a version of it into another
 project is refused with a `409`, and nothing is written. Its code names the
 kind, such as `agent-project-mismatch`, `flow-…`, `tool-…` or
@@ -28,7 +28,7 @@ able to read that project. A deploy that includes one is refused whole and
 deploys nothing, even when that agent or flow is unchanged. Publish new
 versions in its own project.
 
-Reading an agent, flow, tool, test set or guardrail says which project
+Reading an agent, flow, tool, test cases or guardrail says which project
 it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 `kindgi dev` serves from disk has none.
 
@@ -207,8 +207,8 @@ In the console, a tenant admin makes one with **New project** on the tenant
 dashboard's **Projects** card: a name, a slug made from the name until you
 edit it, an org if the tenant has any, and what it's for. The new project then
 opens. A project's admins (an admin of its org, or a tenant admin, is one)
-rename it with **Rename** in its **Dashboard**'s header. Its id stays; a new
-slug changes what `kindgi deploy --project` takes.
+rename it with **Rename** in its **Dashboard**'s header. Its id stays; what
+a new slug changes is under **Changing a project's slug**, below.
 
 **Slugs.** An org's slug is unique in the tenant. A project's slug is unique
 in its org, so every customer can have a `support` project. A project with
@@ -219,6 +219,25 @@ refused with `409 slug-conflict`:
 Another org in the tenant has the slug "acme-customer-one"
 Another project in its org has the slug "support" (for a project without an org: another project without one)
 ```
+
+**Changing a project's slug.** A rename is one change: a taken slug is
+refused, as above, and nothing changes. Once it's renamed, its old slug is
+free for another project to take. The project's id stays, and the runtime
+goes by the id, so the project's pages in the console, its runs, keys and
+triggers, and what's deployed into it keep working, with no redeploy. Only
+the CLI looks a slug up, each time it runs, wherever you name a project by
+its slug: `kindgi deploy --project`, say, or an environment's `project` in
+your pack config (`environments.<name>.project`). Every command that names
+the project that way looks it up: `kindgi deploy`, `kindgi promote`,
+`kindgi environments set`, and `kindgi secrets` and `kindgi env` under a
+pack environment (`--env`). Before you next run one, change the old slug to
+the new one there. Until you do, such a command is refused, since the slug
+names no project, unless another project in the tenant has it: one in
+another org may have it already, or take it later. Then the command acts on
+that project: a deploy goes into it without a word, and a secret or value
+is set on it. So if you change a project's slug, name the project by its id
+in scripts and pack configs, or change them to the new slug before anyone
+runs one of those commands again.
 
 A tenant has one Default project. Asking for a second one answers
 `409 project-default-already-exists`, "The tenant already has a Default
@@ -262,8 +281,8 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 - **A suspended project** takes no deploy, where the runtime suspends
   projects: `409 project-suspended`, before anything is written. No run
   starts in it either: `POST /v1/runs` answers the same, as do an eval run
-  started in it and an improvement pass for one of its agents. An eval run
-  or a pass already going stops at its next case and ends `cancelled`, with
+  started in it and an Improve run for one of its agents. An eval run
+  or an Improve run already going stops at its next case and ends `cancelled`, with
   `project-suspended` in its `cancelReason`. A delivery to one of its
   webhook triggers is answered `202` and skipped, with nothing recorded on
   the trigger's fires.
@@ -277,7 +296,7 @@ which gives every id the new pack's id.
 ## What a project's runs can use
 
 A run uses its own project's tools, agents, flows, guardrails, data blocks
-and test sets, and the tools of an MCP server registered for its project,
+and test cases, and the tools of an MCP server registered for its project,
 its org or the tenant. Anything else is refused with
 `reference-out-of-scope`: a publish, a deploy or a run start that names it
 answers `400` before anything is written, and a tool call from the run
@@ -316,6 +335,12 @@ project in production is a **production** run, and a run anywhere else is
 **staging**. A runtime that counts usage (`KINDGI_USAGE_METERING=on`) labels
 each run with its class for usage counting, so test work is counted apart
 from real work. A run's own read doesn't show it.
+
+On a runtime you run yourself, with neither usage counting nor the
+production gate or limit below, being in production is only a label:
+agents, flows, triggers and approvals work the same in a project in
+production and out of it. The license key doesn't read it either
+([What a key covers](../../../concepts/licensing/#what-a-key-covers)).
 
 To switch it from your app, ask your coding agent: "Put a customer's project
 in production when they go live." For reference, the commands and the code

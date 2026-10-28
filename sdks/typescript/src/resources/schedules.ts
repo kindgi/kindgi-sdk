@@ -140,7 +140,8 @@ export interface SchedulesClient {
    * Become the schedule's owner, so its runs act as you from the next fire
    * (for a schedule whose owner left). Needs `admin` on its project. Pass
    * `{ runAsServiceAccountId }` to make a service account the owner instead
-   * (needs `act_as` on the account).
+   * (needs `act_as` on the account), or `{ runAsProject: true }` to make
+   * the project's own account the owner (made the first time).
    *
    * @wire POST /v1/schedules/:triggerId/owner
    */

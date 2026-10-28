@@ -229,6 +229,26 @@ An agent can make a person approve tool calls, as
 its gates on and no rule for a tool, a read-only tool runs without asking.
 Any other tool waits for approval on its first use.
 
+`mutating: false` doesn't lift every wait. In a run no person started, a
+read that uses a person's connection still waits for that person's yes
+([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
+In a run a mail started, so does a read that uses a connection of the
+run's own mailbox, its app and whose it is
+([What waits for a yes](../../runs/start-runs-from-new-mail/#what-waits-for-a-yes)).
+
+## Results from outside
+
+A tool whose results are text from outside that nobody checked, such as a
+mail someone sent or a page a search found, says so:
+`resultIsOutsideData: true` (`result_is_outside_data=True` in Python,
+`.resultIsOutsideData(true)` in Java and Scala). An agent then reads each
+result of the tool as data, not instructions, in that turn and in every
+later turn's history. Absent means `false`. The ready-made mail reads set
+it ([Ready-made tools](../../connections/use-a-connection/#ready-made-tools)).
+
+It changes what the model is told, not what the tool may do: pair it with
+approvals for anything an agent could do with what it read.
+
 ## Getting it right
 
 - Declare `mutating: false` on every tool that only reads. Otherwise a dry

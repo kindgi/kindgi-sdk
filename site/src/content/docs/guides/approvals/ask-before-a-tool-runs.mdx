@@ -341,8 +341,8 @@ person started:
 - **An agent's call of the tool waits** for a reviewer, as `always_ask`
   does. The agent's `hitl` can't lift it, nor can your tenant's
   [approval rules](../approval-rules-for-every-agent/): agents are reused,
-  and the tool's author knows what it does. Only the schedule or webhook
-  trigger that started the run can, by listing the tool
+  and the tool's author knows what it does. Only the schedule, webhook
+  trigger or mail trigger that started the run can, by listing the tool
   ([Tools allowed unattended](#tools-allowed-unattended)).
 - **A flow's tool step that calls it fails,** as [In a flow](#in-a-flow)
   shows.
@@ -399,7 +399,7 @@ declares it:
 | --- | --- | --- |
 | `person` | A person: signed in (the console, the chat of the Kindgi plugin for WordPress), or with their own API key | Yes |
 | `key` | A service account's key | No |
-| `schedule`, `webhook`, `event` | A trigger | No |
+| `schedule`, `webhook`, `event`, `mail` | A trigger | No |
 
 - **A key acts as its person.** A script on your own key starts runs as
   you, and they count as yours. For automation, use a
@@ -418,10 +418,13 @@ declares it:
 
 ### Tools allowed unattended
 
-A schedule or a webhook trigger can list tools its runs call without
-waiting for a person's yes: its tools allowed unattended
+A schedule, a webhook trigger or a mail trigger can list tools its runs
+call without waiting for a person's yes: its tools allowed unattended
 (`toolsAllowedUnattended`, runtime 0.2.0 or later). List a tool there when
-the trigger is there to run it, such as a nightly status post:
+the trigger is there to run it, such as a nightly status post. A mail
+trigger's list needs more care, since anyone who can write to the mailbox
+writes its runs' input
+([List a tool](../../runs/start-runs-from-new-mail/#list-a-tool)):
 
 ```sh
 pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post-update
@@ -433,8 +436,8 @@ pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post
   person started: a rule that asks before the tool runs still asks. The
   run still acts as the trigger's owner, so the call is checked against
   their access. It covers both kinds of tool that ask: one that declares
-  `needsApprovalWhenUnattended`, and one that changes things with a
-  person's connection
+  `needsApprovalWhenUnattended`, and one that uses a person's connection,
+  reads included
   ([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
   Such a run still can't wait for anyone to connect
   ([When the connection is missing](../../connections/use-a-connection/#when-the-connection-is-missing)).
@@ -444,7 +447,7 @@ pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post
   subflows' included. That's checked when you set it, and a tool it
   doesn't call is
   refused (`400 bad-input`). A schedule that starts
-  [improvement passes](../../evals/improve-an-agent/) calls no tools, so its
+  [Improve runs](../../evals/improve-an-agent/) calls no tools, so its
   list stays empty.
 - **Only the trigger's runs have it.** A run takes the list as it is when
   the trigger fires, and the runs that run starts, such as a flow's agent
@@ -454,26 +457,27 @@ pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post
 - **Setting it takes `admin` on the trigger's project,** clearing it too.
   A caller with only `write` is answered `403 permission-denied`.
 - **With the CLI,** it's `--allow-unattended=<tool-id>`, once for each
-  tool, on `kindgi schedules create` and `update` and on `kindgi webhooks
-  register` and `update`. On `update` it replaces the list,
+  tool, on `kindgi schedules create` and `update`, on `kindgi webhooks
+  register` and `update`, and on `kindgi mail-triggers create` and
+  `update`. On `update` it replaces the list,
   `--allow-unattended=none` clears it, and leaving it out keeps it. From
-  your app, it's `toolsAllowedUnattended` on `schedules.register` and
-  `update` and on `webhooks.register` and `update`
-  (`tools_allowed_unattended` in Python). `kindgi schedules get` and
-  `kindgi webhooks get` show it when it isn't empty, and the trigger's page
-  in the console shows it as **Tools allowed unattended**, or "None". The
-  console doesn't change it.
+  your app, it's `toolsAllowedUnattended` on `register` and `update` of
+  `schedules`, `webhooks` and `mailTriggers`
+  (`tools_allowed_unattended` in Python). `kindgi schedules get`,
+  `kindgi webhooks get` and `kindgi mail-triggers get` show it when it
+  isn't empty. A schedule's or webhook trigger's page in the console shows
+  it as **Tools allowed unattended**, or "None". The console doesn't
+  change it.
 - **A new owner keeps it.** After a take-over, the trigger's runs call the
   tools it lists as the new owner, with their access, and the CLI says so,
   with the line that clears it. A take-over can't change the list: use
-  `update`. Changing the list makes you the owner when you aren't, as
-  [changing what it runs](../../runs/run-on-a-schedule/#who-owns-it-after-a-change)
-  does.
+  `update`. Changing the list keeps the owner, as every change does
+  ([Shared or personal](../../runs/run-on-a-schedule/#shared-or-personal)).
 - **A schedule pointed at another agent or flow** must name its list
   again, as it is or `none` (`[]` from your app), or the change is refused
   (`400 bad-input`). A new version of the same one keeps the list.
-  Pointed at improvement passes, it must name `none`, since a pass calls
-  no tools.
+  Pointed at Improve runs, it must name `none`, since an Improve run
+  calls no tools.
 - **Each change is recorded as evidence,**
   `trigger-tools-allowed-unattended-set`, with the list before and after
   and what the trigger runs. It's kept for good, on
@@ -877,8 +881,8 @@ continues from that step.
 
 **A tool step can't wait for a person.** In a run no person started, a step
 whose tool needs a person's yes fails, and the tool never runs: one that
-declares `needsApprovalWhenUnattended`, or one that changes things with a
-person's connection
+declares `needsApprovalWhenUnattended`, or one that uses a person's
+connection
 ([Use a connection in a tool](../../connections/use-a-connection/#approvals)).
 The run's `failureMessage` says why:
 
@@ -886,17 +890,22 @@ The run's `failureMessage` says why:
 needs-a-person: tool "acme-ops.post-update" needs a person's yes when no person started the run (needsApprovalWhenUnattended), and a flow's tool step can't wait for one. Call it from an agent step instead: there the call waits for a person to approve it.
 ```
 
-For a tool that changes things with a person's connection, the reason in
-parentheses reads `it changes things with a person's connection`. Call such a
-tool from an agent step, whose call waits for a reviewer. In a schedule's
-or a webhook trigger's run, the message adds that the trigger could list
-the tool instead
+For a tool that uses a person's connection, the reason in parentheses
+reads `it uses a person's connection`. Call such a
+tool from an agent step, whose call waits for a reviewer. In a schedule's,
+a webhook trigger's or a mail trigger's run, the message adds that the
+trigger could list the tool instead
 ([Tools allowed unattended](#tools-allowed-unattended)). A schedule's run's
 message ends:
 
 ```text
 Or a project admin can list it in the schedule's toolsAllowedUnattended, so its runs call it without one.
 ```
+
+In a mail trigger's run, two more reasons can stop a step: `a mail started
+the run, and it changes things` (the tool isn't `mutating: false`), and `a
+mail started the run, and it uses a connection of the run's own mailbox`
+([What waits for a yes](../../runs/start-runs-from-new-mail/#what-waits-for-a-yes)).
 
 ## Next
 

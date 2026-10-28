@@ -394,6 +394,18 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     parent: { kind: 'webhooks', params: { triggerId: 'triggerId' } },
   },
   {
+    name: 'mail-triggers',
+    route: '/v1/mail-triggers',
+    paging: cursor,
+    covers: ['/v1/mail-triggers/{triggerId}'],
+  },
+  {
+    name: 'mail-trigger-fires',
+    route: '/v1/mail-triggers/{triggerId}/fires',
+    paging: cursor,
+    parent: { kind: 'mail-triggers', params: { triggerId: 'triggerId' } },
+  },
+  {
     name: 'webhook-endpoints',
     route: '/v1/webhook-endpoints',
     paging: cursor,
@@ -570,6 +582,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from runs, approvals, cost-records and projects (the metering ledger counts them)',
   '/v1/agents/{agentId}/live': 'computed from agent-live-versions',
   '/v1/agents/{agentId}/gate-policy': 'computed from gate-policies',
+  '/v1/agents/{agentId}/projects': 'computed from agent-versions and deployments',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',
   '/v1/projects/{projectId}/judging-rules/preview': 'computed from judging-rules and runs',
   '/v1/projects/{projectId}/judging-rules/{ruleId}/results': 'computed from judgments',

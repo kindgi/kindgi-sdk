@@ -154,7 +154,7 @@ const derive: LeafCommand = {
   kind: 'leaf',
   name: 'derive',
   description:
-    'Publish a new agent version from a pinned one with some prompt or settings pins swapped (no code change).',
+    'Publish a new agent version from a pinned one with some pins of its instructions or settings swapped (no code change).',
   usage:
     'kindgi agents derive <agent-id> --from=<semver> [--prompt=<block-id>=<version>]... [--setting=<block-id>=<version>]... [--label=<text>] [--project=<project-id>]',
   optionSpec: {
@@ -166,7 +166,7 @@ const derive: LeafCommand = {
       type: 'string',
       multiple: true,
       description:
-        'Pin a prompt block the version already uses to this version (`<block-id>=<version>`). Repeat for several.',
+        "Pin the agent's instructions (a prompt block the version already uses) to this version (`<block-id>=<version>`). Repeat for several.",
     },
     setting: {
       type: 'string',
@@ -378,18 +378,18 @@ const promote: LeafCommand = {
   kind: 'leaf',
   name: 'promote',
   description:
-    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a gate policy for the scope, the comparison named by --eval-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing.",
+    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate policy for the scope, the run on the test cases named by --eval-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing.",
   usage: `kindgi agents promote <agent-id> <version> ${SCOPE_USAGE} [--eval-run=<eval-run-id>] [--reason=<text>] [--check]`,
   optionSpec: {
     ...SCOPE_FLAGS,
     'eval-run': {
       type: 'string',
-      description: 'The comparison eval run the gate checks, kept on the record.',
+      description: 'The run on the test cases the release gate policy checks, kept on the record.',
     },
     check: {
       type: 'boolean',
       description:
-        'What the gate would say: would-promote, needs-approval or gate-failed. Changes nothing.',
+        'What the release gate policy would say: would-promote, needs-approval or gate-failed. Changes nothing.',
     },
     ...WRITE_FLAGS,
   },
@@ -415,7 +415,7 @@ const gatePolicy: LeafCommand = {
   kind: 'leaf',
   name: 'gate-policy',
   description:
-    'Show the gate policy a promotion of this agent for a scope is checked against (the most specific scope with one), or null.',
+    'Show the release gate policy that making a version of this agent live for a scope is checked against (the most specific scope with one), or null.',
   usage: `kindgi agents gate-policy <agent-id> ${SCOPE_USAGE}`,
   optionSpec: SCOPE_FLAGS,
   run: (ctx) =>
@@ -501,7 +501,7 @@ const promotionsList: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    "List an agent's promotions, rollbacks and unpins, newest first; name a scope for only its history.",
+    "List an agent's go-live history, newest first: requests to make a version live, rollbacks and unpins; name a scope for only its history.",
   usage: `kindgi agents promotions list <agent-id> [${SCOPE_USAGE}] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: { ...SCOPE_FLAGS, ...PAGE_FLAGS },
   run: (ctx) =>
@@ -523,7 +523,7 @@ const promotionsList: LeafCommand = {
 const promotionsGet: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: 'Fetch one promotion of an agent.',
+  description: "Fetch one entry of an agent's go-live history.",
   usage: 'kindgi agents promotions get <agent-id> <promotion-id>',
   run: (ctx) =>
     runSdk(ctx, 'agents promotions get', async () => {

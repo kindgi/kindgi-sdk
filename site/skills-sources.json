@@ -54,6 +54,7 @@
     },
     "kindgi-authoring-tools": {
       "pages": [
+        "guides/connections/use-a-connection",
         "guides/tools/give-a-tool-a-secret",
         "guides/tools/give-a-tool-env-values",
         "guides/tools/http-tools",
@@ -119,6 +120,7 @@
     },
     "kindgi-java-authoring-tools": {
       "pages": [
+        "guides/connections/use-a-connection",
         "guides/tools/give-a-tool-a-secret",
         "guides/tools/http-tools",
         "guides/tools/index",
@@ -170,6 +172,7 @@
     },
     "kindgi-python-authoring-tools": {
       "pages": [
+        "guides/connections/use-a-connection",
         "guides/tools/give-a-tool-a-secret",
         "guides/tools/give-a-tool-env-values",
         "guides/tools/http-tools",
@@ -227,6 +230,7 @@
     },
     "kindgi-scala-authoring-tools": {
       "pages": [
+        "guides/connections/use-a-connection",
         "guides/tools/give-a-tool-a-secret",
         "guides/tools/http-tools",
         "guides/tools/index",
@@ -247,12 +251,14 @@
         "guides/agents/memory-reference",
         "guides/approvals/approvals-reference",
         "guides/approvals/decide-an-approval",
+        "guides/connections/use-a-connection",
         "guides/evals/judge-a-runs-output",
         "guides/evals/judging-reference",
         "guides/observability/cost-per-run",
         "guides/runs/list-runs",
         "guides/runs/read-the-journal",
         "guides/runs/run-on-a-schedule",
+        "guides/runs/start-runs-from-new-mail",
         "start/coding-agents"
       ],
       "samples": "none"

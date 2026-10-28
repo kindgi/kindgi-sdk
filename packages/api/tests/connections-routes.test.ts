@@ -327,7 +327,7 @@ describe('GET /v1/connection-entries', () => {
     expect(first).toMatchObject({
       id: 'google',
       name: 'Google',
-      owners: ['member'],
+      owners: ['member', 'company'],
       signIn: { kind: 'oauth2' },
       setupGuide: google.setupGuide,
     });
@@ -491,6 +491,24 @@ describe('/v1/connection-apps', () => {
     expect(res.status).toBe(400);
     expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field } });
     expect(calls.createApp).toBeUndefined();
+  });
+
+  test('a reserved `kindgi.` name as its secret is refused, made or changed, before the binding', async () => {
+    const { app, calls } = makeApp();
+    const held = { envName: 'local', name: 'kindgi.google-client' };
+    const made = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'google',
+      oauth2: { clientId: 'acme-client.apps.googleusercontent.com', clientSecret: held },
+    });
+    expect([made.status, made.json.error?.code]).toEqual([400, 'reserved-name-prefix']);
+    expect(made.json.error.message).toContain('a connection app never names one');
+    expect(calls.createApp).toBeUndefined();
+    const created = await call(app, 'admin', 'POST', '/v1/connection-apps', { app: 'google' });
+    const changed = await call(app, 'admin', 'PATCH', `/v1/connection-apps/${created.json.appId}`, {
+      oauth2: { clientId: 'acme-client.apps.googleusercontent.com', clientSecret: held },
+    });
+    expect([changed.status, changed.json.error?.code]).toEqual([400, 'reserved-name-prefix']);
+    expect(calls.updateApp).toBeUndefined();
   });
 
   test("answers the binding's refusal in the error body's code", async () => {

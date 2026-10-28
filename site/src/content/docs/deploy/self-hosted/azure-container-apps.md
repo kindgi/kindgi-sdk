@@ -16,9 +16,9 @@ ready 10 seconds after its container started, its first migrations
 included.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -86,10 +86,11 @@ Who calls whom:
   `pnpm exec kindgi`.
 - **Runtime 0.1.6 or later:** the first with Key Vault keys and the
   registry's managed identity.
-- **Access to the runtime image** (`kindgi auth registry`; see
-  [Install](../../../start/install/)).
-- **A license key:** a non-production key covers staging. Get one at
+- **A license key:** a non-production key covers staging, and it also pulls
+  the runtime image. Get one at
   [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
+- **Docker logged in to `registry.kindgi.com`** with that key
+  ([Pull the runtime image](../pull-the-runtime-image/)).
 - **A pack** that `kindgi build --local --push` builds, with an environment
   block for this deployment in its config, whose `registry` is the module's
   registry (step 2 prints it).
@@ -184,8 +185,10 @@ those there.
 
 ## 2. The images into the registry
 
-The two apps run from images in the module's registry. Copy the runtime
-image there by digest, with every platform it was built for:
+The two apps run from images in the module's registry, which they pull with
+their managed identities, never a password. With Docker logged in to
+`registry.kindgi.com`, copy the runtime image into the module's registry by
+digest, with every platform it was built for:
 
 ```sh
 ACR=$(terraform output -raw image_registry)
@@ -202,6 +205,10 @@ docker buildx imagetools create --tag "$ACR/runtime:0.1.10" \
 The copy keeps the release's digest. A plain `docker pull`, `tag` and `push`
 from an Apple silicon machine pushes only the arm64 image, which Container
 Apps can't run.
+
+The copy goes through the machine you run it on, every layer down and back up,
+and takes both platforms (amd64 and arm64), so on a slow uplink it can take
+most of an hour.
 
 Then build and push your pack's image, signed:
 
@@ -334,7 +341,10 @@ jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env
 
 `jq` turns the plan's `env` and `secret_env` into the module's `pack_env`
 and `pack_secret_env` variables. Terraform reads `*.auto.tfvars.json` only
-from the module's directory.
+from the module's directory, and there it reads each such file by itself,
+for every `plan` and `apply`. So keep the name's ending: a file such as
+`dev.pack-env.tfvars.json` is read only with `-var-file`, and a plan made
+without it takes the pack's env away.
 
 ## 4. The services
 

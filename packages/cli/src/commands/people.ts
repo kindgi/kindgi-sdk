@@ -5,7 +5,7 @@ import type { InviteEmail, ListPage, PersonGrants, User } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import {
   type TableSpec,
   integerFlag,
@@ -109,10 +109,10 @@ const add: LeafCommand = {
       };
       return {
         stdout: renderJson(added, ctx.globals.format).stdout,
-        stderr:
-          ctx.globals.format === 'quiet'
-            ? ''
-            : `Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:${String(created.userId)}\n${inviteLine(created, created.inviteEmail)}`,
+        stderr: successNote(
+          ctx.globals.format,
+          `Added to the tenant: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:${String(created.userId)}\n${inviteLine(created, created.inviteEmail)}`,
+        ),
       };
     }),
 };
@@ -129,7 +129,7 @@ const invite: LeafCommand = {
       const renewed = await ctx.client().users.resendInvite(id as never);
       return {
         stdout: renderJson(renewed, ctx.globals.format).stdout,
-        stderr: ctx.globals.format === 'quiet' ? '' : inviteLine(renewed.user, renewed.inviteEmail),
+        stderr: successNote(ctx.globals.format, inviteLine(renewed.user, renewed.inviteEmail)),
       };
     }),
 };
@@ -158,12 +158,12 @@ const resetSecondFactor: LeafCommand = {
       const reset = await ctx.client().users.removeSecondFactor(id as never);
       return {
         stdout: renderJson(reset, ctx.globals.format).stdout,
-        stderr:
-          ctx.globals.format === 'quiet'
-            ? ''
-            : reset.removed
-              ? `Removed ${id}'s second factor: they set one up again at their next sign-in where the workspace requires one.\n`
-              : `${id} had no second factor set up: nothing changed.\n`,
+        stderr: successNote(
+          ctx.globals.format,
+          reset.removed
+            ? `Removed ${id}'s second factor: they set one up again at their next sign-in where the workspace requires one.\n`
+            : `${id} had no second factor set up: nothing changed.\n`,
+        ),
       };
     }),
 };
@@ -300,10 +300,10 @@ const remove: LeafCommand = {
       const who = removed.user.displayName ?? String(removed.user.userId);
       return {
         stdout: renderJson(removed, ctx.globals.format).stdout,
-        stderr:
-          ctx.globals.format === 'quiet'
-            ? ''
-            : `Removed ${who}: ${removed.keysRevoked} key(s) and ${removed.sessionsRevoked} session(s) revoked, ${removed.grantsRemoved} role(s) and membership(s) taken away.\n`,
+        stderr: successNote(
+          ctx.globals.format,
+          `Removed ${who}: ${removed.keysRevoked} key(s) and ${removed.sessionsRevoked} session(s) revoked, ${removed.grantsRemoved} role(s) and membership(s) taken away.\n`,
+        ),
       };
     }),
 };

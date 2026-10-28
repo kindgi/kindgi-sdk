@@ -295,6 +295,8 @@ export type {
 export { followRun, subscribeToRun } from './run-follow.js';
 export { comparisonOf } from './resources/eval-runs.js';
 export type {
+  AgentProject,
+  AgentProjectList,
   LivePin,
   LivePinList,
   LiveScope,
@@ -398,6 +400,19 @@ export type {
   WebhookTriggerPage,
   WebhooksClient,
 } from './resources/webhooks.js';
+export type {
+  ListMailFiresFilter,
+  ListMailTriggersFilter,
+  MailFire,
+  MailFirePage,
+  MailTrigger,
+  MailTriggerMailbox,
+  MailTriggerPage,
+  MailTriggersClient,
+  RegisterMailTriggerInput,
+  UnregisterMailTriggerResult,
+  UpdateMailTriggerInput,
+} from './resources/mail-triggers.js';
 export type {
   ListSigningKeysFilter,
   RevokeSigningKeyResult,

@@ -26,11 +26,10 @@ A connection has one owner, and the owner decides which runs can use it:
 The model never picks a connection or an account. Kindgi picks the
 connection from the run, before the call.
 
-A schedule or a webhook runs as whoever created it, or last changed what it
-runs. So when someone else changes what it runs (its flow or agent and
-version, its input, the tools it may use unattended, or a webhook's signing
-secret), its runs act as them from then on, with their connections
-([Who owns it after a change](../runs/run-on-a-schedule/#who-owns-it-after-a-change)).
+A schedule or a webhook runs as its owner. A personal one uses its owner's
+connections, and only they or a project admin can change it. A shared one
+runs as a service account and uses the company's
+([Shared or personal](../runs/run-on-a-schedule/#shared-or-personal)).
 
 ## How it fits together
 
@@ -40,7 +39,8 @@ secret), its runs act as them from then on, with their connections
    ([Google](google/), [Microsoft](microsoft/), [GitHub](github/),
    [LinkedIn](linkedin/)).
 2. **People connect** on the app's own sign-in page: from the console's
-   **Connections** page, or from a run that's waiting for them.
+   **Connections** page, from a terminal with `kindgi connections connect`,
+   or from a run that's waiting for them.
 3. **A tool says which app and which permissions it needs**
    ([Use a connection in a tool](use-a-connection/)). Before each call,
    Kindgi finds the connection and hands that call its current
@@ -59,6 +59,20 @@ secret), its runs act as them from then on, with their connections
   webhook's run, where nobody is there to connect, and the company's
   connection in any run, since only an admin connects it. The console's
   **Connections** page shows what's missing.
+
+So connect before a schedule or a webhook needs it. From a terminal, this
+prints the link to open, and waits until you've connected:
+
+```sh
+npx --yes @kindgi/cli@0.2 connections connect google --permissions=gmail.send
+```
+
+- **`--permissions`** names what to ask for, by the app's permission keys.
+  Left out, it asks you about each one at the terminal.
+- **`--for-company`** connects the company's account instead, which only
+  a workspace admin can.
+- **`kindgi connections list --mine --table`** lists your connections, with
+  their state. A workspace admin sees everyone's without `--mine`.
 
 ## What you need
 

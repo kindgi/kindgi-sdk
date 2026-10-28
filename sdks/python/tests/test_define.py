@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from pathlib import Path
+from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from kindgi import CheckResult, DefinitionError, RunTrace, ToolContext, guardrail, tool
 
@@ -82,6 +83,42 @@ def test_a_tool_input_is_an_object() -> None:
         def handler(input: str) -> Out: ...
 
 
+class Priced(BaseModel):
+    amount: int = Field(json_schema_extra={"x-acme-unit": "cents"})
+
+
+class Stored(BaseModel):
+    at: Path
+
+
+class Mistyped(BaseModel):
+    text: str = Field(json_schema_extra={"type": "strng"})
+
+
+@pytest.mark.parametrize(
+    ("slot", "model", "why"),
+    [
+        ("input", Priced, 'strict mode: unknown keyword: "x-acme-unit"'),
+        ("output", Priced, 'strict mode: unknown keyword: "x-acme-unit"'),
+        ("input", Stored, 'unknown format "path" ignored in schema at path "#/properties/at"'),
+        ("input", Mistyped, "'strng' is not valid under any of the given schemas"),
+    ],
+)
+def test_a_models_schema_compiles_as_the_runtime_compiles_it(
+    slot: str, model: type[BaseModel], why: str
+) -> None:
+    # The runtime compiles a tool's schemas strictly, derived or not, when the tool is registered
+    # or deployed. pydantic writes `json_schema_extra` as it is, and `"format": "path"` for a Path.
+    # It doesn't check what it writes against the meta-schema, either.
+    schemas: dict[str, Any] = {"input": In, "output": Out, slot: model}
+    with pytest.raises(DefinitionError) as raised:
+
+        @tool(id="acme.x", description="x", **schemas)
+        def handler(input: Any) -> Any: ...
+
+    assert str(raised.value) == f'Tool "acme.x": the {slot} JSON Schema doesn\'t compile: {why}'
+
+
 OBJECT: dict[str, Any] = {"type": "object"}
 
 
@@ -130,6 +167,70 @@ def test_a_dict_schema_that_compiles_is_kept_as_written() -> None:
 
     assert handler.input_schema == schema
     assert handler.output_schema == OBJECT
+
+
+class NamedGroup(BaseModel):
+    q: str = Field(pattern=r"^(?P<q>\w+)$")
+
+
+class NamedKeys(BaseModel):
+    tags: dict[Annotated[str, StringConstraints(pattern=r"^(?P<t>\w+)$")], int]
+
+
+class Letters(BaseModel):
+    q: str = Field(pattern=r"^\p{L}+$")
+
+
+@pytest.mark.parametrize(
+    ("slot", "model", "source"),
+    [
+        ("input", NamedGroup, r"^(?P<q>\w+)$"),
+        ("input", NamedKeys, r"^(?P<t>\w+)$"),
+        ("output", NamedGroup, r"^(?P<q>\w+)$"),
+    ],
+)
+def test_a_models_pattern_is_read_as_the_runtime_reads_it(
+    slot: str, model: type[BaseModel], source: str
+) -> None:
+    # pydantic's engine reads `(?P<name>…)`; JavaScript's doesn't, so the deploy would refuse it.
+    schemas: dict[str, Any] = {"input": In, "output": Out, slot: model}
+    with pytest.raises(DefinitionError) as raised:
+
+        @tool(id="acme.x", description="x", **schemas)
+        def handler(input: Any) -> Any: ...
+
+    assert str(raised.value) == (
+        f'Tool "acme.x": the {slot} JSON Schema doesn\'t compile: '
+        f"Invalid regular expression: /{source}/u: Invalid group"
+    )
+
+
+def test_a_models_pattern_both_engines_read_is_kept() -> None:
+    # JavaScript and pydantic's engine both read `\p{L}`: the tool checks data against it.
+    @tool(id="acme.x", description="x")
+    def handler(input: Letters) -> Out: ...
+
+    assert handler.input_schema["properties"]["q"]["pattern"] == r"^\p{L}+$"
+
+
+def test_a_guardrail_configs_model_is_checked_for_its_patterns_only() -> None:
+    # The runtime checks a config against its schema non-strict, so a keyword pydantic writes
+    # is kept. A pattern JavaScript can't read is refused, as in a tool's.
+    @guardrail(id="acme.priced", on_violation="halt", config_type=Priced)
+    def priced(config: Any, trace: RunTrace) -> bool: ...
+
+    assert priced.config_schema is not None
+    assert priced.config_schema["properties"]["amount"]["x-acme-unit"] == "cents"
+
+    with pytest.raises(DefinitionError) as raised:
+
+        @guardrail(id="acme.named", on_violation="halt", config_type=NamedGroup)
+        def named(config: Any, trace: RunTrace) -> bool: ...
+
+    assert str(raised.value) == (
+        'Guardrail "acme.named": the config JSON Schema doesn\'t compile: '
+        r"Invalid regular expression: /^(?P<q>\w+)$/u: Invalid group"
+    )
 
 
 def test_a_handler_takes_one_or_two_parameters() -> None:

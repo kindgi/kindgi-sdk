@@ -25,18 +25,28 @@ import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/tes
 
 const TENANT = randomUUID() as TenantId;
 const TOKEN = 'webhooks-routes';
+// The same person with a tenant-admin key: without an authorization store,
+// that is who takes a trigger over.
+const ADMIN_TOKEN = 'webhooks-routes-admin';
 const DEFAULT_PROJECT = '00000000-0000-4000-8000-0000000000d1';
 const OTHER_PROJECT = '00000000-0000-4000-8000-0000000000d2';
 const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId: TENANT, userId: 'user-1' as UserId } : null;
+  token === TOKEN
+    ? { tenantId: TENANT, userId: 'user-1' as UserId }
+    : token === ADMIN_TOKEN
+      ? { tenantId: TENANT, userId: 'user-1' as UserId, scopes: ['tenant-admin'] }
+      : null;
 
-function setup() {
+function setup(nameRefusal?: SecretBinding['nameRefusal']) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: DEFAULT_PROJECT as never });
   const app = createApp({
     ...createStubAppBindings(),
     triggerRegistry: registry,
     // No secret is set: where a named one is read is the broadest scope the caller administers.
-    secretsBinding: { get: async () => null } as unknown as SecretBinding,
+    secretsBinding: {
+      get: async () => null,
+      ...(nameRefusal !== undefined && { nameRefusal }),
+    } as unknown as SecretBinding,
     providerRegistry: {
       resolveForRuntime: async () => [
         { metadata: { id: 'acme-llm' }, secretRef: { name: 'acme-provider-key' } },
@@ -46,10 +56,10 @@ function setup() {
     runHandler: {} as RunHandlerBinding,
     webhookReceiver: { envName: 'test' as EnvName },
   });
-  const call = async (method: string, path: string, body?: unknown) => {
+  const call = async (method: string, path: string, body?: unknown, token = TOKEN) => {
     const res = await app.request(`/v1/webhooks${path}`, {
       method,
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
@@ -145,6 +155,33 @@ describe('registering a webhook trigger', () => {
     const res = await call('POST', '', { ...base, hmacSecretName: 'acme-provider-key' });
     expect(res).toMatchObject({ status: 400, body: { error: { code: 'provider-key-refused' } } });
   });
+
+  test('refuses a reserved `kindgi.` name as its secret, named or generated', async () => {
+    const { call, base } = setup();
+    const named = await call('POST', '', { ...base, hmacSecretName: 'kindgi.webhook' });
+    expect([named.status, named.body.error?.code, named.body.error?.details]).toEqual([
+      400,
+      'reserved-name-prefix',
+      { secret: 'kindgi.webhook' },
+    ]);
+    expect(named.body.error.message).toContain('a webhook trigger never names one');
+    // A generated secret meets the store's own name rule first, as the runtime's stores refuse the prefix.
+    const store = setup((name) =>
+      name.startsWith('kindgi.')
+        ? { code: 'reserved-name-prefix', message: 'reserved for the runtime' }
+        : undefined,
+    );
+    const generated = await store.call('POST', '', {
+      ...base,
+      hmacSecretName: 'kindgi.webhook',
+      generateSecret: true,
+    });
+    expect([generated.status, generated.body.error?.code, generated.body.error?.details]).toEqual([
+      400,
+      'reserved-name-prefix',
+      { secret: 'kindgi.webhook' },
+    ]);
+  });
 });
 
 describe('changing a webhook trigger', () => {
@@ -177,7 +214,7 @@ describe('changing a webhook trigger', () => {
     expect(res.body).not.toHaveProperty('deliveryIdHeader');
   });
 
-  test("keeps its flow; refuses a provider's key; refuses Standard Webhooks with the header it already has", async () => {
+  test("keeps its flow; refuses a provider's key or a reserved name; refuses Standard Webhooks with the header it already has", async () => {
     const { call, base } = setup();
     const t = (await call('POST', '', { ...base, deliveryIdHeader: 'X-Delivery' })).body;
     expect((await call('PATCH', `/${t.triggerId}`, { flowId: 'acme.other' })).status).toBe(400);
@@ -185,6 +222,10 @@ describe('changing a webhook trigger', () => {
       (await call('PATCH', `/${t.triggerId}`, { hmacSecretName: 'acme-provider-key' })).body.error
         .code,
     ).toBe('provider-key-refused');
+    expect(
+      (await call('PATCH', `/${t.triggerId}`, { hmacSecretName: 'kindgi.webhook' })).body.error
+        .code,
+    ).toBe('reserved-name-prefix');
     const sw = await call('PATCH', `/${t.triggerId}`, { signature: { kind: 'standard-webhooks' } });
     expect(sw.status).toBe(400);
     expect(sw.body.error.message).toContain('`webhook-id`');
@@ -263,7 +304,9 @@ describe('reading webhook triggers', () => {
       triggerId: t.triggerId,
       owner: { kind: 'user', id: 'user-left' },
     });
-    const res = await call('POST', `/${t.triggerId}/owner`);
+    // Without an authorization store, a take-over takes a tenant-admin key.
+    expect((await call('POST', `/${t.triggerId}/owner`)).status).toBe(403);
+    const res = await call('POST', `/${t.triggerId}/owner`, undefined, ADMIN_TOKEN);
     expect(res).toMatchObject({ status: 200, body: { owner: { kind: 'user', id: 'user-1' } } });
   });
 });

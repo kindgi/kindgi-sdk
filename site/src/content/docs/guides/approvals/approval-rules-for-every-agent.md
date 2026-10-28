@@ -17,8 +17,8 @@ stricter, never looser.
 
 - **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell. Policies
-  are published through the HTTP API. With `kindgi dev`, the URL and token
-  are the ones it prints. They're also in the pack's `.kindgirc.json`.
+  are published through the HTTP API. With `kindgi dev`, they're `apiUrl`
+  and `token` in the pack's `.kindgirc.json`.
 - **An agent that calls the tool you gate.** This guide uses
   `acme-ops.status-agent`, which calls `acme-ops.post-update`.
 

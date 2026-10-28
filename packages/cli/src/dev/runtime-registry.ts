@@ -14,7 +14,12 @@
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { dockerUnreachable } from './blocked.js';
 import type { DockerOutcome, DockerRunner } from './runtime-container.js';
-import { RUNTIME_IMAGE_REGISTRY, registryOf } from './runtime-image.js';
+import {
+  KINDGI_REGISTRY,
+  RUNTIME_IMAGE_REGISTRY,
+  isKindgiRegistry,
+  registryOf,
+} from './runtime-image.js';
 
 /** How a registry, or Docker relaying it, refuses credentials or access. */
 const AUTH_FAILURE =
@@ -50,11 +55,30 @@ export function credentialHelperHint(helper: string | undefined): string {
   return `Docker's config (~/.docker/config.json, or the one in $DOCKER_CONFIG: "credsStore" or "credHelpers") names ${name}, and Docker couldn't run it. Put it on your PATH (Docker Desktop on macOS keeps it in /Applications/Docker.app/Contents/Resources/bin), or remove that entry from the config, then run this again.`;
 }
 
+/**
+ * The `kindgi` arguments that log Docker in to `registry`: Kindgi's own
+ * takes the license key, with no username; another, a username.
+ * `--registry` only when it isn't the pinned image's.
+ */
+export function registryLoginArgs(registry: string): readonly string[] {
+  const host = isKindgiRegistry(registry) ? KINDGI_REGISTRY : registry;
+  const other = host === RUNTIME_IMAGE_REGISTRY ? [] : ['--registry', host];
+  return host === KINDGI_REGISTRY
+    ? ['auth', 'registry', ...other]
+    : ['auth', 'registry', '--username', '<username>', ...other];
+}
+
 /** The command that logs Docker in to `image`'s registry, as a message shows it. */
 export function registryLoginCommand(image: string): string {
+  return ['kindgi', ...registryLoginArgs(registryOf(image))].join(' ');
+}
+
+/** What pulling `image` takes (on Kindgi's registry, where it comes from): a hint's first words. */
+export function pullCredentialNeeded(image: string): string {
   const registry = registryOf(image);
-  const other = registry === RUNTIME_IMAGE_REGISTRY ? '' : ` --registry ${registry}`;
-  return `kindgi auth registry --username <your robot name>${other}`;
+  return isKindgiRegistry(registry)
+    ? `The runtime image needs your license key: sign in at ${KINDGI_ACCESS_ORIGIN} for it`
+    : `The runtime image needs your username and token for ${registry}`;
 }
 
 /** The end of what `docker` wrote to stderr, with `secret` (the token) blanked out. */
@@ -94,10 +118,18 @@ export type RegistryLogin =
     }
   | { readonly kind: 'error'; readonly message: string };
 
+/** What to check when `registry` refuses a login. */
+function loginRefusedHint(registry: string): string {
+  if (isKindgiRegistry(registry)) {
+    return `Check the license key: signing in at ${KINDGI_ACCESS_ORIGIN} shows yours.`;
+  }
+  return 'Check the username and the token.';
+}
+
 /**
  * `docker login <registry> --username <username> --password-stdin`, with
- * the token written to its stdin: never in its arguments, its
- * environment, or a message.
+ * the token (on Kindgi's registry, the license key) written to its stdin:
+ * never in its arguments, its environment, or a message.
  */
 export async function dockerLogin(
   run: DockerRunner,
@@ -117,7 +149,7 @@ export async function dockerLogin(
     helper !== undefined
       ? `\n  ${credentialHelperHint(helper.helper)}`
       : isRegistryAuthFailure(login.stderr)
-        ? `\n  Check the username and the token.${registry === RUNTIME_IMAGE_REGISTRY ? ` Signing in at ${KINDGI_ACCESS_ORIGIN} shows both.` : ''}`
+        ? `\n  ${loginRefusedHint(registry)}`
         : '';
   return {
     kind: 'error',

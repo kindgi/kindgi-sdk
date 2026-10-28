@@ -26,17 +26,18 @@ and process no live business data.
 to process live business data as part of an organization's operations.
 That includes internal systems your own employees use.
 
-## Building needs no key
+## Building is free
 
 `kindgi dev` runs the runtime in development mode, with `KINDGI_DEV=true`.
-Development mode needs no license key, so everything you build and test on
-your machine is free. Preview releases still stop starting after 90 days,
-in development mode too ([below](#preview-releases-stop-starting-after-90-days)).
+Development mode runs with no license key, and the free non-production key
+from access.kindgi.com pulls the runtime image. So everything you build and
+test on your machine is free. Preview releases still stop starting after 90
+days, in development mode too ([below](#preview-releases-stop-starting-after-90-days)).
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your
+email address for a license key. The key is also the runtime image's
+password ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Running outside development mode
@@ -65,7 +66,27 @@ There are two kinds of key:
   outside development mode. Get one at
   [access.kindgi.com](https://access.kindgi.com), or from contact@kindgi.com.
 
-The runtime starts with either and prints which one it has.
+The runtime starts with either and prints which one it has. It also prints
+the key's name: for a key from access.kindgi.com, your company's domain,
+your GitHub login, or your email address cut short
+([Your key's name](../../deploy/self-hosted/pull-the-runtime-image/#your-keys-name)).
+
+## What a key covers
+
+A key covers the installation it's set on. The runtime reads it once, when
+it starts, and every tenant and project that runtime serves runs under it:
+a key names no tenant or project, and no number of them.
+
+A project in production
+([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production))
+works the same on either kind of key, and putting it there doesn't read the
+key. What makes use production is what the installation serves, not the
+label ([Two licenses](#two-licenses)): one that serves end users or
+processes live business data needs a production key, for every project on
+it. So to test apart from production, run a separate installation, with
+its own database. One that serves no end users and processes no live
+business data is non-production use, so the free non-production key
+covers it.
 
 ## Without a valid key
 
@@ -93,6 +114,9 @@ way, with its own message.
 ```text
 KINDGI_LICENSE_KEY expired on 2026-07-31, more than 14 days ago. Renew it: contact@kindgi.com.
 ```
+
+A key pulls the runtime image on the same dates: until 14 days after it
+expires ([Pull the runtime image](../../deploy/self-hosted/pull-the-runtime-image/#which-keys-pull)).
 
 The key is checked only when the runtime starts, so a running server never
 stops because of its key. A platform that restarts instances on its own

@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.5"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -95,8 +95,10 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   field's path (a bad output as `output-validation-failed`); the agent's
   `tool_errors` policy decides whether the model gets to fix the call.
 - **Problems in the declaration** (a missing docstring, an
-  unannotated parameter, a non-object input) raise `DefinitionError`
-  where the tool is declared; the indexer reports it with the file.
+  unannotated parameter, a non-object input, or an input or output
+  schema the runtime's compile refuses, such as one with a keyword it
+  doesn't know) raise `DefinitionError` where the tool is declared; the
+  indexer reports it with the file.
 
 ## `ToolContext`
 
@@ -234,7 +236,7 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
 - **The token:** `access_token` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account.label` says whose account it is (`ana@acme.com`).
 - **A 401 from the app:** `raise ConnectionRejected("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or raise your own error `from` it. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
 - **An HTTP tool** sends the token with no code: `authorization={"kind": "connection", "connection": "mail"}`.
-- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, unless it's marked `mutating=False` (mark read-only tools so). The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below).
+- **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `mutating=False` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `mutating=False`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `ToolContext.for_test(connections={"mail": ToolConnection(connection_id="c-1", app="google", app_name="Google", access_token="test", account=ConnectionAccount(id="1", label="ana@acme.com"))})`, all from `kindgi`. `ctx.connections` is empty when the tool declares none.
 
 Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
@@ -261,6 +263,10 @@ approval gates on (`conversation_policy={"hitl": {"tools": {...}}}`)
 and has neither an override for the tool nor a `default` doesn't ask
 before a read-only tool, and asks before any other on first use.
 
+In a run a new mail started, a call of a tool that isn't read-only waits
+for a person's yes, unless the mail trigger's `toolsAllowedUnattended`
+lists it.
+
 ```python
 @tool(id="acme.find-citations", mutating=False)
 def find_citations(query: CitationQuery) -> Citations:
@@ -276,11 +282,11 @@ policy and review; declare what the tool really does.
 
 ## A person's yes when no one is watching: `needs_approval_when_unattended`
 
-`needs_approval_when_unattended=True` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, an event or a service account's key started. In such a run:
+`needs_approval_when_unattended=True` declares that a person must say yes to every call of the tool in a run no person started: one a schedule, a webhook, a new mail, an event or a service account's key started. In such a run:
 
 - **An agent's call waits** for a person's yes, whatever the agent's `conversation_policy` says in `hitl["tools"]`. The agent's rules can't lift it: agents are reused, and the tool's author knows what it does.
 - **A flow's tool step that calls it is refused.** Put the tool behind an agent step instead, whose call waits.
-- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's or a schedule's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks` and `kindgi schedules`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
+- **A trigger can lift both, for its own runs only.** A project admin names the tool in a webhook trigger's, a schedule's or a mail trigger's `toolsAllowedUnattended` (`--allow-unattended=<tool-id>` on `kindgi webhooks`, `kindgi schedules` and `kindgi mail-triggers`). In that trigger's runs, the tool is then as in a run a person started. The tenant's approval rules still apply.
 
 In a run a person started (signed in, or with their own API key), the agent's rules decide, as for any tool. Left out, it counts as `False`. Declare it on a tool that moves money or changes something people rely on:
 
@@ -296,6 +302,10 @@ def refund(request: RefundRequest) -> Refunded:
 ```
 
 Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+
+## Results that are text from outside: `result_is_outside_data`
+
+`result_is_outside_data=True` says the tool's results are text from outside that nobody checked, such as a mail someone sent or a page a search found. An agent reads each result of the tool as data, not instructions, in that turn and in every later turn's history. It changes what the model is told, not what the tool may do: pair it with approvals for anything an agent could do with what it read. Absent means `false`.
 
 ## HTTP tools — one request, no code
 

@@ -5,7 +5,7 @@ import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WAITPOINT_TIMEOUT_REASON, WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
-import { type RunStartedBy, needsPersonsYesUnattended } from '@kindgi/runtime';
+import { type RunMailbox, type RunStartedBy, needsPersonsYesUnattended } from '@kindgi/runtime';
 import {
   BUILT_IN_TOOL_PREFIX,
   invokeTool,
@@ -69,9 +69,11 @@ import { addStepToolNodes } from './turn-provenance.js';
  * tool from the pre-resolved effective policy. Mirrors the standalone
  * `resolveToolHitl(agent, tool)` in tool-hitl.ts but consumes the
  * resolver's output, and adds the floors that sit above the agent's
- * rules: the tenant's, and in a run no person started, the tool's own
- * `needsApprovalWhenUnattended`, unless the webhook or schedule that
- * started the run lists the tool (`needsPersonsYesUnattended`).
+ * rules: the tenant's, and in a run no person started, the unattended
+ * rule (`needsPersonsYesUnattended`: the tool's own
+ * `needsApprovalWhenUnattended`, a person's connection, and in a mail's
+ * run a change or the run's own mailbox), unless the webhook, schedule or
+ * mail trigger that started the run lists the tool.
  */
 export function resolveEffectiveToolHitl(
   effective: EffectiveHitlPolicy,
@@ -79,17 +81,23 @@ export function resolveEffectiveToolHitl(
   run: {
     readonly startedBy?: RunStartedBy;
     readonly toolsAllowedUnattended?: readonly string[];
+    readonly mailbox?: RunMailbox;
   },
 ): { readonly mode: ToolHitlMode; readonly requiredRole: 'standard' | 'senior' | 'admin' } {
   const gate = agentToolHitl(effective, tool);
   // The tenant's floor for this tool, when it names one: the stricter wins.
   const floor = effective.toolFloors?.get(tool.id as unknown as string);
   const floored = floor === undefined ? gate : stricterToolHitlRule(gate, floor);
-  // In a run no person started, a tool that declares it needs a person's
-  // yes waits for one on every call, unless the run's webhook or schedule
-  // lists it. Agents are reused, so their rules can't lift it, the same
-  // as the tenant's floor.
-  const stricter = needsPersonsYesUnattended(tool, run.startedBy, run.toolsAllowedUnattended)
+  // In a run no person started, a tool the unattended rule covers waits
+  // for a person's yes on every call, unless the run's trigger lists it.
+  // Agents are reused, so their rules can't lift it, the same as the
+  // tenant's floor.
+  const stricter = needsPersonsYesUnattended(
+    tool,
+    run.startedBy,
+    run.toolsAllowedUnattended,
+    run.mailbox,
+  )
     ? stricterToolHitlRule(floored, { mode: 'always_ask' })
     : floored;
   return { mode: stricter.mode, requiredRole: stricter.requiredRole ?? gate.requiredRole };
@@ -145,9 +153,10 @@ interface ToolGateRecord {
 /**
  * Whether `call` waits for a review, decided once (`NodeContext.record`):
  * a step resumed after the park reads the gate it parked on back, so a
- * policy relaxed meanwhile can't skip the reviewer's answer. A call the
- * gate lets through isn't recorded: it runs, and its stored result is
- * reused after a park further down the list.
+ * policy relaxed meanwhile can't skip the reviewer's answer, and a gate
+ * recorded before its wait token took the step's scope keeps the token it
+ * was recorded with. A call the gate lets through isn't recorded: it runs,
+ * and its stored result is reused after a park further down the list.
  */
 async function decideToolGate(
   ctx: TurnContext,
@@ -163,15 +172,16 @@ async function decideToolGate(
       cause: null,
     });
   }
-  // How the turn's run started, and what its webhook or schedule lists:
-  // both as the run recorded them when it started (a resumed turn's come
-  // from its record, never from whoever resumed it), so an approval
-  // doesn't make the rest of the run attended.
+  // How the turn's run started, what its trigger lists, and a mail's
+  // mailbox: all as the run recorded them when it started (a resumed
+  // turn's come from its record, never from whoever resumed it), so an
+  // approval doesn't make the rest of the run attended.
   const run = {
     ...(ctx.input.startedBy !== undefined && { startedBy: ctx.input.startedBy }),
     ...(ctx.input.toolsAllowedUnattended !== undefined && {
       toolsAllowedUnattended: ctx.input.toolsAllowedUnattended,
     }),
+    ...(ctx.input.mailbox !== undefined && { mailbox: ctx.input.mailbox }),
   };
   return kctx.record(`${TOOL_GATE_RECORD_PREFIX}${call.id}`, (): ToolGateRecord | undefined => {
     const resolved = resolveEffectiveToolHitl(effectiveHitl, tool, run);
@@ -181,6 +191,7 @@ async function decideToolGate(
       argsHash,
       waitTokenId: computeToolCallWaitToken({
         runId: kctx.runId as unknown as string,
+        ...(kctx.stepScope !== undefined && { stepScope: kctx.stepScope }),
         callId: call.id,
         argsHash,
       }),
@@ -343,11 +354,18 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           invocationId: call.id,
           arguments: call.arguments,
         });
-        nextMessages = await appendToolResult(ctx, call, replayed.result, {
-          toolId: tool.id as unknown as string,
-          nextMessages,
-          iterationAppended,
-        });
+        // A recorded result is outside data when the past run kept it so,
+        // or when the tool says its results are, as a live call's is.
+        const fromOutside =
+          replayed.kind === 'recorded' &&
+          (replayed.fromEvent === true || tool.resultIsOutsideData === true);
+        nextMessages = await appendToolResult(
+          ctx,
+          call,
+          replayed.result,
+          { toolId: tool.id as unknown as string, nextMessages, iterationAppended },
+          fromOutside,
+        );
         await emitTurnEvent(ctx.bindings.onEvent, {
           kind: 'tool.completed',
           step: partial.step,
@@ -460,11 +478,11 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         } catch (cause) {
           if (cause instanceof WaitpointCancelledError) {
             throwAgentTurnFailure(
-              (withdrawnGateFailure(cause.reason, `tool call ${call.name}`) ?? {
+              withdrawnGateFailure(cause.reason, `tool call ${call.name}`) ?? {
                 code: 'hitl-cancelled',
                 message: `Tool-call HITL cancelled for ${call.name}: ${cause.reason}`,
                 reason: cause.reason,
-              }) as never,
+              },
             );
           }
           throw cause;
@@ -713,15 +731,17 @@ interface ToolResultTarget {
 
 /**
  * Record a result the framework writes for a call (a rejection, a failed
- * call sent back to the model) the way a tool's own result is recorded:
- * persisted to the conversation with the call it answers, and added to
- * the messages the next model call sees.
+ * call sent back to the model, a replay's recorded result) the way a
+ * tool's own result is recorded: persisted to the conversation with the
+ * call it answers, and added to the messages the next model call sees.
+ * `fromOutside`: the result is outside data, kept marked and sent as data.
  */
 async function appendToolResult(
   ctx: TurnContext,
   call: ModelToolCall,
   output: unknown,
   target: ToolResultTarget,
+  fromOutside = false,
 ): Promise<ModelMessage[]> {
   const persisted = await ctx.bindings.conversationBinding.appendMessage({
     tenantId: ctx.input.tenantId,
@@ -729,6 +749,8 @@ async function appendToolResult(
     role: 'tool',
     content: output as Record<string, unknown>,
     toolCall: { toolId: target.toolId, invocationId: call.id },
+    // Outside data stays data in every later turn's history.
+    ...(fromOutside && { fromEvent: true as const }),
   });
   if (persisted.kind === 'err') throwAgentTurnFailure(persisted.error);
   ctx.appended.push(persisted.value);
@@ -737,8 +759,9 @@ async function appendToolResult(
     ...target.nextMessages,
     {
       role: 'tool',
-      // As a tool's own result reaches the model: a string as it is.
-      content: typeof output === 'string' ? output : JSON.stringify(output),
+      // As a tool's own result reaches the model: a string as it is, and
+      // outside data as data.
+      content: toolResultForModel(output, fromOutside),
       toolCallId: call.id,
     },
   ];
@@ -941,7 +964,9 @@ async function dispatchOne(
   const toolCtx = toolContextFor(ctx, tool, call, kctx, replayEnv);
   const called = await callOrWait(tool, call, toolCtx, kctx, connect);
   if (called.kind === 'not-connected') return called;
-  const { result, fromOutside, connections } = called;
+  const { result, connections } = called;
+  // Another system's answer, or a result the tool says is outside data.
+  const fromOutside = called.fromOutside || tool.resultIsOutsideData === true;
   if (result.kind === 'err') {
     // Hoist AJV validation detail from the inner error so it survives
     // `toWireError` (which filters `cause` to avoid Error-instance /
@@ -984,7 +1009,7 @@ async function dispatchOne(
     role: 'tool',
     content: (result.value as unknown as string | Record<string, unknown>) ?? '',
     toolCall: { toolId: tool.id, invocationId: call.id },
-    // Another system's answer stays data in every later turn's history.
+    // Outside data stays data in every later turn's history.
     ...(fromOutside && { fromEvent: true as const }),
   });
   if (persist.kind === 'err') {
