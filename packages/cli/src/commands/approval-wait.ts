@@ -166,6 +166,7 @@ export interface WaitingVersion {
   readonly toVersion: string | null;
   readonly approvalId?: string | undefined;
   readonly status?: string | undefined;
+  readonly checks?: readonly { readonly name: string; readonly message: string }[] | undefined;
 }
 
 /** The agent and the version, as the lines name them. */
@@ -205,11 +206,23 @@ export function endedLine(promotion: WaitingVersion): string {
       return `${approval} was rejected: ${what} doesn't go live.`;
     case 'expired':
       return `${approval} expired undecided: ${what} doesn't go live.`;
-    case 'superseded':
-      return `${what} was superseded while it waited: the scope's live version or its release gate policy changed. Promote it again to ask again.`;
+    case 'superseded': {
+      const reason = recheckMessage(promotion);
+      return reason !== undefined
+        ? `${what} was superseded: ${reason} Promote it again to ask again.`
+        : `${what} was approved, but superseded: something its check measured changed before the approval. Promote it again to ask again.`;
+    }
     default:
       return `${what} ended ${promotion.status ?? 'without a status'}: it doesn't go live.`;
   }
+}
+
+/**
+ * Why the server superseded a promotion: its `approval.recheck` check, which
+ * the approval adds when something the check measured has changed by then.
+ */
+function recheckMessage(promotion: WaitingVersion): string | undefined {
+  return promotion.checks?.find((check) => check.name === 'approval.recheck')?.message;
 }
 
 function pauseUnlessStopped(ms: number, signal?: AbortSignal): Promise<void> {

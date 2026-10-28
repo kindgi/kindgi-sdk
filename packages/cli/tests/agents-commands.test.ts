@@ -433,7 +433,7 @@ describe('agents promote: exit 3 when the answer is no, and --wait for an approv
     ['expired', "Approval ap-1 expired undecided: acme.drafter 1.1.0 doesn't go live."],
     [
       'superseded',
-      "acme.drafter 1.1.0 was superseded while it waited: the scope's live version or its release gate policy changed. Promote it again to ask again.",
+      'acme.drafter 1.1.0 was approved, but superseded: something its check measured changed before the approval. Promote it again to ask again.',
     ],
   ])('--wait: a promotion that ends %s exits 3 and says how it ended', async (status, line) => {
     const calls: unknown[][] = [];
@@ -444,6 +444,38 @@ describe('agents promote: exit 3 when the answer is no, and --wait for an approv
     expect(JSON.parse(out.stdout)).toMatchObject({ status });
     expect(out.stderr).toContain('Waiting up to 1h for approval ap-1');
     expect(out.stderr).toContain(line);
+  });
+
+  const RECHECK = {
+    name: 'approval.recheck',
+    passed: false,
+    message:
+      "Approved, but things changed since the check: The scope's gate policy is acme.drafter-prod 1.1.0 now, not the one it passed. Check again.",
+  };
+  const PASSED = { name: 'comparison.status', passed: true, message: 'The comparison completed.' };
+
+  test.each([
+    [
+      'the approval.recheck check',
+      [PASSED, RECHECK],
+      "acme.drafter 1.1.0 was superseded: Approved, but things changed since the check: The scope's gate policy is acme.drafter-prod 1.1.0 now, not the one it passed. Check again. Promote it again to ask again.",
+    ],
+    [
+      'other checks, but no approval.recheck',
+      [PASSED],
+      'acme.drafter 1.1.0 was approved, but superseded: something its check measured changed before the approval. Promote it again to ask again.',
+    ],
+  ])('--wait: a superseded promotion with %s says why', async (_, checks, line) => {
+    const { out } = await runWaiting(['agents', 'promote', ...SCOPE, '--wait'], {
+      agents: {
+        promotions: {
+          create: async () => PENDING,
+          get: async () => promotion({ status: 'superseded', approvalId: 'ap-1', checks }),
+        },
+      },
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stderr).toContain(`${line}\n`);
   });
 
   test.each([

@@ -13,7 +13,8 @@
 - **`--wait[=<duration>]`** on `kindgi agents promote` and `kindgi promote --make-live` waits for a version that waits for an approval, until a reviewer decides.
   - The duration is like `90s`, `30m` or `2h`. A bare `--wait` waits up to an hour.
   - It reads the promotion every 5 seconds, and says first which approval it waits for and the command that approves it.
-  - It exits 0 once the version is live, and 3 when the approval is rejected or expires, the promotion is superseded, or the wait runs out. The output is the promotion as it ended.
+  - It exits 0 once the version is live, and 3 when the approval is rejected or expires, the promotion is superseded, or the wait runs out. The output is the promotion as it ended. A superseded promotion says why, as the approval recorded it.
+  - A read that fails is read again at the next read, and a rate limit is waited out. Only 3 failed reads in a row end the wait: it prints the promotion as last read, says the approval stays open, and exits 1.
   - `kindgi promote --make-live --wait` waits for every carried version that waits for an approval, within one deadline. It doesn't wait when a version is held by a failed check, since then not every version can go live.
   - The wait never withdraws the approval: once it's approved, the version goes live. Ctrl-C stops the wait with exit 130.
   - `--wait` with `--check`, or `kindgi promote --wait` without `--make-live`, is a usage error.
