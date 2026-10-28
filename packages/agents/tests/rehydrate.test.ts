@@ -165,7 +165,13 @@ const parkedJournal: readonly JournalEntry[] = [
   completed('render-prompt', {}),
   completed('persist-user-message', { sequence: 3 }),
   completed('run-retrievals', { count: 1, retrieved: [{ intent: 'facts', content: 'a fact' }] }),
-  completed('build-initial-messages', {}),
+  completed('build-initial-messages', {
+    nextMessages: [
+      { role: 'system', content: 'Help.' },
+      { role: 'user', content: 'An earlier question' },
+      { role: 'user', content: 'Where is order A-1042?' },
+    ],
+  }),
   firstModelCall,
   completed('dispatch-tools', { iterationAppended: [stored[3], stored[4]] }, 0),
   completed('budget-check', {}, 0),
@@ -207,6 +213,8 @@ describe('rehydrateTurnContext', () => {
     expect(ctx.storedBeforePark?.map((m) => m.sequence)).toEqual([6, 7]);
     expect(ctx.userMessage?.sequence).toBe(3);
     expect(ctx.retrieved).toEqual([{ intent: 'facts', content: 'a fact' }]);
+    // Where the loop's own messages start, from what build-initial-messages journaled.
+    expect(ctx.initialMessageCount).toBe(3);
     // Usage across both model calls, so the budgets count the whole turn.
     expect(ctx.usage).toEqual({
       steps: 2,

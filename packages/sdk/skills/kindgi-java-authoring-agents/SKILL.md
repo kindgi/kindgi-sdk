@@ -134,8 +134,10 @@ public final class BriefWriter {
   **`tool(id, range)`** is a tool of another pack, with a semver **range**
   (`"^1.0.0"`); the highest active matching version is picked at turn
   start. An agent with no tools is chat-only.
-- **`guardrail(Guardrail)`** or **`guardrail(id)`:** evaluated once per turn
-  on the final answer, before it is stored. An id with no registered
+- **`guardrail(Guardrail)`** or **`guardrail(id)`:** checks the final answer,
+  before it is stored. One whose action is `retry` sends the answer back to
+  the model for a new one, up to `retry.maxAttempts` answers in all (default
+  2); then the turn fails (`guardrail-violation`). An id with no registered
   guardrail fails the turn.
 - **`set("parameters", List.of(Map.of("name", …, "type", …, "required", …)))`:**
   inputs the caller supplies per run. They fill `{{ … }}` in the

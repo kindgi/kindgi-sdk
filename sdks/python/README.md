@@ -188,10 +188,12 @@ type here — without it the check gets `{}`, its defaults. `RunTrace` holds the
 `tool_calls`, `tool_results`, `model_calls`, … (snake_case here, camelCase on
 the wire). `on_violation` names the action (`halt`, `retry`, `escalate`,
 `log-only`, `compensate`); `action=` takes the whole object
-(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`). In 0.1 the
-runtime acts only on `halt`: the turn fails with `guardrail-violation`. Any
-other action is recorded on the turn's violations and the turn completes;
-nothing runs it again, escalates or calls a compensating tool.
+(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`). The runtime acts
+on `halt`: the turn fails with `guardrail-violation`. It acts on `retry` too:
+the answer goes back to the model with the check's reason, for a new one,
+until the guardrail has failed `maxAttempts` answers, and then the turn fails
+the same way. Any other action is recorded on the turn's violations and the
+turn completes; in 0.1 nothing escalates or calls a compensating tool.
 
 ### Agents and flows
 

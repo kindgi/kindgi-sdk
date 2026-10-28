@@ -3366,7 +3366,7 @@ class ReinstateToolVersionResult(BaseModel):
 
 class Retry(BaseModel):
     """
-    The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.
+    Counts the answers this guardrail fails in a turn, the first one included (with `maxAttempts: 3` it sends a failed answer back up to twice, and the third answer it fails ends the turn). Left out, 2. The turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.
     """
 
     model_config = ConfigDict(
@@ -3390,11 +3390,11 @@ class GuardrailAction(BaseModel):
         ),
     ]
     """
-    What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.
+    What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. The runtime acts on `halt`: the turn fails with `guardrail-violation` and its response is not stored. It acts on `retry` too: the answer goes back to the model with the check's reason, for a new one, until `retry.maxAttempts` run out, and then the turn fails the same way, with `details.attempts`. Any other value is recorded as a violation, as `log-only` is, and the turn completes: in 0.1 nothing escalates or calls a compensating tool.
     """
     retry: Retry | None = None
     """
-    The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.
+    Counts the answers this guardrail fails in a turn, the first one included (with `maxAttempts: 3` it sends a failed answer back up to twice, and the third answer it fails ends the turn). Left out, 2. The turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.
     """
     escalate_to: Annotated[str | None, Field(alias="escalateTo")] = None
     """
@@ -3520,7 +3520,7 @@ class GuardrailCollectionPage(BaseModel):
 
 class GuardrailOutcomeCounts(BaseModel):
     """
-    How many of a guardrail's checks came to each outcome.
+    How many of a guardrail's checks came to each outcome: one check per answer it judged. A guardrail judges a turn's final answer. In a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer, so a turn that sent answers back counts a check of those for each.
     """
 
     model_config = ConfigDict(
@@ -3533,11 +3533,11 @@ class GuardrailOutcomeCounts(BaseModel):
     """
     violated: Annotated[int, Field(ge=0)]
     """
-    The check found something and the answer went through (`log-only`, `noop`, or an action handed back).
+    The check found something and the answer went through (`log-only`, `noop`, or an action handed back), or a `retry` sent it back for a new one.
     """
     blocked: Annotated[int, Field(ge=0)]
     """
-    The check found something and its `halt` failed the turn.
+    The check found something and its action failed the turn: a `halt`, or a `retry` whose attempts had run out.
     """
     errored: Annotated[int, Field(ge=0)]
     """
@@ -3562,11 +3562,11 @@ class GuardrailOutcomesByAgentVersion(BaseModel):
     """
     violated: Annotated[int, Field(ge=0)]
     """
-    The check found something and the answer went through (`log-only`, `noop`, or an action handed back).
+    The check found something and the answer went through (`log-only`, `noop`, or an action handed back), or a `retry` sent it back for a new one.
     """
     blocked: Annotated[int, Field(ge=0)]
     """
-    The check found something and its `halt` failed the turn.
+    The check found something and its action failed the turn: a `halt`, or a `retry` whose attempts had run out.
     """
     errored: Annotated[int, Field(ge=0)]
     """

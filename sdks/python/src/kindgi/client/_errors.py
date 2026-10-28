@@ -122,11 +122,15 @@ class GuardrailViolationError(KindgiApiError):
         *,
         violations: list[Mapping[str, Any]],
         evaluation_errors: list[Mapping[str, Any]],
+        attempts: int | None = None,
         **kw: Any,
     ) -> None:
         super().__init__(message, **kw)
         self.violations = violations
         self.evaluation_errors = evaluation_errors
+        # The answers the turn had when a `retry` guardrail's attempts ran out,
+        # the first one included; `None` when a `halt` guardrail stopped it.
+        self.attempts = attempts
 
 
 class ServerError(KindgiApiError):
@@ -232,6 +236,7 @@ def from_wire(body: Any, status: int, *, retry_after: str | None = None) -> Kind
             message,
             violations=_list(details.get("violations")),
             evaluation_errors=_list(details.get("evaluationErrors")),
+            attempts=_count(details.get("attempts")),
             **common,
         )
     return ServerError(message, **common)
@@ -274,6 +279,10 @@ def _family(code: str, status: int) -> str:
 
 def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _list(value: Any) -> list[Mapping[str, Any]]:

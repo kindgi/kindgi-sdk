@@ -440,7 +440,7 @@ async function retryOrFail(
   const policy =
     ctx.toolErrorPolicy ?? effectiveToolErrorPolicy(ctx.input.agent.toolErrors, undefined);
   const kind = toolErrorKindOf(error);
-  const used = toolRetriesSoFar(target.nextMessages);
+  const used = toolRetriesSoFar(ctx, target.nextMessages);
   if (!policy.retryOn.has(kind)) throwAgentTurnFailure(error);
   if (used >= policy.maxRetries) throwAgentTurnFailure({ ...error, toolRetries: used });
   return appendToolResult(ctx, call, toolErrorResult(kind, error.message, issues), target);

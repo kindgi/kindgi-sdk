@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a `retry` guardrail sends a failed answer back to the model,
+  for a new one**, until it has failed `maxAttempts` answers (2 when left
+  out), and then the turn fails with `guardrail-violation`.
+  `GuardrailViolationError.attempts` says how many answers the turn had
+  (`None` when a `halt` guardrail stopped it). The `@guardrail` docstring
+  says what `retry` does.
 - `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
 
 - `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a model

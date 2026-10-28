@@ -486,8 +486,12 @@ export interface Agent {
    * against the guardrail definitions bound for the run
    * (`GuardrailsBindings.guardrails`, evaluated through its `checks`
    * registry from `@kindgi/guardrails`); an unknown id fails the turn
-   * with `unresolved-guardrail`. Evaluated once per turn, on the final
-   * response before it is stored.
+   * with `unresolved-guardrail`. They check the final response before
+   * it is stored; with a `retry` guardrail, each answer the model
+   * finishes is judged on the turn's `halt` and `retry` guardrails: a
+   * `halt` failure fails the turn at once, and a `retry` failure sends
+   * the answer back for a new one, up to `retry.maxAttempts`; past it,
+   * the turn fails with `guardrail-violation`.
    */
   readonly guardrails: readonly string[];
   /**

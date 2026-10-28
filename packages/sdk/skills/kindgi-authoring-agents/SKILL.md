@@ -111,10 +111,12 @@ export default defined.value;
 - **`guardrails`** — array of guardrail `id` strings. Resolved at turn
   start against the guardrails bound for the run (the tenant's
   registered guardrails). If a guardrail id isn't registered, the turn
-  fails with `unresolved-guardrail`. Guardrails are evaluated once per
-  turn, on the final response before it is stored — a blocking
-  (`halt`) violation fails the turn and the response is never written
-  to the conversation.
+  fails with `unresolved-guardrail`. Guardrails check the final
+  response before it is stored — a blocking (`halt`) violation fails
+  the turn and the response is never written to the conversation; a
+  `retry` one sends the response back to the model for a new one, up
+  to `retry.maxAttempts` answers in all (default 2); then the turn
+  fails with `guardrail-violation`.
 - **`parameters`** — typed inputs the caller supplies at invoke time.
   UI builds a "configure agent" form from these; runtime validates
   each required parameter is provided.

@@ -17,6 +17,8 @@
  *     the turn's user message (`persist-user-message` journals its
  *     sequence);
  *   - the retrieved facts and recalled messages come from `run-retrievals`' journaled output;
+ *   - where the loop's own messages start, from `build-initial-messages`'
+ *     journaled output;
  *   - usage is summed from the journaled model calls, so the step and
  *     cost budgets count the whole turn.
  *
@@ -148,6 +150,13 @@ export async function rehydrateTurnContext(
   }>(steps, 'run-retrievals');
   if (retrievals?.retrieved !== undefined) ctx.retrieved = retrievals.retrieved;
   if (retrievals?.recalled !== undefined) ctx.recalled = retrievals.recalled;
+
+  // Where the loop's own messages start, as the step that built them saw it.
+  const initial = outputOf<{ readonly nextMessages?: readonly unknown[] }>(
+    steps,
+    'build-initial-messages',
+  );
+  if (initial?.nextMessages !== undefined) ctx.initialMessageCount = initial.nextMessages.length;
 
   for (const s of steps.filter((s) => s.nodeId === 'model-call' && s.inLoop)) {
     const out = s.output as {

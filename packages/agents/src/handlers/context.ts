@@ -106,6 +106,14 @@ export interface TurnContext {
    */
   renderedPrompt?: string;
   /**
+   * How many messages the agent loop starts with: the system message, the
+   * history, the memory and the person's message. Set by
+   * `build-initial-messages`, and by the rebuild of a resumed turn from
+   * that step's journaled output. What a step of the loop adds (answers,
+   * tool results, repair and retry notes) comes after them.
+   */
+  initialMessageCount?: number;
+  /**
    * Populated by `run-retrievals` — facts pulled by declared intents.
    */
   retrieved?: readonly RetrievedFact[];
@@ -209,6 +217,25 @@ export interface TurnContext {
    * `AgentTurnResult.violations`.
    */
   nonBlockingViolations?: readonly EvaluationResult[];
+  /**
+   * The answer `budget-check` judged and let finish the turn, when the
+   * turn has a `retry` guardrail: its loop iteration and its message. Its
+   * `halt` and `retry` guardrails passed it there, so `evaluate-guardrails`
+   * judges only the others, and only when the loop's final output is this
+   * answer. In memory only: a turn resumed in another process has none,
+   * and `evaluate-guardrails` judges every guardrail, as without a `retry`
+   * one. `errors` are the checks there that couldn't run on it (a `retry`
+   * guardrail's: a `halt` one's would have failed the turn), which
+   * `evaluate-guardrails` shows in its provenance and its output, as for
+   * the checks it runs.
+   */
+  answerJudgedInLoop?:
+    | {
+        readonly iteration: number;
+        readonly message: string;
+        readonly errors: readonly import('../guardrails-gate.js').GuardrailEvaluationError[];
+      }
+    | undefined;
   /**
    * A replay turn's tool calls so far, and what happened to each
    * (`decideReplayTool`). Rebuilt from the journal on resume.

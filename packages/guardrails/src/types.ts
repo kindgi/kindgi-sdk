@@ -50,8 +50,8 @@ export type GuardrailSeverity = 'info' | 'warn' | 'error' | 'critical';
  * `'redact-then-continue'`. Any non-empty name is accepted when the
  * guardrail is defined; with `EvaluationBindings.actions` set, a name
  * with no registered handler fails with `unknown-action` when the
- * guardrail fires. The agent runtime in 0.1 binds no action handlers
- * and acts only on `'halt'` (see `Action`).
+ * guardrail fires. The agent runtime binds no action handlers, and acts
+ * on `'halt'` and `'retry'` (see `Action`).
  */
 export type OnViolation = string;
 
@@ -68,15 +68,22 @@ export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
 
 export interface Action {
   /**
-   * What a failed check does to the agent turn. In 0.1 the runtime acts
-   * only on `'halt'`: the turn fails with `guardrail-violation` and its
-   * response is not stored. Any other action, `'retry'`, `'escalate'` and
-   * `'compensate'` included, is recorded on the turn's `violations`, as
-   * `'log-only'` is, and the turn completes: nothing runs the turn again,
-   * escalates or calls a compensating tool.
+   * What a failed check does to the agent turn. The runtime acts on
+   * `'halt'`: the turn fails with `guardrail-violation` and its response
+   * is not stored. It acts on `'retry'` too: the answer goes back to the
+   * model with the check's reason, for a new one, until the guardrail's
+   * attempts (`retry`) run out, and then the turn fails the same way. Any
+   * other action, `'escalate'` and `'compensate'` included, is recorded on
+   * the turn's `violations`, as `'log-only'` is, and the turn completes:
+   * in 0.1 nothing escalates or calls a compensating tool.
    */
   readonly 'on-violation': OnViolation;
-  /** The attempts a `'retry'` asks for. In 0.1 nothing acts on it: there's no second attempt. */
+  /**
+   * Counts the answers this guardrail fails in a turn, the first one
+   * included: with `maxAttempts: 3` it sends a failed answer back up to
+   * twice, and the third answer it fails ends the turn. Left out, 2. The
+   * turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.
+   */
   readonly retry?: { readonly maxAttempts: number };
   /** Where an `'escalate'` goes. In 0.1 nothing escalates. */
   readonly escalateTo?: string;
@@ -224,10 +231,12 @@ export interface Guardrail {
    */
   readonly config?: Readonly<Record<string, unknown>>;
   /**
-   * What a failed check does to the agent turn. In 0.1 the runtime
-   * acts only on `halt`: the turn fails with `guardrail-violation`.
-   * `retry`, `escalate`, `compensate` and any other name are recorded
-   * like `log-only` and the turn completes (see `Action`).
+   * What a failed check does to the agent turn. The runtime acts on
+   * `halt` (the turn fails with `guardrail-violation`) and on `retry`
+   * (the answer goes back to the model for a new one while the attempts
+   * last, and then the turn fails the same way). `escalate`, `compensate`
+   * and any other name are recorded like `log-only` and the turn
+   * completes (see `Action`).
    * `BUILT_IN_ON_VIOLATIONS` lists the built-in values; `OnViolation`
    * itself is an open string.
    */
