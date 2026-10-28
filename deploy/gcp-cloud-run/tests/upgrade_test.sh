@@ -43,7 +43,15 @@ case "$*" in
     if [[ -n ${DOCKER_CONFIG:-} ]]; then printf '{"credHelpers":{"%s":"gcloud"}}\n' "$3" >"$DOCKER_CONFIG/config.json"; fi
     exit 0 ;;
   "run services describe"*)
-    if [[ "$*" == *"--format=json"* ]]; then printf '%s' "${STUB_SERVICE_JSON:-}"
+    if [[ "$*" == *"--format=json"* ]]; then
+      # The v1 object: STUB_SERVICE_JSON's status, and the server's
+      # KINDGI_DATABASE_URL as a secret reference at STUB_DBURL_BEFORE
+      # (latest), or none with STUB_DBURL_BEFORE=-, twice with
+      # STUB_DBURL_TWICE=1.
+      svc="${STUB_SERVICE_JSON:-}"; if [[ -z $svc ]]; then svc='{}'; fi
+      jq -c --arg k "${STUB_DBURL_BEFORE:-latest}" --arg twice "${STUB_DBURL_TWICE:-}" '. * {spec: {template: {spec: {containers: [{env: ([{name: "KINDGI_ENV", value: "dev"}]
+        + (if $k == "-" then [] else [{name: "KINDGI_DATABASE_URL", valueFrom: {secretKeyRef: {name: "kindgi-database-url", key: $k}}}] end)
+        + (if $twice == "1" then [{name: "KINDGI_DATABASE_URL", valueFrom: {secretKeyRef: {name: "kindgi-database-url", key: "latest"}}}] else [] end))}]}}}}' <<<"$svc"
     elif [[ "$*" == *"--format=value(spec.template.spec.containers[0].image)"* ]]; then printf '%s\n' "${STUB_RUNNING_IMAGE:-}"
     fi; exit 0 ;;
   "artifacts docker images list"*) printf '%s\n' "${STUB_TAGS:-}"; exit 0 ;;
@@ -109,8 +117,13 @@ case "${1:-}" in
     # leaves the server's image as it is. The server's KINDGI_DATABASE_URL
     # reads STUB_DBURL_BEFORE (latest) before, and after, the
     # database_url_secret_version the var files or a -var set (latest if none).
-    out="" prev="" img="" pack="" dburl=""
-    for a in "$@"; do
+    # What Terraform loads on its own from the directory it runs in comes
+    # first: terraform.tfvars, terraform.tfvars.json, then *.auto.tfvars and
+    # *.auto.tfvars.json in one lexical order.
+    out="" prev="" img="" pack="" dburl="" auto=()
+    for f in terraform.tfvars terraform.tfvars.json; do if [[ -f $f ]]; then auto+=("-var-file=$f"); fi; done
+    while IFS= read -r f; do auto+=("-var-file=$f"); done < <(ls -1 | grep -E '\.auto\.tfvars(\.json)?$' | LC_ALL=C sort)
+    for a in ${auto[@]+"${auto[@]}"} "$@"; do
       case "$a" in
         -out=*) out="${a#-out=}" ;;
         -var-file=*)
@@ -223,7 +236,7 @@ reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
         STUB_EXPORT_RC STUB_EXPORT_412 STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
         STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
-        STUB_DBURL_LATEST STUB_DBURL_STATE STUB_DBURL_RC STUB_DBURL_BEFORE \
+        STUB_DBURL_LATEST STUB_DBURL_STATE STUB_DBURL_RC STUB_DBURL_BEFORE STUB_DBURL_TWICE \
         V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE V_DBURL
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
@@ -1452,6 +1465,7 @@ run "yes" --to 0.3.0.1
 assert_rc 1 "a moved pin stops it"
 assert_out "PLAN CHECK: the plan changes more than this upgrade does"
 assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_URL" "the change, by its name"
+if grep -q "secrets versions describe latest" "$STUB_CALLS_LOG"; then fail "latest was read, for a server on a pin"; else pass; fi
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
@@ -1543,9 +1557,8 @@ if grep -qF "reads latest" "$OUT"; then fail "a pinned deployment's go-back says
 
 # Terraform reads *.auto.tfvars and *.auto.tfvars.json in one lexical order:
 # b.auto.tfvars comes after a.auto.tfvars.json, so its pin is the one read.
-# (The stub's plan reads the -var-file files only.)
 case_start "go-back, a pin set in an auto-loaded file"
-reset_env; export STUB_TAGS="0.3.0" STUB_APPLY_RC=1; V_DBURL="2"
+reset_env; export STUB_TAGS="0.3.0" STUB_APPLY_RC=1 STUB_DBURL_BEFORE="2"; V_DBURL="2"
 jq -n '{database_url_secret_version: "3"}' >"$CASE_DIR/a.auto.tfvars.json"
 printf 'database_url_secret_version = "2"\n' >"$CASE_DIR/b.auto.tfvars"
 run "yes" --to 0.3.0.1
@@ -1581,6 +1594,77 @@ run "yes"
 assert_rc 0 "the upgrade runs"
 assert_file_has "$STUB_CALLS_LOG" "gcloud secrets versions describe latest --secret=kindgi-r1-database-url --project=demo-proj --format=json" "the restored URL secret's latest is read"
 assert_out "the server reads version 4 of kindgi-r1-database-url (latest today)"
+
+
+# A pin set by hand for a server whose module is from before it (it reads
+# latest): the upgrade's apply moves the server onto the pin, so the pin
+# must be latest's version now. The server's own reference says which.
+case_start "a pin added by hand for a server that reads latest"
+reset_env; export STUB_TAGS="0.1.10"; V_DBURL="4"
+printf 'database_url_secret_version = "4"\n' >>"$VAR_FILE"; cp "$VAR_FILE" "$CASE_DIR/original.tfvars"
+run "yes"
+assert_rc 0 "the upgrade runs"
+assert_out "the server reads latest today, the same version: step 5's apply pins it there"
+assert_file_has "$STUB_CALLS_LOG" "gcloud secrets versions describe latest --secret=kindgi-database-url --project=demo-proj --format=json" "latest's metadata is read"
+assert_file_has "$STUB_JOBS_LOG" "--set-secrets=KINDGI_DATABASE_URL=kindgi-database-url:4 " "the checks read the pin"
+assert_out "plan check: it changes the image(s), and only what the releases crossed change in place."
+if [[ "$(grep -c 'database_url_secret_version' "$VAR_FILE")" == 1 ]] && grep -qx 'database_url_secret_version = "4"' "$VAR_FILE"; then pass
+else fail "the hand-set pin moved or was added again: $(cat "$VAR_FILE")"; fi
+if grep -q "plan got -var" "$STUB_PLAN_SAW"; then fail "the plan was given a -var"; else pass; fi
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+case_start "a pin added by hand that isn't latest's version"
+reset_env; export STUB_TAGS="0.1.10" STUB_DBURL_LATEST="4"; V_DBURL="3"
+printf 'database_url_secret_version = "3"\n' >>"$VAR_FILE"; cp "$VAR_FILE" "$CASE_DIR/original.tfvars"
+run "yes"
+assert_rc 1 "a hand-set pin that isn't latest's stops it"
+assert_out "database_url_secret_version is \"3\" (in $VAR_FILE), but the server reads latest, version 4 of kindgi-database-url: the upgrade's apply would move it to another URL. Set it to \"4\", or remove the line and this script adds it, then run again."
+assert_out "a precondition failed (above). Nothing was mirrored, backed up or changed."
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+case_start "go-back, a pin added by hand for a server that read latest"
+reset_env; export STUB_TAGS="0.1.10" STUB_APPLY_RC=1; V_DBURL="4"
+printf 'database_url_secret_version = "4"\n' >>"$VAR_FILE"
+run "yes"
+assert_rc 1 "apply failure"
+assert_out "A revision from before the upgrade reads latest, so it may read it: that's"
+if grep -qxF "    then set database_url_secret_version = \"<N>\" in $VAR_FILE: the copy has \"4\", the version the server reads now." "$OUT"; then pass
+else fail "the go-back doesn't set the pin in the var-file: $(grep -F 'then ' "$OUT")"; fi
+
+# An rc of the release that adds the pin already reads one: its upgrade to
+# the final keeps the pin, though latest has moved on, and its way back
+# doesn't say a revision reads latest.
+case_start "an rc's server on a pin, to its final, latest moved on"
+reset_env; export STUB_TAGS="0.3.0-rc.0" STUB_APPLY_RC=1 STUB_DBURL_BEFORE="2" STUB_DBURL_LATEST="5"; V_DBURL="2"
+printf 'database_url_secret_version = "2"\n' >>"$VAR_FILE"
+run "yes" --to 0.3.0
+assert_rc 1 "apply failure"
+if grep -q "CHECK FAILED" "$OUT"; then fail "a check failed: $(grep 'CHECK FAILED' "$OUT")"; else pass; fi
+if grep -q "secrets versions describe latest" "$STUB_CALLS_LOG"; then fail "latest was read, for a server on a pin"; else pass; fi
+assert_out "the server reads version 2 of kindgi-database-url (database_url_secret_version), enabled"
+if grep -qF "reads latest" "$OUT"; then fail "the go-back says a revision reads latest"; else pass; fi
+
+case_start "a server on a pin, a var-file without one"
+reset_env; export STUB_TAGS="0.3.0" STUB_DBURL_BEFORE="2" STUB_DBURL_LATEST="5"
+run "yes" --to 0.3.0.1
+assert_rc 1 "a missing pin for a pinned server stops it"
+assert_out "the server reads version 2 of kindgi-database-url, but no var file sets database_url_secret_version. Set database_url_secret_version = \"2\" in $VAR_FILE, then run again."
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+case_start "the server's database URL reference can't be read"
+for shape in none two; do
+  reset_env; export STUB_TAGS="0.1.10"
+  if [[ $shape == none ]]; then export STUB_DBURL_BEFORE="-"; else export STUB_DBURL_TWICE=1; fi
+  run "yes"
+  assert_rc 1 "a server read with $shape KINDGI_DATABASE_URL stops it"
+  assert_out "couldn't read which version of kindgi-database-url the server reads (one KINDGI_DATABASE_URL secret reference)."
+  if grep -q "valueFrom\|secretKeyRef\|KINDGI_ENV" "$OUT"; then fail "the service's env was printed ($shape)"; else pass; fi
+  assert_absent "$STUB_MARKER_MIRROR" "mirror"
+  assert_varfile_unchanged
+done
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

@@ -316,12 +316,14 @@ print_go_back() {
   if [[ $DB_URL_VERSION_FILE == *.json ]]; then pin_line='"database_url_secret_version": "<N>"'; fi
   if [[ $DB_URL_VERSION_WRITE == true ]]; then
     pin_do="add ${pin_line} to $(printf '%q' "$VAR_FILE"): the copy, from before the upgrade, has no pin."
-    old_note=$'\n'"    A revision from before the upgrade reads latest, so it may read it: that's"
-    old_note+=$'\n'"    the old version, on the database from before the upgrade."
   elif [[ $DB_URL_VERSION_FILE == "$VAR_FILE" ]]; then
     pin_do="set ${pin_line} in $(printf '%q' "$VAR_FILE"): the copy has \"${DB_URL_VERSION}\", the version the server reads now."
   else
     pin_do="set ${pin_line} in $(printf '%q' "$DB_URL_VERSION_FILE"), which sets it (to \"${DB_URL_VERSION}\" now)."
+  fi
+  if [[ $DB_URL_PIN_NEW == true ]]; then
+    old_note=$'\n'"    A revision from before the upgrade reads latest, so it may read it: that's"
+    old_note+=$'\n'"    the old version, on the database from before the upgrade."
   fi
   cat <<EOT >&2
 
@@ -648,8 +650,9 @@ fi
 # before the apply that moves the server onto it. A var-file from before the
 # pin gets one in step 5, the version today's server reads as latest (2a). One
 # that sets it keeps it, never moved to a newer version, which may be a way
-# back's, staged. DB_URL_VERSION_FILE is the file that sets it (the last one
-# Terraform reads), where the printed way back changes it.
+# back's, staged; set by hand for a server that still reads latest, it must
+# be latest's version now (2a). DB_URL_VERSION_FILE is the file that sets it
+# (the last one Terraform reads), where the printed way back changes it.
 if [[ -n ${TF_VAR_database_url_secret_version+set} ]]; then
   die "TF_VAR_database_url_secret_version is set in the environment: the way back this script prints changes the pin in a var file. Unset it and keep database_url_secret_version in $VAR_FILE, then run again. Nothing was changed."
 fi
@@ -664,6 +667,9 @@ for f in terraform.tfvars terraform.tfvars.json ${auto_var_files[@]+"${auto_var_
   if [[ -f $f ]] && varfile_sets "$f" database_url_secret_version; then DB_URL_VERSION_FILE="$f"; fi
 done
 DB_URL_VERSION_WRITE=false
+# True once 2a reads that the running server reads latest: its module is from
+# before the pin, and this run's apply moves it onto one, whoever set it.
+DB_URL_PIN_NEW=false
 if [[ -z $DB_URL_VERSION ]]; then
   [[ -z $DB_URL_VERSION_FILE ]] \
     || die "$DB_URL_VERSION_FILE sets database_url_secret_version, but to no version. Set it to the version of $DB_URL_SECRET the server reads (gcloud secrets versions describe latest --secret=$DB_URL_SECRET --project=$PROJECT --format='value(name.basename())'), or remove it and this script adds it, then run again. Nothing was changed."
@@ -813,6 +819,24 @@ if [[ $SECRETS_BACKEND == "postgres" && -z $SECRETS_AAD_KEY_VERSION ]]; then
   fail_check "secrets_backend = \"postgres\" needs secrets_aad_key_version in $VAR_FILE: the version of ${NAME_PREFIX}-secrets-aad-key the server reads now, never \"latest\" (README \"Upgrading\")."
 fi
 
+# The version of the URL secret the running server reads: its
+# KINDGI_DATABASE_URL's secret reference, in the v1 object `services describe`
+# returns, as a version number or latest. latest means a module from before
+# the pin, so this run's apply moves the server onto one. The object holds the
+# server's other env values in plain text: it stays in this variable, and only
+# the one reference comes out of it, from exactly one KINDGI_DATABASE_URL.
+live_json="$(CLOUDSDK_CORE_DISABLE_FILE_LOGGING=true gcloud run services describe "$SERVER_SERVICE" \
+  --project="$PROJECT" --region="$REGION" --format=json 2>"$WORK/live.err" || true)"
+DB_URL_LIVE="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "KINDGI_DATABASE_URL") | (.valueFrom.secretKeyRef.key // "")] | if length == 1 then .[0] else "" end' <<<"${live_json:-null}" 2>/dev/null || true)"
+unset live_json
+if [[ $DB_URL_LIVE == latest ]]; then
+  DB_URL_PIN_NEW=true
+elif [[ ! $DB_URL_LIVE =~ ^[1-9][0-9]*$ ]]; then
+  fail_check "couldn't read which version of ${DB_URL_SECRET} the server reads (one KINDGI_DATABASE_URL secret reference). $(cat "$WORK/live.err")"
+elif [[ $DB_URL_VERSION_WRITE == true ]]; then
+  fail_check "the server reads version ${DB_URL_LIVE} of ${DB_URL_SECRET}, but no var file sets database_url_secret_version. Set database_url_secret_version = \"${DB_URL_LIVE}\" in $VAR_FILE, then run again."
+fi
+
 # The version of the URL secret the new revision will read: the pin, or, with
 # none, the one latest is now, which a start of today's revision reads. Its
 # metadata only, never its value. It must be enabled, or the new revision
@@ -832,6 +856,20 @@ elif [[ $DB_URL_VERSION_WRITE == true ]]; then
   info "the server reads version ${DB_URL_VERSION} of ${DB_URL_SECRET} (latest today): step 5 pins it in $VAR_FILE (database_url_secret_version)"
 else
   info "the server reads version ${DB_URL_VERSION} of ${DB_URL_SECRET} (database_url_secret_version), enabled"
+fi
+# A pin set by hand for a server that reads latest: this run's apply moves the
+# server onto it, so it must be the version latest is now, the one the server
+# reads today. Another would move the server to another URL in the upgrade.
+if [[ $DB_URL_PIN_NEW == true && $DB_URL_VERSION_WRITE != true ]]; then
+  latest_json="$(gcloud secrets versions describe latest --secret="$DB_URL_SECRET" --project="$PROJECT" --format=json 2>"$WORK/dburl-latest.err" || true)"
+  latest_name="$(jq -r '.name // empty' <<<"${latest_json:-null}" 2>/dev/null || true)"
+  if [[ ! ${latest_name##*/} =~ ^[1-9][0-9]*$ ]]; then
+    fail_check "couldn't read version latest of ${DB_URL_SECRET}, the database URL the server reads. $(cat "$WORK/dburl-latest.err")"
+  elif [[ ${latest_name##*/} != "$DB_URL_VERSION" ]]; then
+    fail_check "database_url_secret_version is \"${DB_URL_VERSION}\" (in $DB_URL_VERSION_FILE), but the server reads latest, version ${latest_name##*/} of ${DB_URL_SECRET}: the upgrade's apply would move it to another URL. Set it to \"${latest_name##*/}\", or remove the line and this script adds it, then run again."
+  else
+    info "the server reads latest today, the same version: step 5's apply pins it there"
+  fi
 fi
 DB_URL_PLAN_ARGS=()
 if [[ $DB_URL_VERSION_WRITE == true ]]; then DB_URL_PLAN_ARGS=(-var "database_url_secret_version=${DB_URL_VERSION}"); fi
@@ -953,8 +991,9 @@ EOT
    - The server's database URL is pinned, in place: KINDGI_DATABASE_URL
      reads one version of its secret, database_url_secret_version, in place
      of latest. With a var-file from before it, this run adds that line:
-     the version the server reads today. A version added later, for a way
-     back, then reaches no running revision before the apply that sets it.
+     the version the server reads today. A line you added by hand must name
+     that version too. A version added later, for a way back, then reaches
+     no running revision before the apply that sets it.
 EOT
       ;;
   esac
@@ -996,8 +1035,9 @@ plan_allowed_changes() {
   local r
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
   if [[ $REBUILD_PACK == true ]]; then printf '%s\n' "google_cloud_run_v2_service.pack template.containers.image"; fi
-  # The URL's version, from latest to the pin step 5 adds.
-  if [[ $DB_URL_VERSION_WRITE == true ]]; then
+  # The URL's version, from latest to the pin: the one step 5 adds, or one set
+  # by hand to the version latest is now (2a).
+  if [[ $DB_URL_VERSION_WRITE == true || $DB_URL_PIN_NEW == true ]]; then
     printf '%s\n' "google_cloud_run_v2_service.server template.containers.env.KINDGI_DATABASE_URL"
   fi
   for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do

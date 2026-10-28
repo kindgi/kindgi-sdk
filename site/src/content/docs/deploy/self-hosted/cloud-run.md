@@ -877,13 +877,13 @@ The two can go in two Google Cloud projects, or in one:
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
-  it, `terraform plan` stops and asks for it. The same goes for
-  `database_url_secret_version`, from the `@kindgi/sdk@0.3.0` module on:
-  set it to the version of `$N-database-url` your server reads now, which
+  it, `terraform plan` stops and asks for it. From a module copy older
+  than `database_url_secret_version`, the same goes for it: set it to the
+  version of `$N-database-url` your server reads now, which
   `gcloud secrets versions describe latest --secret=$N-database-url --format='value(name.basename())'`
-  prints. `upgrade.sh` adds it for you.
+  prints. `upgrade.sh` adds it for you, or checks the one you added.
 - **A server doesn't start on a database a newer version migrated**
-  (runtime 0.3.0 on), naming the migrations it doesn't have
+  (0.3.0 or later), naming the migrations it doesn't have
   ([Upgrade the runtime](../operate/#upgrade-the-runtime)). With one
   server instance, an instance of the old revision that starts during an
   upgrade, after the new one migrated, refuses: an outage until the new
@@ -1203,10 +1203,17 @@ back to: the old image and that database go in together, in one apply.
 
      The new version serves until the apply, and a restore takes the
      instance down for minutes. An instance of the new version that starts
-     in between, on a restart or a scale-up, would migrate the database
-     forward again: if one started after the restore finished (its logs
-     show it), restore once more after the apply, when only the old
-     revision serves.
+     in between, on a restart or a scale-up, migrates the database forward
+     again (its logs show it).
+     - An old version that checks (0.3.0 or later) then refuses that
+       database: its revision never gets ready, the apply fails, and the
+       new version serves on. So with such an old version, bring the
+       database back from an export into a fresh database, or into a new
+       instance, where the new version never reaches it.
+     - An earlier old version doesn't check, and the apply goes through:
+       if an instance of the new version started after the restore
+       finished, restore once more after the apply, when only the old
+       revision serves.
    - **From a backup, into a new instance,** with a database on a public
      IP: move the server onto it, as **Restore Cloud SQL** under
      [Operate it](#operate-it) says. Set `database_instance`, and
