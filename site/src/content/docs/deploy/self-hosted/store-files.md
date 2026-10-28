@@ -316,7 +316,8 @@ as far as the bucket allows:
 
 A tenant purge also deletes what no row names under the tenant's keys for
 the artifacts setting (`tenants/<tenant id>/<prefix>/`), such as an upload
-whose row was never written. On AWS S3, that includes unfinished uploads. On MinIO a purge leaves an interrupted upload's parts
+whose row was never written, and leaves files under another prefix in the
+same bucket alone. On AWS S3, that includes unfinished uploads. On MinIO a purge leaves an interrupted upload's parts
 until MinIO's own expiry, 24 h by default (`stale_uploads_expiry`), and they
 can't be read through the runtime in that time.
 
