@@ -629,6 +629,9 @@ uv run kindgi agents promote acme.order-desk 1.3.0 --tenant --eval-run=<comparis
 `` This policy needs a test run: name one with `evalRunId` (a finished eval run that tried this version on the test cases). ``
 when there's no `--eval-run`.
 
+`--check` exits 0 for `would-promote` and 3 for the other two, so a script
+can stop on the answer.
+
 When the test cases have corrections that say what the run should have
 done, the summary of the run on the test cases also says how many the
 version passed, in `corrections`
@@ -680,6 +683,16 @@ It prints the request, with its status, or the policy's refusal:
 - **When it fails,** nothing changes. It's refused with every failed check,
   such as `The release gate policy refused acme.order-desk 1.3.0: The weighted share marked right rests on 3 judged cases for this version; the policy needs at least 20. …`,
   and kept in the history as `refused`.
+
+It exits 0 when the version is live, and 3 when it waits for an approval or
+the policy refused it.
+
+To wait for the reviewer, add `--wait`. It names the approval it waits for
+and the command that approves it, then exits 0 once the version is live, or
+3 when the approval is rejected or expires, the request is superseded
+because the scope's version or its release gate policy changed, or the wait
+runs out: an hour, or the time `--wait=30m` gives. Ctrl-C stops the wait,
+not the request: once it's approved, the version goes live.
 
 ### Approve it
 
