@@ -649,6 +649,16 @@ describe('kindgi promote --make-live: exit 3 when a carried version does not go 
     expect(out.stderr).toContain('Waiting up to 1h for approval ap-1');
   });
 
+  test('--wait: a superseded promotion ends the wait, exit 3, and both lines say it was approved', async () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod', '--make-live', '--wait'], {
+      promote: () => ({ ...PROMOTED, live: [WAITING] }),
+      promotionsGet: reads('pending-approval', 'superseded'),
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stdout).toContain('  acme.helper 2.1.0 — approved, but superseded\n');
+    expect(out.stderr).toContain('acme.helper 2.1.0 was approved, but superseded:');
+  });
+
   test('--wait: the wait runs out, exit 3, and the approval stays open', async () => {
     const { out, calls } = await run(
       ['promote', '--from=staging', '--to=prod', '--make-live', '--wait=12s'],

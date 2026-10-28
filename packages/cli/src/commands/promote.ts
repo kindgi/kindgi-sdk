@@ -403,7 +403,7 @@ const GATE_WORDS: Readonly<Record<string, string>> = {
   'pending-approval': 'waiting for an approval',
   rejected: 'its approval was rejected',
   expired: 'its approval expired',
-  superseded: 'superseded while it waited',
+  superseded: 'approved, but superseded',
 };
 
 type LivePin = NonNullable<DeploymentPromotion['live']>[number];
