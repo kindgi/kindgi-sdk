@@ -141,7 +141,9 @@ of each pull request before it merges.
   takes only main.
 - **If it leaks,** revoke it, then look for the keys and accounts it made
   with `kindgi tokens list` and `kindgi service-accounts list`, and revoke
-  those too.
+  those too. Revoking doesn't undo what it changed, so check that
+  `kindgi environments list` and `kindgi gate-policies list` still show the
+  order and the release gate policies you set.
 
 ### A promote key for each later environment
 
@@ -173,7 +175,10 @@ pnpm exec kindgi tokens create --for=sa:<service-account-id> --label=ci-promote-
   ([Managing environments for deployment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)).
 - **The signing key is the pipeline's most valuable secret.** It's trusted
   across the tenant, so a build it signs passes the signature check in
-  every project.
+  every project. Whoever holds it can sign a build of any code, not only
+  main's, and any key that can deploy then deploys it there. If it leaks,
+  rotate it at once
+  ([Rotate a signing key](../self-hosted/rotate-keys/#rotate-a-signing-key)).
 - **`KINDGI_API_TOKEN` is set on the `kindgi` steps only,** never on the
   job, so no key is in the environment of `pnpm install` or of the install
   scripts it runs.
@@ -184,9 +189,9 @@ pnpm exec kindgi tokens create --for=sa:<service-account-id> --label=ci-promote-
   pnpm runs a dependency's install script only when `allowBuilds` in
   `pnpm-workspace.yaml` allows it, and a pack `kindgi init` makes allows
   none.
-- **Each action is pinned to a commit,** with its version in a comment, in
-  the jobs that hold a key. A tag can move to other code, and a commit
-  can't.
+- **Each action is pinned to a commit,** with its version in a comment. A
+  tag can move to other code, and a commit can't. That holds in `test` too:
+  it writes the pnpm cache that the jobs holding a key install from.
 
 ### The signing key
 
@@ -215,7 +220,9 @@ the new key.
 
 - **On a pull request:** `kindgi test` runs the pack's tests. It needs no
   runtime and no Kindgi key. A test that calls a model provider needs that
-  provider's key as a secret of the job.
+  provider's key as a secret of the job. Make it a key of its own, with a
+  spending limit, not the one your runtime uses: a pull request from any
+  branch of the repository can read it before anyone reviews it.
 - **On a merge to main:** build and sign the image, then deploy it to
   staging.
 - **Then prod,** once GitHub's required reviewers let its job start:
@@ -257,10 +264,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
-      - uses: pnpm/action-setup@v6 # the pnpm version package.json pins
-      - uses: actions/setup-node@v7
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec kindgi test

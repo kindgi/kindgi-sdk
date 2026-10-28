@@ -352,7 +352,7 @@ npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --role=adm
 ```
 
 It can trust signing keys, so keep it out of CI: trusting CI's signing key
-is a person's step, and CI's keys are made for each step
+is a person's step, and CI's keys are each made for one job
 ([The keys CI uses](../ship-from-ci/#the-keys-ci-uses)). On Kindgi Cloud,
 CI's deploy key is a tenant admin's key too, with no capability. It can
 still promote to prod, replace release gate policies, and make service
