@@ -24,6 +24,25 @@ export type {
 } from './adapter-factory.js';
 export { CAPABILITY_SCHEMA_URI, defineCapability } from './define.js';
 export {
+  DOCUMENT_FILE_TYPES,
+  FILE_LIMITS,
+  FILE_NOT_SHOWN_REASONS,
+  IMAGE_FILE_TYPES,
+  PROVIDER_FILE_LIMITS,
+  TEXT_FILE_TYPES,
+  fileParts,
+  headedFileParts,
+  notShownLine,
+} from './message-files.js';
+export type {
+  DocumentFileType,
+  FileNotShownReason,
+  FilePart,
+  FilePartsOptions,
+  ImageFileType,
+  MessageFile,
+} from './message-files.js';
+export {
   PROVIDER_LABEL_KEY,
   PROVIDER_LABEL_MANAGED_BY,
   PROVIDER_LABEL_VALUE_MAX_LENGTH,
