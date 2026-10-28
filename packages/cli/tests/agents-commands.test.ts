@@ -290,13 +290,17 @@ describe('agents promote: exit 3 when the answer is no, and --wait for an approv
   const SCOPE = ['acme.drafter', '1.1.0', `--project=${PROJECT}`];
   const PENDING = promotion({ status: 'pending-approval', approvalId: 'ap-1' });
 
-  /** `run`, with `--wait`'s clock and pauses: each pause moves the clock on, so a wait takes no time. */
+  /**
+   * `run`, with `--wait`'s clock and pauses: each pause moves the clock on,
+   * so a wait takes no time. A rate limit's wait is recorded in `slept`.
+   */
   async function runWaiting(
     argv: readonly string[],
     client: Record<string, unknown>,
     stopSignal?: AbortSignal,
   ) {
     const pauses: number[] = [];
+    const slept: number[] = [];
     let clock = 0;
     const out = await runCli({
       argv: [...argv, '--url=https://x', '--token=t'],
@@ -311,9 +315,16 @@ describe('agents promote: exit 3 when the answer is no, and --wait for an approv
           clock += ms;
         },
       },
+      rateLimitWaits: {
+        sleep: async (ms: number) => {
+          slept.push(ms);
+        },
+        now: () => 0,
+        write: () => {},
+      },
       ...(stopSignal !== undefined && { stopSignal }),
     });
-    return { out, pauses };
+    return { out, pauses, slept };
   }
 
   /** `get` answers each read with the next of `statuses`, then the last, recording each. */
@@ -325,6 +336,20 @@ describe('agents promote: exit 3 when the answer is no, and --wait for an approv
       return promotion({ status, approvalId: 'ap-1', resolvedAt: '2026-10-05T12:05:00.000Z' });
     };
   }
+
+  /** `get` answers each read with the next of `answers`: a status, or an error it throws. */
+  function readsOrFails(calls: unknown[][], ...answers: (string | Error)[]) {
+    let i = 0;
+    return async (...args: unknown[]) => {
+      calls.push(['get', ...args]);
+      const answer = answers[Math.min(i++, answers.length - 1)];
+      if (answer instanceof Error) throw answer;
+      return promotion({ status: answer, approvalId: 'ap-1' });
+    };
+  }
+
+  const unavailable = () =>
+    new KindgiApiError(fromWire({ code: 'unavailable', message: 'Down for a moment' }, 503));
 
   test.each([
     ['would-promote', 0],
@@ -470,6 +495,70 @@ describe('agents promote: exit 3 when the answer is no, and --wait for an approv
     );
     expect(out.exitCode).toBe(130);
     expect(out.stderr).toContain("Stopped waiting. Approval ap-1 stays open: once it's approved");
+  });
+
+  test('--wait: a failed read is read again at the next read, and the count starts again after one that works', async () => {
+    const calls: unknown[][] = [];
+    const { out, pauses } = await runWaiting(['agents', 'promote', ...SCOPE, '--wait'], {
+      agents: {
+        promotions: {
+          create: async () => PENDING,
+          get: readsOrFails(
+            calls,
+            unavailable(),
+            unavailable(),
+            'pending-approval',
+            unavailable(),
+            unavailable(),
+            'promoted',
+          ),
+        },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toHaveLength(6);
+    expect(pauses).toEqual([5000, 5000, 5000, 5000, 5000, 5000]);
+    expect(JSON.parse(out.stdout)).toMatchObject({ id: 'p-1', status: 'promoted' });
+  });
+
+  test('--wait: 3 failed reads in a row end the wait, exit 1; it prints the promotion as last read, and the approval stays open', async () => {
+    const calls: unknown[][] = [];
+    const { out, pauses } = await runWaiting(['agents', 'promote', ...SCOPE, '--wait'], {
+      agents: {
+        promotions: { create: async () => PENDING, get: readsOrFails(calls, unavailable()) },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(calls).toHaveLength(3);
+    expect(pauses).toEqual([5000, 5000, 5000]);
+    expect(JSON.parse(out.stdout)).toEqual(PENDING);
+    expect(out.stderr).toContain(
+      "Couldn't read the promotion of acme.drafter 1.1.0 3 times in a row (",
+    );
+    expect(out.stderr).toContain(
+      "). Approval ap-1 stays open: once it's approved, acme.drafter 1.1.0 goes live.",
+    );
+  });
+
+  test('--wait: a read refused by a rate limit is sent again once the limit says, and is no failed read', async () => {
+    const calls: unknown[][] = [];
+    const limited = new KindgiApiError({
+      code: 'rate-limited',
+      message: 'Too many requests.',
+      retryAfterSeconds: 2,
+    });
+    const { out, pauses, slept } = await runWaiting(['agents', 'promote', ...SCOPE, '--wait'], {
+      agents: {
+        promotions: {
+          create: async () => PENDING,
+          get: readsOrFails(calls, limited, limited, limited, 'promoted'),
+        },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toHaveLength(4);
+    expect(slept).toEqual([2000, 2000, 2000]);
+    expect(pauses).toEqual([5000]);
   });
 
   test('--wait on a promotion that went live at once reads nothing: exit 0', async () => {

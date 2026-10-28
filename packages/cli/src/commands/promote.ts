@@ -45,10 +45,12 @@ import { loadPackConfig } from '../pack-config.js';
 import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { resolveProjectRefs } from '../project-ref.js';
 import {
+  type ApprovalWaited,
   WAIT_FLAG,
   type WaitingVersion,
   endedLine,
   stillOpenLine,
+  unreadableLine,
   waitDeadline,
   waitFlag,
   waitForApproval,
@@ -419,7 +421,8 @@ function waitingVersion(pin: LivePin): WaitingVersion {
  * `--wait`: wait for each carried version that waits for an approval, all
  * within one deadline, and stop at the first that doesn't go live. A
  * version held by a failed check can't go live, so then nothing waits.
- * The answer has each version as it ended.
+ * The answer has each version as it ended, and `end` says when the wait
+ * ended before every version did: stopped, or a promotion it couldn't read.
  */
 async function waitForPins(
   ctx: CommandContext,
@@ -427,14 +430,14 @@ async function waitForPins(
   result: DeploymentPromotion,
   waitMs: number,
   out: ProgressLines,
-): Promise<{ readonly result: DeploymentPromotion; readonly stopped: boolean }> {
+): Promise<PinsWaited> {
   const live = result.live ?? [];
   const held = live.find((p) => !p.pinned && p.gate?.status !== 'pending-approval');
   if (held !== undefined) {
     out.problem(
       `Not waiting: ${held.id} ${held.version} is held by the gate, so not every version goes live.`,
     );
-    return { result, stopped: false };
+    return { result };
   }
   const waiting = live.filter((p) => !p.pinned);
   for (const p of waiting) out.line(waitingLine(waitingVersion(p), waitMs));
@@ -449,22 +452,48 @@ async function waitForPins(
       () => client.agents.promotions.get(p.id, promotionId),
       deadline,
     );
-    ended.set(promotionId, waited.promotion);
-    if (waited.kind === 'stopped') {
-      out.line(`Stopped waiting. ${stillOpenLine(waited.promotion)}`);
-      return { result: withEnded(result, ended), stopped: true };
-    }
-    if (waited.kind === 'still-waiting') {
-      out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(waited.promotion)}`);
-      break;
-    }
-    if (waited.promotion.status !== 'promoted') {
-      out.problem(endedLine(waited.promotion));
-      break;
-    }
+    if (waited.promotion !== undefined) ended.set(promotionId, waited.promotion);
+    const end = sayHowItEnded(waited, waitingVersion(p), waitMs, out);
+    if (end === 'live') continue;
+    return { result: withEnded(result, ended), ...(end !== 'not-live' && { end }) };
   }
-  return { result: withEnded(result, ended), stopped: false };
+  return { result: withEnded(result, ended) };
 }
+
+/** Say how one carried version's wait ended, unless it went live. */
+function sayHowItEnded(
+  waited: ApprovalWaited<Promotion | undefined>,
+  version: WaitingVersion,
+  waitMs: number,
+  out: ProgressLines,
+): 'live' | 'not-live' | NonNullable<PinsWaited['end']> {
+  switch (waited.kind) {
+    case 'stopped':
+      out.line(`Stopped waiting. ${stillOpenLine(version)}`);
+      return 'stopped';
+    case 'unreadable':
+      out.problem(unreadableLine(version, waited.message));
+      return 'unreadable';
+    case 'still-waiting':
+      out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(version)}`);
+      return 'not-live';
+    case 'decided':
+      if (waited.promotion.status === 'promoted') return 'live';
+      out.problem(endedLine(waited.promotion));
+      return 'not-live';
+  }
+}
+
+interface PinsWaited {
+  readonly result: DeploymentPromotion;
+  readonly end?: 'stopped' | 'unreadable';
+}
+
+/** The exit of a wait that ended before every version did. */
+const END_EXIT: Readonly<Record<NonNullable<PinsWaited['end']>, number>> = {
+  stopped: 130,
+  unreadable: 1,
+};
 
 /** `result` with each carried version a wait read as it ended. */
 function withEnded(
@@ -507,7 +536,8 @@ function promoteWaitFlag(ctx: CommandContext): number | undefined {
 
 /**
  * The promotion's answer: each carried version as it ended, after any
- * `--wait`, rendered by `render`. It exits 3 when one isn't live.
+ * `--wait`, rendered by `render`. It exits 3 when one isn't live, 130
+ * when the wait is stopped, and 1 when it couldn't read a promotion.
  */
 async function promotedAnswer(
   ctx: CommandContext,
@@ -517,12 +547,11 @@ async function promotedAnswer(
   render: (promotion: DeploymentPromotion) => string,
 ): Promise<Answer> {
   const out = progressLines(ctx.progress, ctx.globals.format === 'quiet');
-  const waited =
-    waitMs === undefined
-      ? { result, stopped: false }
-      : await waitForPins(ctx, client, result, waitMs, out);
+  const waited: PinsWaited =
+    waitMs === undefined ? { result } : await waitForPins(ctx, client, result, waitMs, out);
   const notLive = (waited.result.live ?? []).some((p) => !p.pinned);
-  const exit = waited.stopped ? 130 : notLive ? ANSWER_NO_EXIT_CODE : undefined;
+  const exit =
+    waited.end !== undefined ? END_EXIT[waited.end] : notLive ? ANSWER_NO_EXIT_CODE : undefined;
   return {
     stdout: render(waited.result),
     stderr: out.kept(),

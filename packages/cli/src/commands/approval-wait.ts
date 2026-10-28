@@ -15,6 +15,7 @@ import type { Promotion } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { callWaitingOutRateLimits } from '../rate-limit-wait.js';
 import type { ParseArgsOption } from './types.js';
 
 /** A test seam for the wait's clock and pauses. Production leaves it undefined. */
@@ -31,6 +32,13 @@ export const APPROVAL_POLL_MS = 5_000;
 /** How long a bare `--wait` waits. */
 export const DEFAULT_APPROVAL_WAIT_MS = 60 * 60 * 1_000;
 
+/**
+ * Reads in a row that may fail before a wait gives up, as `kindgi deploy`'s
+ * wait for its pack service does: a wait reads the promotion up to 720
+ * times an hour, so one failed read mustn't end it.
+ */
+export const APPROVAL_READ_TRIES = 3;
+
 const WAIT_RE = /^(\d+)([smh])$/;
 const UNIT_MS: Readonly<Record<string, number>> = { s: 1_000, m: 60_000, h: 3_600_000 };
 
@@ -39,7 +47,7 @@ export const WAIT_FLAG: Readonly<Record<string, ParseArgsOption>> = {
     type: 'string',
     optionalValue: true,
     description:
-      'When a version waits for an approval, wait until a reviewer decides: at most the duration given (90s, 30m, 2h), 1h when none is. Exits 0 once it goes live, and 3 when it is rejected, its approval expires or the wait runs out. An approval stays open after the wait.',
+      'When a version waits for an approval, wait until a reviewer decides: at most the duration given (90s, 30m, 2h), 1h when none is. Exits 0 once it goes live, and 3 when it is rejected, its approval expires, it is superseded or the wait runs out, and 1 when 3 reads of the promotion in a row fail. An approval stays open after the wait.',
   },
 };
 
@@ -61,13 +69,16 @@ export function waitWords(ms: number): string {
   return `${Math.ceil(ms / 1_000)}s`;
 }
 
-export type ApprovalWaited =
+/** How a wait ended. `P` is the promotion as last read: `undefined` when none was. */
+export type ApprovalWaited<P extends Promotion | undefined = Promotion> =
   /** A reviewer decided it, or it ended another way: `promotion.status` says how. */
   | { readonly kind: 'decided'; readonly promotion: Promotion }
   /** The wait ran out with the promotion still waiting. */
-  | { readonly kind: 'still-waiting'; readonly promotion: Promotion }
+  | { readonly kind: 'still-waiting'; readonly promotion: P }
   /** The person stopped the wait (Ctrl-C). */
-  | { readonly kind: 'stopped'; readonly promotion: Promotion };
+  | { readonly kind: 'stopped'; readonly promotion: P }
+  /** `APPROVAL_READ_TRIES` reads in a row failed: `message` says why the last one did. */
+  | { readonly kind: 'unreadable'; readonly promotion: P; readonly message: string };
 
 /** When a wait of `ms` from now ends, by the seam's clock. */
 export function waitDeadline(ctx: CommandContext, ms: number): number {
@@ -77,24 +88,74 @@ export function waitDeadline(ctx: CommandContext, ms: number): number {
 /**
  * Read a promotion with `read` until it no longer waits for an approval,
  * until `deadline`, or until the person stops the wait. `promotion` is
- * the promotion as last read; without it, the wait reads it first.
+ * the promotion as last read; without it, the wait reads it first. A read
+ * the server answers with a rate limit is sent again once the limit says
+ * so. A read that fails is tried again at the next read, and the wait
+ * gives up only when `APPROVAL_READ_TRIES` fail in a row.
  */
+export function waitForApproval(
+  ctx: CommandContext,
+  promotion: Promotion,
+  read: () => Promise<Promotion>,
+  deadline: number,
+): Promise<ApprovalWaited>;
+export function waitForApproval(
+  ctx: CommandContext,
+  promotion: undefined,
+  read: () => Promise<Promotion>,
+  deadline: number,
+): Promise<ApprovalWaited<Promotion | undefined>>;
 export async function waitForApproval(
   ctx: CommandContext,
   promotion: Promotion | undefined,
   read: () => Promise<Promotion>,
   deadline: number,
-): Promise<ApprovalWaited> {
+): Promise<ApprovalWaited<Promotion | undefined>> {
+  let current = promotion;
+  for (let failedReads = 0; ; ) {
+    if (current !== undefined && current.status !== 'pending-approval') {
+      return { kind: 'decided', promotion: current };
+    }
+    // Nothing to wait for before the first read of a promotion not yet read.
+    if (current !== undefined || failedReads > 0) {
+      const ended = await pauseBeforeRead(ctx, current, deadline);
+      if (ended !== undefined) return ended;
+    }
+    const answer = await readOnce(ctx, read);
+    if ('promotion' in answer) {
+      current = answer.promotion;
+      failedReads = 0;
+      continue;
+    }
+    failedReads += 1;
+    if (failedReads >= APPROVAL_READ_TRIES) {
+      return { kind: 'unreadable', promotion: current, message: answer.message };
+    }
+  }
+}
+
+/** The pause before the next read; how the wait ends, when it runs out or is stopped first. */
+async function pauseBeforeRead<P extends Promotion | undefined>(
+  ctx: CommandContext,
+  current: P,
+  deadline: number,
+): Promise<ApprovalWaited<P> | undefined> {
   const seam = ctx.approvalWaitSeam ?? {};
-  const now = seam.now ?? Date.now;
-  const pause = seam.pause ?? pauseUnlessStopped;
-  for (let current = promotion ?? (await read()); ; ) {
-    if (current.status !== 'pending-approval') return { kind: 'decided', promotion: current };
-    const left = deadline - now();
-    if (left <= 0) return { kind: 'still-waiting', promotion: current };
-    await pause(Math.min(APPROVAL_POLL_MS, left), ctx.stopSignal);
-    if (ctx.stopSignal?.aborted === true) return { kind: 'stopped', promotion: current };
-    current = await read();
+  const left = deadline - (seam.now ?? Date.now)();
+  if (left <= 0) return { kind: 'still-waiting', promotion: current };
+  await (seam.pause ?? pauseUnlessStopped)(Math.min(APPROVAL_POLL_MS, left), ctx.stopSignal);
+  return ctx.stopSignal?.aborted === true ? { kind: 'stopped', promotion: current } : undefined;
+}
+
+/** One read, with a rate limit waited out: the promotion, or why the read failed. */
+async function readOnce(
+  ctx: CommandContext,
+  read: () => Promise<Promotion>,
+): Promise<{ readonly promotion: Promotion } | { readonly message: string }> {
+  try {
+    return { promotion: await callWaitingOutRateLimits(ctx, read) };
+  } catch (err) {
+    return { message: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -127,6 +188,11 @@ export function stillOpenLine(promotion: WaitingVersion): string {
   const which =
     promotion.approvalId !== undefined ? `Approval ${promotion.approvalId}` : 'Its approval';
   return `${which} stays open: once it's approved, ${versionWords(promotion)} goes live.`;
+}
+
+/** What a wait that couldn't read the promotion says: why, and that its approval stays open. */
+export function unreadableLine(promotion: WaitingVersion, message: string): string {
+  return `Couldn't read the promotion of ${versionWords(promotion)} ${APPROVAL_READ_TRIES} times in a row (${message}). ${stillOpenLine(promotion)}`;
 }
 
 /** What a promotion that ended without going live says: how it ended. */

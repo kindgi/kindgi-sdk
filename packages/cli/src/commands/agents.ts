@@ -15,13 +15,15 @@ import type { AgentId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { type Rendered, renderJson, successNote } from '../output.js';
-import { progressLines } from '../progress-lines.js';
+import { type OutputFormat, type Rendered, renderJson, successNote } from '../output.js';
+import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { callWaitingOutRateLimits } from '../rate-limit-wait.js';
 import {
+  type ApprovalWaited,
   WAIT_FLAG,
   endedLine,
   stillOpenLine,
+  unreadableLine,
   waitDeadline,
   waitFlag,
   waitForApproval,
@@ -464,18 +466,32 @@ async function promoteAgent(
     () => promotions.get(agentId, promotion.id),
     waitDeadline(ctx, waitMs),
   );
+  return waitedAnswer(waited, waitMs, format, out);
+}
+
+/** What `agents promote --wait` answers: the promotion as the wait ended it, and how it ended. */
+function waitedAnswer(
+  waited: ApprovalWaited,
+  waitMs: number,
+  format: OutputFormat,
+  out: ProgressLines,
+): Rendered & { readonly exitCode?: number } {
   const stdout = renderJson(waited.promotion, format).stdout;
-  if (waited.kind === 'stopped') {
-    out.line(`Stopped waiting. ${stillOpenLine(waited.promotion)}`);
-    return { stdout, stderr: out.kept(), exitCode: 130 };
+  switch (waited.kind) {
+    case 'stopped':
+      out.line(`Stopped waiting. ${stillOpenLine(waited.promotion)}`);
+      return { stdout, stderr: out.kept(), exitCode: 130 };
+    case 'still-waiting':
+      out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(waited.promotion)}`);
+      return { stdout, stderr: out.kept(), exitCode: ANSWER_NO_EXIT_CODE };
+    case 'unreadable':
+      out.problem(unreadableLine(waited.promotion, waited.message));
+      return { stdout, stderr: out.kept(), exitCode: 1 };
+    case 'decided':
+      if (waited.promotion.status === 'promoted') return { stdout, stderr: out.kept() };
+      out.problem(endedLine(waited.promotion));
+      return { stdout, stderr: out.kept(), exitCode: ANSWER_NO_EXIT_CODE };
   }
-  if (waited.kind === 'still-waiting') {
-    out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(waited.promotion)}`);
-    return { stdout, stderr: out.kept(), exitCode: ANSWER_NO_EXIT_CODE };
-  }
-  if (waited.promotion.status === 'promoted') return { stdout, stderr: out.kept() };
-  out.problem(endedLine(waited.promotion));
-  return { stdout, stderr: out.kept(), exitCode: ANSWER_NO_EXIT_CODE };
 }
 
 const gatePolicy: LeafCommand = {
