@@ -12,16 +12,25 @@
  * - `Content-Security-Policy: default-src 'none'; sandbox`: a page opened
  *   anyway runs no script, loads nothing, and has an origin of its own.
  *
- * A stored type is served as itself when it's a well-formed media type,
- * else as `application/octet-stream`: an upload may name any type.
+ * A stored type is served as itself when it's a well-formed media type of
+ * at most `TYPE_MAX` characters, else as `application/octet-stream`: an
+ * upload may name any type.
  */
 
 const TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
+/** A type or a subtype name, up to RFC 6838's 127 characters (§4.2). */
+const NAME = "[!#$%&'*+.^_`|~0-9A-Za-z-]{1,127}";
 const QUOTED = '"(?:[\\t \\x21\\x23-\\x5b\\x5d-\\x7e]|\\\\[\\t\\x20-\\x7e])*"';
-/** `type/subtype`, then `;`-separated parameters (RFC 9110 §8.3.1). */
+/**
+ * `type/subtype`, then `;`-separated parameters (RFC 9110 §8.3.1). Each
+ * whitespace run has one place to go: before a `;`, before the parameter
+ * after it, or at the end.
+ */
 const MEDIA_TYPE = new RegExp(
-  `^${TOKEN}/${TOKEN}(?:[\\t ]*;[\\t ]*(?:${TOKEN}=(?:${TOKEN}|${QUOTED}))?)*$`,
+  `^${NAME}/${NAME}(?:[\\t ]*;(?:[\\t ]*${TOKEN}=(?:${TOKEN}|${QUOTED}))?)*[\\t ]*$`,
 );
+/** The longest stored type served as itself, checked before `MEDIA_TYPE`. */
+const TYPE_MAX = 255;
 
 const SANDBOX = "default-src 'none'; sandbox";
 
@@ -51,7 +60,7 @@ const SHOWN_INLINE: ReadonlySet<string> = new Set([
 /** The type served for a stored `contentType`. */
 function servedType(contentType: string): string {
   const type = contentType.trim();
-  return MEDIA_TYPE.test(type) ? type : 'application/octet-stream';
+  return type.length <= TYPE_MAX && MEDIA_TYPE.test(type) ? type : 'application/octet-stream';
 }
 
 /**

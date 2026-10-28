@@ -570,6 +570,11 @@ describe("the app's S3 object reads: a browser that opens one never runs it as a
       'text/html, image/png',
       { ...SAVED, 'content-type': 'application/octet-stream' },
     ],
+    [
+      'an image type over 255 characters',
+      `image/png; x=${'a'.repeat(243)}`,
+      { ...SAVED, 'content-type': 'application/octet-stream' },
+    ],
   ])(
     '%s: GET, a range and HEAD answer an attachment, nosniff and sandboxed',
     async (_what, stored, expected) => {

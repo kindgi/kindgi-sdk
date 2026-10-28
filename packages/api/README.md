@@ -157,7 +157,8 @@ Semantic notes:
   inline; any other is an attachment (`Content-Disposition: attachment`)
   with `Content-Security-Policy: default-src 'none'; sandbox`, so a
   browser never runs it as a page of this origin. A stored type that
-  isn't a well-formed media type is served as `application/octet-stream`.
+  isn't a well-formed media type of at most 255 characters is served as
+  `application/octet-stream`.
   The `response-content-type` and other response override parameters
   aren't read.
 - **DELETE** always returns `204` — whether the key existed or not
