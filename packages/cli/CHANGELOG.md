@@ -1,5 +1,249 @@
 # @kindgi/cli
 
+## 0.2.0
+
+### Minor Changes
+
+- bf30268: `kindgi judging-rules` and `kindgi judging-queue`: manage a project's judging rules and the queue they fill from the CLI. For rules: create, list, show, update, remove, list a rule's versions and results, preview what a rule would queue, and queue its matches among recent runs to catch it up on runs that ended before it was there (`queue-recent`; `create` can do it in one step with `--queue-last`/`--queue-since`). For the queue: list the queue's runs by state, agent, rule, judge class or time, or just the ones your judgment would close; dismiss or reopen one.
+  
+  Release-decision: 0.2.0, by the maintainers, 2026-10-22.
+
+### Patch Changes
+
+- 7c8f144: `kindgi dev` runs runtime 0.2.0.
+- 03b623e: **`kindgi auth registry` logs in to Kindgi's registry, `registry.kindgi.com`, with your license key.** The username there is `kindgi`, so it needs no `--username`, and the hidden prompt asks for the license key.
+  - **`--key-from <store>`** reads the key from where it's kept, as `kindgi license renew` does: `file:…`, `env-file:…#NAME`, `gcp:…`, `azure:…` or `aws:…`. So a deployment's own key logs in without passing through your shell. It's for `registry.kindgi.com` only, and doesn't go with `--password-stdin` or `--check`.
+  - **A value that isn't a license key at all** (a key starts with `kgi_lk_`) is refused before anything logs in, and isn't shown. Whether a key pulls is the registry's to say.
+  - **The hints** in `kindgi auth registry`, `kindgi dev` and `kindgi doctor` name the license key, not a robot, when the image is on `registry.kindgi.com`. On another registry, they ask for that registry's own username and token.
+  - **Another registry**, such as a mirror, still takes `--username` and its own token.
+- bf30268: **A pack can bring its data blocks: one JSON file per block in its `blocks/` folder, which `kindgi deploy` publishes with the pack.** Each file holds a block in the shape `kindgi blocks publish @file` takes (`id`, `version`, `kind`, `description`, `content`). A prompt block's template can have a file of its own, named by `content.templateFile` in place of `content.template`: a path from the block's file that stays inside the blocks folder, read into the block when the pack is indexed. The pack config's `discovery.blocks` pattern (`blocks/**/*.json` by default; `[tool.kindgi.discovery]` in a Python pack's `pyproject.toml`) moves the folder. The TypeScript, Python and Java/Scala indexers read the blocks alike, and the pack index gains an optional `blocks` list (pack index schema 1.5.0), absent when a pack has none. `kindgi build` checks each block (its template is Liquid, its values fit its schema) and refuses a pack whose blocks don't hold up, or whose block files look like secrets, naming each file; it refuses a pack whose own indexer is from before blocks (the `kindgi` Python package or `com.kindgi:kindgi-pack`) too, naming the release to upgrade to. `kindgi dev` shows the same problems, reads the folder again as you edit it, and counts the blocks; its runtime reads blocks from the pack's files only (see the next change). The pack conformance suite's fixture pack has two data blocks (`FIXTURE.md`), and the suite checks that an implementation's index lists them, the prompt's template read from its file.
+  
+  `POST /v1/deployments` publishes the pack's blocks into the deploy's project before anything else, as `POST /v1/blocks` publishes a version, and unregisters the ones it published when the deploy fails. A version the runtime holds with the same content is kept. One it holds with other content is refused with `409 block-already-registered`: a version never changes, so give the block a new version. One it holds unregistered is refused the same way, naming each such block with `kindgi blocks reinstate <id> --block-version=<version>`. A deploy never reinstates one itself, as the runtime doesn't record who unregistered it: a person, or a deploy that failed after publishing it. A block whose versions live in another project is refused with `409 block-project-mismatch`. A block that doesn't hold up, or a new version that doesn't follow the block's latest, is `400 deployment-validation-failed`, whose issues' `primitive` takes a new value, `block`; so does the Python client's `DeploymentValidationDetails`. A runtime with no block registry refuses a pack with blocks the same way. An agent pins the pack's own version of each block the pack brings, never a newer one published on the runtime, and the deploy is refused when the agent's range doesn't take the pack's version, naming both; a block the pack doesn't bring pins the newest published version in range, as before.
+  
+  A runtime that does this says so: its `/v1/openapi.json` lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]`, a new open list of names (`DEPLOY_PUBLISHES_PACK_BLOCKS` in `@kindgi/handler-runtime`). `kindgi deploy` reads it only for a pack with blocks, and when the runtime doesn't list it, refuses before it builds or sends the deploy, naming the CLI's release: an earlier runtime would leave the blocks out, and pin the agents' blocks to the versions it already holds.
+- 119ac78: **`--allow-unattended=<tool-id>` names a tool whose calls in a webhook trigger's or a schedule's runs needn't wait for a person's yes just because no person started them.** It works on `kindgi webhooks register` and `update`, and `kindgi schedules create` and `update`.
+  - **Repeat it** for each tool.
+  - **On update,** it replaces the list, and `--allow-unattended=none` clears it. Left out, the list is kept.
+  - **It takes `admin`** on the project.
+  - **Retargeting a schedule** that lists any tools (to another `--agent` or `--flow`) must name them again, or `none`.
+  - **`none` is refused** on register, and with tool ids, as a usage error: nothing is sent.
+  
+  `take-ownership` says which tools the trigger keeps allowed unattended, now for the new owner's runs.
+- 9ab31d3: **`kindgi build` prints each line as it happens.** Until now it printed nothing until the build was over.
+  - **The build server's log** streams as the server sends it, and so does Docker's log for `--local`.
+  - **A build that fails** keeps what it printed, the build server's log included, and the error comes after it. Until now, a build server's build that failed printed only the error.
+  - **`--quiet`** leaves the build's lines out: an error still shows, and so do the CLI pin's warning and a rate limit's wait.
+  - **The summary** still goes to stdout at the end, so `--json` output stays apart from the progress on stderr.
+- 8128e5c: **`kindgi connection-apps add linkedin`: register the company's LinkedIn app.**
+  - It takes the app's client id and its client secret's reference, as `add google` does.
+  - `kindgi connections list --app=linkedin` lists its connections. Both commands' help name LinkedIn.
+- 08dedca: **`kindgi connection-apps add microsoft --tenant=<directory>`: register the company's Microsoft Entra app.**
+  - `--tenant` names the directory people sign in at: the company's Directory (tenant) ID or domain for a single-tenant app, or `organizations`, `common` or `consumers` for a multi-tenant one. Microsoft's entry names no default, so a Microsoft registration needs it.
+  - A GitHub App takes no `--tenant`, and is refused one.
+- 08dedca: **`kindgi connections` and `kindgi connection-apps`: connect accounts at other apps from the terminal.**
+  - **`kindgi connections`**: `list` (yours, or every one for a tenant admin; `--project`, `--app`, `--mine`, `--include-removed`), `get`, `connect <app>` and `disconnect <id>`.
+    - `connect` makes a connect request and prints the link to open. At a terminal it waits until the connect finishes and says whose account it connected. When the app granted less than asked, it still says whose account it connected, and what's missing, and exits 1. `--permissions` names what it asks for. Left out, it asks at the terminal about each permission the app's entry offers, none picked for you; without a terminal, `--permissions` is required. `--for-company` connects the company's account (tenant admins).
+    - `disconnect` withdraws the access at the app where it can, destroys the token, and says what was done at the app.
+  - **`kindgi connection-apps`** (tenant admins): `list` (`--include-removed`), `get`, `add google` and `add github`, and `remove <id>`.
+    - `add` takes the app's client id and names its secrets by reference, `<env>/<name>` (or `<name>` under the env the runtime serves). Store the values first with `kindgi secrets set`. `add github` also takes the GitHub App's App ID (`--github-app-id`), its slug, private key and webhook secret. It prints the registration, with the redirect and notices addresses to give the app.
+    - `remove` refuses a registration with live connections unless `--with-connections`, which disconnects them too.
+  - `disconnect` and `remove` ask first at a terminal. Without one they need `--yes`.
+  - A flag given empty (`--projects=$P` with `P` unset) is refused, never read as left out, where left out would mean more: every project or every app, the registration the server picks, or asking at the terminal.
+  - `--json` prints the server's answer for `connect`, `disconnect` and `remove`, and `connect --json` doesn't wait.
+  - `--quiet` prints the link alone for `connect`, since it's what you open, and at a terminal it still waits, saying after it only a warning or an error. `disconnect --quiet` says only what's left to do at the app.
+  - **`kindgi runs resume <run-id>`** names a connect the run waits for: the app, what it asks for, and the link to connect it, with when the link stops working. A run that waits for a connect, and for no approval or other system's answer, exits 6, and lists any of the runtime's own waits after the connect. Next to an approval or another system's answer, the connect is listed after them, and the exit code stays theirs. `--json` adds `connections`. `kindgi runs get` prints the same line per connect after the run's JSON, on stderr.
+- 9f240b7: **`kindgi deploy --dry-run` works on an unsigned envelope** (`kindgi build --skip-sign`). It shows the body it would POST, less `signerKeyId`, `signerPublicKey` and `signature`, which a signed build adds, and exits 0. Before, it warned that it was going ahead, then failed with "Internal error building POST body".
+  - **No Idempotency-Key** is shown, since the key hashes the signed body, unless you pass `--idempotency-key`.
+  - **In the summary on stdout,** `wouldPost` is that body, and `idempotencyKey` is left out unless you passed one.
+  - Without `--dry-run`, an unsigned envelope is refused as before.
+- eef688f: **`kindgi deploy` prints each line as it happens.** Until now it printed nothing until it was over, through an inline `kindgi build` and the wait for a hosted pack service.
+  - **The inline build's lines** go out between deploy's, the build server's log among them, as `kindgi build` prints them.
+  - **A deploy that fails** keeps what it printed, and the error comes after it. Until now, a deploy that stopped before it was sent printed only the error.
+  - **`--quiet`** leaves the inline build's lines out, as for `kindgi build`. Deploy's own lines still show: a refused deployment's error is among them.
+  - **The summary** still goes to stdout at the end, so `--json` output stays apart from the progress on stderr.
+- 8159a11: **`kindgi dev` replaces `.kindgirc.json` and `.kindgi/dev/runtime.env` with a new `0600` file each time, as `kindgi auth login` does `~/.kindgi/config.json`.** Both hold the dev runtime's tokens. Before, `kindgi dev` wrote into the file that was there, then set it to `0600`, so a program that had an older, looser one open could read the new tokens through it.
+  - **A symlinked one stays a link:** the file it points to is the one replaced. `kindgi feedback`'s files in `~/.kindgi/feedback/` now do the same: before, a link there was replaced by a plain file.
+  - **One that isn't a regular file, or a link to one such as `/dev/null`, is left as it is,** for these two, for `~/.kindgi/config.json`, and for `kindgi feedback`'s files in `~/.kindgi/feedback/`: a new file renamed over it would take its place. For `.kindgirc.json`, `kindgi dev` then says it couldn't write it, and the banner names `.kindgi/dev/runtime.env` as where the token is.
+  - **On Windows,** these files are written in place, as before. `kindgi feedback`'s files are still replaced there, as before.
+- 68e0d57: After an upgrade, `kindgi dev` now refreshes the pack's framework skills as it starts, in `.claude/skills/` and `.agents/skills/`, instead of only saying they're behind. It works like `kindgi skills sync` without `--force`: skills you edited are kept. A skill or a skills folder you deleted stays deleted, and while it's behind, `kindgi dev` says so and names the command that brings it back. With nothing new, it writes nothing. A pack without `.claude/skills/.kindgi-manifest.json` is left as it is, with the same "behind" line as before.
+- 68e0d57: A TypeScript pack that installs with pnpm or Yarn no longer starts with a warning that its pack service dropped `COREPACK_ENABLE_DOWNLOAD_PROMPT`. `kindgi build` set it on the image's base stage, so the final image carried it, and the pack service drops every variable the pack doesn't declare. It's now set only in the install stage, where corepack fetches the package manager. Rebuild the pack's image with this CLI to stop the warning; nothing else in the image changes.
+- bf30268: **`kindgi improve` and `kindgi eval` now point to the real command.** A command that reads naturally but isn't one — `kindgi improve`, `kindgi eval` — used to print only "Unknown command" and the root help. It now names the command that was meant: `kindgi improve` → `kindgi proposals improve`, and `kindgi eval` → `kindgi eval-runs` or `kindgi eval-suites`. Any other unknown command prints the root help as before, with the unknown word quoted. This also fixes a crash: an unknown command or subcommand that happened to name a JavaScript object-prototype member (such as `constructor`) printed a `TypeError` instead of the usual message.
+- bf30268: **`kindgi proposals improve` can start a prompt pass and tune which judgments it learns from.** The command only wired the budget, so these inputs the API already accepts couldn't be reached from the CLI.
+  - `--tier=settings|prompt` — what to tune (default `settings`). `prompt` has a model draft new prompt templates (a drafted proposal always waits for a reviewer).
+  - `--provider=<id> --model=<model>` — the provider and model that draft the templates for a prompt pass, given together.
+  - `--drafts=<n>` — how many templates to draft (`1` to `5`, `3` by default).
+  - `--class-weights=as-recorded|restricted-only` — which judgments the pass learns from; omit it and the pass counts everyone until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only those. Same spelling as `eval-runs start` and `proposals evaluate`.
+  - The command refuses the combinations the pass can't use with a flag-named message: `--tier=prompt` without `--provider` and `--model`, and `--provider`, `--model` or `--drafts` on a settings pass.
+- d52680f: **`kindgi license enroll`, `kindgi license renew` and `kindgi init` in an existing app follow `--json`, `--raw`, `--table` and `--quiet`.** Before, both license commands printed their lines on stdout whatever the flags, and `init` in an existing app always printed its summary as pretty JSON, with every note.
+  - `kindgi license enroll --json` prints `renewerId`, `renewer`, `changed`, `overwritten`, `login`, `accessUrl`, `enrollLine` and `nextSteps` on stdout, and its lines on stderr. Under `--quiet`, it prints the enroll line alone on stdout: it's what you add at access.kindgi.com.
+  - `kindgi license renew --json` prints `status`, `renewerId`, `license` (`name`, `use`, `expiresAt`, `daysLeft`), `counts` (with `--runtime`) and `warnings` on stdout, and its lines on stderr. `daysLeft` is negative once the key has expired. Under `--quiet`, it prints only its warnings, on stderr: the `⚠ It expires in <N> days` line, and a `counts: not sent (…)` line other than a production key's.
+  - `kindgi init` in an existing app, in every language, prints its summary on one line with `--raw`. Under `--quiet`, it prints no summary and keeps only its ⚠ warnings on stderr, as `init` for a new pack does.
+  - With `--json` or `--raw` too, `--quiet` wins, as for every command.
+  
+  With none of these flags, all three print exactly what they printed before, so the Azure module's alerts on `renew`'s lines are unchanged.
+- b6e20ca: **`kindgi mail-triggers`: start runs from new mail in a Gmail or Outlook mailbox.** It has `list`, `get`, `create`, `update`, `pause`, `resume`, `fires`, `take-ownership` and `unregister`.
+  - `create` takes what to run, with `--agent=<id> [--agent-version=<v>]` or `--flow=<id> --flow-version=<v>`, as the other trigger commands do. `--mailbox=google|microsoft` is required.
+  - `--as=person` (the default) watches your own mailbox, through your connection. `--as=company` watches the company's, through the company's connection, and takes `admin` on the project. `--run-as=<service-account-id>` goes with `--as=company` only, and is refused before the call otherwise.
+  - `--folder`, `--poll`, `--runs-per-hour`, `--label` and `--project` set the rest, and `--allow-unattended` names the tools whose calls in its runs needn't wait for a person's yes.
+  - `update` changes only what it's given. `--mailbox` and `--as` go together there, since the mailbox is replaced whole, and `--allow-unattended=none` clears the list. On a person's mailbox, only the trigger's owner points it at another of their mailboxes or folders, and a project admin may move it to the company's.
+  - `take-ownership` names the tools the trigger keeps allowed unattended, with the line that clears them.
+  - `fires` lists a trigger's mail: the run each started, why a mail waits (`thread-busy:`, behind an earlier mail of its thread), or why it was skipped, refused or failed. `--table` shows it as a table, as `list --table` does for the triggers. `list --table` also shows whom each trigger runs as, and whether it's personal or shared.
+  - `kindgi exports create` writes the mail triggers and their fires, in `mail-triggers.jsonl` and `mail-trigger-fires.jsonl`, as it does for schedules and webhooks.
+- d51da68: **`kindgi auth login` writes `~/.kindgi/config.json` `0600`, in a `~/.kindgi` that's `0700`.** Before, both took the default mode, so with the usual umask another account on the same computer could read the API key.
+  - **A file or folder an older CLI wrote is fixed too,** the next time `kindgi auth login` runs. The new key goes into a new `0600` file that replaces the old one, so a program that already had the old file open can't read the new key through it. To fix yours now, run `kindgi auth login` again, or `chmod 600 ~/.kindgi/config.json && chmod 700 ~/.kindgi`.
+  - **`kindgi key create` sets a `~/.kindgi/keys` folder that's looser than `0700` to `0700`.** Private keys were already `0600`.
+  - **A new `.env.<name>` file that `kindgi env set` or `kindgi env pull` makes is `0600`.** A file that's already there keeps its mode.
+  - **`kindgi feedback`'s draft in the temp folder is `0600`.**
+  - **On Windows, nothing changes.**
+- 9b681a0: `kindgi build --hosted` turns down a pack over 30 MiB with a link to what the pack's image needs. That link now goes to the docs for this CLI's release line, as the models guide's and the dev sandbox's links do. Before, it went to the 0.1 docs whatever the CLI's version.
+- 05c5bc7: **`--quiet` prints errors and warnings only.** The global flag's help now reads "Print errors and warnings only, and what's shown only once (a link, a secret, a code) alone on stdout: the exit code reports the result."
+  - **`kindgi deploy`** leaves out its own progress lines. It still prints:
+    - a refused deployment's error, and the error of a deploy that stops before it is sent;
+    - a secret sync that fails. The exit code stays 0, since the deployment is in place. A sync that never reaches the server now also says the deployment landed and how to sync again;
+    - a pack service env that refuses the deploy: its plan, then the error that points to it;
+    - its warnings: secret-shaped keys in `.env.<env>`, `--allow-missing-env`, the plan's own warnings, and an unsigned envelope under `--dry-run`.
+  - **`kindgi build`** and deploy's inline build still print their warnings: a skipped integrity gate or image pull, a pull that failed, an unsigned envelope, a skipped `patch-package` script, no build secrets on the build service, the indexer's warnings, and computed imports under `image.keep`.
+  - **`kindgi dev`** still prints its warnings: the dev sandbox off or unavailable, a port in use, a provider not registered, framework skills left out of date or a refresh of them that failed, and the rest. Its log level under `--quiet` is `warn`, not `error`.
+  - **`kindgi exports create`** prints only a kind that failed, and how to finish an export that stopped or has kinds that failed. Its summary is left out.
+  - The CLI pin's warning and a rate limit's wait still show, as before.
+- 3b524f8: **`--quiet` leaves out every command's success notes, and keeps its warnings.** About twenty commands still printed what they'd done under `--quiet`: `secrets set`/`rotate`/`revoke`/`pull`/`copy`, `env`, `key`, `init`, `mcp`, `webhooks`, `sites`, `upgrade`, `adapters prepare`, `auth registry`, `feedback write`, and the note after Ctrl+C stops `runs start` or `connections connect` waiting. They now print only their errors and warnings, as `--quiet` says. Some warnings had been left out under `--quiet`, and they now show:
+  - a failed `kindgi runs start` run's warnings and its error;
+  - `kindgi dev`'s `--reset` that couldn't remove `.kindgirc.json`, a pack service port that was taken, and `--open` that couldn't open a browser, or found no console to open. With or without `--quiet`, these now start with ⚠;
+  - a `.kindgirc.json` that `kindgi dev` couldn't write. It now has a warning of its own, with or without `--quiet`.
+  
+  **What's shown only once prints alone on stdout under `--quiet`,** as `kindgi connections connect`'s link does: `kindgi tokens create`'s secret, `kindgi webhooks register`'s signing secret, and the one-time code from `kindgi sites register` and `kindgi sites code`. Before, `kindgi tokens create --quiet` printed the key's secret nowhere. Without `--quiet`, these commands print as before.
+- bb05571: **`kindgi secrets revoke --hard` says what setting the name again does.** Where your secret manager keeps a recoverable copy, the note after a hard revoke said that setting the name again before the copy's purge date keeps it, disabled, until the next hard revoke. Setting the name again first purges that copy where Kindgi now can, so the note now says: "If you set this name again before then, Kindgi purges the copy if it now can; if it still can't, the copy stays, disabled, until you hard-revoke it again."
+- 0313e27: `kindgi dev` runs runtime 0.2.0-rc.0, from registry.kindgi.com.
+- 7748e6c: `kindgi dev` runs runtime 0.2.0-rc.1.
+- b5c5da3: **`kindgi dev`'s banners no longer print the dev token in full.** The `Token` line of the "Kindgi is up" block, and `--no-watch`'s `Bearer token` line, show it as the runtime's own startup line does: `kgi_bt_…` and its last four characters. So a dev log someone pastes doesn't give a working token away.
+  - **Each line says where the full token is:** the pack's `.kindgirc.json`, which the CLI's other commands in the pack's folder already read. It's readable only by you, and it's in the `.gitignore` that `kindgi init` writes. If that file can't be written, the line names `.kindgi/dev/runtime.env` instead.
+  - **A token pinned with `--dev-token` in another shape** shows only its last four characters, and none when it's under 16 characters.
+- 9fa3c8b: `kindgi license enroll --for` says it takes the `em-` id the key page shows, as well as a GitHub login. Someone who signs in by email gives that id, and so does someone who first signed in by email and now signs in with GitHub. Its help, its usage line, the message when `--for` is missing, the error for a value that isn't one, and `kindgi license renew`'s pointer to enroll all said a GitHub login only. What `--for` accepts is unchanged: an `em-` id was already accepted. And `enroll`'s output says to add the line "signed in as the person it's for (<account>)", not "signed in as <account>": the key page names someone who signs in by email by their address, not by the `em-` id.
+- 08dedca: **`kindgi exports create` exports connections:** the tenant's app registrations (`connection-apps.jsonl`) and its connections (`connections.jsonl`), removed ones included, each as its route answers it. Neither holds a token, and a registration names its secrets by reference only. The apps a server can connect to and connect requests aren't exported.
+- bf30268: **A new authoring skill, "Fix what the experts corrected", with a guide to match.** When an expert judges an agent's run wrong and says why, a coding agent can now turn those corrections into changes. `kindgi init` and `kindgi skills sync` install the `kindgi-fix-corrections` skill (every language), which pulls an agent's "no" judgments (`kindgi judgments list --verdict=no`), reads each with the run behind it (`kindgi runs get`, `kindgi runs journal`), and sorts each correction to where it belongs — a rule in a tool's code, a setting, an approval rule, or the agent's instructions — adding a pack test per correction, then publishing a new version (`kindgi agents derive` for a setting, `kindgi deploy` for code) and asking a person to make it live with `kindgi agents promote … --reason`, naming the corrections. It never raises a limit or drops a check — a correction that would loosen anything goes to the owner — and it keeps the pulled runs' customer data out of the pack. The guide "Fix what the experts corrected" walks a person through the same loop.
+- 71cb703: Plainer wording in CLI help and messages for the Improve and evals commands: test cases, suggested changes, corrections, Improve runs and release gate policies. Command names, flags and output fields are unchanged.
+- bf30268: **A read-only agent registry can take Improve's candidates.** `RegistryReadOnly` gains an optional `takesCandidates` (`{ undoReason, scopeReason }`). With it, an improvement pass starts, a proposal is evaluated (the version it makes is kept for that), and a promotion request and its check go through to the releases binding. Publishing, deriving, unregistering and reinstating stay refused with the registry's reason. Rolling a scope back, unpinning it and rolling a proposal back are refused with `409 registry-read-only` and `undoReason`, and a pass, a draft or an evaluation for a scope narrower than the tenant with `scopeReason`. Under `kindgi dev`, a runtime that serves the pack's files sets it: making a proposal live writes it into the pack's files, and an undo is done there, with git. The promotion's reference says what such a runtime does: only the whole tenant is made live, and a pack whose files changed since the version was made answers `409 promotion-superseded`, naming the file. `resolveBlockPins` is exported, for such a runtime's pins at load.
+  
+  **`kindgi dev`'s pack service writes a block made live into the pack.** The pack service supervisor gains an optional `writeBlock`, behind `POST /v1/blocks` on its front, token-gated like `/v1/invoke`; without it, the route answers 404. `writePackBlock` (`@kindgi/handler-runtime`) writes a block's new version and content into its own file, found by id among the pack's blocks, and a prompt's template into its template file. It refuses a block that isn't in the pack, content that doesn't fit the block's kind, and a version not past the file's. `kindgi dev` gives the supervisor one, and its log names the file written.
+- 68e0d57: **A pass started by hand works in the project its scope is in.** `POST /v1/proposals/improve` takes an optional `projectId`, as an improve schedule does: the project the pass works in, where its test set must be one that project's runs can use and its eval runs run. Left out, it's the scope's project for a project or segment scope, and the agent version's for the tenant or an org. Before, a pass always worked in the agent version's project, so one scoped to another project couldn't use a test set made from that project's judged runs. A project or segment scope must be in the pass's project, the version must be one that project's runs can use, and a project other than the version's needs `write` there, as the pass's eval runs do. The TypeScript and Python clients take `projectId`, and `kindgi proposals improve` takes `--pass-project=<project-id>` for a tenant or org scope.
+- 08dedca: **`kindgi init --template=follow-up`:** an agent that writes a follow-up mail from your notes and sends it from your own Gmail, each send approved first.
+  - Its send tool is `gmailSend` from `@kindgi/connections`, included under the pack's own id. `init` adds `@kindgi/connections` at the CLI's own version, or linked from a checkout with `--link-local`.
+  - Its README covers connecting Google, what waits for a person, and why text other people wrote is information, never instructions.
+  - In an existing app, `init` refuses it and points at `--new-repo`.
+  - The getting-started skill lists it.
+- c717881: **`kindgi init` in an sbt app reads the build's `name` and `version` inside a one-line `.settings(…)`.** A `build.sbt` such as `lazy val root = (project in file(".")).settings(name := "acme-ledger", version := "1.2.0")` now names the pack `acme-ledger` at `1.2.0`. Before, `init` read these settings only at the start of a line. With this build, it stopped with "build.sbt has no `name := "…"` to name the pack" unless `--pack-id` was given, and it used `0.1.0` for the version. A setting inside a comment isn't read. Before, one on its own line inside a multi-line `/* … */` comment was.
+- bf30268: Judgments can now carry a **correction** — what the agent should have done on the run: the tool calls it should have made (each with the argument fields that matter) and the tools it should not have called at all. A correction is graded deterministically when a candidate version is replayed on the run, so a comparison shows how a new version measures against the expert's fix — refused calls and the first failing repetition named, shown for a promotion gate, not enforced. One correction per run per expert, recorded against the whole output, so saving again replaces it. Each way a replay's calls differed from a correction is a `CallDifference`: `count`, `must-not-call`, `missing-field` or `field-value` (in Python, `CallDifferenceCount`, `CallDifferenceMustNotCall`, `CallDifferenceMissingField` and `CallDifferenceFieldValue`).
+  
+  Available on the API (`POST /v1/judgments`), the TypeScript and Python clients (`Correction`, `ExpectedCall`), and the CLI (`kindgi judgments add --correction`).
+- 3038233: **`kindgi key create <id> --env <name>` reads the `kindgi.config.ts` in the folder it runs in, and its note follows what that environment has.** Before, it always said to add `signingKey` and `signerKeyId` to the environment, even when they were there.
+  - **When the environment already names this key,** the note says so, and that `kindgi build --env=<name>` will sign with it. There are no lines to add. That's when its `signingKey` is this key's file, and its `signerKeyId` is this key's id or unset.
+  - **When it names another key,** the note shows the `signingKey` and `signerKeyId` it has now, then the lines to add, as before.
+  - **When there's no config, it won't load, or the environment has neither field,** the note is the same as before. The key is made either way.
+- ae49e47: **`kindgi key create <id> --env <name> --home <dir>`'s note names the key file it wrote.** Before, the `signingKey` line to add was always `'~/.kindgi/keys/<id>.pem'`. `kindgi build` reads `~` as your home, not the `--home` folder, so it found no key there.
+  - **When the key is under your home,** the line is its path from `~`, so your home's path isn't written into the config. With no `--home`, or a `--home` that is your home, that's `'~/.kindgi/keys/<id>.pem'`, as before. With `--home ~/work`, it's `'~/work/.kindgi/keys/<id>.pem'`.
+  - **Otherwise,** the line is the key file's full path. That's a `--home` outside your home, or no `HOME` set. A relative `--home` is resolved from the folder the command ran in.
+  - The lines are written as `kindgi.config.ts` strings, so a quote or a backslash in a path is escaped.
+- b6e20ca: **A mail trigger moved to another mailbox watches that mailbox's inbox.** A change whose `config.mailbox` names another mailbox, in the other app or with the other `as`, and that names no `config.folder` drops the trigger's folder. A Gmail label id or an Outlook folder id belongs to one mailbox, so in another it names another folder or none. The same mailbox sent again keeps the folder, and a folder named with the move is the one it watches.
+  - The `PATCH /v1/mail-triggers/{triggerId}` body's `folder` says so, and the testing trigger registry (`createInMemoryTriggerRegistry`) merges a mail trigger's config the same way a runtime does.
+  - `UpdateMailTriggerInput.config` (`@kindgi/runtime`) and `kindgi mail-triggers update --folder` say so too.
+- 8564e06: **A preview release of the runtime stops starting 90 days after it was released, whatever its version.** `kindgi dev`'s warning, from 30 days before, now ends "A preview release stops starting 90 days after it was released." in place of "Preview releases stop starting 90 days after their release, until Kindgi 1.0." The description of `GET /v1/license`'s `preview` no longer says that a 1.0 or later release has none. The response itself is unchanged: `preview` is absent for a build from source, or with a production key.
+- 68e0d57: **`kindgi runs resume` answers a run's wait for another system, and says when a run waits for one.**
+  
+  - **`kindgi runs resume <run-id>`** names each wait for another system's answer (a tool's call that paused): what it waits for, the tool and step, when it times out, and the command that answers it. It exits `5`. An approval still comes first (exit `3`), and the run's waits for answers are listed after it.
+  - **`--output=<json-or-@file>`** answers the wait, as the other system would through the link its tool handed on: the value is the paused tool's output, checked against its output schema. The command then says what the run waits for next, with that answer's exit code. It answers the run's one wait; when the run waits on more than one, `--waitpoint=<id>` names it (the `pause:` id `kindgi runs get` lists under `waitingFor.tokens`). When the run waits for no answer, it sends nothing and exits `1`; when it waits on more than one and no `--waitpoint` names one, it sends nothing and exits `2`.
+  - **`kindgi runs get`** prints a line per wait for another system's answer after the run's JSON, on stderr, with the command that answers it.
+- 98104be: **A hard revoke is described as what it does.** `DELETE /v1/secrets/{name}?hard=true` and `kindgi secrets revoke --hard` were called "cryptographic erasure". They erase the value at Kindgi and hard-delete it in a secret manager, and can't be undone, but backups and a secret manager's own retention may keep copies for a time.
+  - The API description of `secrets.revoke`, its `hard` parameter and the `secrets` tag say so, in the spec and in the Python client's docstrings.
+  - `kindgi secrets revoke --hard`'s help no longer says it skips the audit tombstone: a hard revoke keeps one.
+  - The docs say what each store keeps after a hard revoke (*Keep secrets in your own secret manager*, "Revoking for good").
+- e019e64: **A hard revoke says when the secret manager kept a recoverable copy, and until when.** Azure Key Vault keeps a deleted secret recoverable for the vault's retention period when it can't be purged.
+  - **`DELETE /v1/secrets/{name}?hard=true`** answers `recoverableUntil` (ISO 8601) next to `revoked` and `hard`: when the secret manager purges that copy on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. It's absent on a soft revoke, and when a hard revoke left nothing recoverable. It's optional, so a client that doesn't know it is unaffected.
+  - **The `secret-hard-revoked` record** carries `recoverableUntil` too.
+  - **The reference:** the `secrets.revoke` description and its `hard` parameter say what a hard revoke erases, and that `recoverableUntil` says until when a recoverable copy is kept.
+  - **For backends:** `SecretProviderDeleteOutput` and `SecretRevokeOutcome` gain an optional `recoverableUntil`, and `emitLifecycleEvent` takes one.
+  - **Clients:** the TypeScript client's `SecretRevokeOutcome` and the Python client's `SecretRevokeResult` gain the optional `recoverableUntil`.
+  - **`kindgi secrets revoke --hard`** prints until when your secret manager keeps the copy, and puts `recoverableUntil` in its JSON.
+- 68e0d57: **On a runtime without an authorization store, the tenant's settings are a tenant admin's to change, as they are with one.** Before, such a runtime checked nothing on them, so a member key, or anyone signed in, could change them. Now anyone else gets `403 permission-denied`.
+  - **A change needs the tenant admin:** to model providers (`/v1/providers`), policies, adapters, the trusted signing keys, and the sign-in provider catalog (`/v1/auth/providers`). Reading them stays open to everyone.
+  - **Every call needs the tenant admin,** reads too: to the outgoing webhook endpoints (`/v1/webhook-endpoints`) and the compliance evidence (`/v1/compliance`).
+  - **Without a store, a tenant admin** is the deployment's API token, an `admin` key, or a console signed in with either, as `whoami`'s `tenantAdmin` says. A person signed in with an identity provider or an emailed link isn't one, and nor is a `member` key or a key limited to a project.
+  - **Deployments don't change:** a runtime without a store still lets every caller deploy. Deploying is project work, which such a runtime leaves to everyone.
+  - **The spec lists the `403`** on each of these operations.
+  - **`kindgi people add`'s hint** says a project role is for a runtime with authorization on; without it, the person can work in every project already. Before, it told everyone to give them a project role, which a runtime without a store has none of.
+  - **`kindgi exports create`** skips the webhook endpoints and the compliance evidence for someone who isn't a tenant admin ("it needs a tenant admin"), and names them in its warning. Before, it asked for them, was refused, and recorded them as failed.
+- b6e20ca: **A schedule or webhook trigger is personal or shared, and its owner stays put.** A trigger a person owns is personal: its runs act as them, with their connections, and only they or a project admin can change, pause, resume, fire or delete it. Anyone else is answered `403 permission-denied`. A trigger a service account owns is shared: its runs act as the account, with the company's connections. Changing what it runs (its target or version, its input, its tools allowed unattended, a webhook's signing secret) takes a project admin. The project's writers can still change its label, schedule, policies and delivery settings, and pause, resume, fire or delete it. No change moves the owner; only a take-over (`POST …/owner`) does. Without an authorization store, a project admin here is a tenant-admin key, and that covers setting a trigger's tools allowed unattended and taking a trigger over too. A change by anyone but a personal trigger's owner is recorded as `trigger-changed-for-owner`. 0.2.0-rc.0 moved a trigger's owner to whoever changed what it ran; this release doesn't, and a trigger that candidate moved keeps the owner it has now.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+- b6e20ca: **A trigger can't be set to run as an owner that can't run what it starts.** With an authorization store, the check every fire makes is now also made when the owner or the target is set: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule.
+  - Registering a schedule, webhook or mail trigger, or taking one over, with `runAsServiceAccountId` (`--run-as`): an account that can't is refused with `409 trigger-owner-cannot-run-target`, and nothing is registered or changed. The message names the account and the target, and what fixes it: give the account the editor role on the target's project, or name another account. Only a caller who may name the account (`act_as`, a tenant admin's) gets this far.
+  - Running one as the project (`runAsProject`, `--run-as=project`), on create or take-over: the project's own account runs only what the project's editors can, so a target it can't run, such as one another project serves, is refused with the same 409. Its message says what fixes it: run the trigger as a service account that can, or own it yourself. The account is made before the check, so it stays, with no keys, for the next `runAsProject`.
+  - Changing a schedule's or mail trigger's target (another agent or flow, or for a schedule an Improve pass): the trigger keeps its owner, so the owner, a service account or a person, must be able to run the new target. Otherwise the change is refused with the same 409, naming the owner (or, for the project's own account, saying a project admin can take the trigger over first), and nothing changes. It isn't checked when the caller is the owner, whose own check has run, nor for an owner that was unregistered or removed: every fire is refused for that already, and a take-over is the fix.
+  - Before, the change was accepted, and then every fire was refused ("may no longer run") until the trigger paused.
+  - Without an authorization store, nothing changes: a grant limits nothing there.
+  
+  `@kindgi/authz` exports `targetAccess(target)`: the action and resource a trigger's target is checked by.
+- b6e20ca: **A shared trigger can run as its project.** `runAsProject: true` on a schedule, webhook or mail trigger (or `--run-as=project`) makes its runs act as the project's own service account, made the first time and given the editor role on the project. It takes a project admin. The account has no keys, its role can't be changed, and it can't be named by id. A tenant admin may unregister it, which stops its triggers until an admin takes each over. A trigger's `owner` says `isProjectAccount: true`, and a service account says `projectId`. Deleting a project unregisters its account.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+- bf30268: **The `woocommerce` template's store agent takes its instructions from a prompt block the pack brings.** Their text is `blocks/store-agent-prompt.liquid`, and the block's file `blocks/store-agent-prompt.json` (`<pack>.store-agent-prompt`, the pack's version). The agent names it by range (`instructions: { prompt: '<pack>.store-agent-prompt', version: '^0.1.0' }`), so `kindgi deploy` publishes it with the agent, and a prompt pass (`kindgi proposals improve --tier=prompt`) can draft new instructions from it. The words are the ones the agent held before. The agent's own test reads them from the block. The README and AGENTS.md say where they live, and that a change to them needs a new version within the agent's range, since a deploy refuses a version whose content changed.
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [87a5290]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [08dedca]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [08dedca]
+- Updated dependencies [e019e64]
+- Updated dependencies [b5c5da3]
+- Updated dependencies [633d9e7]
+- Updated dependencies [08dedca]
+- Updated dependencies [2efe644]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [188f532]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [119ac78]
+- Updated dependencies [fc7347c]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [760acad]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [ae09fc0]
+  - @kindgi/agents@0.2.0
+  - @kindgi/handler-runtime@0.2.0
+  - @kindgi/client@0.2.0
+  - @kindgi/env-schema@0.2.0
+  - @kindgi/sdk@0.2.0
+  - @kindgi/log@0.2.0
+  - @kindgi/flow@0.2.0
+  - @kindgi/secrets-dotenv@0.2.0
+  - @kindgi/crypto@0.2.0
+  - @kindgi/dotenv-file@0.2.0
+  - @kindgi/platform@0.2.0
+  - @kindgi/types@0.2.0
+
 ## 0.2.0-rc.1
 
 ### Patch Changes
