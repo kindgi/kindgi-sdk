@@ -838,12 +838,14 @@ So nothing runs while it changes:
 
    Plan now: a plan reads the module's server, which the next step stops.
 4. **Stop the new version.** Deactivate its revision, then stop the
-   module's database server:
+   module's database server. `PG` is from step 2: in a new shell, set it
+   again first.
 
    ```sh
    REV=$(az containerapp revision list -n <name_prefix>-server -g <rg> --query "[?properties.active].name" -o tsv)
    az containerapp revision deactivate -n <name_prefix>-server -g <rg> --revision "$REV"
    az postgres flexible-server stop -g <rg> -n "$PG"
+   az postgres flexible-server show -g <rg> -n "$PG" --query state -o tsv
    az containerapp revision list -n <name_prefix>-server -g <rg> -o table
    ```
 
@@ -851,8 +853,10 @@ So nothing runs while it changes:
      start on the restored server once the URL names it.
    - With the module's server stopped, no revision can reach the migrated
      database, whichever URL it starts with.
-   - The last command lists the active revisions: none. If it lists the
-     new version's, stop here, and don't change the URL while it can run.
+   - The last two commands check it: the server is `Stopped`, and no
+     revision is listed, since the list shows only active ones. If it
+     lists any revision, stop here, and don't change the URL while one can
+     run.
 5. **Point the runtime at the restored server.** Set the restored server's
    admin password and the database URL with it, as in
    [3. The secrets](#3-the-secrets): the password goes through a pipe,
@@ -874,13 +878,11 @@ So nothing runs while it changes:
    ```
 
    Each command runs only if the one before it worked, so the vault never
-   gets a URL for a server or a password that isn't there. `PG` is from
-   step 2: in a new shell, set it again first.
+   gets a URL for a server or a password that isn't there.
 6. **Wait 30 minutes, then apply the plan that goes back:**
 
    ```sh
-   terraform apply back.tfplan
-   rm back.tfplan
+   terraform apply back.tfplan && rm back.tfplan
    ```
 
    - Nothing runs while you wait, and by the end of it Container Apps has
@@ -889,7 +891,7 @@ So nothing runs while it changes:
      starts with the URL before can't connect, and Container Apps
      restarts it with the new one.
    - If Terraform refuses the plan as stale, start the module's server,
-     plan again, stop it, and apply.
+     plan again as in step 3, stop it as in step 4, and apply.
    - Check it as the upgrade's step 7 does: once the plan's revision is
      the only active one, healthy, it serves from the restored server.
 7. **Replay the erasures before anyone uses it**
