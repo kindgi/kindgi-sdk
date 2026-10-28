@@ -1123,3 +1123,310 @@ describe('disconnects, notices and lists', () => {
     expect(other.data).toEqual([]);
   });
 });
+
+describe('names', () => {
+  /** Google through three registrations, each for a project of its own: a connection of Ana's in each. */
+  function registrations() {
+    const made = createInMemoryConnections({
+      entries: [google],
+      publicUrl: 'https://kindgi.acme.example/',
+      app: { exchange: ({ code }) => ({ account: { id: 'g-ana', label: code } }) },
+    });
+    const appIds = ['proj-a', 'proj-b', 'proj-c'].map(
+      (project) =>
+        made.seed.app({
+          tenantId,
+          app: 'google',
+          oauth2: { clientId: `${project}.apps.googleusercontent.com`, clientSecret: SECRET },
+          projects: [project as ProjectId],
+          by: admin,
+        }).appId,
+    );
+    return { ...made, appIds };
+  }
+
+  type Binding = ReturnType<typeof createInMemoryConnections>['binding'];
+
+  /** A connect of Ana's Google account, finished; the code is the account's label. */
+  async function connect(
+    binding: Binding,
+    input: { appId?: string; label?: string; code?: string } = {},
+  ) {
+    const created = await binding.createRequest({
+      tenantId,
+      envName,
+      app: 'google',
+      ...(input.appId !== undefined && { appId: input.appId }),
+      owner: { kind: 'member', userId: ana.id },
+      permissions: ['gmail.send'],
+      ...(input.label !== undefined && { label: input.label }),
+      by: ana,
+    });
+    if (created.kind !== 'ok') throw new Error(created.error.message);
+    const started = await binding.startRequest({
+      tenantId,
+      requestId: created.value.requestId,
+      caller: ana,
+    });
+    if (started.kind !== 'ok') throw new Error(started.error.message);
+    const state = new URL(started.value.authorizeUrl).searchParams.get('state') as string;
+    const finished = await binding.finishRequest({
+      tenantId,
+      caller: ana,
+      state,
+      code: input.code ?? 'ana@acme.example',
+    });
+    if (finished.kind !== 'ok' || finished.value.kind !== 'connected') {
+      throw new Error('expected a connection');
+    }
+    return { request: created.value, connection: finished.value.connection };
+  }
+
+  test("a new connection is named as asked at the connect, else by its account's label, cut to 100 characters", async () => {
+    const made = registrations();
+    const [a, b] = made.appIds as [string, string];
+    const asked = await connect(made.binding, { appId: a, label: 'Work mail' });
+    expect(asked.request.label).toBe('Work mail');
+    expect(asked.connection).toMatchObject({
+      label: 'Work mail',
+      account: { label: 'ana@acme.example' },
+    });
+    const long = await connect(made.binding, { appId: b, code: ` ${'\u{1F4EC}'.repeat(120)}` });
+    expect(long.request).not.toHaveProperty('label');
+    expect(long.connection.label).toBe('\u{1F4EC}'.repeat(100));
+    const got = await made.binding.get({ tenantId, connectionId: asked.connection.connectionId });
+    expect(got?.label).toBe('Work mail');
+  });
+
+  test('a name another live connection has by the finish, ignoring case, gets the first free number after it', async () => {
+    const made = registrations();
+    const [a, b, c] = made.appIds as [string, string, string];
+    const first = await connect(made.binding, { appId: a });
+    expect(first.connection.label).toBe('ana@acme.example');
+    const second = await connect(made.binding, { appId: b, code: 'ANA@acme.example' });
+    expect(second.connection.label).toBe('ANA@acme.example 2');
+    const third = await connect(made.binding, { appId: c });
+    expect(third.connection.label).toBe('ana@acme.example 3');
+    // A removed one's name is free again.
+    await made.binding.disconnect({
+      tenantId,
+      connectionId: first.connection.connectionId,
+      by: ana,
+    });
+    const again = await connect(made.binding, { appId: a });
+    expect(again.connection.label).toBe('ana@acme.example');
+  });
+
+  test('a name asked for and taken by the finish is numbered too, and still fits in 100 characters', async () => {
+    const made = registrations();
+    const [a, b] = made.appIds as [string, string];
+    const name = 'a'.repeat(100);
+    const created = await made.binding.createRequest({
+      tenantId,
+      envName,
+      app: 'google',
+      appId: b,
+      owner: { kind: 'member', userId: ana.id },
+      permissions: ['gmail.send'],
+      label: name,
+      by: ana,
+    });
+    if (created.kind !== 'ok') throw new Error(created.error.message);
+    // Meanwhile, another connection is given the name.
+    const other = await connect(made.binding, { appId: a });
+    await made.binding.update({
+      tenantId,
+      connectionId: other.connection.connectionId,
+      label: name,
+      by: ana,
+    });
+    const started = await made.binding.startRequest({
+      tenantId,
+      requestId: created.value.requestId,
+      caller: ana,
+    });
+    if (started.kind !== 'ok') throw new Error(started.error.message);
+    const state = new URL(started.value.authorizeUrl).searchParams.get('state') as string;
+    const finished = await made.binding.finishRequest({ tenantId, caller: ana, state, code: 'x' });
+    expect(finished).toMatchObject({
+      kind: 'ok',
+      value: { kind: 'connected', connection: { label: `${'a'.repeat(98)} 2` } },
+    });
+  });
+
+  test("a reconnect keeps the connection's name and ignores the one asked", async () => {
+    const made = registrations();
+    const [a, b] = made.appIds as [string, string];
+    const named = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      appId: a,
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: 'g-ana', label: 'ana@acme.example' },
+      label: 'Work mail',
+      permissions: ['gmail.send'],
+    });
+    const reconnected = await connect(made.binding, {
+      appId: a,
+      label: 'Something else',
+      code: 'ana.new@acme.example',
+    });
+    expect(reconnected.request).toMatchObject({
+      reconnects: named.connectionId,
+      label: 'Something else',
+    });
+    expect(reconnected.connection).toMatchObject({
+      connectionId: named.connectionId,
+      label: 'Work mail',
+      account: { label: 'ana.new@acme.example' },
+    });
+    // One made before connections had names stays without one.
+    const unnamed = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      appId: b,
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: 'g-ana', label: 'ana@acme.example' },
+      permissions: ['gmail.send'],
+    });
+    const kept = await connect(made.binding, { appId: b, label: 'Personal' });
+    expect(kept.connection.connectionId).toBe(unnamed.connectionId);
+    expect(kept.connection).not.toHaveProperty('label');
+  });
+
+  test('a request whose key gained a connection before its finish keeps that connection’s name', async () => {
+    const made = registrations();
+    const [a] = made.appIds as [string];
+    const created = await made.binding.createRequest({
+      tenantId,
+      envName,
+      app: 'google',
+      appId: a,
+      owner: { kind: 'member', userId: ana.id },
+      permissions: ['gmail.send'],
+      label: 'New name',
+      by: ana,
+    });
+    if (created.kind !== 'ok') throw new Error(created.error.message);
+    const meanwhile = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      appId: a,
+      owner: { kind: 'member', userId: ana.id },
+      account: { id: 'g-ana', label: 'ana@acme.example' },
+      label: 'Old name',
+      permissions: ['gmail.send'],
+    });
+    const started = await made.binding.startRequest({
+      tenantId,
+      requestId: created.value.requestId,
+      caller: ana,
+    });
+    if (started.kind !== 'ok') throw new Error(started.error.message);
+    const state = new URL(started.value.authorizeUrl).searchParams.get('state') as string;
+    const finished = await made.binding.finishRequest({ tenantId, caller: ana, state, code: 'x' });
+    expect(finished).toMatchObject({
+      kind: 'ok',
+      value: {
+        kind: 'connected',
+        connection: { connectionId: meanwhile.connectionId, label: 'Old name' },
+      },
+    });
+  });
+
+  test('a connect asking for a name another live connection of the app, owner and env has, ignoring case, is refused', async () => {
+    const made = registrations();
+    const [a, b] = made.appIds as [string, string];
+    const named = await connect(made.binding, { appId: a, label: 'Work mail' });
+    const ask = (more: { appId: string; owner?: 'company'; envName?: string }) =>
+      made.binding.createRequest({
+        tenantId,
+        envName: (more.envName ?? envName) as EnvName,
+        app: 'google',
+        appId: more.appId,
+        owner: more.owner === 'company' ? { kind: 'company' } : { kind: 'member', userId: ana.id },
+        permissions: ['gmail.send'],
+        label: 'WORK mail',
+        by: more.owner === 'company' ? admin : ana,
+      });
+    expect(await ask({ appId: b })).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-label-taken', field: 'label' },
+    });
+    // Its own connection's name, for a reconnect; the company's, or another env's.
+    expect(await ask({ appId: a })).toMatchObject({
+      kind: 'ok',
+      value: { reconnects: named.connection.connectionId },
+    });
+    expect(await ask({ appId: b, owner: 'company' })).toMatchObject({ kind: 'ok' });
+    expect(await ask({ appId: b, envName: 'staging' })).toMatchObject({ kind: 'ok' });
+    await made.binding.disconnect({
+      tenantId,
+      connectionId: named.connection.connectionId,
+      by: ana,
+    });
+    expect(await ask({ appId: b })).toMatchObject({ kind: 'ok' });
+  });
+
+  test('a rename is refused a name another live connection has, ignoring case, and a removed connection', async () => {
+    const made = registrations();
+    const [a, b] = made.appIds as [string, string];
+    const work = await connect(made.binding, { appId: a, label: 'Work mail' });
+    const home = await connect(made.binding, { appId: b, label: 'Home' });
+    const rename = (connectionId: string, label: string) =>
+      made.binding.update({ tenantId, connectionId, label, by: ana });
+    expect(await rename(home.connection.connectionId, 'work MAIL')).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-label-taken', field: 'label' },
+    });
+    expect(await rename(work.connection.connectionId, 'Work Mail')).toMatchObject({
+      kind: 'ok',
+      value: { label: 'Work Mail' },
+    });
+    expect(await rename(home.connection.connectionId, 'Personal')).toMatchObject({
+      kind: 'ok',
+      value: { connectionId: home.connection.connectionId, label: 'Personal' },
+    });
+    const got = await made.binding.get({ tenantId, connectionId: home.connection.connectionId });
+    expect(got?.label).toBe('Personal');
+
+    await made.binding.disconnect({
+      tenantId,
+      connectionId: work.connection.connectionId,
+      by: ana,
+    });
+    expect(await rename(work.connection.connectionId, 'Old work')).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-not-found' },
+    });
+    expect(await rename(home.connection.connectionId, 'Work mail')).toMatchObject({ kind: 'ok' });
+    const elsewhere = await made.binding.update({
+      tenantId: '00000000-0000-4000-8000-0000000000bb' as TenantId,
+      connectionId: home.connection.connectionId,
+      label: 'Theirs',
+      by: ana,
+    });
+    expect(elsewhere).toMatchObject({ kind: 'err', error: { code: 'connection-not-found' } });
+  });
+
+  test('a seeded connection takes a name, unless another live one has it', () => {
+    const made = registrations();
+    const [a, b] = made.appIds as [string, string];
+    const seed = (appId: string) =>
+      made.seed.connection({
+        tenantId,
+        envName,
+        app: 'google',
+        appId,
+        owner: { kind: 'member', userId: ana.id },
+        account: { id: 'g-ana', label: 'ana@acme.example' },
+        label: 'Work mail',
+        permissions: ['gmail.send'],
+      });
+    expect(seed(a).label).toBe('Work mail');
+    expect(() => seed(b)).toThrow(/named "Work mail"/);
+  });
+});

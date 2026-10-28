@@ -13,6 +13,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a connection has a name, its `label`.** `client.connections.connect(...)` takes an optional `label`, the name to give the connection it makes, else it takes its account's. `client.connections.update(connection_id, label=...)` renames one (`PATCH /v1/connections/{connectionId}`), with its async twin. A name another of the owner's live connections to that app has is `409 connection-label-taken`. `Connection` and `ConnectRequest` carry `label` when they have one.
 - `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a

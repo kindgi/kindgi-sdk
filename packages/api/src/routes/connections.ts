@@ -43,6 +43,7 @@ import { tenantAdminAccess } from './tenant-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const MAX_LABEL_LENGTH = 200;
+const MAX_CONNECTION_LABEL_LENGTH = 100;
 const MAX_CLIENT_ID_LENGTH = 512;
 /** A DNS name's longest. */
 const MAX_TENANT_LENGTH = 253;
@@ -323,7 +324,7 @@ export function connectionsRouter(
     if (body.kind === 'err') return badInput(c, body.message);
     const parsed = parseConnectBody(body.value);
     if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
-    const { app, appId, projectId, permissions } = parsed.value;
+    const { app, appId, projectId, permissions, label } = parsed.value;
     const owner = await connectOwner(c, by, parsed.value.for);
     if (owner instanceof Response) return owner;
     const outcome = await binding.createRequest({
@@ -334,6 +335,7 @@ export function connectionsRouter(
       ...(projectId !== undefined && { projectId }),
       owner,
       permissions,
+      ...(label !== undefined && { label }),
       by,
     });
     if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
@@ -397,6 +399,29 @@ export function connectionsRouter(
       return connectionNotFound(c, connectionId);
     }
     return c.json(serializeConnection(connection));
+  });
+
+  /** A rename: whoever may disconnect it may rename it, and others get the same 404. */
+  r.patch('/:connectionId', connectionIdChecked, async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const connectionId = c.req.param('connectionId');
+    const by = principalRef(c);
+    if (by === undefined) return noPrincipal(c, authorizer);
+    const body = await readJsonObject(c);
+    if (body.kind === 'err') return badInput(c, body.message);
+    const parsed = parseRenameBody(body.value);
+    if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
+    const connection = await binding.get({ tenantId, connectionId });
+    if (
+      connection === null ||
+      connection.state === 'removed' ||
+      !(await mayReach(c, connection.owner))
+    ) {
+      return connectionNotFound(c, connectionId);
+    }
+    const outcome = await binding.update({ tenantId, connectionId, label: parsed.value, by });
+    if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
+    return c.json(serializeConnection(outcome.value));
   });
 
   r.delete('/:connectionId', connectionIdChecked, async (c) => {
@@ -704,6 +729,7 @@ interface ConnectBody {
   readonly projectId?: ProjectId;
   readonly permissions: readonly string[];
   readonly for: 'me' | 'company';
+  readonly label?: string;
 }
 
 const CONNECT_FIELDS: ReadonlySet<string> = new Set([
@@ -712,6 +738,7 @@ const CONNECT_FIELDS: ReadonlySet<string> = new Set([
   'projectId',
   'permissions',
   'for',
+  'label',
 ]);
 
 function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
@@ -731,9 +758,8 @@ function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
   }
   const permissions = parsePermissions(body.permissions);
   if (permissions.kind === 'err') return permissions;
-  if (body.for !== undefined && body.for !== 'me' && body.for !== 'company') {
-    return bad("`for` must be `'me'` or `'company'`", 'for');
-  }
+  const made = parseConnectionMade(body);
+  if (made.kind === 'err') return made;
   return {
     kind: 'ok',
     value: {
@@ -741,9 +767,51 @@ function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
       ...(typeof body.appId === 'string' && { appId: body.appId }),
       ...(typeof body.projectId === 'string' && { projectId: body.projectId as ProjectId }),
       permissions: permissions.value,
-      for: body.for ?? 'me',
+      ...made.value,
     },
   };
+}
+
+/** Whose connection a connect makes, and its name. */
+function parseConnectionMade(
+  body: Record<string, unknown>,
+): Parsed<Pick<ConnectBody, 'for' | 'label'>> {
+  if (body.for !== undefined && body.for !== 'me' && body.for !== 'company') {
+    return bad("`for` must be `'me'` or `'company'`", 'for');
+  }
+  const label = body.label === undefined ? undefined : parseConnectionLabel(body.label);
+  if (label?.kind === 'err') return label;
+  return {
+    kind: 'ok',
+    value: { for: body.for ?? 'me', ...(label !== undefined && { label: label.value }) },
+  };
+}
+
+const RENAME_FIELDS: ReadonlySet<string> = new Set(['label']);
+
+/** A rename's body: its `label`, required. */
+function parseRenameBody(body: Record<string, unknown>): Parsed<string> {
+  const unknown = unknownField(body, RENAME_FIELDS, '');
+  if (unknown !== undefined) return unknown;
+  return parseConnectionLabel(body.label);
+}
+
+const CONTROL_RE = /\p{Cc}/u;
+
+/** A connection's name: trimmed, 1 to 100 characters, none of them control characters. */
+function parseConnectionLabel(raw: unknown): Parsed<string> {
+  const label = typeof raw === 'string' ? raw.trim() : '';
+  if (
+    label.length === 0 ||
+    [...label].length > MAX_CONNECTION_LABEL_LENGTH ||
+    CONTROL_RE.test(label)
+  ) {
+    return bad(
+      `\`label\` must be 1 to ${MAX_CONNECTION_LABEL_LENGTH} characters, with no control characters`,
+      'label',
+    );
+  }
+  return { kind: 'ok', value: label };
 }
 
 function parsePermissions(raw: unknown): Parsed<readonly string[]> {
@@ -1070,6 +1138,7 @@ function serializeConnection(connection: ConnectionRecord): Record<string, unkno
     app: connection.app,
     owner: serializeOwner(connection.owner),
     account: { id: connection.account.id, label: connection.account.label },
+    ...(connection.label !== undefined && { label: connection.label }),
     permissions: [...connection.permissions],
     state: connection.state,
     ...(connection.stateReason !== undefined && { stateReason: connection.stateReason }),
@@ -1099,6 +1168,7 @@ function serializeRequest(request: ConnectRequestRecord): Record<string, unknown
     permissions: [...request.permissions],
     says: [...request.says],
     ...(request.reconnects !== undefined && { reconnects: request.reconnects }),
+    ...(request.label !== undefined && { label: request.label }),
     ...(request.runId !== undefined && { runId: request.runId }),
     ...(request.name !== undefined && { name: request.name }),
     ...(request.startedBy !== undefined && { startedBy: request.startedBy }),

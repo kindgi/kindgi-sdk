@@ -19,8 +19,18 @@ Each person or company has one live connection per registration and
 environment. A person's connection serves every project the registration
 allows.
 
-Only a connection's owner and your workspace's admins can see it or remove
-it. Registering an app is for workspace admins only.
+Each connection has a name, its `label`, that people know it by. It's the
+name given at the connect, or else the account's, such as an email
+address. Its owner or a workspace admin can change it
+(`PATCH /v1/connections/{connectionId}`). One owner's live connections to
+an app in an environment each have their own name, whatever the case. A
+new connection whose name was taken in the meantime gets the first free
+number after it, such as `ana@acme.com 2`. A reconnect keeps the name. A
+connection made before connections had names has none, and shows its
+account.
+
+Only a connection's owner and your workspace's admins can see, rename or
+remove it. Registering an app is for workspace admins only.
 
 ## Where the token is kept
 

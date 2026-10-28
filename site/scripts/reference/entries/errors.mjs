@@ -3782,6 +3782,16 @@ export const ERROR_ENTRIES = {
       "A reconnect signed in to an account other than the connection's. Sign in with the same account; to connect another account instead, disconnect, then connect again.",
     details: [],
   },
+  'connection-label-taken': {
+    description:
+      'A connect, or a rename, gives a `label` another live connection of the same app, owner and environment already has, ignoring case. Pick another name, or rename the other connection first.',
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field at fault (`label`)',
+      },
+    ],
+  },
   'connection-removing': {
     description:
       "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",

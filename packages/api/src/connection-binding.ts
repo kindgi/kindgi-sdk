@@ -105,6 +105,12 @@ export interface ConnectionRecord {
   readonly app: string;
   readonly owner: ConnectionOwner;
   readonly account: ConnectionAccount;
+  /**
+   * The name people know it by: the one asked for at the connect, else the
+   * account's label. Absent on a connection made before connections had
+   * names; show `account.label` then.
+   */
+  readonly label?: string;
   /** The entry's permission keys the app granted. */
   readonly permissions: readonly string[];
   readonly state: ConnectionState;
@@ -165,6 +171,8 @@ export interface ConnectRequestRecord {
   readonly says: readonly string[];
   /** The connection it connects again; the same account is required. */
   readonly reconnects?: string;
+  /** The name asked for the connection it makes. A reconnect keeps the connection's. */
+  readonly label?: string;
   readonly runId?: string;
   /** The run's waitpoint token, when a run waits for it. */
   readonly waitToken?: string;
@@ -211,6 +219,7 @@ export type ConnectionErrorCode =
   | 'connection-request-used'
   | 'connection-state-expired'
   | 'connection-account-mismatch'
+  | 'connection-label-taken'
   | 'connection-removing'
   | 'connection-app-refused'
   | 'connection-notice-invalid'
@@ -278,6 +287,8 @@ export interface ConnectRequestCreateInput {
   readonly projectId?: ProjectId;
   readonly owner: ConnectionOwner;
   readonly permissions: readonly string[];
+  /** The name for the connection it makes: trimmed, 1 to 100 characters. */
+  readonly label?: string;
   readonly by: PrincipalRef;
 }
 
@@ -365,8 +376,25 @@ export interface ConnectionBinding {
     readonly connectionId: string;
     readonly by: PrincipalRef;
   }): Promise<Result<ConnectionRecord, ConnectionError>>;
+  /**
+   * Renames it. A label another live connection of the same app, owner and
+   * env has, ignoring case, is `connection-label-taken`; a removed
+   * connection is `connection-not-found`.
+   */
+  update(input: {
+    readonly tenantId: TenantId;
+    readonly connectionId: string;
+    /** Trimmed, 1 to 100 characters. */
+    readonly label: string;
+    readonly by: PrincipalRef;
+  }): Promise<Result<ConnectionRecord, ConnectionError>>;
 
-  /** A connect from outside a run (a Connect button, the CLI). A run's connects are the resolver's. */
+  /**
+   * A connect from outside a run (a Connect button, the CLI). A run's
+   * connects are the resolver's. A `label` another live connection of the
+   * same app, owner and env has, ignoring case, is
+   * `connection-label-taken`.
+   */
   createRequest(
     input: ConnectRequestCreateInput,
   ): Promise<Result<ConnectRequestRecord, ConnectionError>>;
@@ -410,6 +438,12 @@ export interface ConnectionBinding {
    * after it was made, finishes as a reconnect of that connection: the
    * same account is required (`connection-account-mismatch`), and the
    * permissions are both sets.
+   *
+   * A new connection's `label` is the request's, else the account's label
+   * cut to 100 characters. When another live connection of the same app,
+   * owner and env has it by then, ignoring case, it's the first free
+   * `<label> 2`, `<label> 3`, and so on: the grant isn't wasted. A
+   * reconnect keeps the connection's label and ignores the request's.
    *
    * A GitHub App's attaches an installation only if the person's GitHub
    * account reaches it: the one GitHub sent back, the one they picked, or
