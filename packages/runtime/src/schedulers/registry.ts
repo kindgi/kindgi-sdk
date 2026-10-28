@@ -688,9 +688,10 @@ export interface TriggerLifecycleInput {
  * changed the definition), `owner` (a take-ownership to another owner),
  * `first-fire` (a trigger registered before versions, at its first fire or
  * poll: its definition as it was), `unversioned-edit` (at a fire or poll,
- * a definition its newest version doesn't hold, as when a release from
- * before versions changed it during an upgrade: the definition as it is),
- * or `pin` (the runtime pinned a company mailbox to its only connection).
+ * or just before an edit or take-ownership, a definition its newest version
+ * doesn't hold, as when a release from before versions changed it during
+ * an upgrade: the definition as it is), or `pin` (the runtime pinned a
+ * company mailbox to its only connection).
  */
 export const TRIGGER_VERSION_CAUSES = [
   'register',

@@ -463,9 +463,9 @@ Whoever can read the trigger can read its versions. Each one says when it
 was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
 `register`, `edit` or `owner` for a take-over to another owner). Three
 causes name no one, since the runtime made the version itself: `first-fire`,
-for a trigger from before versions; `unversioned-edit`, at a look at the
-mailbox after a release from before versions changed the trigger during an
-upgrade; and `pin`, when it fixed a trigger on the company's mailbox to the
+for a trigger from before versions; `unversioned-edit`, at its next look
+at the mailbox or just before an edit or take-over, after a release from
+before versions changed the trigger during an upgrade; and `pin`, when it fixed a trigger on the company's mailbox to the
 one connection it could read. Its `definition` is
 what it ran, as whom, which mailbox and folder it read, at what pace, its
 label and its tools allowed unattended: never its status or where it is in
