@@ -278,23 +278,92 @@ describe('kindgi auth login saves a stored key only for its own address', () => 
     printsNoKey(out);
   });
 
+  test('again at its own address, with no key given: saved as it was', async () => {
+    await signedIn();
+    const out = await cli(['auth', 'login']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(await readFile(homeFile(), 'utf8'))).toEqual({
+      apiUrl: SIGNED_IN,
+      token: HOME_KEY,
+    });
+  });
+});
+
+describe("kindgi auth login keeps another address's login unless --force", () => {
+  const kept = (other: string, whose: string) =>
+    `${homeFile()} holds ${whose}. kindgi auth login would replace it with ${other}'s, and its API key would be lost.\nTo keep both, give ${other} its own place: a .kindgirc.json with its apiUrl and token in the folder you use it from, or KINDGI_API_URL and KINDGI_API_TOKEN.\nTo replace it, run again with --force.\n`;
+
   test.each([
     ['--token', [`--token=${GIVEN_KEY}`], {}],
     ['KINDGI_API_TOKEN', [], { KINDGI_API_TOKEN: GIVEN_KEY }],
-  ])('another address, with its key given by %s: saved for it', async (_, flags, env) => {
+  ])(
+    'another address, with its key given by %s: refused (exit 2), naming the login kept and the ways out; the file as it was',
+    async (_, flags, env) => {
+      await signedIn();
+      const before = await readFile(homeFile(), 'utf8');
+      const out = await cli(['auth', 'login', `--url=${OTHER}`, ...flags], env);
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toBe(kept(OTHER, `the login for ${SIGNED_IN}`));
+      expect(await readFile(homeFile(), 'utf8')).toBe(before);
+      printsNoKey(out);
+    },
+  );
+
+  test('with --force: saved for it, saying what it replaced', async () => {
     await signedIn();
-    const out = await cli(['auth', 'login', `--url=${OTHER}`, ...flags], env);
+    const out = await cli(['auth', 'login', `--url=${OTHER}`, `--token=${GIVEN_KEY}`, '--force']);
     expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({
+      ok: true,
+      wrote: homeFile(),
+      apiUrl: OTHER,
+      replaced: { apiUrl: SIGNED_IN },
+    });
+    expect(out.stderr).toBe(
+      `⚠ Replaced the login for ${SIGNED_IN} in ${homeFile()}: its API key is no longer stored.\n`,
+    );
+    expect(JSON.parse(await readFile(homeFile(), 'utf8'))).toEqual({
+      apiUrl: OTHER,
+      token: GIVEN_KEY,
+    });
+    printsNoKey(out);
+  });
+
+  test('a new key for its own address: saved, as before, with nothing to force', async () => {
+    await signedIn();
+    const out = await cli(['auth', 'login', `--token=${GIVEN_KEY}`]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toBe('');
+    expect(JSON.parse(await readFile(homeFile(), 'utf8'))).toEqual({
+      apiUrl: SIGNED_IN,
+      token: GIVEN_KEY,
+    });
+  });
+
+  test('a key with no address stored with it, and another key: refused; with --force, replaced', async () => {
+    await signedIn({ token: HOME_KEY });
+    const flags = [`--url=${OTHER}`, `--token=${GIVEN_KEY}`];
+    const refused = await cli(['auth', 'login', ...flags]);
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toBe(kept(OTHER, 'an API key with no address stored with it'));
+
+    const forced = await cli(['auth', 'login', ...flags, '--force']);
+    expect(forced.exitCode, forced.stderr).toBe(0);
+    expect(JSON.parse(forced.stdout)).toMatchObject({ replaced: { apiUrl: null } });
     expect(JSON.parse(await readFile(homeFile(), 'utf8'))).toEqual({
       apiUrl: OTHER,
       token: GIVEN_KEY,
     });
   });
 
-  test('again at its own address, with no key given: saved as it was', async () => {
+  test("the way out it names: a folder's .kindgirc.json, with the home login kept", async () => {
     await signedIn();
-    const out = await cli(['auth', 'login']);
+    await inFolder({ apiUrl: OTHER, token: GIVEN_KEY });
+    const out = await cli(['auth', 'whoami']);
     expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.sent).toEqual([
+      { url: `${OTHER}/v1/identity/whoami`, authorization: `Bearer ${GIVEN_KEY}` },
+    ]);
     expect(JSON.parse(await readFile(homeFile(), 'utf8'))).toEqual({
       apiUrl: SIGNED_IN,
       token: HOME_KEY,

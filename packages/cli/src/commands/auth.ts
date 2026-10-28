@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { sameAddress } from '../api-address.js';
-import { type ResolvedConfig, saveHomeConfig } from '../config.js';
+import { type ResolvedConfig, readHomeLogin, saveHomeConfig } from '../config.js';
 import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import {
@@ -46,9 +46,16 @@ import type { Command, CommandResult, LeafCommand } from './types.js';
 const login: LeafCommand = {
   kind: 'leaf',
   name: 'login',
-  description: 'Persist an API URL + token to ~/.kindgi/config.json.',
-  usage: 'kindgi auth login [--url=<url>] [--token=<token>]',
-  optionSpec: {},
+  description:
+    "Persist an API URL + token to ~/.kindgi/config.json. Another address's login there is kept unless --force.",
+  usage: 'kindgi auth login [--url=<url>] [--token=<token>] [--force]',
+  optionSpec: {
+    force: {
+      type: 'boolean',
+      description:
+        'Replace the login ~/.kindgi/config.json holds for another address: its API key is no longer stored. By default login refuses.',
+    },
+  },
   run: async (ctx): Promise<CommandResult> => {
     const url = ctx.globals.url ?? ctx.config.apiUrl;
     const token = ctx.globals.token ?? ctx.config.token;
@@ -74,13 +81,59 @@ const login: LeafCommand = {
         exitCode: 2,
       };
     }
+    const lost = await loginLost(ctx.home, url, token);
+    if (lost !== undefined && ctx.options.force !== true) {
+      return {
+        kind: 'error',
+        stderr: `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, give ${url} its own place: a .kindgirc.json with its apiUrl and token in the folder you use it from, or KINDGI_API_URL and KINDGI_API_TOKEN.\nTo replace it, run again with --force.\n`,
+        exitCode: 2,
+      };
+    }
     const path = await saveHomeConfig({ apiUrl: url, token }, ctx.home);
+    const rendered = renderJson(
+      {
+        ok: true,
+        wrote: path,
+        apiUrl: url,
+        ...(lost !== undefined && { replaced: { apiUrl: lost.apiUrl ?? null } }),
+      },
+      ctx.globals.format,
+    );
+    if (lost === undefined) return { kind: 'ok', rendered };
+    // A key no longer stored is a warning: said under --quiet too.
+    const replaced = warning(
+      `⚠ Replaced ${whoseLogin(lost)} in ${path}: its API key is no longer stored.`,
+    );
     return {
       kind: 'ok',
-      rendered: renderJson({ ok: true, wrote: path, apiUrl: url }, ctx.globals.format),
+      rendered: { ...rendered, stderr: renderLines([replaced], ctx.globals.format === 'quiet') },
     };
   },
 };
+
+/**
+ * The login `~/.kindgi/config.json` holds that saving `url`'s would lose:
+ * a key for another address, or one with no address stored with it.
+ * `undefined` when there's none, when it's for `url` (a new key for the
+ * same address replaces it, as before), or when its key is the one being
+ * saved (the same server under another name loses nothing).
+ */
+async function loginLost(
+  home: string | undefined,
+  url: string,
+  token: string,
+): Promise<{ readonly path: string; readonly apiUrl?: string } | undefined> {
+  const stored = await readHomeLogin(home);
+  if (stored.token === undefined || stored.token === token) return undefined;
+  if (stored.apiUrl !== undefined && sameAddress(stored.apiUrl, url)) return undefined;
+  return { path: stored.path, ...(stored.apiUrl !== undefined && { apiUrl: stored.apiUrl }) };
+}
+
+function whoseLogin(lost: { readonly apiUrl?: string }): string {
+  return lost.apiUrl === undefined
+    ? 'an API key with no address stored with it'
+    : `the login for ${lost.apiUrl}`;
+}
 
 /**
  * A key login wasn't given (`--token`, KINDGI_API_TOKEN) is a stored one,
