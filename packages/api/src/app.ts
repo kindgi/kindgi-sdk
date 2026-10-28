@@ -166,6 +166,7 @@ import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
 import { policiesRouter } from './routes/policies.js';
 import { projectAccessRouter } from './routes/project-access.js';
+import { projectPinnedVersionsRouter } from './routes/project-pinned-versions.js';
 import {
   type ProductionGateOptions,
   projectProductionRouter,
@@ -968,8 +969,9 @@ export interface CreateAppInput {
   /**
    * Optional. Live versions of agents per scope, and their promotions
    * (`/v1/agents/{id}/live`, `/live-versions`, `/promotions`,
-   * `/live/rollback`, `/live/unpin`). Absent → a run takes the latest
-   * version, as before.
+   * `/live/rollback`, `/live/unpin`), and with `projectBinding`, a
+   * project's pinned versions (`/v1/projects/{id}/pinned-versions`).
+   * Absent → a run takes the latest version, as before.
    */
   readonly agentReleases?: AgentReleaseBindings;
   /**
@@ -1750,6 +1752,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   if (input.agentReleases?.gatePolicies !== undefined) {
     v1.route('/gate-policies', gatePoliciesRouter(input.agentReleases.gatePolicies, authorizer));
+  }
+  // A project's pinned versions need its project (the 404, and the org the
+  // binding reads), so the route mounts only with the project binding too.
+  if (input.agentReleases !== undefined && input.projectBinding !== undefined) {
+    v1.route(
+      '/projects',
+      projectPinnedVersionsRouter({
+        live: input.agentReleases.live,
+        projects: input.projectBinding,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(itemRights !== undefined && { itemRights }),
+      }),
+    );
   }
   if (input.flowRegistry !== undefined) {
     v1.route(

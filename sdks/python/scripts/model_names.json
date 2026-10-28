@@ -541,6 +541,7 @@
   "ProjectMembership": ["ProjectMembership"],
   "ProjectMembershipCollectionPage": ["ProjectMembershipCollectionPage"],
   "ProjectPatch": ["ProjectPatch"],
+  "ProjectPinnedVersionPage": ["ProjectPinnedVersionPage"],
   "ProjectProduction": ["ProjectProduction"],
   "ProjectProductionBody": ["ProjectProductionBody"],
   "ProjectSpec": ["ProjectSpec"],

@@ -12956,6 +12956,16 @@ class LivePinList(BaseModel):
     data: list[LivePin]
 
 
+class ProjectPinnedVersionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[LivePin]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
 class Promotion(BaseModel):
     """
     One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.

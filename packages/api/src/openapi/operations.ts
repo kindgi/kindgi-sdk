@@ -9225,6 +9225,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/pinned-versions',
+    openapiPath: '/v1/projects/{projectId}/pinned-versions',
+    operationId: 'projects.pinnedVersions.list',
+    summary: 'List the pinned versions that cover a project',
+    description:
+      "Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of pinned versions.',
+        schema: ref('ProjectPinnedVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('A malformed project id or cursor.'),
+      '404': ErrorResponse('No project with that id under this tenant.'),
+      '501': ErrorResponse(
+        "The runtime can't list a project's pinned versions (`pinned-versions-not-supported`).",
+      ),
+    },
+  },
+  {
     method: 'put',
     honoPath: '/v1/projects/:projectId/production',
     openapiPath: '/v1/projects/{projectId}/production',

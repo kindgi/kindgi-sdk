@@ -940,6 +940,13 @@ OPERATIONS: dict[str, Operation] = {
     "projects.access.list": Operation(
         "projects.access.list", "GET", "/v1/projects/{projectId}/access", "json", False
     ),
+    "projects.pinnedVersions.list": Operation(
+        "projects.pinnedVersions.list",
+        "GET",
+        "/v1/projects/{projectId}/pinned-versions",
+        "json",
+        False,
+    ),
     "projects.production.set": Operation(
         "projects.production.set", "PUT", "/v1/projects/{projectId}/production", "json", True
     ),
@@ -8401,6 +8408,35 @@ class ProjectsAccessResource:
         )
 
 
+class ProjectsPinnedVersionsResource:
+    """`client.projects.pinned_versions` — the `projects.pinnedVersions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectPinnedVersionPage:
+        """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
+
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.pinnedVersions.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectPinnedVersionPage,
+            timeout=timeout,
+        )
+
+
 class ProjectsProductionResource:
     """`client.projects.production` — the `projects.production` operations."""
 
@@ -8762,6 +8798,7 @@ class ProjectsResource:
         self.judging_queue = ProjectsJudgingQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
         self.access = ProjectsAccessResource(client)
+        self.pinned_versions = ProjectsPinnedVersionsResource(client)
         self.production = ProjectsProductionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
         self.sites = ProjectsSitesResource(client)
@@ -17756,6 +17793,35 @@ class AsyncProjectsAccessResource:
         )
 
 
+class AsyncProjectsPinnedVersionsResource:
+    """`client.projects.pinned_versions` — the `projects.pinnedVersions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectPinnedVersionPage:
+        """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
+
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.pinnedVersions.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectPinnedVersionPage,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsProductionResource:
     """`client.projects.production` — the `projects.production` operations."""
 
@@ -18117,6 +18183,7 @@ class AsyncProjectsResource:
         self.judging_queue = AsyncProjectsJudgingQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
         self.access = AsyncProjectsAccessResource(client)
+        self.pinned_versions = AsyncProjectsPinnedVersionsResource(client)
         self.production = AsyncProjectsProductionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
         self.sites = AsyncProjectsSitesResource(client)

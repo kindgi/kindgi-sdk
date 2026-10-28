@@ -319,6 +319,17 @@ export const LivePinListSchema: JsonSchema = {
   properties: { data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } } },
 };
 
+export const ProjectPinnedVersionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
 export const PromotionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -15403,6 +15414,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LiveVersionResolution', LiveVersionResolutionSchema],
   ['LivePin', LivePinSchema],
   ['LivePinList', LivePinListSchema],
+  ['ProjectPinnedVersionPage', ProjectPinnedVersionPageSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
   ['GateCheck', GateCheckSchema],
