@@ -39,6 +39,7 @@ import { refused } from './denied.js';
 import { WEBHOOK_REFUSALS_PER_CLIENT_PER_MINUTE } from './hooks.js';
 import { clampLimit } from './pagination.js';
 import { parseSecretRef } from './secret-ref.js';
+import { hasHiddenCharacters } from './sites.js';
 import { tenantAdminAccess } from './tenant-access.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
@@ -796,19 +797,16 @@ function parseRenameBody(body: Record<string, unknown>): Parsed<string> {
   return parseConnectionLabel(body.label);
 }
 
-/** A control or format character: a bidi override or a zero-width one among them. */
-const CONTROL_OR_FORMAT_RE = /[\p{Cc}\p{Cf}]/u;
-
-/** A connection's name: trimmed, 1 to 100 characters, none of them control or format characters. */
+/** A connection's name: trimmed, 1 to 100 characters, none of them hidden (`hasHiddenCharacters`). */
 function parseConnectionLabel(raw: unknown): Parsed<string> {
   const label = typeof raw === 'string' ? raw.trim() : '';
   if (
     label.length === 0 ||
     [...label].length > MAX_CONNECTION_LABEL_LENGTH ||
-    CONTROL_OR_FORMAT_RE.test(label)
+    hasHiddenCharacters(label)
   ) {
     return bad(
-      `\`label\` must be 1 to ${MAX_CONNECTION_LABEL_LENGTH} characters, with no control or format characters`,
+      `\`label\` must be 1 to ${MAX_CONNECTION_LABEL_LENGTH} characters, with no control, format or invisible characters`,
       'label',
     );
   }

@@ -1198,18 +1198,19 @@ describe('names', () => {
     expect(got?.label).toBe('Work mail');
   });
 
-  test("an account's label names a connection without its control and format characters", async () => {
+  test("an account's label names a connection without its hidden characters", async () => {
     const made = registrations();
     const [a, b] = made.appIds as [string, string];
-    const marked = await connect(made.binding, {
-      appId: a,
-      code: '\u200B ana\u202E@acme.example\u0007 ',
-    });
+    const code = '\u200B ana\u202E@\uD800acme\u2028.\u034Fexample\u0007\u3164 ';
+    const marked = await connect(made.binding, { appId: a, code });
     expect(marked.connection).toMatchObject({
       label: 'ana@acme.example',
-      account: { label: '\u200B ana\u202E@acme.example\u0007 ' },
+      account: { label: code },
     });
-    const bare = await connect(made.binding, { appId: b, code: '\u202E\u200B\u0007' });
+    const bare = await connect(made.binding, {
+      appId: b,
+      code: '\u202E\u200B\u0007\uD800\u2029\u3164\uFE0F',
+    });
     expect(bare.connection).not.toHaveProperty('label');
   });
 

@@ -680,6 +680,26 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
       'label',
     ],
     [
+      'a label with a lone surrogate',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\uD800mail' },
+      'label',
+    ],
+    [
+      'a label with a line separator',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u2028mail' },
+      'label',
+    ],
+    [
+      'a label with a Hangul filler',
+      { app: 'google', permissions: ['gmail.send'], label: '\u3164' },
+      'label',
+    ],
+    [
+      'a label with a combining grapheme joiner',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u034Fmail' },
+      'label',
+    ],
+    [
       'a label that is not a string',
       { app: 'google', permissions: ['gmail.send'], label: 7 },
       'label',
@@ -1141,6 +1161,10 @@ describe('the connections themselves', () => {
     ['a label with a control character', { label: 'Work\u0007mail' }, 'label'],
     ['a label with a bidi override', { label: 'Work\u202Elim' }, 'label'],
     ['a label with a zero-width space', { label: 'Work\u200Bmail' }, 'label'],
+    ['a label with a lone surrogate', { label: 'Work\uD800mail' }, 'label'],
+    ['a label with a line separator', { label: 'Work\u2029mail' }, 'label'],
+    ['a label with a Hangul filler', { label: '\u3164' }, 'label'],
+    ['a label with a combining grapheme joiner', { label: 'Work\u034Fmail' }, 'label'],
     ['a null label', { label: null }, 'label'],
     ['an unknown field', { label: 'Work', account: 'x' }, 'account'],
   ])('a rename refuses %s before the binding, naming the field', async (_what, body, field) => {

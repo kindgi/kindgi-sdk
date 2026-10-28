@@ -289,7 +289,7 @@ export interface ConnectRequestCreateInput {
   readonly permissions: readonly string[];
   /**
    * The name for the connection it makes: trimmed, 1 to 100 characters,
-   * with no control or format characters.
+   * with no hidden characters (`hasHiddenCharacters`).
    */
   readonly label?: string;
   readonly by: PrincipalRef;
@@ -444,7 +444,7 @@ export interface ConnectionBinding {
    * permissions are both sets.
    *
    * A new connection's `label` is the request's, else the account's label
-   * with its control and format characters removed, trimmed and cut to 100
+   * with its hidden characters (`hasHiddenCharacters`) removed, trimmed and cut to 100
    * characters. When another live connection of the same app,
    * owner and env has it by then, ignoring case, it's the first free
    * `<label> 2`, `<label> 3`, and so on: the grant isn't wasted. A

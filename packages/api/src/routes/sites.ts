@@ -500,14 +500,17 @@ export function siteOrigin(raw: unknown): string | undefined {
 /**
  * Characters that can disguise a name: controls (C0 and C1), format
  * characters (bidirectional marks, overrides and isolates, zero-width
- * characters, the byte-order mark) and the line and paragraph separators.
- * A site's display name, set by a tenant admin, is refused when it has one.
- * A person's `name`, which a site sends, is cleaned instead
+ * characters, the byte-order mark), lone surrogates, the line and
+ * paragraph separators, and the others that render as nothing (Unicode's
+ * default-ignorable ones, such as the Hangul fillers, the combining
+ * grapheme joiner and the variation selectors). A site's display name, a
+ * console link's label and a connection's name are refused when they have
+ * one. A person's `name`, which a site sends, is cleaned instead
  * (`withoutHiddenCharacters`): refusing it would keep out a person whose
  * name needs a joiner.
  */
 export function hasHiddenCharacters(text: string): boolean {
-  return /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text);
+  return /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(text);
 }
 
 /**

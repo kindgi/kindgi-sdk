@@ -303,7 +303,8 @@ describe("sign-in options: the deployment's terms and privacy policy", () => {
 describe("sign-in options: the deployment's own links, for the console", () => {
   const HELP = { label: 'Help', url: 'https://help.acme.example/' };
   const STATUS = { label: 'Status', url: 'https://status.acme.example/now' };
-  const labelRule = 'label must be 1 to 40 characters, with no control or format character.';
+  const labelRule =
+    'label must be 1 to 40 characters, with no control, format or invisible character.';
 
   test.each([
     ['unset', undefined],
@@ -358,6 +359,7 @@ describe("sign-in options: the deployment's own links, for the console", () => {
     ['a bidirectional override', '\u202eKCOL'],
     ['a zero-width space', 'He\u200blp'],
     ['a line separator', 'Help\u2028desk'],
+    ['a variation selector', 'Help\ufe0f'],
   ])('createApp refuses a label that is %s', (_, label) => {
     expect(() => makeApp({ links: [HELP, { label, url: STATUS.url }] })).toThrow(
       new Error(`createApp: consoleLinks[1].${labelRule}`),
