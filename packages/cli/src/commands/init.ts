@@ -983,5 +983,5 @@ async function copySkills(inputs: {
   });
   return report.outcomes
     .filter((o) => o.status === 'added' || o.status === 'updated')
-    .flatMap((o) => skillCopyPaths(inputs.targetDir, o));
+    .flatMap((o) => skillCopyPaths(inputs.targetDir, o, 'written'));
 }

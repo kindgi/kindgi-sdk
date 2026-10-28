@@ -131,14 +131,28 @@ export interface SkillSyncOutcome {
   readonly sdkVersion?: string;
   /** The bundled skill's files, `SKILL.md` first; none for a local-only skill. */
   readonly files?: readonly string[];
+  /**
+   * The files this sync wrote into the copy (on a dry run, would write):
+   * each one that was missing or differed from the bundle's. Only for
+   * `added` and `updated`.
+   */
+  readonly written?: readonly string[];
   /** Files an earlier sync wrote that the bundle no longer ships, removed from the copy. */
   readonly removed?: readonly string[];
   readonly reason?: string;
 }
 
-/** Where `outcome`'s copy keeps the bundled skill's files, in the pack at `targetDir`. */
-export function skillCopyPaths(targetDir: string, outcome: SkillSyncOutcome): string[] {
-  return (outcome.files ?? []).map((file) => join(targetDir, outcome.folder, outcome.name, file));
+/**
+ * Where `outcome`'s copy keeps its files, in the pack at `targetDir`: every
+ * file of the bundled skill (`files`), or the ones this sync wrote
+ * (`written`).
+ */
+export function skillCopyPaths(
+  targetDir: string,
+  outcome: SkillSyncOutcome,
+  which: 'files' | 'written',
+): string[] {
+  return (outcome[which] ?? []).map((file) => join(targetDir, outcome.folder, outcome.name, file));
 }
 
 export interface SkillSyncReport {
@@ -606,6 +620,7 @@ async function syncCopy(inputs: {
       status: added ? 'added' : 'updated',
       ...to,
       ...from,
+      written: stale.map(([file]) => file),
       ...(dropped.length > 0 && { removed: dropped }),
       ...(force && userModified && { reason: 'Overwrote local edits (--force)' }),
     },

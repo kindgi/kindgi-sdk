@@ -3,11 +3,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A pull request that changes a skill bumps its `version`: a skill is its
+ * A pull request that changes a skill raises its `version`: a skill is its
  * folder, `packages/sdk/skills/<name>/`, its `SKILL.md` and the files
  * beside it, and the version is in `SKILL.md`'s frontmatter. `kindgi skills
  * sync` and `kindgi dev` say which version each copy in a pack is at, so a
- * change under the same version reads as no change.
+ * change under the same version reads as no change, and one under a lower
+ * version as going back. Versions are `x.y.z`, compared by number.
  *
  * A skill the pull request adds or removes needs nothing. Moving the docs
  * links to a new release line (`scripts/sync-docs-line.mjs`, which a Version
@@ -53,6 +54,24 @@ export function skillVersion(text) {
 }
 
 /**
+ * @param {string | undefined} before
+ * @param {string | undefined} after
+ * @returns {boolean} whether `after` is a higher `x.y.z` than `before`; a
+ *   version that isn't `x.y.z` is never higher, and nothing is higher than it
+ */
+export function isHigher(before, after) {
+  const parse = (version) =>
+    /^(\d+)\.(\d+)\.(\d+)$/
+      .exec(version ?? '')
+      ?.slice(1)
+      .map(Number);
+  const [from, to] = [parse(before), parse(after)];
+  if (from === undefined || to === undefined) return false;
+  const at = to.findIndex((part, i) => part !== from[i]);
+  return at >= 0 && to[at] > from[at];
+}
+
+/**
  * @param {string} text a skill's file
  * @returns {string} the text with each docs link's release line taken out
  */
@@ -61,7 +80,7 @@ export function withoutDocsLine(text) {
 }
 
 /**
- * The skills `changed` touches that kept their version though a file of
+ * The skills `changed` touches whose version didn't go up though a file of
  * theirs changed, by name.
  *
  * @param {readonly string[]} changed the changed files
@@ -76,7 +95,7 @@ export function unbumped(changed, tree) {
     const base = tree.read('base', `${dir}${ENTRY}`);
     const head = tree.read('head', `${dir}${ENTRY}`);
     if (base === undefined || head === undefined) return false;
-    if (skillVersion(base) !== skillVersion(head)) return false;
+    if (isHigher(skillVersion(base), skillVersion(head))) return false;
     const files = new Set([...tree.list('base', dir), ...tree.list('head', dir)]);
     return [...files].some((path) => {
       const before = tree.read('base', path);
@@ -135,8 +154,11 @@ function main(args) {
     return 0;
   }
   for (const name of missing) {
+    const [from, to] = /** @type {const} */ (['base', 'head']).map(
+      (side) => skillVersion(tree.read(side, `${SKILLS}${name}/${ENTRY}`) ?? '') ?? 'none',
+    );
     console.error(
-      `${NAME}: ${SKILLS}${name}/ changed, but its version in ${ENTRY} didn't: bump it`,
+      `${NAME}: ${SKILLS}${name}/ changed, but its version in ${ENTRY} didn't go up (${from} to ${to}): raise it`,
     );
   }
   return 1;

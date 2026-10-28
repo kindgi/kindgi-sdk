@@ -9,7 +9,13 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { skillOf, skillVersion, unbumped, withoutDocsLine } from './check-skill-versions.mjs';
+import {
+  isHigher,
+  skillOf,
+  skillVersion,
+  unbumped,
+  withoutDocsLine,
+} from './check-skill-versions.mjs';
 
 /** A file's name, built so check-refs doesn't read it as a document reference. */
 const md = (name) => `${name}.md`;
@@ -45,6 +51,24 @@ describe('skillVersion', () => {
   });
 });
 
+describe('isHigher', () => {
+  test('compares x.y.z by number, part by part', () => {
+    assert.equal(isHigher('1.0.0', '1.0.1'), true);
+    assert.equal(isHigher('0.9.17', '0.10.0'), true);
+    assert.equal(isHigher('1.9.0', '1.10.0'), true);
+    assert.equal(isHigher('1.0.0', '1.0.0'), false);
+    assert.equal(isHigher('1.1.0', '1.0.9'), false);
+    assert.equal(isHigher('2.0.0', '1.99.99'), false);
+  });
+
+  test("a version that isn't x.y.z is never higher, and nothing is higher than it", () => {
+    assert.equal(isHigher(undefined, '1.0.0'), false);
+    assert.equal(isHigher('1.0.0', undefined), false);
+    assert.equal(isHigher('1.0', '1.1'), false);
+    assert.equal(isHigher('1.0.0', '1.0.1-beta.1'), false);
+  });
+});
+
 describe('withoutDocsLine', () => {
   test("takes a link's release line out, and nothing else", () => {
     assert.equal(
@@ -67,6 +91,15 @@ describe('unbumped', () => {
     const base = { [ENTRY]: entry('1.0.0'), [TOPIC]: '# a\n' };
     const head = { [ENTRY]: entry('1.1.0'), [TOPIC]: '# a, again\n' };
     assert.deepEqual(unbumped([ENTRY, TOPIC], tree(base, head)), []);
+  });
+
+  test('a lower version is no bump', () => {
+    const base = { [ENTRY]: entry('1.1.0'), [TOPIC]: '# a\n' };
+    const head = { [ENTRY]: entry('1.0.0'), [TOPIC]: '# a\n' };
+    assert.deepEqual(unbumped([ENTRY], tree(base, head)), ['kindgi-x']);
+    assert.deepEqual(unbumped([ENTRY, TOPIC], tree(base, { ...head, [TOPIC]: '# b\n' })), [
+      'kindgi-x',
+    ]);
   });
 
   test('a file added or removed is a change', () => {

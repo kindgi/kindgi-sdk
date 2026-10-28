@@ -289,7 +289,11 @@ describe("syncSkills — a skill's folder", () => {
     const entry = (await manifest()).skills.two;
     expect(Object.keys(entry.installedFiles)).toEqual(['SKILL.md', A, B]);
     expect(entry.installedFiles['SKILL.md']).toBe(entry.installedHash);
-    expect(skillCopyPaths(packDir, report.outcomes[0] as SkillSyncOutcome)).toEqual([
+    expect(report.outcomes.map((o) => o.written)).toEqual([
+      ['SKILL.md', A, B],
+      ['SKILL.md', A, B],
+    ]);
+    expect(skillCopyPaths(packDir, report.outcomes[0] as SkillSyncOutcome, 'files')).toEqual([
       local('.claude/skills', 'SKILL.md'),
       local('.claude/skills', A),
       local('.claude/skills', B),
@@ -300,13 +304,18 @@ describe("syncSkills — a skill's folder", () => {
     ]);
   });
 
-  test('a file the bundle changed is written; the rest are left as they are', async () => {
+  test('a file the bundle changed is written, and the only one named as written; the rest are left as they are', async () => {
     await sync();
     await topic(B, '# path b, again\n');
     await utimes(local('.claude/skills', A), 0, 0);
-    expect(statuses(await sync())).toEqual([
+    const report = await sync();
+    expect(statuses(report)).toEqual([
       ['.claude/skills', 'updated'],
       ['.agents/skills', 'updated'],
+    ]);
+    expect(report.outcomes.map((o) => o.written)).toEqual([[B], [B]]);
+    expect(skillCopyPaths(packDir, report.outcomes[0] as SkillSyncOutcome, 'written')).toEqual([
+      local('.claude/skills', B),
     ]);
     expect(await read('.claude/skills', B)).toBe('# path b, again\n');
     expect((await stat(local('.claude/skills', A))).mtimeMs).toBe(0);
@@ -334,10 +343,12 @@ describe("syncSkills — a skill's folder", () => {
   test("a file that's gone comes back, as a deleted skill does", async () => {
     await sync();
     await rm(local('.claude/skills', A));
-    expect(statuses(await sync())).toEqual([
+    const report = await sync();
+    expect(statuses(report)).toEqual([
       ['.claude/skills', 'updated'],
       ['.agents/skills', 'unchanged'],
     ]);
+    expect(report.outcomes.map((o) => o.written)).toEqual([[A], undefined]);
     expect(await read('.claude/skills', A)).toBe('# path a\n');
   });
 

@@ -159,9 +159,11 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
       dryRun: false,
     });
     for (const o of report.outcomes) {
-      const targets = skillCopyPaths(inputs.targetDir, o);
-      if (o.status === 'added' || o.status === 'updated') created.push(...targets);
-      else if (o.status !== 'local-only') skipped.push(...targets);
+      if (o.status === 'added' || o.status === 'updated') {
+        created.push(...skillCopyPaths(inputs.targetDir, o, 'written'));
+      } else if (o.status !== 'local-only') {
+        skipped.push(...skillCopyPaths(inputs.targetDir, o, 'files'));
+      }
     }
   }
   const gitignorePath = join(inputs.targetDir, '.gitignore');
