@@ -176,7 +176,7 @@ describe('fromGeminiResponse', () => {
     expect(r.message.toolCalls?.[1]).not.toHaveProperty('signature');
   });
 
-  test('an empty id, or one an earlier call of the reply has, is made anew; each goes back with its call and its result', () => {
+  test('a missing, null or empty id, or one an earlier call of the reply has, is made anew; each goes back with its call and its result', () => {
     const r = fromGeminiResponse(
       response({
         candidates: [
@@ -188,6 +188,7 @@ describe('fromGeminiResponse', () => {
                 { functionCall: { id: 'f1', name: 'acme.lookup', args: {} } },
                 { functionCall: { id: '', name: 'acme.lookup', args: {} } },
                 { functionCall: { name: 'acme.lookup', args: {} } },
+                { functionCall: { id: null as never, name: 'acme.lookup', args: {} } },
               ],
             },
             finishReason: 'STOP' as never,
@@ -198,7 +199,7 @@ describe('fromGeminiResponse', () => {
     const ids = r.message.toolCalls?.map((c) => c.id) ?? [];
     expect(ids[0]).toBe('f1');
     expect(ids.slice(1).every((id) => id.startsWith('gemini-call-'))).toBe(true);
-    expect(new Set(ids).size).toBe(4);
+    expect(new Set(ids).size).toBe(5);
     const [, model, results] =
       toGeminiRequest([
         { role: 'user', content: 'rank' },
