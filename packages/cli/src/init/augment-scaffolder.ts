@@ -16,8 +16,8 @@
  *   - `kindgi/tools/.gitkeep`
  *   - `kindgi/guardrails/.gitkeep`
  *   - `kindgi/flows/.gitkeep`
- *   - `.claude/skills/kindgi-<name>/SKILL.md` and
- *     `.agents/skills/kindgi-<name>/SKILL.md` for each shipped skill —
+ *   - `.claude/skills/kindgi-<name>/` and `.agents/skills/kindgi-<name>/`
+ *     for each shipped skill, its `SKILL.md` and the files beside it —
  *     merge-not-overwrite: skips files that already exist so user
  *     customizations survive
  *   - `package.json`: `@kindgi/sdk` (dependency) + `@kindgi/cli`
@@ -55,7 +55,7 @@ import { KINDGI_CONFIG_FILENAMES } from '@kindgi/handler-runtime';
 import semver from 'semver';
 
 import { PACK_ID_REGEX } from '../commands/init.js';
-import { syncSkills } from '../commands/skills.js';
+import { skillCopyPaths, syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
 import { type OutputFormat, renderJson } from '../output.js';
 import {
@@ -109,7 +109,7 @@ export interface RunInitAugmentInputs {
   readonly packIdOverride?: string;
   /**
    * Overwrite existing `kindgi.config.ts` + shipped skill files under
-   * `.claude/skills/kindgi-<name>/SKILL.md` and `.agents/skills/`. Non-force default:
+   * `.claude/skills/kindgi-<name>/` and `.agents/skills/`. Non-force default:
    * refuse when `kindgi.config.ts` exists; merge (skip) any
    * pre-existing skill files.
    */
@@ -733,9 +733,9 @@ async function writeAugmentFiles(args: WriteAugmentFilesInputs): Promise<WriteAu
       dryRun: false,
     });
     for (const o of report.outcomes) {
-      const target = join(args.targetDir, o.folder, o.name, 'SKILL.md');
-      if (o.status === 'added' || o.status === 'updated') created.push(target);
-      else if (o.status !== 'local-only') skipped.push(target);
+      const targets = skillCopyPaths(args.targetDir, o);
+      if (o.status === 'added' || o.status === 'updated') created.push(...targets);
+      else if (o.status !== 'local-only') skipped.push(...targets);
     }
   }
 

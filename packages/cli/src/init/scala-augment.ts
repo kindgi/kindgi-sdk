@@ -23,7 +23,7 @@ import { chmod, copyFile, readFile, readdir, stat, writeFile } from 'node:fs/pro
 import { join } from 'node:path';
 
 import { PACK_ID_REGEX } from '../commands/init.js';
-import { syncSkills } from '../commands/skills.js';
+import { skillCopyPaths, syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
 import { type OutputFormat, renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
@@ -260,9 +260,9 @@ async function writeSkills(
     dryRun: false,
   });
   for (const o of report.outcomes) {
-    const target = join(inputs.targetDir, o.folder, o.name, 'SKILL.md');
-    if (o.status === 'added' || o.status === 'updated') created.push(target);
-    else if (o.status !== 'local-only') skipped.push(target);
+    const targets = skillCopyPaths(inputs.targetDir, o);
+    if (o.status === 'added' || o.status === 'updated') created.push(...targets);
+    else if (o.status !== 'local-only') skipped.push(...targets);
   }
 }
 

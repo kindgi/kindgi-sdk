@@ -53,7 +53,7 @@ import {
 import { note, renderLines, warning } from '../progress-lines.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { CLI_VERSION } from '../version-info.js';
-import { syncSkills } from './skills.js';
+import { skillCopyPaths, syncSkills } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /**
@@ -956,8 +956,9 @@ export function defaultSdkSkillsRoot(): string | undefined {
 }
 
 /**
- * Copy every `<skill-name>/SKILL.md` written for packs in `language`
- * from `skillsRoot` into `<targetDir>/<folder>/<skill-name>/SKILL.md`, for each of
+ * Copy every skill written for packs in `language` from `skillsRoot`
+ * into `<targetDir>/<folder>/<skill-name>/`, its `SKILL.md` and the files
+ * beside it, for each of
  * `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex, Gemini CLI and
  * others). Coding agents load skills based on their frontmatter `description`
  * — no user action required after init.
@@ -982,5 +983,5 @@ async function copySkills(inputs: {
   });
   return report.outcomes
     .filter((o) => o.status === 'added' || o.status === 'updated')
-    .map((o) => join(inputs.targetDir, o.folder, o.name, 'SKILL.md'));
+    .flatMap((o) => skillCopyPaths(inputs.targetDir, o));
 }
