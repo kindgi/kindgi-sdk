@@ -72,7 +72,7 @@ import {
   sameToolList,
   toolsAllowedUnattendedProblem,
 } from './trigger-tools.js';
-import { versionFields, versionOne, versionsPage } from './trigger-versions.js';
+import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
 import { auditWrite } from './write-audit.js';
 
@@ -487,6 +487,7 @@ export function webhooksRouter(
         correlationId: requestId,
         log: c.get('log'),
         ...(resolved.projectAccount === true && { projectAccount: true }),
+        ...versionField(result.value),
       });
     }
     if (tools.kind === 'ok' && tools.value.length > 0) {
@@ -501,6 +502,7 @@ export function webhooksRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     c.status(201);
@@ -735,6 +737,7 @@ export function webhooksRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     const after = result.value as WebhookTriggerRecord;
@@ -754,6 +757,7 @@ export function webhooksRouter(
       ...(runs.includes('hmacSecretName') && {
         hmacSecretName: { before: found.value.hmacSecretName, after: after.hmacSecretName },
       }),
+      ...versionField(result.value),
     });
     return webhookJson(c, after);
   });
@@ -933,6 +937,7 @@ export function webhooksRouter(
         toolsAllowedUnattended: found.value.toolsAllowedUnattended,
       }),
       ...(resolved.projectAccount === true && { projectAccount: true }),
+      ...versionField(result.value),
     });
     tellTakenOver(c, ownerNotices, owned(found.value), 'webhook');
     return webhookJson(c, result.value as WebhookTriggerRecord);

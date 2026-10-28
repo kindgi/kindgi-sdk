@@ -122,8 +122,9 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 /**
  * The mailbox a mail trigger's run started from: the app, and whose
  * connection the trigger reads it with, the company's or the trigger
- * owner's. Recorded with the run and never changed; a child run takes its
- * parent's. In such a run a further read of that mailbox is steered by the
+ * owner's. The run keeps it through the trigger version it started under
+ * (`RunTriggerRef.version`), whatever later edits make; a child run takes
+ * its parent's. In such a run a further read of that mailbox is steered by the
  * mail, so a call with a connection of this app and kind waits for a
  * person's yes, read-only or not (`needsPersonsYesUnattended`).
  */
@@ -332,14 +333,16 @@ export interface RunFlowInput {
    * The tools, by id, a call of which doesn't wait for a person's yes
    * though no person started the run (`needsPersonsYesUnattended`): the
    * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
-   * started it, as it was when the run started. Recorded with the run and
-   * never changed; a child run takes its parent's. Absent: none.
+   * started it, as the trigger version it started under has it
+   * (`RunTriggerRef.version`). The run keeps that version whatever later
+   * edits make; a child run takes its parent's. Absent: none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
   /**
    * The mailbox the run's mail came from (`RunMailbox`), on a run a mail
-   * trigger started (`startedBy: 'mail'`). Recorded with the run and never
-   * changed; a child run takes its parent's. Absent on every other run.
+   * trigger started (`startedBy: 'mail'`), as the trigger version it
+   * started under has it, kept the same way as `toolsAllowedUnattended`.
+   * Absent on every other run.
    */
   readonly mailbox?: RunMailbox;
   /**

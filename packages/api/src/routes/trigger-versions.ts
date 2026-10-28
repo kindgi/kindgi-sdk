@@ -10,6 +10,15 @@ import type { TriggerRegistryBinding, TriggerVersionRecord } from '../trigger-bi
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 
+/**
+ * A trigger's version after a change, for the change's audit entry: the
+ * version record (`TriggerVersionRecord`) that `…/versions/{version}`
+ * reads. None from a registry whose records carry no version.
+ */
+export function versionField(record: { readonly version?: number }): { readonly version?: number } {
+  return record.version === undefined ? {} : { version: record.version };
+}
+
 /** The version record of one kind. */
 type VersionOf<K extends TriggerVersionRecord['kind']> = Extract<TriggerVersionRecord, { kind: K }>;
 

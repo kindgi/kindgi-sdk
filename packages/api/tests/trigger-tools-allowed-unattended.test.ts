@@ -296,6 +296,7 @@ describe('a schedule', () => {
       projectId: PROJECT,
       to: ['acme.refund', 'acme.lookup'],
       by: `user:${ADA}`,
+      version: 1,
     });
   });
 
@@ -421,11 +422,12 @@ describe('a schedule', () => {
     expect(cleared.status).toBe(200);
     expect(cleared.body).not.toHaveProperty('toolsAllowedUnattended');
 
+    // Each names the version it made: the label's edit made the second.
     const docs = (await h.toolEvents()).map(docOf);
-    expect(docs.map((d) => [d?.from, d?.to])).toEqual([
-      [undefined, ['acme.refund']],
-      [['acme.refund'], ['acme.notify', 'acme.refund']],
-      [['acme.notify', 'acme.refund'], []],
+    expect(docs.map((d) => [d?.from, d?.to, d?.version])).toEqual([
+      [undefined, ['acme.refund'], 1],
+      [['acme.refund'], ['acme.notify', 'acme.refund'], 3],
+      [['acme.notify', 'acme.refund'], [], 4],
     ]);
   });
 
@@ -586,6 +588,7 @@ describe('a webhook trigger', () => {
       projectId: PROJECT,
       to: ['acme.sub-tool'],
       by: `user:${ADA}`,
+      version: 1,
     });
 
     const byWriter = await h.call(

@@ -64,7 +64,7 @@ import {
   sameToolList,
   toolsAllowedUnattendedProblem,
 } from './trigger-tools.js';
-import { versionFields, versionOne, versionsPage } from './trigger-versions.js';
+import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
 
 /**
@@ -319,6 +319,7 @@ export function schedulesRouter(
         correlationId: requestId,
         log: c.get('log'),
         ...(resolved.projectAccount === true && { projectAccount: true }),
+        ...versionField(result.value),
       });
     }
     if (tools.kind === 'ok' && tools.value.length > 0) {
@@ -333,6 +334,7 @@ export function schedulesRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     c.status(201);
@@ -570,6 +572,7 @@ export function schedulesRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     await noteChangeForOwner(c, {
@@ -582,6 +585,7 @@ export function schedulesRouter(
       ...(fields.includes('target') && {
         target: { before: targetFields(found.value.target), after: targetFields(nextTarget) },
       }),
+      ...versionField(result.value),
     });
     return scheduleJson(c, result.value as CronTriggerRecord);
   });
@@ -786,6 +790,7 @@ export function schedulesRouter(
         toolsAllowedUnattended: found.value.toolsAllowedUnattended,
       }),
       ...(resolved.projectAccount === true && { projectAccount: true }),
+      ...versionField(result.value),
     });
     tellTakenOver(c, ownerNotices, owned(found.value), 'cron');
     return scheduleJson(c, result.value as CronTriggerRecord);

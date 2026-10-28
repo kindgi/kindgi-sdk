@@ -6,15 +6,17 @@
  * registering makes version 1 and each change the next, newest first; a
  * PATCH that changes nothing, pausing and resuming make none; a take-over
  * makes one (`owner`). A version names the authenticated caller, never
- * what a body says, and never changes after. Reading versions is reading
- * the trigger: who can't read it can't read them, and another tenant's
- * trigger isn't found.
+ * what a body says, and never changes after. A change's audit entry
+ * names the version it made. Reading versions is reading the trigger: who
+ * can't read it can't read them, and another tenant's trigger isn't found.
  */
 
 import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuditEvent } from '@kindgi/audit-events';
+import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { Action, AuthzCheckBinding, Decision } from '@kindgi/authz';
 import type { EnvName, ProjectId, TenantId, UserId } from '@kindgi/types';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
@@ -68,9 +70,19 @@ const agentRegistry = {
 
 function harness() {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
+  const written: AuditEvent[] = [];
+  const store = createInMemoryAuditEventBinding();
+  const auditEvents: typeof store = {
+    ...store,
+    append: async (events, ...rest) => {
+      written.push(...events);
+      return store.append(events, ...rest);
+    },
+  };
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
+    auditEvents,
     runHandler: {} as RunHandlerBinding,
     triggerRegistry: registry,
     agentRegistry,
@@ -98,7 +110,12 @@ function harness() {
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  return { call, registry };
+  /** The audit entries of `kind`, oldest first, as their payload's `doc`. */
+  const audited = (kind: string): Record<string, any>[] =>
+    written
+      .filter((e) => e.kind === kind)
+      .map((e) => (e.payload as { doc: Record<string, any> }).doc);
+  return { call, registry, audited };
 }
 
 /** What a body may claim of who made a change: never what a version names. */
@@ -315,6 +332,30 @@ describe.each(KINDS)("a $name's versions", (kind) => {
         ...kind.definition,
         owner: expect.objectContaining({ kind: 'user', id: ADA }),
       });
+    },
+  );
+
+  test.runIf(kind.owned)(
+    "an admin's change to a person's trigger and a take-over each name, in their audit entry, the version they made",
+    async () => {
+      const h = harness();
+      const id = await registered(h);
+      const edited = await h.call('PATCH', `${kind.base}/${id}`, kind.edit, 'ada');
+      expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+      expect(edited.body.version).toBe(2);
+      expect(h.audited('trigger-changed-for-owner')).toEqual([
+        expect.objectContaining({ triggerId: id, change: 'updated', version: 2 }),
+      ]);
+      const taken = await h.call('POST', `${kind.base}/${id}/owner`, {}, 'ada');
+      expect(taken.body.version).toBe(3);
+      expect(h.audited('trigger-owner-set')).toEqual([
+        expect.objectContaining({ triggerId: id, to: `user:${ADA}`, version: 3 }),
+      ]);
+      // A pause makes no version, and its entry names none.
+      expect((await h.call('POST', `${kind.base}/${id}/pause`, undefined, 'wren')).status).toBe(
+        200,
+      );
+      expect(h.audited('trigger-changed-for-owner').at(-1)).not.toHaveProperty('version');
     },
   );
 

@@ -65,7 +65,7 @@ import {
   sameToolList,
   toolsAllowedUnattendedProblem,
 } from './trigger-tools.js';
-import { versionFields, versionOne, versionsPage } from './trigger-versions.js';
+import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
 
 export interface MailTriggersRouterOptions {
@@ -359,6 +359,7 @@ export function mailTriggersRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     if (tools.kind === 'ok' && tools.value.length > 0) {
@@ -373,6 +374,7 @@ export function mailTriggersRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     c.status(201);
@@ -569,6 +571,7 @@ export function mailTriggersRouter(
       triggerKind: 'mail',
       change: 'updated',
       ...changed,
+      ...versionField(result.value),
     });
     // A change of the list is audited; so is a new target or mailbox it names again.
     if (
@@ -588,6 +591,7 @@ export function mailTriggersRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     return mailTriggerJson(c, updated);
@@ -749,6 +753,7 @@ export function mailTriggersRouter(
       ...(rec.toolsAllowedUnattended !== undefined && {
         toolsAllowedUnattended: rec.toolsAllowedUnattended,
       }),
+      ...versionField(result.value),
     });
     tellTakenOver(c, ownerNotices, owned(rec), 'mail');
     return mailTriggerJson(c, result.value as MailTriggerRecord);

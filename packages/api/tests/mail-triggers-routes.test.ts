@@ -290,6 +290,7 @@ describe('who may change a personal trigger', () => {
       change: 'updated',
       fields: ['target'],
       target: { before: { agentId: 'acme.support' }, after: { agentId: 'acme.triage' } },
+      version: 2,
     });
     expect(h.events('trigger-owner-set')).toEqual([]);
     // An admin's change to its pace or label names only the fields.
