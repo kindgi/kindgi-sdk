@@ -13,9 +13,9 @@ import {
   JUDGE_THINKING_TOKENS,
   JUDGE_VERDICT_TOKENS,
   createCheckRegistry,
-  defineGuardrail,
   evaluateAll,
   evaluateGuardrail,
+  validateGuardrail,
   violations,
 } from '../src/index.js';
 import type { EvaluationBindings, Guardrail, RunTrace } from '../src/index.js';
@@ -48,16 +48,16 @@ function mustCiteGuardrail(over: Partial<Guardrail> = {}): Guardrail {
   };
 }
 
-describe('defineGuardrail', () => {
+describe('validateGuardrail', () => {
   test('accepts a valid zero-llm guardrail', () => {
     const registry = createCheckRegistry();
-    const r = defineGuardrail(mustCiteGuardrail(), registry);
+    const r = validateGuardrail(mustCiteGuardrail(), registry);
     expect(r.kind).toBe('ok');
   });
 
   test('rejects reference to unregistered check', () => {
     const registry = createCheckRegistry();
-    const r = defineGuardrail(mustCiteGuardrail({ check: 'not-a-real-check' }), registry);
+    const r = validateGuardrail(mustCiteGuardrail({ check: 'not-a-real-check' }), registry);
     expect(r.kind).toBe('err');
     if (r.kind === 'err') expect(r.error.code).toBe('unknown-check');
   });
@@ -65,7 +65,7 @@ describe('defineGuardrail', () => {
   test('rejects when guardrail kind does not match check kind', () => {
     const registry = createCheckRegistry();
     // must-cite is registered as zero-llm; declare as llm-judge → mismatch.
-    const r = defineGuardrail(mustCiteGuardrail({ kind: 'llm-judge' }), registry);
+    const r = validateGuardrail(mustCiteGuardrail({ kind: 'llm-judge' }), registry);
     expect(r.kind).toBe('err');
   });
 
@@ -73,7 +73,7 @@ describe('defineGuardrail', () => {
     const registry = createCheckRegistry();
     // `on-violation` is open: an unknown name is accepted at define time and
     // fails with `unknown-action` only when the guardrail fires.
-    const custom = defineGuardrail(
+    const custom = validateGuardrail(
       mustCiteGuardrail({ action: { 'on-violation': 'obliterate' } }),
       registry,
     );
@@ -85,7 +85,7 @@ describe('defineGuardrail', () => {
       {} as unknown as Guardrail['action'],
     ];
     for (const action of malformed) {
-      expect(defineGuardrail(mustCiteGuardrail({ action }), registry).kind).toBe('err');
+      expect(validateGuardrail(mustCiteGuardrail({ action }), registry).kind).toBe('err');
     }
   });
 
@@ -96,22 +96,22 @@ describe('defineGuardrail', () => {
       kind: 'sandbox-code',
       evaluate: async () => ({ passed: true }),
     });
-    const ok = defineGuardrail(
+    const ok = validateGuardrail(
       mustCiteGuardrail({ kind: 'sandbox-code', check: 'acme.sandboxed-check', config: {} }),
       registry,
     );
     expect(ok.kind).toBe('ok');
     // The kind guard stays: a `sandbox-code` guardrail can't point at a zero-llm check.
-    const mismatch = defineGuardrail(mustCiteGuardrail({ kind: 'sandbox-code' }), registry);
+    const mismatch = validateGuardrail(mustCiteGuardrail({ kind: 'sandbox-code' }), registry);
     expect(mismatch.kind).toBe('err');
     // An empty kind fails the schema.
-    expect(defineGuardrail(mustCiteGuardrail({ kind: '' }), registry).kind).toBe('err');
+    expect(validateGuardrail(mustCiteGuardrail({ kind: '' }), registry).kind).toBe('err');
   });
 
   test('rejects a guardrail without `check` at the schema step (guardrail schema 1.1.0)', () => {
     const registry = createCheckRegistry();
     const { check: _check, ...withoutCheck } = mustCiteGuardrail();
-    const r = defineGuardrail(withoutCheck as unknown as Guardrail, registry);
+    const r = validateGuardrail(withoutCheck as unknown as Guardrail, registry);
     expect(r.kind).toBe('err');
     if (r.kind === 'err') {
       expect(r.error.code).toBe('invalid-guardrail');
@@ -123,7 +123,7 @@ describe('defineGuardrail', () => {
 
   test('accepts the runtime extensions the Guardrail type declares', () => {
     const registry = createCheckRegistry();
-    const r = defineGuardrail(
+    const r = validateGuardrail(
       mustCiteGuardrail({
         sandbox: 'context-isolated',
         limits: { memMB: 128, cpuMs: 500 },
@@ -142,11 +142,11 @@ describe('defineGuardrail', () => {
     const bad = mustCiteGuardrail({
       action: { 'on-violation': 'retry', retry: {} as { maxAttempts: number } },
     });
-    expect(defineGuardrail(bad, registry).kind).toBe('err');
+    expect(validateGuardrail(bad, registry).kind).toBe('err');
     const ok = mustCiteGuardrail({
       action: { 'on-violation': 'retry', retry: { maxAttempts: 3 } },
     });
-    expect(defineGuardrail(ok, registry).kind).toBe('ok');
+    expect(validateGuardrail(ok, registry).kind).toBe('ok');
   });
 });
 

@@ -62,7 +62,7 @@ import {
   nearestForwardedClient,
 } from '../rate-limit-store.js';
 import { readCapped } from '../read-capped.js';
-import { resumeInline } from '../resume-inline.js';
+import { logResumeAfterAnswer, resumeInline } from '../resume-inline.js';
 import { WEBHOOK_BODY_LIMITS } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import type {
@@ -183,14 +183,7 @@ function resumeBehind(
   const { traceId, spanId } = c.get('trace');
   const log = c.get('log');
   void resumeInline(runHandler, accepted.tenantId, accepted.runId, { traceId, spanId })
-    .then((resumed) => {
-      if (resumed.kind === 'failed') {
-        log.warn('resume after a wait token answer failed', {
-          runId: accepted.runId,
-          code: resumed.code,
-        });
-      }
-    })
+    .then((resumed) => logResumeAfterAnswer(log, accepted.runId, resumed))
     // `resumeInline` never rejects; this keeps a throwing logger from
     // becoming an unhandled rejection.
     .catch(() => undefined);

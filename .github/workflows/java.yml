@@ -37,7 +37,7 @@ jobs:
       - id: paths
         # VersionOrderTest holds Maven to the version spelling sync-jvm-version.mjs writes; what
         # goes to Maven Central is checked here (check-jars and its libraries). The tests read the
-        # built-in checks, the log vectors and the signed-export test vectors too, and
+        # built-in checks, the log vectors and the spec test vectors (signed exports, open values) too, and
         # scripts/jvm-test-reads.test.mjs fails when a file a test reads isn't here.
         run: >-
           node scripts/changed-paths.mjs

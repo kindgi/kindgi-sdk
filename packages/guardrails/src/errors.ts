@@ -45,8 +45,8 @@ export interface JudgeUsageError {
 }
 
 /**
- * The declaration is invalid. From `defineGuardrail` /
- * `validateGuardrailSpec`: it fails the schema, or (`defineGuardrail`)
+ * The declaration is invalid. From `validateGuardrail` /
+ * `validateGuardrailSpec`: it fails the schema, or (`validateGuardrail`)
  * its registered check has another kind. From the engine: its kind has
  * no registered strategy, it is `llm-judge` without `judgeCapabilities`,
  * or it is `external` and only the built-in `external` strategy is

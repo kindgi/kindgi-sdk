@@ -8,6 +8,7 @@ import { defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
 import type { ProjectId, RunId, TenantId, ToolId } from '@kindgi/types';
 
+import { formatEventForPrompt } from '../src/event-data.js';
 import type { HitlRejectedError } from '../src/guardrails-gate.js';
 import type { InvokeAgentBindings } from '../src/handlers/context.js';
 import type { TurnContext } from '../src/handlers/context.js';
@@ -34,7 +35,11 @@ import { testNodeContext } from './node-context.js';
 
 const REPLAY = { of: 'run-past' as RunId, evalRunId: 'eval-1' };
 
-function lookupTool(declared: { mutating?: boolean; effects?: { kind: string }[] }): AnyTool {
+function lookupTool(declared: {
+  mutating?: boolean;
+  effects?: { kind: string }[];
+  resultIsOutsideData?: boolean;
+}): AnyTool {
   const defined = defineTool<Record<string, unknown>, { found: number }>({
     id: 'pack.lookup' as ToolId,
     description: 'Looks something up.',
@@ -52,6 +57,8 @@ interface Dispatched {
   readonly ran: number;
   readonly asked: ReplayToolInput[];
   readonly stored: Record<string, unknown>[];
+  /** The messages the next model call sees. */
+  readonly messages: readonly { readonly role: string; readonly content: unknown }[];
   readonly events: TurnEvent[];
   readonly waits: string[];
   readonly ctx: TurnContext;
@@ -126,7 +133,7 @@ async function dispatch(options: {
     hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
   } as unknown as TurnContext;
 
-  await buildDispatchToolsHandler(ctx)(
+  const out = await buildDispatchToolsHandler(ctx)(
     {
       step: 2,
       finishReason: 'tool-use',
@@ -150,11 +157,13 @@ async function dispatch(options: {
       options.records,
     ),
   );
-  return { ran, asked, stored, events, waits, ctx };
+  const { nextMessages: messages } = out as { nextMessages: Dispatched['messages'] };
+  return { ran, asked, stored, messages, events, waits, ctx };
 }
 
 const toolResults = (d: Dispatched) => d.stored.filter((m) => m.role === 'tool');
 const completed = (d: Dispatched) => d.events.filter((e) => e.kind === 'tool.completed');
+const toolMessages = (d: Dispatched) => d.messages.filter((m) => m.role === 'tool');
 
 describe('isReadOnlyTool', () => {
   test.each([
@@ -190,6 +199,8 @@ describe('a replay turn decides each tool call', () => {
       content: { found: 9 },
       toolCall: { toolId: 'pack.lookup', invocationId: 'call-1' },
     });
+    expect(toolResults(d)[0]).not.toHaveProperty('fromEvent');
+    expect(toolMessages(d)[0]?.content).toBe('{"found":9}');
     expect(completed(d)[0]).toMatchObject({ output: { found: 9 }, replay: 'recorded' });
     expect(replayReport(d.ctx)?.tools).toEqual([
       {
@@ -201,6 +212,64 @@ describe('a replay turn decides each tool call', () => {
         source: 'recorded',
       },
     ]);
+  });
+
+  test('recorded as outside data: stored marked, and the model reads it as data, as in the past run', async () => {
+    const d = await dispatch({
+      tool: lookupTool({}),
+      binding: {
+        decideTool: async () => ({ kind: 'recorded', result: { found: 9 }, fromEvent: true }),
+      },
+    });
+    expect(d.ran).toBe(0);
+    expect(toolResults(d)[0]).toMatchObject({ content: { found: 9 }, fromEvent: true });
+    expect(toolMessages(d)[0]?.content).toBe(formatEventForPrompt('{"found":9}'));
+    expect(completed(d)[0]).toMatchObject({ output: { found: 9 }, replay: 'recorded' });
+    // The trace says where the result came from, not its mark.
+    expect(replayReport(d.ctx)?.tools[0]).not.toHaveProperty('fromEvent');
+  });
+
+  test('recorded for a tool whose results are outside data: data, even with no mark recorded', async () => {
+    const d = await dispatch({
+      tool: lookupTool({ resultIsOutsideData: true }),
+      binding: { decideTool: async () => ({ kind: 'recorded', result: { found: 9 } }) },
+    });
+    expect(toolResults(d)[0]).toMatchObject({ content: { found: 9 }, fromEvent: true });
+    expect(toolMessages(d)[0]?.content).toBe(formatEventForPrompt('{"found":9}'));
+  });
+
+  test('refused for a tool whose results are outside data: the refusal is not data from outside', async () => {
+    const d = await dispatch({
+      tool: lookupTool({ resultIsOutsideData: true }),
+      binding: {
+        decideTool: async () => ({
+          kind: 'refused',
+          reason: 'no record',
+          result: { status: 'not-executed', reason: 'no record' },
+        }),
+      },
+    });
+    expect(toolResults(d)[0]).not.toHaveProperty('fromEvent');
+    expect(toolMessages(d)[0]?.content).toBe('{"status":"not-executed","reason":"no record"}');
+  });
+
+  test("a step run again keeps a recorded result's mark from the journal", async () => {
+    const records = new Map<string, unknown>();
+    await dispatch({
+      tool: lookupTool({}),
+      binding: {
+        decideTool: async () => ({ kind: 'recorded', result: { found: 9 }, fromEvent: true }),
+      },
+      records,
+    });
+    const again = await dispatch({
+      tool: lookupTool({}),
+      binding: { decideTool: async () => ({ kind: 'recorded', result: { found: 1 } }) },
+      records,
+    });
+    expect(again.asked).toEqual([]);
+    expect(toolResults(again)[0]).toMatchObject({ content: { found: 9 }, fromEvent: true });
+    expect(toolMessages(again)[0]?.content).toBe(formatEventForPrompt('{"found":9}'));
   });
 
   test('the binding gets the tool as declared, the arguments and the turn', async () => {
