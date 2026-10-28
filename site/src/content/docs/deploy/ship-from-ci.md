@@ -18,7 +18,8 @@ The example uses GitHub Actions and a TypeScript pack.
 Kindgi Cloud builds the image, so CI needs no Docker and no registry login.
 The build and deploy steps take `--hosted`, and both get the deploy key. A
 hosted build takes a tenant admin's key, so on Kindgi Cloud the deploy key
-is one ([The deploy key](#the-deploy-key)). Everything else is the same.
+is one. It reaches prod too, so main's own protection is what guards prod
+there ([The deploy key](#the-deploy-key)). Everything else is the same.
 :::
 
 ## What CI ships, and what you set up once
@@ -56,8 +57,8 @@ pnpm exec kindgi promote --from=staging --to=prod --reason="Passed in staging"
 - `--check` says what would move, and which values the build needs aren't
   set in prod. It changes nothing.
 - Without it, the build moves to prod, with its agents' and flows' versions.
-  Runs in prod keep the versions Pinned for them there, until you pin the
-  new ones ([Make the new version Pinned in prod](#make-the-new-version-pinned-in-prod)).
+  Runs of each agent in prod keep the version Pinned for it there, until you
+  pin the new one ([Make the new version Pinned in prod](#make-the-new-version-pinned-in-prod)).
 - While a value isn't set in prod, both exit 1 and nothing moves. Set it,
   then promote again.
 
@@ -84,10 +85,13 @@ A person does these, with a key of their own:
   ([Build test cases from corrections](../../guides/evals/build-a-test-set/)).
 - **Create the triggers:** schedules, webhooks and mail triggers.
 
-A second create of a provider, a release gate policy or a suite of test
-cases is refused, as already registered. A trigger has no name to match, so
-a second create makes a second trigger. A script that sets these up checks
-first with each kind's `list`, and tells its triggers apart by `--label`.
+Registering a provider again under its id, publishing a release gate
+policy's version again, or making a suite of test cases again under its id
+and version is refused, as already registered. A trigger has no name to
+match, so a second `create` of a schedule or a mail trigger, or a second
+`register` of a webhook, makes a second trigger. A script that sets these up
+checks first with each kind's `list`, and tells its triggers apart by
+`--label`.
 
 ## The keys CI uses
 
@@ -126,8 +130,18 @@ pnpm exec kindgi service-accounts create acme-ci-deploy --description="Builds an
 pnpm exec kindgi tokens create --for=sa:<service-account-id> --role=admin --label=ci-deploy --expires=90d
 ```
 
-That key reaches the whole tenant. So it's a secret of the `staging`
-environment only, and that environment takes only main.
+That key reaches the whole tenant, prod included. Even with no capability,
+it can change the environment order, replace prod's release gate policy,
+promote to prod, and make service accounts, tenant admins among them, and
+keys for them. So on Kindgi Cloud, prod's required reviewers don't guard
+prod from a job that holds it. Main's own protection does: a required review
+of each pull request before it merges.
+
+- **It's a secret of the `staging` environment only,** and that environment
+  takes only main.
+- **If it leaks,** revoke it, then look for the keys and accounts it made
+  with `kindgi tokens list` and `kindgi service-accounts list`, and revoke
+  those too.
 
 ### A promote key for each later environment
 
@@ -145,10 +159,10 @@ pnpm exec kindgi tokens create --for=sa:<service-account-id> --label=ci-promote-
   order, so it refuses a deploy. That's why the order is set first.
 - **It can't approve its own promotion.** A service account's key has no
   reviewer role.
-- **It's an admin of prod** in everything but env values and secrets, which
-  take capabilities it doesn't have. That includes reading prod's
-  conversations. So its job waits for GitHub's required reviewers, and the
-  key expires in 90 days.
+- **It's an admin of prod** in everything except changing env values and
+  secrets, which take capabilities it doesn't have. That includes reading
+  prod's conversations. So its job waits for GitHub's required reviewers,
+  and the key expires in 90 days.
 
 ### Where the keys live
 
@@ -158,9 +172,21 @@ pnpm exec kindgi tokens create --for=sa:<service-account-id> --label=ci-promote-
   main, and `prod` has required reviewers
   ([Managing environments for deployment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)).
 - **The signing key is the pipeline's most valuable secret.** It's trusted
-  across the tenant, so anything it signs deploys.
+  across the tenant, so a build it signs passes the signature check in
+  every project.
 - **`KINDGI_API_TOKEN` is set on the `kindgi` steps only,** never on the
-  job. `pnpm install`, and the install scripts it runs, never see a key.
+  job, so no key is in the environment of `pnpm install` or of the install
+  scripts it runs.
+- **What's installed is what you reviewed.** A job's steps share one
+  machine, so a process an install script leaves running could read what
+  later steps write, such as the signing key's file. `--frozen-lockfile`
+  installs only what the lockfile, reviewed in each pull request, names.
+  pnpm runs a dependency's install script only when `allowBuilds` in
+  `pnpm-workspace.yaml` allows it, and a pack `kindgi init` makes allows
+  none.
+- **Each action is pinned to a commit,** with its version in a comment, in
+  the jobs that hold a key. A tag can move to other code, and a commit
+  can't.
 
 ### The signing key
 
@@ -180,10 +206,16 @@ In CI, the job writes the secret to a file for `kindgi build`. The signature
 names its key by the file's name without its extension, so the file is named
 after the key the tenant trusts: `acme-ci.pem` for `acme-ci`.
 
+To replace the key, follow
+[Rotate a signing key](../self-hosted/rotate-keys/#rotate-a-signing-key),
+then put the new key in the secret, and name the file the job writes after
+the new key.
+
 ## The pipeline
 
 - **On a pull request:** `kindgi test` runs the pack's tests. It needs no
-  runtime and no key.
+  runtime and no Kindgi key. A test that calls a model provider needs that
+  provider's key as a secret of the job.
 - **On a merge to main:** build and sign the image, then deploy it to
   staging.
 - **Then prod,** once GitHub's required reviewers let its job start:
@@ -198,7 +230,7 @@ stops on it, and 1 when it couldn't ask:
 | Command | 0 | 3 | 1 |
 |---|---|---|---|
 | `kindgi promote --from --to`, and with `--check` | it moved, or would | never | a value the build needs isn't set in the target, or an error |
-| `kindgi eval-runs start --wait` | the run completed | it failed or was cancelled | an error |
+| `kindgi eval-runs start --wait` | the run completed | it failed or was cancelled | it's still running after 30 minutes, or an error |
 | `kindgi agents promote --wait` | the version is Pinned | the release gate policy refused it, its approval was rejected or expired, the request was superseded, or the wait ran out | an error, or 3 reads of the promotion in a row failed |
 | `kindgi promote --make-live --wait` | every version it carries is Pinned | one isn't | an error, or 3 reads of a promotion in a row failed |
 
@@ -218,11 +250,15 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read # every job's GITHUB_TOKEN only reads the repository
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with: { persist-credentials: false }
       - uses: pnpm/action-setup@v6 # the pnpm version package.json pins
       - uses: actions/setup-node@v7
         with: { node-version: 22, cache: pnpm }
@@ -235,12 +271,13 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging # its own secrets; deployment branches: main
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: registry.acme.example # the staging environment's registry
           username: ${{ secrets.REGISTRY_USERNAME }}
@@ -266,9 +303,10 @@ jobs:
       SUITE: acme.order-checks # the test cases, in prod's project
       PROD_PROJECT: <prod-project-id>
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - id: promoted
@@ -278,13 +316,15 @@ jobs:
           pnpm exec kindgi promote --from=staging --to=prod --reason="${{ github.sha }} passed in staging" --json > promoted.json
           echo "version=$(jq -r --arg agent "$AGENT" '.promotion.moved.agents[] | select(.id == $agent and .carried != true) | .version' promoted.json)" >> "$GITHUB_OUTPUT"
       - id: tested
+        if: steps.promoted.outputs.version != ''
         env:
           KINDGI_API_TOKEN: ${{ secrets.KINDGI_PROMOTE_KEY }}
           VERSION: ${{ steps.promoted.outputs.version }}
         run: |
           pnpm exec kindgi eval-runs start "$SUITE" --project="$PROD_PROJECT" --agent="$AGENT" --agent-version="$VERSION" --wait > run.json
           echo "run=$(jq -r .runId run.json)" >> "$GITHUB_OUTPUT"
-      - env:
+      - if: steps.promoted.outputs.version != ''
+        env:
           KINDGI_API_TOKEN: ${{ secrets.KINDGI_PROMOTE_KEY }}
           VERSION: ${{ steps.promoted.outputs.version }}
           RUN: ${{ steps.tested.outputs.run }}
@@ -293,10 +333,11 @@ jobs:
 
 ### Make the new version Pinned in prod
 
-The last two steps of `promote-prod` do it for one agent:
+The last three steps of `promote-prod` do it for one agent:
 
 1. **`promote` moves the build to prod.** `jq` reads, from its JSON, the
-   version of `acme.order-desk` the build ships.
+   version of `acme.order-desk` the build ships. When the build carries it
+   unchanged, the next two steps skip.
 2. **`eval-runs start --wait` runs the test cases on that version in prod.**
    The job stops when the run fails, and `jq` reads its id.
 3. **`agents promote --wait` asks prod's release gate policy,** with that
@@ -304,11 +345,13 @@ The last two steps of `promote-prod` do it for one agent:
    id and the command that approves it, then waits for a reviewer, up to an
    hour. It exits 0 once the version is Pinned.
 
-- **A step that waits ends before the CI system ends it.** Keep the job's
-  `timeout-minutes` longer than the waits. When a wait runs out, the step
-  exits 3. A read that fails is read again, and when 3 in a row fail, the
-  step exits 1. Either way the approval stays open: once a reviewer approves
-  it, the version is Pinned.
+- **A step that waits ends before the CI system ends it.** `eval-runs start
+  --wait` waits up to 30 minutes, and exits 1 when the run is still going
+  then. `agents promote --wait=1h` waits up to an hour: when it runs out, it
+  exits 3, and when 3 reads of the promotion in a row fail, it exits 1.
+  Either way the approval stays open: once a reviewer approves it, the
+  version is Pinned. Keep the job's `timeout-minutes` longer than the two
+  waits together, as the example's 120 is.
 - **A carried agent the workflow doesn't name** stays on the version Pinned
   for it in prod. Name each agent that should go further, with its own test
   run and `agents promote` steps.
@@ -363,9 +406,13 @@ key, providers, release gate policies, test cases and triggers.
 The jobs are the same. What changes is how each job sets up the pack and
 runs the CLI:
 
-- **Python:** set up uv in place of pnpm and Node, run `uv sync --locked`,
-  and run `uv run kindgi` where this page runs `pnpm exec kindgi`.
-- **Java and Scala:** set up a JDK 17 or later, and run `./kindgiw`.
+- **Python:** set up uv in place of pnpm and Node, and run `uv sync
+  --locked`. Run the tests with `uv run pytest`, and `uv run kindgi` where
+  this page runs `pnpm exec kindgi`.
+- **Java:** set up a JDK 17 or later. Run the tests with `./mvnw test`, and
+  `./kindgiw` where this page runs `pnpm exec kindgi`.
+- **Scala:** set up a JDK 17 or later and sbt. Run the tests with
+  `sbt test`, and `./kindgiw` where this page runs `pnpm exec kindgi`.
 
 ## Other CI systems
 

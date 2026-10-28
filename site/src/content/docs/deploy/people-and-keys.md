@@ -351,9 +351,13 @@ npx --yes @kindgi/cli@0.2 service-accounts create acme-admin --description="Trus
 npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
 ```
 
-It's an admin of the whole tenant, so keep it out of CI. A deploy from CI
-needs admin on one project, and trusting CI's signing key is a person's
-step ([The keys CI uses](../ship-from-ci/#the-keys-ci-uses)).
+It can trust signing keys, so keep it out of CI: trusting CI's signing key
+is a person's step, and CI's keys are made for each step
+([The keys CI uses](../ship-from-ci/#the-keys-ci-uses)). On Kindgi Cloud,
+CI's deploy key is a tenant admin's key too, with no capability. It can
+still promote to prod, replace release gate policies, and make service
+accounts and keys, so main's own protection is what guards prod there
+([The deploy key](../ship-from-ci/#the-deploy-key)).
 
 ## What you may do
 
