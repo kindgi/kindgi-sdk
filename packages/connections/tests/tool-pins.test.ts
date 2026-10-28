@@ -14,9 +14,16 @@ import {
 import { describe, expect, it } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
-import { gmailMessageGet, gmailMessagesList, gmailReply, gmailSend } from '../src/google-tools.js';
+import {
+  gmailAttachmentGet,
+  gmailMessageGet,
+  gmailMessagesList,
+  gmailReply,
+  gmailSend,
+} from '../src/google-tools.js';
 import { linkedinPost } from '../src/linkedin-tools.js';
 import {
+  outlookAttachmentGet,
   outlookMessageGet,
   outlookMessagesList,
   outlookReply,
@@ -31,6 +38,8 @@ const TOOLS = {
   'gmailMessagesList as company': (id: string) => gmailMessagesList({ id, as: 'company' }),
   gmailMessageGet: (id: string) => gmailMessageGet({ id }),
   'gmailMessageGet as company': (id: string) => gmailMessageGet({ id, as: 'company' }),
+  gmailAttachmentGet: (id: string) => gmailAttachmentGet({ id }),
+  'gmailAttachmentGet as company': (id: string) => gmailAttachmentGet({ id, as: 'company' }),
   gmailReply: (id: string) => gmailReply({ id }),
   'gmailReply as company': (id: string) => gmailReply({ id, as: 'company' }),
   githubIssuesList: (id: string) => githubIssuesList({ id }),
@@ -42,6 +51,8 @@ const TOOLS = {
   'outlookMessagesList as company': (id: string) => outlookMessagesList({ id, as: 'company' }),
   outlookMessageGet: (id: string) => outlookMessageGet({ id }),
   'outlookMessageGet as company': (id: string) => outlookMessageGet({ id, as: 'company' }),
+  outlookAttachmentGet: (id: string) => outlookAttachmentGet({ id }),
+  'outlookAttachmentGet as company': (id: string) => outlookAttachmentGet({ id, as: 'company' }),
   outlookReply: (id: string) => outlookReply({ id }),
   'outlookReply as company': (id: string) => outlookReply({ id, as: 'company' }),
   linkedinPost: (id: string) => linkedinPost({ id }),

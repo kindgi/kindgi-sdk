@@ -97,6 +97,7 @@
     "provenance": true
   },
   "dependencies": {
+    "@kindgi/capabilities": "workspace:*",
     "@kindgi/tools": "workspace:*",
     "@kindgi/types": "workspace:*"
   },

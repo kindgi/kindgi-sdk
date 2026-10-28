@@ -723,6 +723,9 @@ importers:
 
   packages/connections:
     dependencies:
+      '@kindgi/capabilities':
+        specifier: workspace:*
+        version: link:../capabilities
       '@kindgi/tools':
         specifier: workspace:*
         version: link:../tools

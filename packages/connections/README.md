@@ -42,10 +42,13 @@ Ready-made tools that act with a connection, one subpath per app:
 - `@kindgi/connections/google/tools`: `gmailSend` sends a plain-text mail
   as the person whose Google connection the call has; `gmailMessagesList`
   lists or searches their mailbox; `gmailMessageGet` reads one message
-  whole, as a `MailMessage`; and `gmailReply` answers one in its thread.
+  whole, as a `MailMessage`; `gmailAttachmentGet` stores one of its
+  attachments, by its number in the message's list, as a file the agent is
+  shown (a JPEG, PNG or WebP image, a PDF, or a text, Markdown or CSV file,
+  within its type's size limit); and `gmailReply` answers one in its thread.
 - `@kindgi/connections/microsoft/tools`: `outlookSend`,
-  `outlookMessagesList`, `outlookMessageGet` and `outlookReply`, the same
-  for Outlook.
+  `outlookMessagesList`, `outlookMessageGet`, `outlookAttachmentGet` and
+  `outlookReply`, the same for Outlook.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
