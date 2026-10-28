@@ -459,6 +459,21 @@ From your app, newest first:
   (`getVersion`, `get_version`). A version the trigger doesn't have is
   `404 trigger-version-not-found`.
 
+From the CLI:
+
+```sh
+pnpm exec kindgi mail-triggers versions <trigger-id> --table
+pnpm exec kindgi mail-triggers get <trigger-id> <version>
+```
+
+- `versions` pages them, with `--limit` and `--cursor`. Its table shows
+  each one's number, when it was made, by whom, and why. `Kindgi` stands
+  in the `BY` column for a version the runtime made itself.
+- `get <trigger-id> <version>` reads one. Without a version, `get` is the
+  trigger as it is now, and its `version` is the newest. The `VERSION`
+  column of `list --table` shows it, empty for a trigger that has none
+  yet.
+
 Whoever can read the trigger can read its versions. Each one says when it
 was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
 `register`, `edit` or `owner` for a take-over to another owner). Three

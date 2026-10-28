@@ -4,9 +4,11 @@
 import type { SchedulesClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { type Rendered, renderJson } from '../output.js';
 import { scopeCell } from './agents.js';
 import {
+  TRIGGER_VERSIONS_TABLE,
   type TableSpec,
   allowUnattendedField,
   integerFlag,
@@ -18,6 +20,7 @@ import {
   runsAsCell,
   segmentsFlag,
   stringFlag,
+  triggerVersionPositional,
 } from './helpers.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
 
@@ -59,6 +62,7 @@ const SCHEDULES_TABLE: TableSpec<SchedulePage, Schedule> = {
   rows: (p) => p.data,
   columns: [
     { header: 'ID', get: (s) => s.scheduleId },
+    { header: 'VERSION', get: (s) => (s.version !== undefined ? String(s.version) : '') },
     { header: 'RUNS', get: runs },
     { header: 'CRON', get: (s) => s.cronExpression },
     { header: 'TIMEZONE', get: (s) => s.timezone ?? 'UTC' },
@@ -267,18 +271,24 @@ const list: LeafCommand = {
 const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: 'Fetch a schedule, with its next occurrences when asked.',
-  usage: 'kindgi schedules get <schedule-id> [--upcoming=<n>]',
+  description:
+    'Fetch a schedule as it is now, with its next occurrences when asked, or the version given.',
+  usage: 'kindgi schedules get <schedule-id> [<version>] [--upcoming=<n>]',
   optionSpec: {
     upcoming: { type: 'string', description: 'Also show the next N times it runs (1 to 20).' },
   },
   run: (ctx) =>
     runSdk(ctx, 'schedules get', async () => {
       const id = requiredPositional(ctx, 0, 'schedule-id');
+      const version = triggerVersionPositional(ctx, 1);
       const upcoming = integerFlag(ctx, 'upcoming');
-      return await ctx
-        .client()
-        .schedules.get(id, upcoming !== undefined ? { upcoming } : undefined);
+      if (version !== undefined && upcoming !== undefined) {
+        throw new UsageError("--upcoming doesn't go with a <version>: it shows the schedule's next times as it is now");
+      }
+      const schedulesClient = ctx.client().schedules;
+      return version === undefined
+        ? await schedulesClient.get(id, upcoming !== undefined ? { upcoming } : undefined)
+        : await schedulesClient.getVersion(id, version);
     }),
 };
 
@@ -430,11 +440,28 @@ const fires: LeafCommand = {
     ),
 };
 
+const versions: LeafCommand = {
+  kind: 'leaf',
+  name: 'versions',
+  description:
+    "List a schedule's versions, newest first: when each was made, by whom, and why. `kindgi schedules get <schedule-id> <version>` shows one.",
+  usage: 'kindgi schedules versions <schedule-id> [--limit=<n>] [--cursor=<c>]',
+  optionSpec: PAGE_FLAGS,
+  run: (ctx) =>
+    runSdk(
+      ctx,
+      'schedules versions',
+      async () =>
+        await ctx.client().schedules.versions(requiredPositional(ctx, 0, 'schedule-id'), page(ctx)),
+      TRIGGER_VERSIONS_TABLE,
+    ),
+};
+
 export const schedulesCommand: Command = {
   kind: 'group',
   name: 'schedules',
   description:
-    'Run agents and flows on a schedule: create, list, get, update, pause, resume, run-now, fires, take-ownership, unregister.',
+    'Run agents and flows on a schedule: create, list, get, update, pause, resume, run-now, fires, versions, take-ownership, unregister.',
   subcommands: [
     list,
     get,
@@ -452,6 +479,7 @@ export const schedulesCommand: Command = {
       (s, id) => s.runNow(id),
     ),
     fires,
+    versions,
     takeOwnership,
     byId('unregister', 'Remove a schedule: it stops running.', (s, id) => s.unregister(id)),
   ],
