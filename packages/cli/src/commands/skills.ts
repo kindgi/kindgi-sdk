@@ -27,7 +27,9 @@
  *    untouched.
  *
  * A file the user added to a copy's folder is theirs: it's never read,
- * written or removed.
+ * written or removed, unless a later bundle ships a file by that name.
+ * That file then differs from the bundle's, with no hash recorded, so it
+ * counts as an edit.
  *
  * Sync state lives in `.claude/skills/.kindgi-manifest.json`, for both
  * folders — records what version of each skill was installed, and the

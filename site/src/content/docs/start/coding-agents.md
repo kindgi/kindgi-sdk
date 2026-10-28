@@ -394,9 +394,11 @@ A skill is a folder: its `SKILL.md`, which the agent loads, and the files
 beside it, which it reads only for its case. It keeps skills you edited, in
 either folder: a change to any of a skill's files keeps the whole skill as
 it is. `--force` replaces those too. A skill or a file of one you deleted
-comes back, and a file the skill no longer has is removed unless you
-edited it. A file you added to a skill's folder is yours: it's never
-changed or removed. In a Python project, run it as
+comes back. A file the skill no longer has is removed, and one you edited
+is a change like any other: the skill is kept as it is, and `--force`
+removes the file. A file you added to a skill's folder is yours: it's never
+changed or removed, unless a later release ships a file by that name,
+which then counts as a change. In a Python project, run it as
 `uv run kindgi skills sync`. If the project has a `.prettierignore`, it adds
 Kindgi's skills in both folders to it, so your formatter leaves the copies
 alone.
