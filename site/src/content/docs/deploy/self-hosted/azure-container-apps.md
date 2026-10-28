@@ -724,7 +724,9 @@ identity that deploys the module. `<rg>` is the resource group, and
 1. **Read the upgrade steps** of each release you're upgrading across, in
    its release notes
    ([Upgrade the runtime](../operate/#upgrade-the-runtime) links them), and
-   take the new release's digest from its notes.
+   note the new release's digest: `docker pull
+   registry.kindgi.com/kindgi/runtime:<version>` prints it
+   ([Pull the runtime image](../pull-the-runtime-image/)).
 2. **Copy the new runtime image** into the module's registry by digest,
    every platform included, as in
    [2. The images into the registry](#2-the-images-into-the-registry), with
@@ -796,7 +798,11 @@ identity that deploys the module. `<rg>` is the resource group, and
 migrations only go forward, so never point the old version at the
 migrated database. A point-in-time restore makes a new server, and never
 overwrites the module's. So the runtime moves onto the restored one,
-through its database URL in Key Vault:
+through its database URL in Key Vault. Container Apps picks up a new
+version of that URL within 30 minutes, and a revision made sooner may
+start with the one before it
+([Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)).
+So nothing runs while it changes:
 
 1. **First, export the erasure ledger** from the server serving now
    ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
@@ -821,7 +827,8 @@ through its database URL in Key Vault:
      ([Microsoft: Backup and restore](https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/concepts-backup-restore)).
      The second command allows pgvector on it, as the module does on its
      own.
-   - The new version keeps serving from the module's server meanwhile.
+   - Nothing reads it yet: the new version keeps serving from the module's
+     server.
 3. **Save the plan that goes back.** Put `server_image`, and `pack_image`,
    back from the copy of `dev.tfvars` you kept, then plan, and read it:
 
@@ -829,16 +836,32 @@ through its database URL in Key Vault:
    (umask 077 && terraform plan -var-file=dev.tfvars -out=back.tfplan)
    ```
 
-4. **Point the runtime at the restored server, then apply that plan at
-   once.** Set the restored server's admin password and the database URL
-   with it, as in [3. The secrets](#3-the-secrets): the password goes
-   through a pipe, never on a command line.
+   Plan now: a plan reads the module's server, which the next step stops.
+4. **Stop the new version.** Deactivate its revision, then stop the
+   module's database server:
+
+   ```sh
+   REV=$(az containerapp revision list -n <name_prefix>-server -g <rg> --query "[?properties.active].name" -o tsv)
+   az containerapp revision deactivate -n <name_prefix>-server -g <rg> --revision "$REV"
+   az postgres flexible-server stop -g <rg> -n "$PG"
+   az containerapp revision list -n <name_prefix>-server -g <rg> -o table
+   ```
+
+   - Deactivating a revision stops its replicas, so the new version can't
+     start on the restored server once the URL names it.
+   - With the module's server stopped, no revision can reach the migrated
+     database, whichever URL it starts with.
+   - The last command lists the active revisions: none. If it lists the
+     new version's, stop here, and don't change the URL while it can run.
+5. **Point the runtime at the restored server.** Set the restored server's
+   admin password and the database URL with it, as in
+   [3. The secrets](#3-the-secrets): the password goes through a pipe,
+   never on a command line.
 
    ```sh
    # Off in this shell: az's log file, if it's on, records each request's body.
    export AZURE_LOGGING_ENABLE_LOG_FILE=no
 
-   PG=$(terraform output -raw database_server_name)
    V=$(terraform output -raw key_vault_name)
    put() { az keyvault secret set --vault-name "$V" -n "$1" --file /dev/stdin --query id -o tsv; }
 
@@ -846,39 +869,49 @@ through its database URL in Key Vault:
    BACK=$(az postgres flexible-server show -g <rg> -n "$PG-back" --query fullyQualifiedDomainName -o tsv) &&
      [ -n "$BACK" ] &&
      printf '%s' "$DBPW" | az postgres flexible-server update -g <rg> -n "$PG-back" --admin-password @- -o none &&
-     printf 'postgres://kindgiadmin:%s@%s:5432/kindgi?sslmode=require' "$DBPW" "$BACK" | put database-url &&
-     terraform apply back.tfplan && rm back.tfplan
+     printf 'postgres://kindgiadmin:%s@%s:5432/kindgi?sslmode=require' "$DBPW" "$BACK" | put database-url
    unset DBPW
    ```
 
-   Each command runs only if the one before it worked: the vault never
-   gets a URL for a server or a password that isn't there, and the plan
-   applies only once the URL's new version is in.
+   Each command runs only if the one before it worked, so the vault never
+   gets a URL for a server or a password that isn't there. `PG` is from
+   step 2: in a new shell, set it again first.
+6. **Wait 30 minutes, then apply the plan that goes back:**
 
-   Container Apps picks up the URL's new version within 30 minutes, and
-   restarts the revisions that read it. So apply at once: the new
-   version's revision, restarted onto the restored server first, would
-   migrate it forward. If its logs show it did, restore again, into
-   another new server, and repeat this step. If Terraform refuses the plan
-   as stale, plan again and apply at once.
-5. **Replay the erasures before anyone uses it**
+   ```sh
+   terraform apply back.tfplan
+   rm back.tfplan
+   ```
+
+   - Nothing runs while you wait, and by the end of it Container Apps has
+     the URL's new version.
+   - The plan's revision can reach only the restored server. One that
+     starts with the URL before can't connect, and Container Apps
+     restarts it with the new one.
+   - If Terraform refuses the plan as stale, start the module's server,
+     plan again, stop it, and apply.
+   - Check it as the upgrade's step 7 does: once the plan's revision is
+     the only active one, healthy, it serves from the restored server.
+7. **Replay the erasures before anyone uses it**
    ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
    A replay matches only with the same ledger key, which the module pins
    (`erasure_ledger_key_version`).
 
-From then on, the runtime serves from the restored server, which the
-module doesn't manage. The module's own server, which `database_server_name`
+From then on, the runtime serves from the restored server, which the module
+doesn't manage. The module's own server, which `database_server_name`
 names, stays: Terraform keeps it, and would make it again if you deleted it
-by hand. Its database, the migrated one, is a copy that later erasures
-don't reach, so once the runtime serves from the restored server, delete
-it:
+by hand. Start it again before your next plan; a stopped server also starts
+again on its own after seven days. Its database, the migrated one, doesn't
+get the erasures made since, so once the restored server is checked, delete
+it ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)):
 
 ```sh
+az postgres flexible-server start -g <rg> -n "$PG"
 az postgres flexible-server db delete -g <rg> -s "$PG" -d kindgi --yes
 ```
 
-The module's next apply makes it again, empty. At the next upgrade, check and restore
-the server the URL names, not the module's.
+The module's next apply makes it again, empty. At the next upgrade, check
+and restore the server the URL names, not the module's.
 
 ## Tear it down
 
