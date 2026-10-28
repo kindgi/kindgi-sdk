@@ -135,6 +135,7 @@ export function defineCheck<TConfigSchema extends AnySchema = AnySchema>(
       code: 'invalid-check-definition',
       message: `Check "${spec.id}" points ${pointsProblem}`,
       checkId: spec.id,
+      cause: undefined,
     });
   }
   const converter =

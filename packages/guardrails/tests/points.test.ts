@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { RunId, TenantId, Timestamp, ToolId } from '@kindgi/types';
+import type { GuardrailId, RunId, TenantId, Timestamp, ToolId } from '@kindgi/types';
 
 import {
   BUILT_IN_CHECK_IDS,
@@ -51,12 +51,12 @@ const registry = createCheckRegistry();
 async function run(check: string, config: Record<string, unknown>, t: RunTrace) {
   const registered = registry.get(check);
   if (registered === undefined) throw new Error(`no ${check}`);
-  return registered.evaluate(config, t);
+  return registered.evaluate(config, t, {});
 }
 
-function declaration(over: Partial<Guardrail> = {}): Record<string, unknown> {
+function declaration(over: Partial<Guardrail> = {}): Guardrail {
   return {
-    id: 'acme.guardrails.t',
+    id: 'acme.guardrails.t' as GuardrailId,
     kind: 'zero-llm',
     check: 'never-call-tool',
     config: { tools: ['refund'] },
@@ -116,9 +116,9 @@ describe('guardrailPointIssues', () => {
         ]);
       }
       expect(guardrailPointIssues({ action: { 'on-violation': action } })).toEqual([]);
-      expect(guardrailPointIssues({ at: 'final-answer', action: { 'on-violation': action } })).toEqual(
-        [],
-      );
+      expect(
+        guardrailPointIssues({ at: 'final-answer', action: { 'on-violation': action } }),
+      ).toEqual([]);
     }
   });
 
@@ -127,7 +127,10 @@ describe('guardrailPointIssues', () => {
     expect(
       guardrailPointIssues({ at: 'model-step', action: { 'on-violation': 'halt' }, scope }),
     ).toEqual([
-      { path: '/scope/tools', message: 'scope.tools is for "before-tool" and "after-tool", not "model-step"' },
+      {
+        path: '/scope/tools',
+        message: 'scope.tools is for "before-tool" and "after-tool", not "model-step"',
+      },
     ]);
     expect(guardrailPointIssues({ action: { 'on-violation': 'halt' }, scope })).toHaveLength(1);
     for (const at of ['before-tool', 'after-tool'] as const) {
@@ -144,18 +147,21 @@ describe('guardrailPointIssues', () => {
 
 describe('guardrailCheckPointProblems', () => {
   test('a point the check runs at is no problem', () => {
-    expect(guardrailCheckPointProblems({ at: 'before-tool' }, ['before-tool', 'final-answer'])).toEqual(
-      [],
-    );
+    expect(
+      guardrailCheckPointProblems({ at: 'before-tool' }, ['before-tool', 'final-answer']),
+    ).toEqual([]);
     expect(guardrailCheckPointProblems({}, DEFAULT_CHECK_POINTS)).toEqual([]);
   });
 
-  test('a point it doesn\'t run at is a problem at /at', () => {
+  test("a point it doesn't run at is a problem at /at", () => {
     expect(guardrailCheckPointProblems({ at: 'model-step' }, ['final-answer'])).toEqual([
       { path: '/at', message: 'at "model-step" isn\'t one of the check\'s points (final-answer).' },
     ]);
     expect(guardrailCheckPointProblems({}, ['before-tool'])).toEqual([
-      { path: '/at', message: 'at "final-answer" isn\'t one of the check\'s points (before-tool).' },
+      {
+        path: '/at',
+        message: 'at "final-answer" isn\'t one of the check\'s points (before-tool).',
+      },
     ]);
   });
 });
@@ -180,7 +186,8 @@ describe('built-in checks at their points', () => {
   test('never-call-tool before a call judges that call alone', async () => {
     const config = { tools: ['refund'] };
     expect(
-      (await run('never-call-tool', config, trace({ at: 'before-tool', call: call('refund') }))).passed,
+      (await run('never-call-tool', config, trace({ at: 'before-tool', call: call('refund') })))
+        .passed,
     ).toBe(false);
     // An earlier forbidden call was judged before it ran; this call isn't one.
     expect(
@@ -216,7 +223,11 @@ describe('built-in checks at their points', () => {
 
   test('tool-order before a call needs the tools before it in sequence first', async () => {
     const config = { sequence: ['lookup', 'verify', 'refund'] };
-    const early = await run('tool-order', config, trace({ at: 'before-tool', call: call('refund') }));
+    const early = await run(
+      'tool-order',
+      config,
+      trace({ at: 'before-tool', call: call('refund') }),
+    );
     expect(early.passed).toBe(false);
     expect(early.reason).toBe('"refund" called before [lookup, verify]');
 
@@ -253,7 +264,11 @@ describe('built-in checks at their points', () => {
     const step = await run(
       'output-matches',
       config,
-      trace({ at: 'model-step', step: { text: 'no order here', toolCalls: [] }, output: 'ORDER-1' }),
+      trace({
+        at: 'model-step',
+        step: { text: 'no order here', toolCalls: [] },
+        output: 'ORDER-1',
+      }),
     );
     expect(step).toMatchObject({ passed: false, reason: 'reply did not match /ORDER-\\d+/' });
     const result = await run(
@@ -281,24 +296,24 @@ describe('built-in checks at their points', () => {
 
   test('forbidden-substring reads a result: a string as is, JSON, or an error message', async () => {
     const config = { patterns: ['secret'] };
-    const at = (result: RunTrace['result']) =>
+    const at = (result: NonNullable<RunTrace['result']>) =>
       trace({ at: 'after-tool', call: call('lookup'), result });
     expect(await run('forbidden-substring', config, at({ output: 'a secret' }))).toMatchObject({
       passed: false,
       reason: 'result contains forbidden pattern(s): secret',
     });
-    expect((await run('forbidden-substring', config, at({ output: { note: 'secret' } }))).passed).toBe(
-      false,
-    );
+    expect(
+      (await run('forbidden-substring', config, at({ output: { note: 'secret' } }))).passed,
+    ).toBe(false);
     expect(
       (await run('forbidden-substring', config, at({ error: { message: 'secret store down' } })))
         .passed,
     ).toBe(false);
     expect((await run('forbidden-substring', config, at({ output: 'fine' }))).passed).toBe(true);
     // The final answer reads the output as before.
-    expect(
-      (await run('forbidden-substring', config, trace({ output: 'my secret' }))).reason,
-    ).toBe('output contains forbidden pattern(s): secret');
+    expect((await run('forbidden-substring', config, trace({ output: 'my secret' }))).reason).toBe(
+      'output contains forbidden pattern(s): secret',
+    );
   });
 });
 
@@ -321,7 +336,10 @@ describe('defineCheck points', () => {
   test('points that are empty, unknown or repeated are refused', () => {
     const cases: [unknown[], string][] = [
       [[], 'Check "acme.checks.x" points must name at least one point'],
-      [['before-handoff'], 'Check "acme.checks.x" points names "before-handoff", which isn\'t a point'],
+      [
+        ['before-handoff'],
+        'Check "acme.checks.x" points names "before-handoff", which isn\'t a point',
+      ],
       [['model-step', 'model-step'], 'Check "acme.checks.x" points names a point twice'],
     ];
     for (const [points, message] of cases) {
@@ -377,7 +395,7 @@ describe('validateGuardrail at a point', () => {
     expect(at()).toBe('err');
   });
 
-  test('what a point can\'t do is refused by both validators', () => {
+  test("what a point can't do is refused by both validators", () => {
     const spec = declaration({ at: 'after-tool', action: { 'on-violation': 'escalate' } });
     for (const r of [validateGuardrail(spec, registry), validateGuardrailSpec(spec)]) {
       expect(r.kind === 'err' && r.error).toMatchObject({
@@ -389,7 +407,7 @@ describe('validateGuardrail at a point', () => {
     }
   });
 
-  test('the schema refuses a point or a view it doesn\'t know', () => {
+  test("the schema refuses a point or a view it doesn't know", () => {
     expect(validateGuardrailSpec(declaration({ at: 'before-handoff' as never })).kind).toBe('err');
     expect(validateGuardrailSpec(declaration({ sees: 'everything' as never })).kind).toBe('err');
     expect(validateGuardrailSpec(declaration({ sees: 'conversation' })).kind).toBe('ok');

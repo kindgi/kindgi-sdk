@@ -1760,6 +1760,38 @@ export const GUARDRAIL_POINTS: readonly string[] = [
 export const SCOPE_TOOL = /^[^*]*\*?$/;
 
 /**
+ * What the guardrail asks for that its point can't do, in `guardrailPointIssues`'s words and
+ * paths (`@kindgi/guardrails`; a test holds the two equal), so a pack a deploy would refuse
+ * fails its build first: `'escalate'` and `'compensate'` away from the final answer, and
+ * `scope.tools` away from the tool points.
+ */
+export function guardrailPointIssues(
+  rec: Readonly<Record<string, unknown>>,
+): readonly { readonly path: string; readonly message: string }[] {
+  const at = (rec.at as string | undefined) ?? 'final-answer';
+  const action = isObject(rec.action) ? rec.action['on-violation'] : undefined;
+  const issues: { path: string; message: string }[] = [];
+  if ((action === 'escalate' || action === 'compensate') && at !== 'final-answer') {
+    issues.push({
+      path: '/action/on-violation',
+      message: `"${action}" is recorded at the final answer only, not at "${at}"`,
+    });
+  }
+  if (
+    isObject(rec.scope) &&
+    rec.scope.tools !== undefined &&
+    at !== 'before-tool' &&
+    at !== 'after-tool'
+  ) {
+    issues.push({
+      path: '/scope/tools',
+      message: `scope.tools is for "before-tool" and "after-tool", not "${at}"`,
+    });
+  }
+  return issues;
+}
+
+/**
  * The points the guardrail's own check runs at: the check object it names, or the one its
  * module exports under its `check` id. Undefined when the module ships none (a built-in).
  */
@@ -1873,6 +1905,13 @@ function buildGuardrail(
     return manifestErr(
       relPath,
       `'scope.tools' must name one or more tool ids, each with at most a trailing '*'`,
+    );
+  }
+  const pointIssues = guardrailPointIssues(rec);
+  if (pointIssues.length > 0) {
+    return manifestErr(
+      relPath,
+      `guardrail ${rec.id}: ${pointIssues.map((i) => `${i.path}: ${i.message}`).join('; ')}`,
     );
   }
   const points = packCheckPoints(rec, module_, checkId ?? rec.id);

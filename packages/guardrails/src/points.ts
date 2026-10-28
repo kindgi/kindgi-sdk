@@ -82,7 +82,9 @@ export function guardrailCheckPointProblems(
 ): readonly GuardrailConfigProblem[] {
   const at = guardrailPoint(guardrail);
   if (points.includes(at)) return [];
-  return [{ path: '/at', message: `at "${at}" isn't one of the check's points (${points.join(', ')}).` }];
+  return [
+    { path: '/at', message: `at "${at}" isn't one of the check's points (${points.join(', ')}).` },
+  ];
 }
 
 /**
