@@ -838,18 +838,22 @@ through its database URL in Key Vault:
    # Off in this shell: az's log file, if it's on, records each request's body.
    export AZURE_LOGGING_ENABLE_LOG_FILE=no
 
+   PG=$(terraform output -raw database_server_name)
    V=$(terraform output -raw key_vault_name)
-   BACK=$(az postgres flexible-server show -g <rg> -n "$PG-back" --query fullyQualifiedDomainName -o tsv)
    put() { az keyvault secret set --vault-name "$V" -n "$1" --file /dev/stdin --query id -o tsv; }
 
    DBPW=$(openssl rand -hex 24)
-   printf '%s' "$DBPW" | az postgres flexible-server update -g <rg> -n "$PG-back" --admin-password @- -o none
-   printf 'postgres://kindgiadmin:%s@%s:5432/kindgi?sslmode=require' "$DBPW" "$BACK" | put database-url
+   BACK=$(az postgres flexible-server show -g <rg> -n "$PG-back" --query fullyQualifiedDomainName -o tsv) &&
+     [ -n "$BACK" ] &&
+     printf '%s' "$DBPW" | az postgres flexible-server update -g <rg> -n "$PG-back" --admin-password @- -o none &&
+     printf 'postgres://kindgiadmin:%s@%s:5432/kindgi?sslmode=require' "$DBPW" "$BACK" | put database-url &&
+     terraform apply back.tfplan && rm back.tfplan
    unset DBPW
-
-   terraform apply back.tfplan
-   rm back.tfplan
    ```
+
+   Each command runs only if the one before it worked: the vault never
+   gets a URL for a server or a password that isn't there, and the plan
+   applies only once the URL's new version is in.
 
    Container Apps picks up the URL's new version within 30 minutes, and
    restarts the revisions that read it. So apply at once: the new
@@ -864,9 +868,17 @@ through its database URL in Key Vault:
 
 From then on, the runtime serves from the restored server, which the
 module doesn't manage. The module's own server, which `database_server_name`
-names, still holds the migrated database: Terraform keeps it, and would
-make it again if you deleted it by hand. At the next upgrade, check and
-restore the server the URL names, not the module's.
+names, stays: Terraform keeps it, and would make it again if you deleted it
+by hand. Its database, the migrated one, is a copy that later erasures
+don't reach, so once the runtime serves from the restored server, delete
+it:
+
+```sh
+az postgres flexible-server db delete -g <rg> -s "$PG" -d kindgi --yes
+```
+
+The module's next apply makes it again, empty. At the next upgrade, check and restore
+the server the URL names, not the module's.
 
 ## Tear it down
 
