@@ -153,9 +153,10 @@ interface ToolGateRecord {
 /**
  * Whether `call` waits for a review, decided once (`NodeContext.record`):
  * a step resumed after the park reads the gate it parked on back, so a
- * policy relaxed meanwhile can't skip the reviewer's answer. A call the
- * gate lets through isn't recorded: it runs, and its stored result is
- * reused after a park further down the list.
+ * policy relaxed meanwhile can't skip the reviewer's answer, and a gate
+ * recorded before its wait token took the step's scope keeps the token it
+ * was recorded with. A call the gate lets through isn't recorded: it runs,
+ * and its stored result is reused after a park further down the list.
  */
 async function decideToolGate(
   ctx: TurnContext,
@@ -190,6 +191,7 @@ async function decideToolGate(
       argsHash,
       waitTokenId: computeToolCallWaitToken({
         runId: kctx.runId as unknown as string,
+        ...(kctx.stepScope !== undefined && { stepScope: kctx.stepScope }),
         callId: call.id,
         argsHash,
       }),
