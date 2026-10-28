@@ -18,7 +18,7 @@ description: >
   kindgi-scala-authoring-tools.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.3"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:

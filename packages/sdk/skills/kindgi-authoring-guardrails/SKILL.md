@@ -7,20 +7,18 @@ description: >
   kinds (zero-llm / llm-judge / external), actions, severity levels, scope
   selectors, config schemas via Zod or JSON Schema, validating a declaration
   with validateGuardrail from @kindgi/guardrails, and how guardrails reach
-  agents. A guardrail judges the final answer unless its `at` puts it
-  before a tool call, after it, or on each model reply that asks for tool
-  calls (the check must name that point in `points`). halt fails the
-  turn; retry sends the answer or reply back, refuses the call, or
-  withholds its result (escalate / compensate are only recorded, at the
-  final answer only), and a check sees only the current turn: its user
-  message and tool results, not earlier turns'. Load this whenever you are authoring or editing code
-  inside a pack's guardrails/ directory, defining a check, or wiring a
-  guardrail onto an agent. Authoring tools is covered by
-  kindgi-authoring-tools; authoring agents is covered by
+  agents. A guardrail judges the final answer, or with `at` a tool call
+  (before or after it) or each model reply that asks for tool calls. halt
+  fails the turn; retry sends the answer or reply back, refuses the call or
+  withholds its result; escalate / compensate are final-answer only and
+  only recorded. A check sees only the current turn. Load this whenever you
+  are authoring or editing code inside a pack's guardrails/ directory,
+  defining a check, or wiring a guardrail onto an agent. Authoring tools is
+  covered by kindgi-authoring-tools; authoring agents by
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.11"
+version: "0.4.0"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:

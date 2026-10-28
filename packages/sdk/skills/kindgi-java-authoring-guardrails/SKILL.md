@@ -16,7 +16,7 @@ description: >
   kindgi-java-authoring-agents, Java tools by kindgi-java-authoring-tools.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.3"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:

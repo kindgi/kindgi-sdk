@@ -16,7 +16,7 @@ description: >
   kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.6"
+version: "0.1.7"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
