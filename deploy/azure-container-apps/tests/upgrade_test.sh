@@ -102,6 +102,20 @@ case "$*" in
       | {name: $n, sku: {name: "Standard_B1ms", tier: $tier}}
         + (if $nested == "" then $p else {properties: $p} end)'
     exit 0 ;;
+  "keyvault secret list-versions"*)
+    # database-url's versions, out of order, each with its attributes and
+    # tags and no value; the newest is disabled. STUB_URL_RESTORED tags the
+    # newest enabled one as a way back's, STUB_URL_RESTORED_OLDER an older one.
+    [[ $(arg --vault-name "$@") == "$STUB_VAULT" && $(arg -n "$@") == database-url ]] \
+      || not_found "secret $(arg -n "$@") in $(arg --vault-name "$@")"
+    if [[ -n ${STUB_KV_VERSIONS_ERR:-} ]]; then printf '%s\n' "$STUB_KV_VERSIONS_ERR" >&2; exit 1; fi
+    jq -n --arg v "https://$STUB_VAULT.vault.azure.net/secrets/database-url/" \
+      --arg newest "${STUB_URL_RESTORED:-}" --arg older "${STUB_URL_RESTORED_OLDER:-}" '
+      def tag($r): if $r == "" then null else {"kindgi-restored-server": $r} end;
+      [{id: ($v + ("a" * 32)), attributes: {enabled: true, created: "2026-09-01T10:00:00+00:00"}, tags: tag($older)},
+       {id: ($v + ("c" * 32)), attributes: {enabled: false, created: "2026-10-28T09:00:00+00:00"}, tags: null},
+       {id: ($v + ("b" * 32)), attributes: {enabled: true, created: "2026-10-01T10:00:00+00:00"}, tags: tag($newest)}]'
+    exit 0 ;;
   "keyvault secret list"*)
     # A listing names each secret and holds no value.
     [[ $(arg --vault-name "$@") == "$STUB_VAULT" ]] || not_found "vault $(arg --vault-name "$@")"
@@ -110,8 +124,16 @@ case "$*" in
       + (if $url == "missing" then [] else
           [{id: ($v + "/secrets/database-url"), name: "database-url", attributes: {enabled: ($url == "enabled")}}] end)'
     exit 0 ;;
-  "containerapp job create"*)
+  "resource create"*)
+    # A check job, made from its whole resource: the case reads the resource
+    # and its mode, kept under the job's name.
     printf '%s\n' "$*" >>"$STUB_JOBS_LOG"
+    spec="$(arg --properties "$@")"; spec="${spec#@}"
+    job="$(arg --id "$@")"; job="${job##*/}"
+    if [[ -f $spec ]]; then
+      cp "$spec" "$STUB_SPECS_DIR/$job.json"
+      ls -l "$spec" | cut -c1-10 >"$STUB_SPECS_DIR/$job.mode"
+    fi
     if [[ -n ${STUB_JOB_CREATE_ERR:-} ]]; then printf '%s\n' "$STUB_JOB_CREATE_ERR" >&2; exit 1; fi
     exit 0 ;;
   "containerapp job start"*)
@@ -134,7 +156,11 @@ case "$*" in
       if ((n <= ${#seq[@]})); then status="${seq[n - 1]}"; fi
     fi
     [[ -n $status ]] || exit 1
-    jq -n --arg n "$exe" --arg s "$status" '{name: $n, properties: {status: $s, startTime: "2026-10-28T10:00:00+00:00"}}'
+    # Under properties, as Resource Manager returns it; with STUB_EXEC_FLAT,
+    # at the top level.
+    jq -n --arg n "$exe" --arg s "$status" --arg flat "${STUB_EXEC_FLAT:-}" '
+      {status: $s, startTime: "2026-10-28T10:00:00+00:00"} as $p
+      | {name: $n} + (if $flat == "" then {properties: $p} else $p end)'
     exit 0 ;;
   "containerapp job delete"*)
     printf '%s\n' "$(arg -n "$@")" >>"$STUB_DELETED_LOG"
@@ -145,7 +171,7 @@ case "$*" in
     if [[ -n ${STUB_BACKUP_ERR:-} ]]; then printf '%s\n' "$STUB_BACKUP_ERR" >&2; exit 1; fi
     exit 0 ;;
   *)
-    # The way back's commands (revision deactivate, restore, secret set...)
+    # The way back's commands (the app's stop and start, restore, secret set...)
     # are printed, never run: any other call is a bug.
     printf 'az %s\n' "$*" >>"$STUB_UNKNOWN_LOG"
     exit 97 ;;
@@ -280,7 +306,7 @@ mkvars() {
 # latest revision, $3 the latest ready one, $4 the provisioning state.
 app_json() {
   jq -cn --arg i "$1" --arg l "$2" --arg r "$3" --arg s "${4:-Succeeded}" '{
-    name: "kindgi-server", type: "Microsoft.App/containerApps",
+    name: "kindgi-server", type: "Microsoft.App/containerApps", location: "canadacentral",
     properties: {provisioningState: $s, latestRevisionName: $l, latestReadyRevisionName: $r,
       configuration: {activeRevisionsMode: "Single"},
       template: {containers: [{name: "server", image: $i}]}}}'
@@ -303,7 +329,8 @@ reset_env() {
         STUB_PG_EARLIEST STUB_PG_TIER STUB_PG_NESTED STUB_URL_SECRET STUB_JOB_CREATE_ERR STUB_JOB_START_ERR \
         STUB_EXEC_STATUS STUB_EXEC_ONLY STUB_EXEC_SEQUENCE STUB_JOB_DELETE_RC STUB_JOB_SHOW_RC STUB_BACKUP_ERR \
         STUB_PLAN_RC STUB_APPLY_RC STUB_COPY_RC STUB_INSPECT_ERR STUB_PLAN_CHANGES STUB_PLAN_KEEP_IMAGE \
-        STUB_SHOW_RC STUB_LICENSE_JOB V_PACK V_PREFIX V_DB_URL_VERSION
+        STUB_SHOW_RC STUB_LICENSE_JOB STUB_URL_RESTORED STUB_URL_RESTORED_OLDER STUB_KV_VERSIONS_ERR \
+        STUB_EXEC_FLAT V_PACK V_PREFIX V_DB_URL_VERSION
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
   VAR_FILE="$CASE_DIR/dev.tfvars"
@@ -327,6 +354,7 @@ reset_env() {
   export STUB_MARKER_COPY="$CASE_DIR/copied"
   export STUB_PLAN_SAW="$CASE_DIR/plan-saw"
   export STUB_JOBS_LOG="$CASE_DIR/jobs.log"
+  export STUB_SPECS_DIR="$CASE_DIR/specs"
   export STUB_DELETED_LOG="$CASE_DIR/deleted.log"
   export STUB_BACKUP_LOG="$CASE_DIR/backup.log"
   export STUB_EXEC_POLLS="$CASE_DIR/exec-polls"
@@ -334,7 +362,7 @@ reset_env() {
   export STUB_UNKNOWN_LOG="$CASE_DIR/unknown.log"
   export AZURE_CONFIG_DIR="$CASE_DIR/azure"
   export DOCKER_CONFIG="$CASE_DIR/docker"
-  mkdir -p "$DOCKER_CONFIG" "$AZURE_CONFIG_DIR"
+  mkdir -p "$DOCKER_CONFIG" "$AZURE_CONFIG_DIR" "$STUB_SPECS_DIR"
   printf '{"auths":{"registry.kindgi.com":{}}}\n' >"$DOCKER_CONFIG/config.json"
   cp "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"
   # 0.2.0 unless a case says otherwise; the default, the newest release the
@@ -374,7 +402,7 @@ assert_docker_config_unchanged() {
 # terraform console takes the state lock briefly; the stub doesn't model it.)
 assert_reads_only() {
   local other
-  other="$(grep -vE '^(az (account show|containerapp show|acr manifest list-metadata|postgres flexible-server show|keyvault secret list) |docker buildx imagetools inspect |terraform output -json$|terraform console( -var-file=[^ ]+)+$|terraform plan( -var-file=[^ ]+)+ -var server_image=[^ ]+ -lock=false -out=[^ ]+$|terraform show -json [^ ]+$)' "$STUB_CALLS_LOG")"
+  other="$(grep -vE '^(az (account show|containerapp show|acr manifest list-metadata|postgres flexible-server show|keyvault secret list|keyvault secret list-versions) |docker buildx imagetools inspect |terraform output -json$|terraform console( -var-file=[^ ]+)+$|terraform plan( -var-file=[^ ]+)+ -var server_image=[^ ]+ -lock=false -out=[^ ]+$|terraform show -json [^ ]+$)' "$STUB_CALLS_LOG")"
   if [[ -z $other ]]; then pass; else fail "made a call that isn't a read: $other"; fi
 }
 # No call reached Azure: a refusal before anything is read from it.
@@ -382,7 +410,7 @@ assert_no_az() {
   if grep -q '^az ' "$STUB_CALLS_LOG" 2>/dev/null; then fail "$1: it called az: $(grep '^az ' "$STUB_CALLS_LOG" | head -n 1)"; else pass; fi
 }
 # The check jobs the run created, by name, in the order it created them.
-jobs_made() { sed -nE 's/^containerapp job create -n ([^ ]+) .*/\1/p' "$STUB_JOBS_LOG" 2>/dev/null; }
+jobs_made() { sed -nE 's|^resource create --id [^ ]*/Microsoft\.App/jobs/([^ ]+) .*|\1|p' "$STUB_JOBS_LOG" 2>/dev/null; }
 # Every check job the run created was deleted, however the run ended.
 assert_jobs_deleted() {
   local made gone
@@ -448,7 +476,7 @@ if cmp -s "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"; 
 assert_file_has "$STUB_CALLS_LOG" "az acr login -n kindgiab12" "docker logged in to the registry by its name"
 # The image is copied before any check job is made: the jobs pull it.
 assert_before "$STUB_CALLS_LOG" "az acr login" "docker buildx imagetools create" "the login comes before the copy"
-assert_before "$STUB_CALLS_LOG" "docker buildx imagetools create" "az containerapp job create" "the copy comes before the checks"
+assert_before "$STUB_CALLS_LOG" "docker buildx imagetools create" "az resource create" "the copy comes before the checks"
 # The subscription az is set to is checked before anything else is read.
 assert_before "$STUB_CALLS_LOG" "az account show" "az containerapp show" "the subscription is checked first"
 assert_out "subscription    $SUB"
@@ -479,24 +507,45 @@ if grep -q "tenants" "$STUB_CALLS_LOG"; then fail "a tenants command ran"; else 
 # replica, no retry, the job's timeout; the new image pulled with the
 # server's identity; the database URL by Key Vault reference, versionless,
 # as the server reads it; that URL its one env var; and the check as its args.
+# Each is made whole through Resource Manager, from a resource only this
+# user can read, in the server's region.
 case_start "what each check job is made with"
 for job in $(jobs_made); do
-  line="$(grep -F -- "-n $job " "$STUB_JOBS_LOG")"
+  line="$(grep -F -- "/Microsoft.App/jobs/$job " "$STUB_JOBS_LOG")"
   case "$job" in
     *-pk) check="provider-keys" ;; *-ss) check="secret-scopes" ;; *-mhc) check="mcp-header-credentials" ;; *) check="?" ;;
   esac
-  want="containerapp job create -n $job -g $RG --environment $ENV_ID --workload-profile-name Consumption --trigger-type Manual --replica-timeout 600 --replica-retry-limit 0 --parallelism 1 --replica-completion-count 1 --image $NEW_IMAGE --registry-server $REPO --registry-identity $IDENTITY --mi-user-assigned $IDENTITY --secrets database-url=keyvaultref:https://kindgi-ab12.vault.azure.net/secrets/database-url,identityref:$IDENTITY --env-vars KINDGI_DATABASE_URL=secretref:database-url --args check $check -o none"
-  if [[ $line == "$want" ]]; then pass; else fail "the job $job is made with: $line"; fi
+  want="resource create --id $IDS/Microsoft.App/jobs/$job --api-version 2025-01-01 --is-full-object --properties @"
+  if [[ $line == "$want"*"/$job.json -o none" ]]; then pass; else fail "the job $job is made with: $line"; fi
+  want="$(jq -S -c -n --arg job "$job" --arg check "$check" --arg id "$IDENTITY" --arg env "$ENV_ID" \
+    --arg repo "$REPO" --arg image "$NEW_IMAGE" --arg url "https://$VAULT.vault.azure.net/secrets/database-url" '{
+    location: "canadacentral",
+    identity: {type: "UserAssigned", userAssignedIdentities: {($id): {}}},
+    properties: {environmentId: $env, workloadProfileName: "Consumption",
+      configuration: {triggerType: "Manual", replicaTimeout: 600, replicaRetryLimit: 0,
+        manualTriggerConfig: {parallelism: 1, replicaCompletionCount: 1},
+        secrets: [{name: "database-url", keyVaultUrl: $url, identity: $id}],
+        registries: [{server: $repo, identity: $id}]},
+      template: {containers: [{name: $job, image: $image, args: ["check", $check],
+        env: [{name: "KINDGI_DATABASE_URL", secretRef: "database-url"}]}]}}}')"
+  got="$(jq -S -c . "$STUB_SPECS_DIR/$job.json" 2>/dev/null)"
+  if [[ -n $got && $got == "$want" ]]; then pass; else fail "the job $job is made from: ${got:-(no resource)}"; fi
+  if [[ "$(cat "$STUB_SPECS_DIR/$job.mode" 2>/dev/null)" == "-rw-------" ]]; then pass; else fail "the job $job's resource is readable by others"; fi
 done
-if grep -q -- "--env-vars.*--env-vars" "$STUB_JOBS_LOG"; then fail "a job got a second set of env vars"; else pass; fi
-if grep -qE "secrets/database-url/[0-9a-f]" "$STUB_JOBS_LOG"; then fail "a job reads a pinned URL version"; else pass; fi
+if [[ "$(jobs_made | wc -l | tr -d ' ')" == 3 ]]; then pass; else fail "the run didn't make 3 check jobs: $(jobs_made | tr '\n' ' ')"; fi
 
-# 1b. --check-tenant goes to each job as its own argument.
+# 1b. --check-tenant goes to each job as two arguments of its own, which
+# az containerapp's --args would read as its own option.
 case_start "--check-tenant"
 reset_env; export STUB_TAGS="0.1.8"
 run "yes" --check-tenant "$TENANT"
 assert_rc 0 "--check-tenant runs"
-if [[ "$(grep -c -- "--args check [a-z-]* --tenant $TENANT -o none$" "$STUB_JOBS_LOG")" == 3 ]]; then pass; else fail "each job doesn't get --tenant: $(cat "$STUB_JOBS_LOG")"; fi
+n=0
+for job in $(jobs_made); do
+  jq -e --arg t "$TENANT" '.properties.template.containers[0].args | length == 4 and .[0] == "check" and .[2:] == ["--tenant", $t]' \
+    "$STUB_SPECS_DIR/$job.json" >/dev/null 2>&1 && n=$((n + 1))
+done
+if [[ $n == 3 ]]; then pass; else fail "each job doesn't get --tenant: $(cat "$STUB_SPECS_DIR"/*.json 2>/dev/null)"; fi
 
 case_start "--check-tenant that isn't a uuid"
 reset_env; export STUB_TAGS="0.1.8"
@@ -629,11 +678,13 @@ assert_jobs_deleted "after the apply fails"
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.1 memory erasures export --out=erasures-" "the export runs 0.1.8's CLI line"
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.1 memory erasures replay erasures-" "the replay runs 0.1.8's CLI line"
 if grep -qF "pre-release" "$OUT"; then fail "a final's way back has the pre-release note"; else pass; fi
-# Stop the new version: every active revision deactivated, then a check that
-# none is left, before anything changes.
-assert_file_has "$OUT" "      for r in \$(az containerapp revision list -n kindgi-server -g $RG --query \"[].name\" -o tsv); do" "the active revisions listed"
-assert_file_has "$OUT" "        az containerapp revision deactivate -n kindgi-server -g $RG --revision \"\$r\"" "each deactivated"
-assert_out "Go on only once this lists no revision"
+# Stop the server's app through Container Apps' REST API, then a check that
+# it's stopped, before anything changes.
+APP_URL="/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.App/containerApps/kindgi-server"
+assert_file_has "$OUT" "      az rest --method post --url \"$APP_URL/stop?api-version=2025-01-01\"" "the app stopped"
+assert_file_has "$OUT" "      az rest --method get --url \"$APP_URL?api-version=2025-01-01\" --query properties.runningStatus -o tsv" "its running status read"
+assert_out "Go on only once this prints Stopped"
+assert_file_lacks "$OUT" "management.azure.com" "az rest adds the cloud's own endpoint"
 # Restore to the restore point this run printed, into the module's network.
 T="$(sed -nE 's/^  restore point: ([^ ]+) \(UTC\).*/\1/p' "$OUT")"
 restored="$DB_SERVER-r$(date -u +%Y%m%d)"
@@ -644,21 +695,34 @@ assert_file_has "$OUT" "        --private-dns-zone $DB_ZONE" "the restore is in 
 assert_file_has "$OUT" "      az postgres flexible-server parameter set -g $RG --server-name $restored \\" "pgvector allowed on the restored server"
 assert_file_has "$OUT" "        --name azure.extensions --value VECTOR" "azure.extensions set"
 assert_file_has "$OUT" "      export AZURE_LOGGING_ENABLE_LOG_FILE=no" "az's log file off for the password"
-assert_file_has "$OUT" "| az keyvault secret set --vault-name $VAULT -n database-url --file /dev/stdin --query id -o tsv" "a new version of database-url"
+assert_file_has "$OUT" "| az keyvault secret set --vault-name $VAULT -n database-url --file /dev/stdin \\" "a new version of database-url"
+assert_file_has "$OUT" "          --tags kindgi-restored-server=$restored --query id -o tsv" "tagged with the restored server"
 assert_out "set database_url_version in it"
 assert_out "cp $VAR_FILE.pre-upgrade-"
 if grep -qxF "      (umask 077 && terraform plan -var-file=$VAR_FILE -out=back.tfplan)" "$OUT"; then pass; else fail "the way back doesn't plan with the var-file alone"; fi
 if grep -qxF "      terraform apply back.tfplan" "$OUT"; then pass; else fail "the way back doesn't apply its saved plan"; fi
+# Before the start: the old image's revision alone is active; one with the
+# new image is deactivated. Then the start, its status, and the revision.
+assert_out "lists that revision alone, with the old image, $RUNNING_IMAGE:"
+assert_file_has "$OUT" "      az containerapp revision list -n kindgi-server -g $RG --query \"[].[name, properties.template.containers[0].image]\" -o tsv" "the active revisions and their images listed"
+assert_file_has "$OUT" "      az containerapp revision deactivate -n kindgi-server -g $RG --revision <its name>" "the new image's revision deactivated"
+assert_file_has "$OUT" "      az rest --method post --url \"$APP_URL/start?api-version=2025-01-01\"" "the app started"
+assert_out "go on once the second command prints Running"
+assert_file_has "$OUT" "      az containerapp show -n kindgi-server -g $RG --query \"[properties.latestRevisionName, properties.latestReadyRevisionName]\" -o tsv" "the new revision checked"
 assert_out "refuses to start while"
+assert_out "or while the version step 4 tagged is"
 # In that order: the export (it needs the server), the stop (the first
-# change), the restore, its parameter, the URL, the pin, the apply, the replay.
-assert_before "$OUT" "memory erasures export" "az containerapp revision deactivate" "the ledger is exported before the stop"
-assert_before "$OUT" "az containerapp revision deactivate" "az postgres flexible-server restore" "the new version stops before the restore"
+# change), the restore, its parameter, the URL, the pin, the apply, the
+# revisions' check, the start, the replay.
+assert_before "$OUT" "memory erasures export" "/stop?api-version" "the ledger is exported before the stop"
+assert_before "$OUT" "/stop?api-version" "az postgres flexible-server restore" "the server stops before the restore"
 assert_before "$OUT" "az postgres flexible-server restore" "--name azure.extensions" "the restore comes before its parameter"
 assert_before "$OUT" "--name azure.extensions" "az keyvault secret set" "the parameter comes before the URL"
 assert_before "$OUT" "az keyvault secret set" "set database_url_version in it" "the URL comes before its pin"
 assert_before "$OUT" "set database_url_version in it" "terraform apply back.tfplan" "the pin comes before the apply"
-assert_before "$OUT" "terraform apply back.tfplan" "memory erasures replay" "the apply comes before the replay"
+assert_before "$OUT" "terraform apply back.tfplan" "az containerapp revision list" "the apply comes before the revisions' check"
+assert_before "$OUT" "az containerapp revision list" "/start?api-version" "the revisions' check comes before the start"
+assert_before "$OUT" "/start?api-version" "memory erasures replay" "the start comes before the replay"
 assert_file_has "$VAR_FILE" "$NEW_IMAGE" "var-file keeps the new image after a failed apply"
 
 # 7. The new revision never becomes ready: the way back is printed.
@@ -775,6 +839,13 @@ run "yes"
 assert_rc 0 "the Resource Manager shape is read too"
 assert_out "Azure keeps 7 days of backups"
 
+# 9a. A job run's status at the top level, as az prints some reads.
+case_start "a job run's status at the top level"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXEC_FLAT=1
+run "yes"
+assert_rc 0 "a flat status is read too"
+assert_out "check provider-keys: ok"
+
 # 10. The URL secret the jobs and the server read must be there, enabled.
 for url in missing disabled; do
   case_start "database-url $url"
@@ -785,6 +856,30 @@ for url in missing disabled; do
   assert_absent "$STUB_MARKER_COPY" "copy"
   assert_absent "$STUB_JOBS_LOG" "a check job"
 done
+
+# 10a. A way back's URL version, still database-url's newest enabled one:
+# the server reads the restored server, so the run stops before anything is
+# copied. The listing is out of order, and a newer disabled version doesn't
+# count.
+case_start "database-url's newest version is a way back's"
+reset_env; export STUB_TAGS="0.1.8" STUB_URL_RESTORED="$DB_SERVER-r20261028"
+run "yes"
+assert_rc 1 "a way back's URL version stops it"
+assert_out "the newest version of database-url in $VAULT is a way back's, naming the restored server $DB_SERVER-r20261028"
+assert_absent "$STUB_MARKER_COPY" "copy"
+assert_absent "$STUB_JOBS_LOG" "a check job"
+
+case_start "a way back's URL version, with a newer one since"
+reset_env; export STUB_TAGS="0.1.8" STUB_URL_RESTORED_OLDER="$DB_SERVER-r20260901"
+run "yes"
+assert_rc 0 "an older way back's version doesn't stop it"
+
+case_start "database-url's versions can't be listed"
+reset_env; export STUB_TAGS="0.1.8" STUB_KV_VERSIONS_ERR="ERROR: (Forbidden) acme"
+run "yes"
+assert_rc 1 "an unreadable listing stops it"
+assert_out "couldn't list the versions of database-url in $VAULT. ERROR: (Forbidden) acme"
+assert_absent "$STUB_MARKER_COPY" "copy"
 
 # 11. az set to another subscription: refused before the deployment is read.
 case_start "az on another subscription"

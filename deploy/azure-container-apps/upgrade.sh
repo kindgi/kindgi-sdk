@@ -167,6 +167,11 @@ readonly JOB_REPLICA_TIMEOUT=600
 readonly JOB_START_MARGIN=120
 readonly JOB_POLL_INTERVAL=10
 
+# The Container Apps REST version the check jobs are made with, and the way
+# back stops and starts the server with: the first GA one that documents an
+# app's runningStatus.
+readonly ACA_API_VERSION="2025-01-01"
+
 # The way back is a point-in-time restore: the server must keep at least
 # this many days of backups (Azure's own minimum).
 readonly MIN_RETENTION_DAYS=7
@@ -279,6 +284,9 @@ var_file_flags() {
 print_go_back() {
   local restored="${DB_SERVER}-r$(date -u +%Y%m%d)"
   local ledger="erasures-$(date -u +%F).json"
+  # The server's app, as az rest takes it: az adds the cloud's Resource
+  # Manager endpoint.
+  local app="/subscriptions/${SUBSCRIPTION}/resourceGroups/${RG}/providers/Microsoft.App/containerApps/${SERVER_APP}"
   # Both CLI commands talk to the release the run started from: the export to
   # the server serving now, the replay to the old image put back (step 5 below).
   local cli="@kindgi/cli@$(line_of "$CURRENT")" rc_note=""
@@ -309,16 +317,15 @@ To go back:
     If no server answers, the restored database's own ledger is all there
     is: an erasure made after ${RESTORE_POINT} can't be replayed.
 
- 2. Then stop the new version, before anything else changes: deactivate
-    every active revision of ${SERVER_APP}. An inactive revision runs no
-    replica. When a secret gets a new version (step 4), Container Apps
-    restarts the active revisions that read it: the new version, left
-    active, would start on the restored server and migrate it too.
-      for r in \$(az containerapp revision list -n ${SERVER_APP} -g ${RG} --query "[].name" -o tsv); do
-        az containerapp revision deactivate -n ${SERVER_APP} -g ${RG} --revision "\$r"
-      done
-    Go on only once this lists no revision (it lists the active ones):
-      az containerapp revision list -n ${SERVER_APP} -g ${RG} --query "[].name" -o tsv
+ 2. Then stop the server's app, ${SERVER_APP}, before anything else
+    changes. A stopped app runs no replica. When a secret gets a new
+    version (step 4), Container Apps restarts the active revisions that
+    read it: the new version, left running, would start on the restored
+    server and migrate it too. az has no command to stop an app; Container
+    Apps' REST API stops it:
+      az rest --method post --url "${app}/stop?api-version=${ACA_API_VERSION}"
+    Go on only once this prints Stopped (it can take a few minutes):
+      az rest --method get --url "${app}?api-version=${ACA_API_VERSION}" --query properties.runningStatus -o tsv
     Nothing serves from here until step 5.
 
  3. Restore the database server to the restore point, as a new server in
@@ -339,9 +346,11 @@ To go back:
       printf '%s' "\$DBPW" | az postgres flexible-server update -g ${RG} -n ${restored} --admin-password @- -o none
       printf 'postgres://kindgiadmin:%s@%s:5432/${DATABASE_NAME}?sslmode=require' "\$DBPW" \\
         "\$(az postgres flexible-server show -g ${RG} -n ${restored} --query "fullyQualifiedDomainName || properties.fullyQualifiedDomainName" -o tsv)" \\
-        | az keyvault secret set --vault-name ${KEY_VAULT} -n database-url --file /dev/stdin --query id -o tsv
+        | az keyvault secret set --vault-name ${KEY_VAULT} -n database-url --file /dev/stdin \\
+          --tags kindgi-restored-server=${restored} --query id -o tsv
       unset DBPW
-    It prints the new version's id; its last segment is the version.
+    It prints the new version's id; its last segment is the version. The
+    tag marks the version as a way back's (step 7).
 
  5. Put the old image(s) back, with the server reading the URL at exactly
     that version: copy the var-file back, set database_url_version in it to
@@ -356,9 +365,20 @@ To go back:
     it readable by you alone. Then apply it, and delete it:
       terraform apply back.tfplan
       rm back.tfplan
-    The new revision starts the old image, and reads the database URL at
-    that version: the restored server's, whatever Key Vault's refresh has
-    picked up.
+    The apply makes a new revision with the old image, which reads the
+    database URL at that version, the restored server's, whatever Key
+    Vault's refresh has picked up. Before you start the app, check that this
+    lists that revision alone, with the old image, ${RUNNING_IMAGE}:
+      az containerapp revision list -n ${SERVER_APP} -g ${RG} --query "[].[name, properties.template.containers[0].image]" -o tsv
+    A revision with the new image, still listed, would start on the restored
+    server too: deactivate it first, with
+      az containerapp revision deactivate -n ${SERVER_APP} -g ${RG} --revision <its name>
+    Then start the app, and go on once the second command prints Running:
+      az rest --method post --url "${app}/start?api-version=${ACA_API_VERSION}"
+      az rest --method get --url "${app}?api-version=${ACA_API_VERSION}" --query properties.runningStatus -o tsv
+    Then check that the new revision serves: this prints its name twice, as
+    the latest revision and the latest ready one:
+      az containerapp show -n ${SERVER_APP} -g ${RG} --query "[properties.latestRevisionName, properties.latestReadyRevisionName]" -o tsv
 
  6. Before anyone uses it, replay the erasures:
       npx --yes ${cli} memory erasures replay ${ledger}
@@ -372,7 +392,8 @@ To go back:
     module's own server, ${DB_SERVER}, is still the migrated one, and a
     later apply leaves ${restored} as it is. This script checks and
     restores ${DB_SERVER}, so it refuses to start while
-    database_url_version is set.
+    database_url_version is set, or while the version step 4 tagged is
+    database-url's newest.
 ======================================================================
 EOT
 }
@@ -660,7 +681,10 @@ app_json="$(az containerapp show -n "$SERVER_APP" -g "$RG" -o json 2>"$WORK/desc
 RUNNING_IMAGE="$(jq -r '.properties.template.containers[0].image // empty' <<<"$app_json")"
 # The revision serving now: step 6 waits for a newer one.
 OLD_REVISION="$(jq -r '.properties.latestRevisionName // empty' <<<"$app_json")"
+# The check jobs go where the server runs, in its environment's region.
+LOCATION="$(jq -r '.location // empty' <<<"$app_json")"
 [[ -n $RUNNING_IMAGE ]] || die "the server app \"$SERVER_APP\" has no image — is it deployed?"
+[[ -n $LOCATION ]] || die "the server app \"$SERVER_APP\" has no location — is it deployed?"
 [[ $RUNNING_IMAGE == "$OLD_SERVER_IMAGE" ]] \
   || die "the server runs $RUNNING_IMAGE, but $VAR_FILE has server_image = \"$OLD_SERVER_IMAGE\". Make the var-file match what's deployed, then run again."
 
@@ -779,6 +803,19 @@ fi
 if ! az keyvault secret list --vault-name "$KEY_VAULT" -o json 2>"$WORK/kv.err" \
     | jq -e 'any(.[]?; (.id // "" | split("/") | last) == "database-url" and .attributes.enabled == true)' >/dev/null 2>&1; then
   fail_check "the vault $KEY_VAULT has no enabled secret database-url, which the server and the check jobs read (README, step 3). $(cat "$WORK/kv.err")"
+# The URL's newest enabled version is the one the server reads without a
+# version. A way back tags the version it adds with the restored server's
+# name (its step 4): while that one is the newest, the server reads the
+# restored server, even with database_url_version cleared. The versions'
+# listing holds their tags and no value.
+elif ! url_versions="$(az keyvault secret list-versions --vault-name "$KEY_VAULT" -n database-url -o json 2>"$WORK/kvv.err")"; then
+  fail_check "couldn't list the versions of database-url in $KEY_VAULT. $(cat "$WORK/kvv.err")"
+else
+  if ! url_restored="$(jq -r '[.[]? | select(.attributes.enabled == true)] | sort_by(.attributes.created) | last | .tags["kindgi-restored-server"] // empty' <<<"$url_versions" 2>/dev/null)"; then
+    fail_check "couldn't read the versions of database-url in $KEY_VAULT that az listed."
+  elif [[ -n $url_restored ]]; then
+    fail_check "the newest version of database-url in $KEY_VAULT is a way back's, naming the restored server $url_restored (its kindgi-restored-server tag), so the server reads that server, though database_url_version isn't set. This script checks and restores the module's own server, $DB_SERVER, so it doesn't run while the server reads a restored one."
+  fi
 fi
 
 # The release's own tag must be the digest given, or the copy below would put
@@ -1117,8 +1154,10 @@ run_check() {
     return 0
   fi
   while :; do
+    # Under properties, as Resource Manager returns it, or flat, as az
+    # prints some reads.
     status="$(az containerapp job execution show -n "$job" -g "$RG" --job-execution-name "$execution" -o json 2>/dev/null \
-      | jq -r '.properties.status // empty' 2>/dev/null || true)"
+      | jq -r '.properties.status // .status // empty' 2>/dev/null || true)"
     # Still going, or not readable yet: ask again, up to the bound.
     case "$status" in
       Running | Processing | "") ;;
@@ -1150,24 +1189,48 @@ run_check() {
 # at create time. provider-keys, secret-scopes and mcp-header-credentials
 # apply for 0.1.8 -> 0.1.10 (stored-secrets is a restore check;
 # purged-tenants is multi-tenant only).
+#
+# Each job is made from its whole resource, through Resource Manager, which
+# takes it as written. `az containerapp job create --args` reads an argument
+# that starts with -- (the check's --tenant) as an option of its own, and
+# its --yaml rewrites the spec's keys, the identity's resource id among them.
+# The resource names the URL's secret by reference and holds no value.
+check_job_spec() {
+  jq -n --arg location "$LOCATION" --arg identity "$SERVER_IDENTITY" --arg env "$ENVIRONMENT_ID" \
+    --arg registry "$IMAGE_REPOSITORY" --arg image "$NEW_SERVER_IMAGE" --arg url "$DB_URL_SECRET_URI" \
+    --arg name "$1" --arg check "$2" --arg tenant "$CHECK_TENANT" --argjson timeout "$JOB_REPLICA_TIMEOUT" '{
+    location: $location,
+    identity: {type: "UserAssigned", userAssignedIdentities: {($identity): {}}},
+    properties: {
+      environmentId: $env,
+      workloadProfileName: "Consumption",
+      configuration: {
+        triggerType: "Manual",
+        replicaTimeout: $timeout,
+        replicaRetryLimit: 0,
+        manualTriggerConfig: {parallelism: 1, replicaCompletionCount: 1},
+        secrets: [{name: "database-url", keyVaultUrl: $url, identity: $identity}],
+        registries: [{server: $registry, identity: $identity}]
+      },
+      template: {containers: [{
+        name: $name,
+        image: $image,
+        args: (["check", $check] + (if $tenant == "" then [] else ["--tenant", $tenant] end)),
+        env: [{name: "KINDGI_DATABASE_URL", secretRef: "database-url"}]
+      }]}
+    }}'
+}
 step "Running the new runtime's read-only checks (as jobs)"
 check_stamp="$(date -u +%H%M%S)"
 for check in "${CHECKS[@]}"; do
   job="$(check_job_name "$check" "$check_stamp")"
-  args=(check "$check")
-  if [[ -n $CHECK_TENANT ]]; then args+=(--tenant "$CHECK_TENANT"); fi
+  spec="$WORK/$job.json"
+  (umask 077 && check_job_spec "$job" "$check" >"$spec")
   CHECK_JOBS+=("$job")
   info "creating the check job $job (deleted when this run ends; if the run is killed first: az containerapp job delete -n $job -g $RG --yes)"
-  if az containerapp job create -n "$job" -g "$RG" \
-      --environment "$ENVIRONMENT_ID" --workload-profile-name Consumption \
-      --trigger-type Manual --replica-timeout "$JOB_REPLICA_TIMEOUT" \
-      --replica-retry-limit 0 --parallelism 1 --replica-completion-count 1 \
-      --image "$NEW_SERVER_IMAGE" \
-      --registry-server "$IMAGE_REPOSITORY" --registry-identity "$SERVER_IDENTITY" \
-      --mi-user-assigned "$SERVER_IDENTITY" \
-      --secrets "database-url=keyvaultref:${DB_URL_SECRET_URI},identityref:${SERVER_IDENTITY}" \
-      --env-vars "KINDGI_DATABASE_URL=secretref:database-url" \
-      --args "${args[@]}" -o none 2>"$WORK/job.err"; then
+  # It returns once the job is made, or its making has failed.
+  if az resource create --id "/subscriptions/${SUBSCRIPTION}/resourceGroups/${RG}/providers/Microsoft.App/jobs/${job}" \
+      --api-version "$ACA_API_VERSION" --is-full-object --properties "@${spec}" -o none 2>"$WORK/job.err"; then
     run_check "$check" "$job"
   else
     fail_check "couldn't create the check job $job for $check. $(cat "$WORK/job.err")"
