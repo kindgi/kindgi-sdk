@@ -1265,6 +1265,7 @@ function serializeRun(
         ...(row.trigger.scheduledFor !== undefined && {
           scheduledFor: row.trigger.scheduledFor as unknown as string,
         }),
+        ...(row.trigger.version !== undefined && { version: row.trigger.version }),
       },
     }),
     ...(row.startedBy !== undefined && { startedBy: row.startedBy }),

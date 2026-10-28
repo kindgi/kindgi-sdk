@@ -304,6 +304,37 @@ none.
   must name `none`.
 - `kindgi schedules unregister <schedule-id>` removes it.
 
+## Its versions
+
+Each change to a schedule makes a **version** of it, which never changes
+after (runtime 0.3.0 or later). Creating the schedule makes version 1. An
+`update` that changes something makes the next, and so does a take-over.
+An `update` that changes nothing makes none, nor do pausing, resuming,
+running it now or removing it. A schedule from before versions has none
+until its next change or its first fire.
+
+A run uses the newest version when it starts, and keeps it whatever later
+changes make: the run's `trigger.version` names it. So a change or a
+take-over reaches the next run that starts, never a run already going.
+
+From your app, newest first:
+
+- `GET /v1/schedules/{triggerId}/versions` pages them (`schedules.versions`
+  in TypeScript, `list_versions` in Python);
+- `GET /v1/schedules/{triggerId}/versions/{version}` reads one
+  (`getVersion`, `get_version`). A version the schedule doesn't have is
+  `404 trigger-version-not-found`.
+
+Whoever can read the schedule can read its versions. Each one says when it
+was made (`createdAt`), by whom (`createdBy`), and why (`cause`: `register`,
+`edit`, `owner` for a take-over, or `first-fire` for one the runtime made
+at the first fire of a schedule from before versions, which names no one).
+Its `definition` is what it ran, with which input, as whom, when, and with
+which policies, label and tools allowed unattended: never its status.
+
+A version keeps every input it ever had, so a secret pasted into one is
+rotated, not edited out.
+
 ## In the console
 
 A project's **Schedules** page lists its schedules. Each row says:

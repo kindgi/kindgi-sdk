@@ -317,6 +317,8 @@ const noopTriggerRegistry: TriggerRegistryBinding = {
     error: { code: 'trigger-lifecycle-failed', message: 'noop', triggerId },
   }),
   unregister: async ({ triggerId }) => ({ triggerId, unregistered: false }),
+  listVersions: async () => ({ data: [] }),
+  getVersion: async () => null,
   findWebhook: async () => null,
   fireWebhook: async ({ triggerId }) => ({
     kind: 'err',

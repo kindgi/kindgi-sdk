@@ -1056,6 +1056,12 @@ OPERATIONS: dict[str, Operation] = {
     "schedules.fires": Operation(
         "schedules.fires", "GET", "/v1/schedules/{triggerId}/fires", "json", False
     ),
+    "schedules.listVersions": Operation(
+        "schedules.listVersions", "GET", "/v1/schedules/{triggerId}/versions", "json", False
+    ),
+    "schedules.getVersion": Operation(
+        "schedules.getVersion", "GET", "/v1/schedules/{triggerId}/versions/{version}", "json", False
+    ),
     "schedules.runNow": Operation(
         "schedules.runNow", "POST", "/v1/schedules/{triggerId}/run-now", "json", True
     ),
@@ -1079,6 +1085,12 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "webhooks.fires": Operation(
         "webhooks.fires", "GET", "/v1/webhooks/{triggerId}/fires", "json", False
+    ),
+    "webhooks.listVersions": Operation(
+        "webhooks.listVersions", "GET", "/v1/webhooks/{triggerId}/versions", "json", False
+    ),
+    "webhooks.getVersion": Operation(
+        "webhooks.getVersion", "GET", "/v1/webhooks/{triggerId}/versions/{version}", "json", False
     ),
     "webhooks.takeOwnership": Operation(
         "webhooks.takeOwnership", "POST", "/v1/webhooks/{triggerId}/owner", "json", True
@@ -1104,6 +1116,16 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "mailTriggers.fires": Operation(
         "mailTriggers.fires", "GET", "/v1/mail-triggers/{triggerId}/fires", "json", False
+    ),
+    "mailTriggers.listVersions": Operation(
+        "mailTriggers.listVersions", "GET", "/v1/mail-triggers/{triggerId}/versions", "json", False
+    ),
+    "mailTriggers.getVersion": Operation(
+        "mailTriggers.getVersion",
+        "GET",
+        "/v1/mail-triggers/{triggerId}/versions/{version}",
+        "json",
+        False,
     ),
     "mailTriggers.takeOwnership": Operation(
         "mailTriggers.takeOwnership", "POST", "/v1/mail-triggers/{triggerId}/owner", "json", True
@@ -9680,6 +9702,41 @@ class SchedulesResource:
             timeout=timeout,
         )
 
+    def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleVersionPage:
+        """A schedule's versions. `GET /v1/schedules/{triggerId}/versions`
+
+        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the schedule can read its versions.
+        """
+        return self._client._request(
+            _OPERATIONS["schedules.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ScheduleVersionPage,
+            timeout=timeout,
+        )
+
+    def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.ScheduleVersion:
+        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`"""
+        return self._client._request(
+            _OPERATIONS["schedules.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.ScheduleVersion,
+            timeout=timeout,
+        )
+
     def run_now(
         self,
         trigger_id: str | UUID,
@@ -9713,7 +9770,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the schedule's owner, so its runs act as the caller from the next run that starts. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -9897,6 +9954,41 @@ class WebhooksResource:
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookFirePage,
+            timeout=timeout,
+        )
+
+    def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerVersionPage:
+        """A webhook trigger's versions. `GET /v1/webhooks/{triggerId}/versions`
+
+        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the webhook trigger can read its versions.
+        """
+        return self._client._request(
+            _OPERATIONS["webhooks.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.WebhookTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.WebhookTriggerVersion:
+        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`"""
+        return self._client._request(
+            _OPERATIONS["webhooks.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.WebhookTriggerVersion,
             timeout=timeout,
         )
 
@@ -10096,6 +10188,41 @@ class MailTriggersResource:
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerVersionPage:
+        """A mail trigger's versions. `GET /v1/mail-triggers/{triggerId}/versions`
+
+        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its first fire. Whoever can read the mail trigger can read its versions.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerVersion:
+        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`"""
+        return self._client._request(
+            _OPERATIONS["mailTriggers.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.MailTriggerVersion,
             timeout=timeout,
         )
 
@@ -19053,6 +19180,41 @@ class AsyncSchedulesResource:
             timeout=timeout,
         )
 
+    async def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleVersionPage:
+        """A schedule's versions. `GET /v1/schedules/{triggerId}/versions`
+
+        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the schedule can read its versions.
+        """
+        return await self._client._request(
+            _OPERATIONS["schedules.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ScheduleVersionPage,
+            timeout=timeout,
+        )
+
+    async def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.ScheduleVersion:
+        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`"""
+        return await self._client._request(
+            _OPERATIONS["schedules.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.ScheduleVersion,
+            timeout=timeout,
+        )
+
     async def run_now(
         self,
         trigger_id: str | UUID,
@@ -19086,7 +19248,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the schedule's owner, so its runs act as the caller from the next run that starts. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -19270,6 +19432,41 @@ class AsyncWebhooksResource:
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.WebhookFirePage,
+            timeout=timeout,
+        )
+
+    async def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerVersionPage:
+        """A webhook trigger's versions. `GET /v1/webhooks/{triggerId}/versions`
+
+        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the webhook trigger can read its versions.
+        """
+        return await self._client._request(
+            _OPERATIONS["webhooks.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.WebhookTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    async def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.WebhookTriggerVersion:
+        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`"""
+        return await self._client._request(
+            _OPERATIONS["webhooks.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.WebhookTriggerVersion,
             timeout=timeout,
         )
 
@@ -19469,6 +19666,41 @@ class AsyncMailTriggersResource:
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    async def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerVersionPage:
+        """A mail trigger's versions. `GET /v1/mail-triggers/{triggerId}/versions`
+
+        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its first fire. Whoever can read the mail trigger can read its versions.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    async def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerVersion:
+        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`"""
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.MailTriggerVersion,
             timeout=timeout,
         )
 

@@ -1053,6 +1053,14 @@ const TriggerIdPathParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+const TriggerVersionPathParam: ParameterSpec = {
+  name: 'version',
+  in: 'path',
+  required: true,
+  description: "The version's number: 1 for the trigger's first, one more for each after.",
+  schema: { type: 'integer', minimum: 1 },
+};
+
 const WebhookEndpointIdPathParam: ParameterSpec = {
   name: 'endpointId',
   in: 'path',
@@ -10243,6 +10251,41 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/versions',
+    openapiPath: '/v1/schedules/{triggerId}/versions',
+    operationId: 'schedules.listVersions',
+    summary: "A schedule's versions",
+    description:
+      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the schedule can read its versions.",
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of versions, newest first.', schema: ref('ScheduleVersionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/versions/:version',
+    openapiPath: '/v1/schedules/{triggerId}/versions/{version}',
+    operationId: 'schedules.getVersion',
+    summary: 'Fetch one version of a schedule',
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('ScheduleVersion') },
+      '400': ErrorResponse("`bad-input`: `version` isn't a positive integer."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No cron trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/schedules/:triggerId/run-now',
     openapiPath: '/v1/schedules/{triggerId}/run-now',
@@ -10271,7 +10314,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.takeOwnership',
     summary: 'Take over a schedule',
     description:
-      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+      "The caller becomes the schedule's owner, so its runs act as the caller from the next run that starts. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10407,6 +10450,46 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('EventTriggerUnregisterResult') },
       ...CommonMutationErrors,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/event-triggers/:triggerId/versions',
+    openapiPath: '/v1/event-triggers/{triggerId}/versions',
+    operationId: 'eventTriggers.listVersions',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    summary: "An event trigger's versions",
+    description:
+      "Newest first: each version of the event trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next: a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A event trigger from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the event trigger can read its versions.",
+    tags: ['event-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('EventTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No event trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/event-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/event-triggers/{triggerId}/versions/{version}',
+    operationId: 'eventTriggers.getVersion',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    summary: 'Fetch one version of an event trigger',
+    tags: ['event-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('EventTriggerVersion') },
+      '400': ErrorResponse("`bad-input`: `version` isn't a positive integer."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No event trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
     },
   },
 
@@ -10574,6 +10657,44 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No webhook trigger with that id.'),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no delivery history.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/webhooks/:triggerId/versions',
+    openapiPath: '/v1/webhooks/{triggerId}/versions',
+    operationId: 'webhooks.listVersions',
+    summary: "A webhook trigger's versions",
+    description:
+      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the webhook trigger can read its versions.",
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('WebhookTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No webhook trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/webhooks/:triggerId/versions/:version',
+    openapiPath: '/v1/webhooks/{triggerId}/versions/{version}',
+    operationId: 'webhooks.getVersion',
+    summary: 'Fetch one version of a webhook trigger',
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('WebhookTriggerVersion') },
+      '400': ErrorResponse("`bad-input`: `version` isn't a positive integer."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No webhook trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
@@ -10770,6 +10891,44 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No mail trigger with that id.'),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no fire history.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId/versions',
+    openapiPath: '/v1/mail-triggers/{triggerId}/versions',
+    operationId: 'mailTriggers.listVersions',
+    summary: "A mail trigger's versions",
+    description:
+      "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its first fire. Whoever can read the mail trigger can read its versions.",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('MailTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No mail trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/mail-triggers/{triggerId}/versions/{version}',
+    operationId: 'mailTriggers.getVersion',
+    summary: 'Fetch one version of a mail trigger',
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('MailTriggerVersion') },
+      '400': ErrorResponse("`bad-input`: `version` isn't a positive integer."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No mail trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },

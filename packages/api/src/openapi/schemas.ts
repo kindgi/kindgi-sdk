@@ -71,7 +71,7 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
-import { RUN_STARTED_BY, RUN_TRIGGER_KINDS } from '@kindgi/runtime';
+import { RUN_STARTED_BY, RUN_TRIGGER_KINDS, TRIGGER_VERSION_CAUSES } from '@kindgi/runtime';
 import { CORRECTION_ITEM } from '@kindgi/types';
 
 import {
@@ -216,6 +216,12 @@ export const RunTriggerSchema: JsonSchema = {
       type: 'string',
       format: 'date-time',
       description: "A schedule's fire: the occurrence the run is for.",
+    },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version the run started with (`GET …/versions/{version}`), which later edits don't change. Absent on a run from before versions.",
     },
   },
 };
@@ -13317,6 +13323,12 @@ export const ScheduleRecordSchema: JsonSchema = {
       description:
         'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.',
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
     ),
@@ -13453,6 +13465,12 @@ export const ScheduleFireSchema: JsonSchema = {
         "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
     passId: {
       type: 'string',
       format: 'uuid',
@@ -13640,6 +13658,12 @@ export const EventTriggerRecordSchema: JsonSchema = {
     },
     label: { type: ['string', 'null'] },
     status: { $ref: '#/components/schemas/TriggerStatus' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -13825,6 +13849,12 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
       description:
         "Why the runtime paused it (repeated refused or failed starts; a sender's failed proofs never count), when it did.",
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     suppressedRefusals: {
       type: 'object',
       additionalProperties: false,
@@ -13862,6 +13892,12 @@ export const WebhookFireSchema: JsonSchema = {
         "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
     detail: {
       type: 'string',
       description:
@@ -14178,6 +14214,12 @@ export const MailTriggerRecordSchema: JsonSchema = {
       description:
         "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     account: {
       type: 'object',
       additionalProperties: false,
@@ -14289,6 +14331,12 @@ export const MailFireSchema: JsonSchema = {
         "`pending` while its run starts, or while an earlier mail of its thread waits or that mail's run hasn't finished (`detail` starts `thread-busy:`). `skipped`: no run started, as `detail` says: the mail is from the mailbox's own address (`own-address`), an automatic reply (`auto-submitted`), received before the trigger began watching (`before-since`), found in a mailbox that changed account before it was read (`mailbox-changed`), gone by the time it was read (`not-found`), or already had by an earlier run of its thread (`mail-already-given:`); or the poll started afresh (`cursor-reset:`). `refused`: over the trigger's `runsPerHour` (`over-limit:`), the mailbox's connection missing, lapsed or lacking a scope (`connection-missing:` and why), or the app gave the mail no thread (`no-thread-id`); a refused mail doesn't run later. `failed`: the run couldn't start.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
     detail: {
       type: 'string',
       description: 'Why it was skipped, refused or failed, or why a `pending` fire waits.',
@@ -14322,6 +14370,219 @@ export const MailTriggerCollectionPageSchema: JsonSchema = {
     hasMore: { type: 'boolean' },
   },
 };
+
+// ---------- trigger versions (every kind) ----------
+
+export const TriggerVersionCauseSchema: JsonSchema = {
+  type: 'string',
+  enum: [...TRIGGER_VERSION_CAUSES],
+  description:
+    "What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over), `first-fire` (the runtime's, at the first fire of a trigger from before versions) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).",
+};
+
+/**
+ * A kind's version definition: the fields of its record that make a new
+ * version when they change, as the record names and describes them.
+ */
+function triggerDefinitionSchema(
+  record: JsonSchema,
+  description: string,
+  fields: readonly string[],
+  required: readonly string[],
+): JsonSchema {
+  const properties = record.properties as Record<string, JsonSchema>;
+  return {
+    type: 'object',
+    additionalProperties: false,
+    description,
+    required: [...required],
+    properties: Object.fromEntries(
+      fields.map((f) => {
+        const property = properties[f];
+        if (property === undefined) throw new Error(`trigger record has no "${f}"`);
+        return [f, property];
+      }),
+    ),
+  };
+}
+
+/** A kind's version: its ids as its record names them, then the version's own fields. */
+function triggerVersionSchema(
+  ids: Record<string, JsonSchema>,
+  definition: string,
+  description: string,
+): JsonSchema {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    description,
+    required: [...Object.keys(ids), 'version', 'createdAt', 'cause', 'definition'],
+    properties: {
+      ...ids,
+      version: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Counts from 1, one more for each version.',
+      },
+      createdAt: { type: 'string', format: 'date-time' },
+      createdBy: {
+        type: 'string',
+        description:
+          'Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `pin`).',
+      },
+      cause: { $ref: '#/components/schemas/TriggerVersionCause' },
+      definition: { $ref: `#/components/schemas/${definition}` },
+    },
+  };
+}
+
+function triggerVersionPageSchema(version: string): JsonSchema {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    description: 'Newest first.',
+    required: ['data', 'hasMore'],
+    properties: {
+      data: { type: 'array', items: { $ref: `#/components/schemas/${version}` } },
+      hasMore: { type: 'boolean' },
+      nextCursor: { type: 'string' },
+    },
+  };
+}
+
+const VERSION_DEFINITION = 'and never its state (status, next or last fire).';
+const VERSION_KEEPS_INPUT =
+  'A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out.';
+
+export const ScheduleDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  ScheduleRecordSchema,
+  `What a schedule's version runs, when and as whom, as its record names them, ${VERSION_DEFINITION} ${VERSION_KEEPS_INPUT}`,
+  [
+    'flowId',
+    'flowVersion',
+    'agentId',
+    'agentVersion',
+    'improve',
+    'projectId',
+    'owner',
+    'cronExpression',
+    'timezone',
+    'input',
+    'catchUp',
+    'overlap',
+    'startingDeadlineSeconds',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  [
+    'projectId',
+    'owner',
+    'cronExpression',
+    'catchUp',
+    'overlap',
+    'startingDeadlineSeconds',
+    'label',
+  ],
+);
+
+export const ScheduleVersionSchema: JsonSchema = triggerVersionSchema(
+  {
+    scheduleId: { type: 'string', description: 'The same id as `triggerId`.' },
+    triggerId: { type: 'string' },
+  },
+  'ScheduleDefinition',
+  "One version of a schedule: what it was from `createdAt` until the next. A fire's run uses the newest when it starts, and keeps it.",
+);
+
+export const ScheduleVersionPageSchema: JsonSchema = triggerVersionPageSchema('ScheduleVersion');
+
+export const EventTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  EventTriggerRecordSchema,
+  `What an event trigger's version runs and on which event, as its record names them, ${VERSION_DEFINITION} ${VERSION_KEEPS_INPUT}`,
+  ['flowId', 'flowVersion', 'eventKind', 'input', 'label'],
+  ['flowId', 'flowVersion', 'eventKind', 'label'],
+);
+
+export const EventTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  {
+    eventTriggerId: { type: 'string', description: 'The same id as `triggerId`.' },
+    triggerId: { type: 'string' },
+  },
+  'EventTriggerDefinition',
+  "One version of an event trigger: what it was from `createdAt` until the next. A fire's run uses the newest when it starts, and keeps it.",
+);
+
+export const EventTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('EventTriggerVersion');
+
+export const WebhookTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  WebhookTriggerRecordSchema,
+  `What a webhook's version runs, as whom, and how it checks and limits a delivery, as its record names them (its secret by name), ${VERSION_DEFINITION} ${VERSION_KEEPS_INPUT}`,
+  [
+    'flowId',
+    'flowVersion',
+    'projectId',
+    'owner',
+    'input',
+    'hmacSecretName',
+    'hmacSecretScope',
+    'signature',
+    'deliveryIdHeader',
+    'bodyLimitBytes',
+    'rateLimitPerMinute',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  [
+    'flowId',
+    'flowVersion',
+    'projectId',
+    'owner',
+    'hmacSecretName',
+    'signature',
+    'bodyLimitBytes',
+    'rateLimitPerMinute',
+    'label',
+  ],
+);
+
+export const WebhookTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  { triggerId: { type: 'string' } },
+  'WebhookTriggerDefinition',
+  "One version of a webhook: what it was from `createdAt` until the next. A delivery's run uses the newest when it starts, and keeps it.",
+);
+
+export const WebhookTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('WebhookTriggerVersion');
+
+export const MailTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  MailTriggerRecordSchema,
+  `What a mail trigger's version runs, as whom, and which mailbox it reads at what pace, as its record names them, ${VERSION_DEFINITION}`,
+  [
+    'flowId',
+    'flowVersion',
+    'agentId',
+    'agentVersion',
+    'projectId',
+    'owner',
+    'mailbox',
+    'folder',
+    'pollSeconds',
+    'runsPerHour',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  ['projectId', 'owner', 'mailbox', 'pollSeconds', 'runsPerHour', 'label'],
+);
+
+export const MailTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  { triggerId: { type: 'string' } },
+  'MailTriggerDefinition',
+  "One version of a mail trigger: what it was from `createdAt` until the next. A new mail's run uses the newest when it starts, and keeps it.",
+);
+
+export const MailTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('MailTriggerVersion');
 
 // ---------- outbound webhook endpoints ----------
 
@@ -16052,6 +16313,19 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MailFire', MailFireSchema],
   ['MailFirePage', MailFirePageSchema],
   ['MailTriggerCollectionPage', MailTriggerCollectionPageSchema],
+  ['TriggerVersionCause', TriggerVersionCauseSchema],
+  ['ScheduleDefinition', ScheduleDefinitionSchema],
+  ['ScheduleVersion', ScheduleVersionSchema],
+  ['ScheduleVersionPage', ScheduleVersionPageSchema],
+  ['EventTriggerDefinition', EventTriggerDefinitionSchema],
+  ['EventTriggerVersion', EventTriggerVersionSchema],
+  ['EventTriggerVersionPage', EventTriggerVersionPageSchema],
+  ['WebhookTriggerDefinition', WebhookTriggerDefinitionSchema],
+  ['WebhookTriggerVersion', WebhookTriggerVersionSchema],
+  ['WebhookTriggerVersionPage', WebhookTriggerVersionPageSchema],
+  ['MailTriggerDefinition', MailTriggerDefinitionSchema],
+  ['MailTriggerVersion', MailTriggerVersionSchema],
+  ['MailTriggerVersionPage', MailTriggerVersionPageSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],
   ['WebhookEndpointFilter', WebhookEndpointFilterSchema],

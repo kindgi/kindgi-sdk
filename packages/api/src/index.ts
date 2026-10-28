@@ -422,7 +422,7 @@ export type {
   AdapterTestInput,
   AdapterTestOutcome,
 } from './adapter-binding.js';
-export { SCHEDULE_DEFAULTS, TRIGGER_KINDS } from './trigger-binding.js';
+export { SCHEDULE_DEFAULTS, TRIGGER_KINDS, TRIGGER_VERSION_CAUSES } from './trigger-binding.js';
 export {
   DEFAULT_PUBLIC_RUN_TOKEN_TTL_SECONDS,
   MAX_PUBLIC_RUN_TOKEN_RUNS,
@@ -486,8 +486,10 @@ export type {
   CronTriggerRecord,
   EventTriggerRecord,
   GetTriggerInput,
+  GetTriggerVersionInput,
   ListTriggerFiresInput,
   ListTriggersInput,
+  ListTriggerVersionsInput,
   RegisterCronTriggerInput,
   RegisterEventTriggerInput,
   RegisterTriggerError,
@@ -505,6 +507,9 @@ export type {
   TriggerRecord,
   TriggerRegistryBinding,
   TriggerTarget,
+  TriggerVersionCause,
+  TriggerVersionPage,
+  TriggerVersionRecord,
   UpdateCronTriggerInput,
   UpdateEventTriggerInput,
   UpdateTriggerError,

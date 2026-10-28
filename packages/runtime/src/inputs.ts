@@ -91,6 +91,12 @@ export interface RunTriggerRef {
   readonly fireId: string;
   /** A schedule's fire: the occurrence it ran for. */
   readonly scheduledFor?: Timestamp;
+  /**
+   * The trigger's version its fire's start used (`TriggerVersionRecord`),
+   * which the run keeps whatever later edits make. Only the runtime sets
+   * it. Absent on a run from before versions.
+   */
+  readonly version?: number;
 }
 
 /** Every value of `RunStartedBy`. */
