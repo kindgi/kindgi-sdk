@@ -16,7 +16,7 @@ description: >
   models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.11"
+version: "0.1.12"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -223,10 +223,13 @@ then `run.id`). The app reads the rest through the API, server side, with
   (`GET /v1/runs/{runId}`); status and timing only: `client.runs.progress(run_id)`.
 - **The audit, step by step:** `client.runs.journal(run_id).data`
   (`GET /v1/runs/{runId}/journal`).
-- **Where an agent's answer came from:** `client.provenance.get(run_id)`
-  (`GET /v1/provenance/{runId}`). A flow run has none of its own: each agent
-  step's `step.completed` entry in the flow's journal names its turn's run
-  (`entry.payload["output"]["runId"]`).
+- **Where an answer came from:** `client.provenance.get(run_id)`
+  (`GET /v1/provenance/{runId}`). An agent turn's record has its model and
+  tool calls. A finished flow run has its own record: a `step` node per step
+  (`step:<nodeId>`, a loop's iterations `step:<nodeId>@<loop>#<i>`) with the
+  `runs` it started, and `.step_usage`, its model usage per step. Until it's
+  written, the not-found error's `.details["recordState"]` is `being-written`
+  (or `failed`).
 - **What it cost:** `client.cost.records.list(root_run_id=run_id).data`
   (`GET /v1/cost/records?rootRunId={runId}`): one record per model call,
   with its `model`, `usage` (`prompt_tokens`, `completion_tokens`) and
