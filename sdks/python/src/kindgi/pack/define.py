@@ -144,8 +144,9 @@ class Tool(Generic[P, R]):
     """`True`: each call gets a wait token (`ctx.wait_token`), and the handler may return
     `ctx.pause()` to make the run wait for another system's answer."""
     stores_files: bool = False
-    """`True`: each call gets a file store (`ctx.files`), and the handler may store files it
-    fetches, at most 10 a call, and return them in its result's top-level `files`."""
+    """`True`: each call with an idempotency key gets a file store (`ctx.files`), and the
+    handler may store files it fetches, at most 10 a call, and return them in its result's
+    top-level `files`."""
     reads_files: bool = False
     """`True`: each call gets `ctx.files.read`, and the handler may read the bytes of a file
     its run may be shown, by its file value's `artifactId`."""

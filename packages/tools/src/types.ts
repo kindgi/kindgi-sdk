@@ -502,10 +502,11 @@ export interface ToolManifest {
   readonly pauses?: boolean;
   /**
    * `true` when the tool may store files it fetches, such as a mail's
-   * attachments, as files its run owns. Each call's handler gets
-   * `ctx.files`: it stores a file there and returns the file value it
-   * gets back in its result's top-level `files`, so an agent is shown
-   * the file. At most `MAX_STORED_FILES_PER_CALL` files a call.
+   * attachments, as files its run owns. The handler of each call with an
+   * `idempotencyKey` gets `ctx.files.store`: it stores a file there and
+   * returns the file value it gets back in its result's top-level `files`,
+   * so an agent is shown the file. At most `MAX_STORED_FILES_PER_CALL`
+   * files a call.
    *
    * Only a tool with a handler can store files: not one with a
    * declarative `spec`, nor an MCP tool. Absent = `false`.
