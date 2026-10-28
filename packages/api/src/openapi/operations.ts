@@ -11322,7 +11322,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No registration with that `appId` (`connection-app-not-found`).'),
       '409': ErrorResponse(
-        'Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).',
+        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
       ),
     },
   },

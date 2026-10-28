@@ -1311,6 +1311,23 @@ describe('names', () => {
     expect(kept.connection).not.toHaveProperty('label');
   });
 
+  test("a reconnect isn't refused a name another live connection has, since it keeps its own", async () => {
+    const made = registrations();
+    const [a, b] = made.appIds as [string, string];
+    await connect(made.binding, { appId: a, label: 'Work mail' });
+    const own = await connect(made.binding, { appId: b, label: 'Personal' });
+    const reconnected = await connect(made.binding, {
+      appId: b,
+      label: 'WORK mail',
+      code: 'ana.new@acme.example',
+    });
+    expect(reconnected.request.reconnects).toBe(own.connection.connectionId);
+    expect(reconnected.connection).toMatchObject({
+      connectionId: own.connection.connectionId,
+      label: 'Personal',
+    });
+  });
+
   test('a request whose key gained a connection before its finish keeps that connection’s name', async () => {
     const made = registrations();
     const [a] = made.appIds as [string];

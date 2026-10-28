@@ -820,10 +820,8 @@ export function createInMemoryConnections(
     const app = registrationFor(entry, input);
     if (app.kind === 'err') return app;
     const existing = liveConnection(input.tenantId, app.value.appId, input.owner, input.envName);
-    if (
-      input.label !== undefined &&
-      labelTaken(input, input.label, existing?.record.connectionId)
-    ) {
+    // A reconnect keeps the connection's label, so the one asked isn't checked.
+    if (existing === undefined && input.label !== undefined && labelTaken(input, input.label)) {
       return refuse('connection-label-taken', `Another connection is named "${input.label}"`, {
         field: 'label',
       });

@@ -25172,7 +25172,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "description": "The connection's name, trimmed, with no control or format characters (such as bidi overrides or zero-width characters); another live connection of the same app, owner and env can't have it, ignoring case. Absent: the account's label. A reconnect keeps the connection's name."
+            "description": "The connection's name, trimmed, with no control or format characters (such as bidi overrides or zero-width characters); another live connection of the same app, owner and env can't have it, ignoring case. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others."
           }
         }
       },
@@ -64004,7 +64004,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+            "description": "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
             "content": {
               "application/json": {
                 "schema": {

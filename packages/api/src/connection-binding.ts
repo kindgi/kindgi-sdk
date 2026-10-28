@@ -396,7 +396,8 @@ export interface ConnectionBinding {
    * A connect from outside a run (a Connect button, the CLI). A run's
    * connects are the resolver's. A `label` another live connection of the
    * same app, owner and env has, ignoring case, is
-   * `connection-label-taken`.
+   * `connection-label-taken`, unless the request reconnects: a reconnect
+   * keeps the connection's label and doesn't check the one asked.
    */
   createRequest(
     input: ConnectRequestCreateInput,
