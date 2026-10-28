@@ -318,6 +318,19 @@ describe.each(KINDS)("a $name's versions", (kind) => {
     },
   );
 
+  test.runIf(kind.owned)('a take-over by the owner it already has makes no version', async () => {
+    const h = harness();
+    const id = await registered(h);
+    expect((await h.call('POST', `${kind.base}/${id}/owner`, {}, 'ada')).body.version).toBe(2);
+    const before = (await h.call('GET', `${kind.base}/${id}/versions`)).body;
+    const again = await h.call('POST', `${kind.base}/${id}/owner`, {}, 'ada');
+    expect(again.status, JSON.stringify(again.body)).toBe(200);
+    expect(again.body.version).toBe(2);
+    expect((await h.call('GET', `${kind.base}/${id}`)).body.version).toBe(2);
+    expect((await h.call('GET', `${kind.base}/${id}/versions`)).body).toEqual(before);
+    expect(before.data.map((v: { cause: string }) => v.cause)).toEqual(['owner', 'register']);
+  });
+
   test('a version it never had is a 404 (`trigger-version-not-found`); a malformed one a 400', async () => {
     const h = harness();
     const id = await registered(h);
@@ -331,6 +344,7 @@ describe.each(KINDS)("a $name's versions", (kind) => {
       const res = await h.call('GET', `${kind.base}/${id}/versions/${bad}`);
       expect(res.status, bad).toBe(400);
       expect(res.body.error.code, bad).toBe('bad-input');
+      expect(res.body.error.details, bad).toEqual({ field: 'version' });
     }
   });
 

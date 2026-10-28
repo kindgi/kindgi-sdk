@@ -10278,7 +10278,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
     responses: {
       '200': { description: 'The version.', schema: ref('ScheduleVersion') },
-      '400': ErrorResponse("`bad-input`: `version` isn't a positive integer."),
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
         'No cron trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
@@ -10485,7 +10485,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
     responses: {
       '200': { description: 'The version.', schema: ref('EventTriggerVersion') },
-      '400': ErrorResponse("`bad-input`: `version` isn't a positive integer."),
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
         'No event trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
@@ -10691,7 +10691,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
     responses: {
       '200': { description: 'The version.', schema: ref('WebhookTriggerVersion') },
-      '400': ErrorResponse("`bad-input`: `version` isn't a positive integer."),
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
         'No webhook trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
@@ -10925,7 +10925,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [TriggerIdPathParam, TriggerVersionPathParam],
     responses: {
       '200': { description: 'The version.', schema: ref('MailTriggerVersion') },
-      '400': ErrorResponse("`bad-input`: `version` isn't a positive integer."),
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
       ...CommonAuthErrors,
       '404': ErrorResponse(
         'No mail trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',

@@ -60652,7 +60652,7 @@
             }
           },
           "400": {
-            "description": "`bad-input`: `version` isn't a positive integer.",
+            "description": "`version` isn't a positive integer (`bad-input`, `details.field`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -61846,7 +61846,7 @@
             }
           },
           "400": {
-            "description": "`bad-input`: `version` isn't a positive integer.",
+            "description": "`version` isn't a positive integer (`bad-input`, `details.field`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -62891,7 +62891,7 @@
             }
           },
           "400": {
-            "description": "`bad-input`: `version` isn't a positive integer.",
+            "description": "`version` isn't a positive integer (`bad-input`, `details.field`).",
             "content": {
               "application/json": {
                 "schema": {

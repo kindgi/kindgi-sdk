@@ -56,7 +56,7 @@ export async function versionOne<K extends TriggerVersionRecord['kind']>(
     c.status(statusFor('bad-input') as never);
     return c.json(
       toWireError(
-        { code: 'bad-input', message: '`version` must be a positive integer' },
+        { code: 'bad-input', message: '`version` must be a positive integer', field: 'version' },
         requestId,
       ),
     );

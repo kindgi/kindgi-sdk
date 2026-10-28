@@ -117,9 +117,14 @@ export function createInMemoryTriggerRegistry(
     versions.set(id, [...(versions.get(id) ?? []), versionOf(stamped, now(), cause, by)]);
     return stamped;
   };
-  /** An update's row: its next version, unless its definition is as it was. */
-  const edited = (row: TriggerRecord, next: TriggerRecord, by: string): TriggerRecord =>
-    sameJson(definitionOf(next), definitionOf(row)) ? next : versioned(next, 'edit', by);
+  /** A changed row (an update, or a take-over): its next version, unless its definition is as it was. */
+  const changed = (
+    row: TriggerRecord,
+    next: TriggerRecord,
+    cause: 'edit' | 'owner',
+    by: string,
+  ): TriggerRecord =>
+    sameJson(definitionOf(next), definitionOf(row)) ? next : versioned(next, cause, by);
 
   const registry: InMemoryTriggerRegistry = {
     async register(input: RegisterTriggerInput) {
@@ -184,7 +189,7 @@ export function createInMemoryTriggerRegistry(
             startingDeadlineSeconds: input.startingDeadlineSeconds,
           }),
         } as CronTriggerRecord;
-        return { kind: 'ok', value: save(edited(row, next, input.by)) };
+        return { kind: 'ok', value: save(changed(row, next, 'edit', input.by)) };
       }
       if (row.kind === 'webhook' && input.kind === 'webhook') {
         const listed = withToolsAllowed(row, input.toolsAllowedUnattended);
@@ -207,10 +212,13 @@ export function createInMemoryTriggerRegistry(
             rateLimitPerMinute: input.rateLimitPerMinute ?? WEBHOOK_RATE_LIMITS.defaultPerMinute,
           }),
         };
-        return { kind: 'ok', value: save(edited(row, next, input.by)) };
+        return { kind: 'ok', value: save(changed(row, next, 'edit', input.by)) };
       }
       if (row.kind === 'mail' && input.kind === 'mail') {
-        return { kind: 'ok', value: save(edited(row, updatedMail(row, input, common), input.by)) };
+        return {
+          kind: 'ok',
+          value: save(changed(row, updatedMail(row, input, common), 'edit', input.by)),
+        };
       }
       const next = {
         ...row,
@@ -219,7 +227,7 @@ export function createInMemoryTriggerRegistry(
         ...(input.kind === 'event' &&
           input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
       } as TriggerRecord;
-      return { kind: 'ok', value: save(edited(row, next, input.by)) };
+      return { kind: 'ok', value: save(changed(row, next, 'edit', input.by)) };
     },
 
     async list(input) {
@@ -385,7 +393,7 @@ export function createInMemoryTriggerRegistry(
       const row = live(input.tenantId, input.triggerId);
       if (row === undefined || row.kind === 'event') return notFound(input.triggerId);
       const next = { ...row, owner: input.owner, updatedAt: now() };
-      return { kind: 'ok', value: save(versioned(next, 'owner', input.by)) };
+      return { kind: 'ok', value: save(changed(row, next, 'owner', input.by)) };
     },
 
     recordFire(fire) {
