@@ -72,8 +72,8 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   'prod-reader': on(PROD, 'read'),
   /** Reads staging and prod. */
   'staging-reader': [...on(STAGING, 'read'), ...on(PROD, 'read')],
-  /** Reads staging only. */
-  'staging-only': on(STAGING, 'read'),
+  /** Reads prod, and the one-project agent itself: today's check of an agent is its own read. */
+  'solo-reader': [...on(PROD, 'read'), `read agent:${SOLO}` as Grant],
 };
 
 const resolveToken: TokenResolver = async (token) =>
@@ -294,5 +294,13 @@ describe('who sees which pin (item rights, through createApp)', () => {
     const res = await list('staging-reader', PROD);
     expect(res.status, res.text).toBe(200);
     expect(versions(res.body)).toEqual([`${SERVED}@1.1.0`, `${SERVED}@0.9.0`, `${SERVED}@1.0.0`]);
+  });
+
+  test('a caller with read on the one-project agent sees its pin', async () => {
+    const { list } = harness({ rights: true });
+    const res = await list('solo-reader', PROD);
+    expect(res.status, res.text).toBe(200);
+    expect(versions(res.body)).toEqual([`${SERVED}@0.9.0`, `${SERVED}@1.0.0`, `${SOLO}@1.0.0`]);
+    expect(res.body.data[2].scope).toEqual({ kind: 'org', orgId: ORG });
   });
 });
