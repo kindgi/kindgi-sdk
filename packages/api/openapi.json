@@ -24978,7 +24978,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "description": "The connection's new name, trimmed, with no control characters; another live connection of the same app, owner and env can't have it, ignoring case."
+            "description": "The connection's new name, trimmed, with no control or format characters (such as bidi overrides or zero-width characters); another live connection of the same app, owner and env can't have it, ignoring case."
           }
         }
       },
@@ -25172,7 +25172,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100,
-            "description": "The connection's name, trimmed, with no control characters; another live connection of the same app, owner and env can't have it, ignoring case. Absent: the account's label. A reconnect keeps the connection's name."
+            "description": "The connection's name, trimmed, with no control or format characters (such as bidi overrides or zero-width characters); another live connection of the same app, owner and env can't have it, ignoring case. Absent: the account's label. A reconnect keeps the connection's name."
           }
         }
       },
@@ -63964,7 +63964,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, unknown field or a `label` that isn't 1 to 100 characters without control characters (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+            "description": "Malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control or format characters (such as bidi overrides or zero-width characters) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -64497,7 +64497,7 @@
             }
           },
           "400": {
-            "description": "`connectionId` is not a UUID, or a malformed body, unknown field or a `label` that isn't 1 to 100 characters without control characters (`bad-input`, `details.field`).",
+            "description": "`connectionId` is not a UUID, or a malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control or format characters (such as bidi overrides or zero-width characters) (`bad-input`, `details.field`).",
             "content": {
               "application/json": {
                 "schema": {

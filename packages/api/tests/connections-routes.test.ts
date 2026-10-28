@@ -670,6 +670,16 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
       'label',
     ],
     [
+      'a label with a bidi override',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u202Elim' },
+      'label',
+    ],
+    [
+      'a label with a zero-width space',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u200Bmail' },
+      'label',
+    ],
+    [
       'a label that is not a string',
       { app: 'google', permissions: ['gmail.send'], label: 7 },
       'label',
@@ -678,6 +688,7 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
     const { app } = makeApp();
     const res = await call(app, 'ana', 'POST', '/v1/connections', body);
     expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe('bad-input');
     expect(res.json.error.details).toEqual({ field });
   });
 
@@ -1128,6 +1139,8 @@ describe('the connections themselves', () => {
     ['a blank label', { label: ' \t ' }, 'label'],
     ['a label over 100 characters', { label: 'a'.repeat(101) }, 'label'],
     ['a label with a control character', { label: 'Work\u0007mail' }, 'label'],
+    ['a label with a bidi override', { label: 'Work\u202Elim' }, 'label'],
+    ['a label with a zero-width space', { label: 'Work\u200Bmail' }, 'label'],
     ['a null label', { label: null }, 'label'],
     ['an unknown field', { label: 'Work', account: 'x' }, 'account'],
   ])('a rename refuses %s before the binding, naming the field', async (_what, body, field) => {

@@ -796,18 +796,19 @@ function parseRenameBody(body: Record<string, unknown>): Parsed<string> {
   return parseConnectionLabel(body.label);
 }
 
-const CONTROL_RE = /\p{Cc}/u;
+/** A control or format character: a bidi override or a zero-width one among them. */
+const CONTROL_OR_FORMAT_RE = /[\p{Cc}\p{Cf}]/u;
 
-/** A connection's name: trimmed, 1 to 100 characters, none of them control characters. */
+/** A connection's name: trimmed, 1 to 100 characters, none of them control or format characters. */
 function parseConnectionLabel(raw: unknown): Parsed<string> {
   const label = typeof raw === 'string' ? raw.trim() : '';
   if (
     label.length === 0 ||
     [...label].length > MAX_CONNECTION_LABEL_LENGTH ||
-    CONTROL_RE.test(label)
+    CONTROL_OR_FORMAT_RE.test(label)
   ) {
     return bad(
-      `\`label\` must be 1 to ${MAX_CONNECTION_LABEL_LENGTH} characters, with no control characters`,
+      `\`label\` must be 1 to ${MAX_CONNECTION_LABEL_LENGTH} characters, with no control or format characters`,
       'label',
     );
   }

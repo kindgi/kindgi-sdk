@@ -279,6 +279,9 @@ function union(a: readonly string[], b: readonly string[]): string[] {
   return [...new Set([...a, ...b])];
 }
 
+/** Every control or format character: a bidi override or a zero-width one among them. */
+const CONTROL_OR_FORMAT_RE = /[\p{Cc}\p{Cf}]/gu;
+
 /** Its first `max` characters, never half of one. */
 function cut(text: string, max: number): string {
   return [...text].slice(0, max).join('');
@@ -595,12 +598,15 @@ export function createInMemoryConnections(
   }
 
   /**
-   * A new connection's label: the request's, else the account's cut to 100
-   * characters. When another has it, the first free `<label> 2`,
-   * `<label> 3`, and so on: a finish isn't failed for it.
+   * A new connection's label: the request's, else the account's without its
+   * control and format characters, trimmed and cut to 100 characters. When
+   * another has it, the first free `<label> 2`, `<label> 3`, and so on: a
+   * finish isn't failed for it.
    */
   function newLabel(request: ConnectRequestRecord, account: ConnectionAccount): string | undefined {
-    const label = request.label ?? cut(account.label.trim(), MAX_LABEL_LENGTH).trimEnd();
+    const label =
+      request.label ??
+      cut(account.label.replace(CONTROL_OR_FORMAT_RE, '').trim(), MAX_LABEL_LENGTH).trimEnd();
     if (label.length === 0) return undefined;
     if (!labelTaken(request, label)) return label;
     for (let n = 2; ; n += 1) {

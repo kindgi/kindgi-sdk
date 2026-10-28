@@ -11315,7 +11315,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Connect request made.', schema: ref('ConnectRequest') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field or a `label` that isn't 1 to 100 characters without control characters (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+        "Malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control or format characters (such as bidi overrides or zero-width characters) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
       ),
       '403': ErrorResponse(
         "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
@@ -11445,7 +11445,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The connection, renamed.', schema: ref('Connection') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "`connectionId` is not a UUID, or a malformed body, unknown field or a `label` that isn't 1 to 100 characters without control characters (`bad-input`, `details.field`).",
+        "`connectionId` is not a UUID, or a malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control or format characters (such as bidi overrides or zero-width characters) (`bad-input`, `details.field`).",
       ),
       '404': ErrorResponse(
         "No connection with that id, it was disconnected, or it's not the caller's (`connection-not-found`).",

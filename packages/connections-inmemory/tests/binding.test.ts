@@ -1198,6 +1198,21 @@ describe('names', () => {
     expect(got?.label).toBe('Work mail');
   });
 
+  test("an account's label names a connection without its control and format characters", async () => {
+    const made = registrations();
+    const [a, b] = made.appIds as [string, string];
+    const marked = await connect(made.binding, {
+      appId: a,
+      code: '\u200B ana\u202E@acme.example\u0007 ',
+    });
+    expect(marked.connection).toMatchObject({
+      label: 'ana@acme.example',
+      account: { label: '\u200B ana\u202E@acme.example\u0007 ' },
+    });
+    const bare = await connect(made.binding, { appId: b, code: '\u202E\u200B\u0007' });
+    expect(bare.connection).not.toHaveProperty('label');
+  });
+
   test('a name another live connection has by the finish, ignoring case, gets the first free number after it', async () => {
     const made = registrations();
     const [a, b, c] = made.appIds as [string, string, string];
