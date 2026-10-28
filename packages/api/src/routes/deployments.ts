@@ -22,10 +22,11 @@ import {
   DEFAULT_CHECK_POINTS,
   GUARDRAIL_SPEC_KEYS,
   type Guardrail,
-  type GuardrailPoint,
+  type GuardrailConfigProblem,
   checkPoints,
   createCheckRegistry,
   guardrailCheckPointProblems,
+  guardrailPoint,
   isGuardrailPoint,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
@@ -2225,10 +2226,9 @@ function validatePrimitives(
     const builtIn = builtInChecks.get(r.value.check);
     const configProblems = [
       ...(builtIn?.configProblems?.(r.value.config) ?? []),
-      ...guardrailCheckPointProblems(
-        r.value,
-        builtIn !== undefined ? checkPoints(builtIn) : indexedCheckPoints(packCheckPoints),
-      ),
+      ...(builtIn !== undefined
+        ? guardrailCheckPointProblems(r.value, checkPoints(builtIn))
+        : packCheckPointProblems(r.value, packCheckPoints)),
     ];
     if (configProblems.length > 0) {
       for (const problem of configProblems) {
@@ -2327,11 +2327,28 @@ function validatePrimitives(
 }
 
 /**
- * A pack check's points as its index lists them (`checkPoints`), the ones
- * this runtime knows. Absent: the final answer only.
+ * A guardrail's point against its pack check's points as the index lists
+ * them (`checkPoints`), the ones this runtime knows. Absent: the final
+ * answer only. A list with none this runtime knows (a newer CLI's) is
+ * refused with the points it lists, so the refusal says what's there.
  */
-function indexedCheckPoints(value: unknown): readonly GuardrailPoint[] {
-  return Array.isArray(value) ? value.filter(isGuardrailPoint) : DEFAULT_CHECK_POINTS;
+function packCheckPointProblems(
+  guardrail: Guardrail,
+  value: unknown,
+): readonly GuardrailConfigProblem[] {
+  if (!Array.isArray(value)) return guardrailCheckPointProblems(guardrail, DEFAULT_CHECK_POINTS);
+  const known = value.filter(isGuardrailPoint);
+  if (known.length > 0) return guardrailCheckPointProblems(guardrail, known);
+  const listed =
+    value.length > 0
+      ? `none this runtime knows: ${value.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(', ')}`
+      : 'the index lists none';
+  return [
+    {
+      path: '/at',
+      message: `at "${guardrailPoint(guardrail)}" isn't one of the check's points (${listed}).`,
+    },
+  ];
 }
 
 function readArray(value: unknown): readonly unknown[] {

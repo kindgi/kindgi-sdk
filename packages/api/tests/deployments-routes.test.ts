@@ -1523,6 +1523,16 @@ describe('POST /v1/deployments — happy path', () => {
       { checkId: 'acme.checks.args', at: 'before-tool' },
       'at "before-tool" isn\'t one of the check\'s points (final-answer).',
     ],
+    [
+      "a pack check whose index lists only points this runtime doesn't know (a newer CLI's)",
+      { checkId: 'acme.checks.args', checkPoints: ['mid-thought', 'after-answer'] },
+      'at "final-answer" isn\'t one of the check\'s points (none this runtime knows: mid-thought, after-answer).',
+    ],
+    [
+      'a pack check whose index lists an empty list of points',
+      { checkId: 'acme.checks.args', checkPoints: [] },
+      'at "final-answer" isn\'t one of the check\'s points (the index lists none).',
+    ],
   ])('%s: 400, the point named at /at', async (_what, guardrail, message) => {
     const fixture = buildSignedDeploy({ index: pointIndex(guardrail) });
     const { app } = makeApp({ fixture });
