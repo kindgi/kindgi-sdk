@@ -17,7 +17,7 @@ description: >
   session, or to take one back.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.4"
+version: "0.5.0"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -105,185 +105,15 @@ The entry lands as a new `## <title>` section appended to
 `FEEDBACK.md`, stamped with a fresh `id: YYYY-MM-DD.N`. The file is
 created with a header if it doesn't yet exist.
 
-## Sending it to Kindgi: only with the person's yes
+## Your case: read this file
 
-`FEEDBACK.md` stays in the pack until the person decides to send it.
-`kindgi feedback submit` sends entries to Kindgi's private intake on
-access.kindgi.com. Only Kindgi's maintainers read reports there. They're
-kept 90 days, and the person can take one back at any time.
-
-**Never send on your own.** Every time:
-
-1. **Preview.** Run `kindgi feedback submit --preview`, or name entries by
-   id or hash: `kindgi feedback submit 2026-09-25.3 --preview`. With none
-   named it takes every entry not sent yet and not marked fixed. It prints
-   exactly what would be sent, after redaction, and its `digest`. Nothing
-   is sent.
-2. **Show the person.** Show them each entry's title and body as they'll
-   go, and the environment sent with them: the OS, Node and CLI versions,
-   the pack's language, and `kindgi doctor`'s checks as id and status
-   only. Point out anything redaction missed, like a customer's name or an
-   internal host name. If something shouldn't go, edit the entry in
-   `FEEDBACK.md` and preview again.
-3. **Ask, then send.** Ask "Send this to Kindgi?" Only after a clear yes,
-   run the same command with `--yes=<digest>` in place of `--preview`. If
-   anything changed since the preview, it refuses: preview and ask again.
-
-If `submit` says "Kindgi may have received it" (the answer was lost, came
-too late, or couldn't be read), tell the person, and don't send again on
-your own: a second send makes a second report, and one that arrived can't
-be withdrawn from this machine. Let them decide.
-
-What redaction takes out before the preview:
-- the home directory alone becomes `~`, and paths in the pack become `./…`;
-- other absolute paths become `[path]`, a path under `~` too;
-- values from the pack's `.env*` files and `.kindgi/secrets.env` become
-  `[redacted]`;
-- private keys and token shapes become `[redacted]` (a Kindgi token keeps
-  its prefix and last four characters);
-- a URL keeps its host and path but loses its user info and query values;
-- email addresses become `[email]`.
-
-It can't catch everything in free text: the preview is the check.
-
-Once sent, each entry gets a line like
-`- **submitted:** 2026-09-25T15:02:11.000Z · **report:** fbr_…`. The
-report id isn't a secret, so `FEEDBACK.md` can still be committed. The key
-that takes a report back is kept in `~/.kindgi/feedback/keys.json` on this
-machine and is never printed. Don't read or copy that file.
-
-If `KINDGI_FEEDBACK_SUBMIT=off` is set, `submit` refuses. That's the
-person's or their team's choice, so don't work around it. `write`,
-`status` and `withdraw` still work.
-
-## Hearing back
-
-At the start of a session, when `FEEDBACK.md` has submitted entries, run
-`kindgi feedback status`. It asks about each report at most once a day,
-and never again once it's fixed, won't be fixed, or was withdrawn, or once
-the intake doesn't have it (past its 90 days) unless it's named. A fixed
-entry gets `> **Fixed:** in <version> (report fbr_…)` under its heading.
-Tell the person what changed:
-- **fixed**, with the version: suggest upgrading to it;
-- **known**, with the public issue when there is one;
-- **won't fix**, with the one-line reason.
-
-Name an entry or a report id (`kindgi feedback status 2026-09-25.3`) to
-ask about it now. A teammate's report id works too: it isn't a secret.
-
-## Taking one back
-
-When the person asks to withdraw a report, run
-`kindgi feedback withdraw <id|hash|reportId>`. The intake clears its text
-at once, and the entry's line gets `· **withdrawn:** <date>`. It needs the
-key on the machine that sent the report. A withdrawn entry isn't sent again
-unless the person names it in `submit`.
-
-## Entry shape (what the CLI produces)
-
-```md
-## preferredProvider silently dropped by wire schema
-
-- **id:** 2026-09-25.3
-- **hash:** feedback-a3f2c1d0
-- **kind:** bug
-- **severity:** high
-- **date:** 2026-09-25T14:32:07.104Z
-- **sdk:** 0.1.2 · **cli:** 0.1.2 · **by:** claude-code
-
-### Summary
-One-line: what the report is about.
-
-### Observed
-What happened, with file:line pointers when possible.
-
-### Expected
-What should have happened.
-
-### Reproducer
-Exact commands, spec files, output.
-
-### Suggested fix
-Optional; leave blank if you don't have one.
-
----
-```
-
-## Editing FEEDBACK.md directly
-
-Entries are referenced locally by their `id` (e.g. `2026-09-25.3`)
-or by their title; across packs (or between peers) they are referenced
-by their `hash` (e.g. `feedback-a3f2c1d0`). When the pack author says
-something like:
-
-- **"Remove 2026-09-25.3"** / **"Remove the preferredProvider
-  entry"** → find the section whose `id` matches (or whose `##
-  <title>` matches), delete from the header down through the next
-  `---` separator (inclusive). Do NOT renumber other entries — ids
-  are historical identifiers, gaps are expected.
-- **"Mark 2026-09-25.3 fixed"** / **"That preferredProvider one
-  landed in commit abc123"** → find the section, insert a line
-  right after the header:
-  ```md
-  > **Fixed:** landed in commit abc123 (2026-09-25). <optional context>
-  ```
-- **"Note that 2026-09-25.5 is a duplicate of feedback-a3f2c1d0"** /
-  **"Merge these — same hash"** → find the section, insert:
-  ```md
-  > **Duplicate of:** feedback-a3f2c1d0 (<optional context>)
-  ```
-  Prefer the `hash` when the duplicate lives in another pack (peer /
-  framework side); prefer the `id` when it's a local duplicate.
-- **Restructuring / re-ordering** → use the Edit tool to move the
-  section; keep the header + `- **id:** …` + `- **hash:** …` lines
-  intact so both identifiers stay stable.
-
-Do NOT try to re-file the same item through `kindgi feedback write`
-— that would create a new entry with a new id (though the hash
-would match, which is exactly the p2p-dedup signal). Always edit
-directly for maintenance operations within one pack.
-
-## Fields to fill precisely
-
-- **`kind`** — honest classification.
-  - `bug` — the framework did the wrong thing (crashed, silently
-    dropped a field, contradicted its own docs).
-  - `friction` — the framework did the "right" thing but the UX cost
-    more time than the task warranted.
-  - `question` — you don't understand something and the docs don't
-    answer it.
-  - `design` — you observed something that works as designed but the
-    design might be wrong.
-
-- **`severity`** — honest impact.
-  - `blocker` — nothing useful can happen until this is fixed.
-  - `high` — a common workflow is broken; users will hit this.
-  - `medium` — real friction, but there's a documented workaround.
-  - `low` — cosmetic, tiny annoyance, or affects one obscure path.
-
-- **`authored_by`** — `claude-code` when the diagnostic came entirely
-  from an AI coding assistant; `human` when the pack author wrote
-  it; `mixed` when it's a combination.
-
-## Common mistakes
-
-1. **File-path-only entries** ("bug in router.ts").
-   Without a reproducer + expected behavior, the maintainer has to
-   reverse-engineer your session. File:line is necessary but not
-   sufficient.
-2. **Skipping "Suggested fix" when you have one.** If you diagnosed
-   the root cause, name it. "Add `preferredProvider` to `AgentSchema`
-   in `packages/api/src/openapi/schemas.ts:667`" is worth a dozen
-   back-and-forth clarifications.
-3. **Bundling multiple bugs into one entry.** Run `kindgi feedback
-   write` once per bug. Each gets its own number, its own fix
-   status, its own removal path.
-4. **Sensitive state in reproducers.** Reproducer sections sometimes
-   contain API keys, tenant IDs, secrets — review before committing,
-   and read the preview before anyone says yes to sending.
-5. **Filing "the way I'd design it" as a bug.** Design disagreements
-   are `--kind=design`, not `--kind=bug`. Both are welcome; the
-   classification helps prioritization.
+| Your case | Read |
+|---|---|
+| Filling `kind`, `severity` and `authored_by`, and what an entry looks like | [fields-and-entry-shape.md](fields-and-entry-shape.md) |
+| Sending entries to Kindgi: never without the person's yes to the preview | [sending.md](sending.md) |
+| What became of sent reports, at the start of a session, or taking one back | [hearing-back.md](hearing-back.md) |
+| Removing, marking fixed, marking a duplicate or re-ordering entries in `FEEDBACK.md` | [editing-feedback-file.md](editing-feedback-file.md) |
+| Before you file: what makes a report hard to act on | [common-mistakes.md](common-mistakes.md) |
 
 ## References
 

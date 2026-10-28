@@ -14,7 +14,8 @@
  *     `.md`, at most 16 KiB each. Only the entry links them, and a file
  *     links no other file of the folder (back to `SKILL.md` is fine), so an
  *     agent never chains through files. One over 100 lines opens with a
- *     `## Contents` list.
+ *     `## Contents` list, and a numbered one names every numbered item,
+ *     so a mistake whose title wraps isn't left out.
  *
  * A skill not split yet is listed in `NOT_YET_LEVELED` with a ceiling on
  * its size: it can't grow past it, and once it's under the caps it fails
@@ -41,9 +42,6 @@ const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
   'kindgi-authoring-agents': { bytes: 16_113 },
   'kindgi-authoring-flows': { bytes: 13_128 },
   'kindgi-authoring-guardrails': { bytes: 18_696 },
-  'kindgi-authoring-mcp-servers': { bytes: 14_526 },
-  'kindgi-fix-corrections': { bytes: 13_613 },
-  'kindgi-framework-feedback': { bytes: 12_337 },
   'kindgi-getting-started': { bytes: 18_214 },
   'kindgi-java-authoring-agents': { bytes: 12_530 },
   'kindgi-java-authoring-flows': { bytes: 18_485 },
@@ -112,6 +110,25 @@ function linkedFiles(text: string): string[] {
   return files;
 }
 
+/** The items of a markdown text's `## Contents` list, in order. */
+function contents(text: string): string[] {
+  const lines = text.split('\n');
+  const items: string[] = [];
+  for (const line of lines.slice(lines.indexOf('## Contents') + 1)) {
+    if (line.startsWith('- ')) items.push(line.slice(2));
+    else if (line !== '' || items.length > 0) break;
+  }
+  return lines.includes('## Contents') ? items : [];
+}
+
+/** A markdown text's numbered items that open with a bold title, outside code, as `N. Title`; a title wrapped onto more lines is joined. */
+function numberedTitles(text: string): string[] {
+  const prose = text.replace(/^ *```[\s\S]*?^ *```/gm, '');
+  return [...prose.matchAll(/^ {0,3}(\d+)\. \*\*([\s\S]+?)\*\*/gm)].map(
+    (match) => `${match[1]}. ${(match[2] ?? '').replace(/\s+/g, ' ')}`,
+  );
+}
+
 describe('the helpers', () => {
   test('a folded description is joined with spaces; a one-line one is read as it is', () => {
     expect(
@@ -139,6 +156,27 @@ describe('the helpers', () => {
         ].join('\n'),
       ),
     ).toEqual([md('path-a'), md('path-b'), `../${md('other')}`]);
+  });
+
+  test("a Contents list is read to its end; a wrapped title is joined, and one in code isn't read", () => {
+    const text = [
+      '# Common mistakes',
+      '',
+      '## Contents',
+      '',
+      '- 1. One.',
+      '- 2. Two, wrapped.',
+      '',
+      '1. **One.** Body.',
+      '2. **Two,',
+      '   wrapped.** Body.',
+      '```md',
+      '3. **In code.**',
+      '```',
+    ].join('\n');
+    expect(contents(text)).toEqual(['1. One.', '2. Two, wrapped.']);
+    expect(numberedTitles(text)).toEqual(['1. One.', '2. Two, wrapped.']);
+    expect(contents('# No list\n')).toEqual([]);
   });
 });
 
@@ -194,6 +232,15 @@ describe.each(skills)('%s', (skill) => {
       if (text.split('\n').length > CONTENTS_FROM_LINES) {
         expect(text.split('\n').slice(0, 20), `${e.name} has ## Contents`).toContain('## Contents');
       }
+    }
+  });
+
+  test('a numbered Contents list names every numbered item, in order', () => {
+    for (const e of files) {
+      const text = read(skill, e.name).toString('utf8');
+      const items = contents(text);
+      if (!items.some((item) => /^\d+\. /.test(item))) continue;
+      expect(items, `${e.name}'s ## Contents`).toEqual(numberedTitles(text));
     }
   });
 });
