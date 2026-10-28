@@ -8,9 +8,10 @@ export type RuntimeInfo = RuntimeInfoWire;
 
 export interface RuntimeClient {
   /**
-   * Which runtime answers: its version (`0.3.0`, or `dev` for one built
-   * outside a release), how it's hosted (`hosted`, serving many tenants, or
-   * `self-hosted`, serving one) and whether it runs in development mode.
+   * Which runtime answers: its version (its release, such as `0.3.0`, or
+   * what its build gave otherwise: `dev` when it gave none), how it's hosted
+   * (`hosted`, serving many tenants, or `self-hosted`, serving one) and
+   * whether it runs in development mode.
    * Any caller of a tenant reads it. A runtime that doesn't report it
    * answers 404.
    *
