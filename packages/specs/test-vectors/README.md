@@ -1,6 +1,6 @@
 # Test vectors
 
-Fixed inputs and expected outcomes that implementations replay: the clients in this repository (each section says which), and any other implementation.
+Fixed inputs and expected outcomes that implementations replay: the clients in this repository (where a section names them), and any other implementation.
 
 ## `signed-export/`
 
