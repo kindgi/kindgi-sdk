@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { type FlowRefs, type FlowVersionOverrides, overridableRefs } from '@kindgi/flow';
+import {
+  type Flow,
+  type FlowVersionOverrides,
+  type OverridableRefs,
+  overridableTreeRefs,
+} from '@kindgi/flow';
 import type { FlowId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
-import { UsageError } from '../errors.js';
+import { UsageError, extractKindgiError } from '../errors.js';
 import {
   integerFlag,
   listFlag,
@@ -155,7 +160,7 @@ function idAtVersion(entry: string): { readonly id: string; readonly version: st
 /** Each `--with` id as an agent or a tool, by which of the flow's refs it is. */
 function splitVersions(
   entries: readonly { readonly id: string; readonly version: string }[],
-  refs: FlowRefs,
+  refs: OverridableRefs,
   label: string,
 ): FlowVersionOverrides {
   const agents: Record<string, string> = {};
@@ -165,7 +170,8 @@ function splitVersions(
     const agent = refs.agents.includes(id);
     const tool = refs.tools.includes(id);
     if (agent && tool) throw new UsageError(`${id} is both an agent and a tool in flow ${label}`);
-    if (!agent && !tool) throw new UsageError(`flow ${label} doesn't use ${id}`);
+    if (!agent && !tool)
+      throw new UsageError(`flow ${label} doesn't use ${id}, nor do its sub-flows you can read`);
     (agent ? agents : tools)[id] = version;
   }
   return {
@@ -176,7 +182,8 @@ function splitVersions(
 
 /**
  * `--with <id>@<version> ...` as the request's `versions`: each id is an
- * agent or a tool of the flow version, told apart by what the flow uses.
+ * agent or a tool of the flow version or one of its sub-flows, told apart
+ * by what they use.
  */
 async function versionsFrom(
   ctx: CommandContext,
@@ -190,8 +197,18 @@ async function versionsFrom(
     );
   }
   const { flowId, version } = target.flowRef;
-  const flow = await ctx.client().flows.versions.get(flowId as FlowId, version);
-  return splitVersions(entries, overridableRefs(flow), `${flowId} ${version}`);
+  const client = ctx.client();
+  const flow = await client.flows.versions.get(flowId as FlowId, version);
+  const refs = await overridableTreeRefs(flow, async (child) => {
+    try {
+      return (await client.flows.versions.get(child.flowId as FlowId, child.version)) as Flow;
+    } catch (err) {
+      // A sub-flow that isn't there adds nothing; the run refuses it.
+      if (extractKindgiError(err)?.code === 'not-found') return null;
+      throw err;
+    }
+  });
+  return splitVersions(entries, refs, `${flowId} ${version}`);
 }
 
 const PAGE_FLAGS = {

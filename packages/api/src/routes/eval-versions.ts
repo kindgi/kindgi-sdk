@@ -3,13 +3,14 @@
 
 /**
  * A flow candidate's `versions`, checked against the flow version when
- * the comparison starts: each id must be an agent or tool the flow uses,
- * at a published version. Checked once, here, before any run exists: the
- * runs apply them as given, on resume too.
+ * the comparison starts: each id must be an agent or tool the flow or
+ * one of its sub-flows uses, at a published version, since a run's
+ * versions apply to every flow of the run. Checked once, here, before any
+ * run exists: the runs apply them as given, on resume too.
  */
 
 import type { AgentId } from '@kindgi/agents';
-import { type FlowVersionOverrides, overridableRefs } from '@kindgi/flow';
+import { type FlowVersionOverrides, overridableTreeRefs } from '@kindgi/flow';
 import type { FlowId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
@@ -127,7 +128,9 @@ export async function checkFlowVersions(
   if (flow === null) {
     return [{ path: '/flowRef/version', message: `flow ${label} isn't registered` }];
   }
-  const refs = overridableRefs(flow);
+  const refs = await overridableTreeRefs(flow, ({ flowId, version }) =>
+    check.flows.getVersion({ tenantId, flowId: flowId as FlowId, version }),
+  );
   return [
     ...(await agentIssues(check, tenantId, label, new Set(refs.agents), versions.agents ?? {})),
     ...(await toolIssues(check, tenantId, label, new Set(refs.tools), versions.tools ?? {})),

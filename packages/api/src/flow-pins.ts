@@ -13,6 +13,7 @@ import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js
 import type { FlowRegistryBinding, FlowVersionRecord } from './flow-binding.js';
 import type { LiveVersionBinding } from './live-version-binding.js';
 import { PublishRefused } from './publish-refused.js';
+import type { ReferenceScopeBinding } from './reference-scope.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
 export type FlowPinsOutcome =
@@ -29,29 +30,52 @@ export interface FlowPinsLive {
 }
 
 /**
+ * Where a flow version is published, so a sub-flow step that names no
+ * version locks what a run there may run: the flows, and the project's
+ * reach (`referenceScope`; absent, every version reaches, as for a
+ * deployment without projects).
+ */
+export interface FlowPinsSubflows {
+  readonly flows: FlowRegistryBinding;
+  readonly referenceScope?: ReferenceScopeBinding;
+  readonly projectId: ProjectId;
+  /**
+   * Flows the caller pins itself, later: a deploy's own flows, pinned
+   * once the deploy has registered them (`implicitSubflowVersion`).
+   */
+  readonly deferred?: ReadonlySet<string>;
+}
+
+/**
  * Pin a flow version when it's published, to what a run would have bound
  * then, so every run of the version uses those: each tool it runs to its
  * latest active version, and each agent it runs at no named version to
  * the version a run that names none gets in the flow's project. That's
  * the agent's live version there (project, then its org, then the
  * tenant), with `live`, else its latest. A gated agent's flow runs what
- * its promotions let go live, not an unpromoted newer version. A tool or
- * agent with no published version makes the flow unpinnable: the caller
- * refuses the publish, naming each, rather than store a partly pinned
- * version.
+ * its promotions let go live, not an unpromoted newer version. Each
+ * sub-flow it runs at no named version pins to the newest version of
+ * that flow a run in the project reaches (`implicitSubflowVersion`).
+ *
+ * A tool or agent with no published version, a sub-flow with no version
+ * the project reaches, or a sub-flow step that runs the flow itself at
+ * no named version makes the flow unpinnable: the caller refuses the
+ * publish, naming each, rather than store a partly pinned version.
  */
 export async function resolveFlowPins(
   tools: ToolRegistryBinding,
   agents: AgentRegistryBinding,
   tenantId: TenantId,
   flow: Flow,
-  live?: FlowPinsLive,
+  live: FlowPinsLive | undefined,
+  subflows: FlowPinsSubflows,
 ): Promise<FlowPinsOutcome> {
   const refs = flowRefs(flow);
-  const pinned: { tools: Record<string, string>; agents: Record<string, string> } = {
-    tools: {},
-    agents: {},
-  };
+  const pinned: {
+    tools: Record<string, string>;
+    agents: Record<string, string>;
+    flows: Record<string, string>;
+  } = { tools: {}, agents: {}, flows: {} };
   const issues: UnpinnableRef[] = [];
   for (const id of refs.tools) {
     const latest = latestVersion(await activeToolVersions(tools, tenantId, id as ToolId));
@@ -71,8 +95,71 @@ export async function resolveFlowPins(
         message: `agent "${id}" has no published version; publish the agent first`,
       });
   }
+  for (const id of refs.flows) {
+    // Its lock would be an older version of itself, never this one.
+    if (id === (flow.id as unknown as string)) {
+      issues.push({
+        path: '/nodes',
+        message: `a sub-flow step runs flow "${id}", this flow, with no version; name the version it runs`,
+      });
+      continue;
+    }
+    if (subflows.deferred?.has(id) === true) continue;
+    const version = await implicitSubflowVersion(subflows, tenantId, id);
+    if (version !== undefined) pinned.flows[id] = version;
+    else
+      issues.push({
+        path: '/nodes',
+        message: `flow "${id}" has no published version this project runs; publish it first`,
+      });
+  }
   if (issues.length > 0) return { kind: 'unpinnable', issues };
-  return { kind: 'ok', pins: pinned };
+  const { flows, ...rest } = pinned;
+  return { kind: 'ok', pins: Object.keys(flows).length > 0 ? pinned : rest };
+}
+
+/**
+ * What refuses a flow on a server that doesn't pin (no tool or agent
+ * registry): each sub-flow it runs at no named version. Only a pin would
+ * fix its child's version, so the publish is refused rather than store a
+ * step whose child no version names.
+ */
+export function unnamedSubflowIssues(flow: Flow): UnpinnableRef[] {
+  return flowRefs(flow).flows.map((id) => ({
+    path: '/nodes',
+    message: `a sub-flow step runs flow "${id}" with no version, and this server doesn't pin one; name the version it runs`,
+  }));
+}
+
+/**
+ * The version a sub-flow step that names none pins to: the newest active
+ * version of flow `id` that a run in the parent's project reaches, by the
+ * one rule for "latest" (`latestVersion`). `undefined` when it reaches
+ * none: one answer for a flow that isn't there and one the project
+ * doesn't reach. It asks the scope once per version, newest first, so a
+ * flow the project reaches no version of costs one question per active
+ * version; fine at a flow's version counts.
+ */
+export async function implicitSubflowVersion(
+  subflows: FlowPinsSubflows,
+  tenantId: TenantId,
+  id: string,
+): Promise<string | undefined> {
+  const { referenceScope, projectId } = subflows;
+  let left = (await allFlowVersions(subflows.flows, tenantId, id as FlowId)).map((v) => v.version);
+  for (let version = latestVersion(left); version !== undefined; version = latestVersion(left)) {
+    const reached =
+      referenceScope === undefined ||
+      (await referenceScope.reachable({
+        tenantId,
+        fromProjectId: projectId,
+        ref: { kind: 'flow', id, version },
+      }));
+    if (reached) return version;
+    const tried = version;
+    left = left.filter((v) => v !== tried);
+  }
+  return undefined;
 }
 
 /**
