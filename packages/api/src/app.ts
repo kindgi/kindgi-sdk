@@ -214,6 +214,7 @@ import { teamsRouter } from './routes/teams.js';
 import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
+import { toolFilesRouter } from './routes/tool-files.js';
 import { toolsRouter } from './routes/tools.js';
 import type { TriggerOwnerNotices } from './routes/trigger-owners.js';
 import { usageRouter } from './routes/usage.js';
@@ -233,6 +234,7 @@ import { ONE_TENANT_SYSTEM_SCOPES } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
+import type { ToolFilesBinding } from './tool-files-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { UsageBinding } from './usage.js';
@@ -474,6 +476,16 @@ export interface CreateAppInput {
    * `webhookReceiver` says (its defaults when it's absent).
    */
   readonly waitTokens?: WaitTokenBinding;
+  /**
+   * Files a pack tool that declares `storesFiles` stores for its call
+   * (`POST /v1/tool-files`), and one that declares `readsFiles` reads
+   * (`GET /v1/tool-files/{artifactId}`), with the call's token as the
+   * bearer (no API key). Absent: both answer `404 tool-file-token-not-found`.
+   * The Kindgi runtime supplies one. The route limits requests per client,
+   * telling clients apart and counting where `webhookReceiver` says (its
+   * defaults when it's absent).
+   */
+  readonly toolFiles?: ToolFilesBinding;
   /**
    * Optional. When present, mounts the reviewer roster sub-resource
    * at `/v1/approvals/reviewers` — list / get / register / unregister.
@@ -2639,6 +2651,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     waitTokensRouter({
       ...(input.waitTokens !== undefined && { binding: input.waitTokens }),
       runHandler: input.runHandler,
+      ...(input.webhookReceiver?.clientAddress !== undefined && {
+        clientAddress: input.webhookReceiver.clientAddress,
+      }),
+      ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+        rateLimitStore: input.webhookReceiver.rateLimitStore,
+      }),
+    }),
+  );
+  // A pack service stores and reads files for a tool's call: outside the
+  // bearer chain (mounted ahead of `/v1`), since its bearer is the call's
+  // token, not an API key. Always mounted, so a runtime that stores no
+  // files answers a clear 404.
+  app.route(
+    '/v1/tool-files',
+    toolFilesRouter({
+      ...(input.toolFiles !== undefined && { binding: input.toolFiles }),
       ...(input.webhookReceiver?.clientAddress !== undefined && {
         clientAddress: input.webhookReceiver.clientAddress,
       }),

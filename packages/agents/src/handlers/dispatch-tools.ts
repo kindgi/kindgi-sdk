@@ -52,7 +52,7 @@ import {
   approvalsPendingLimitOf,
   throwAgentTurnFailure,
 } from './errors.js';
-import { admitHistoryFiles, admitToolResultFiles, asMessageFile } from './files.js';
+import { admitHistoryFiles, admitToolResultFiles, asMessageFile, callFileStore } from './files.js';
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import type { ToolCallAuthorization } from './public-types.js';
 import { decideReplayTool } from './replay.js';
@@ -1062,6 +1062,14 @@ function toolContextFor(
 ): ToolContext {
   const runId = kctx.runId as unknown as string;
   const toolId = tool.id as unknown as string;
+  // The same every time this call runs, so the tool can dedupe a side
+  // effect on it; with the step's scope, since a model's call id is only
+  // unique within one answer (two loop iterations may share one).
+  const idempotencyKey =
+    kctx.stepScope === undefined
+      ? undefined
+      : toolIdempotencyKey({ runId, stepScope: kctx.stepScope, toolId, callId: call.id });
+  const files = callFileStore(ctx.files, tool, idempotencyKey, ctx.turnAbort.signal);
   return {
     tenantId: ctx.input.tenantId,
     runId,
@@ -1069,17 +1077,10 @@ function toolContextFor(
     projectId: ctx.input.projectId,
     ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
     requestId: call.id,
-    // The same every time this call runs, so the tool can dedupe a side
-    // effect on it; with the step's scope, since a model's call id is only
-    // unique within one answer (two loop iterations may share one).
-    ...(kctx.stepScope !== undefined && {
-      idempotencyKey: toolIdempotencyKey({
-        runId,
-        stepScope: kctx.stepScope,
-        toolId,
-        callId: call.id,
-      }),
-    }),
+    ...(idempotencyKey !== undefined && { idempotencyKey }),
+    // Files the call stores, as files its run owns, and reads
+    // (`Tool.storesFiles`, `Tool.readsFiles`).
+    ...(files !== undefined && { files }),
     ...(kctx.attempt !== undefined && { attempt: kctx.attempt }),
     abortSignal: ctx.turnAbort.signal,
     // HTTP tools built via defineTool({spec: {kind: 'http'}}) resolve declared

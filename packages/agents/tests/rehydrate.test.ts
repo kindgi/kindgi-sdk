@@ -247,6 +247,8 @@ describe('rehydrateTurnContext', () => {
     const run: FileBinding = {
       admit: async () => [],
       read: async () => undefined,
+      store: async () => ({ notStored: 'limit' }),
+      readSource: async () => ({ notRead: 'rule' }),
       shown: async () => {},
       refuse: async () => {},
     };

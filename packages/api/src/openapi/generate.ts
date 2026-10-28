@@ -394,7 +394,12 @@ function buildResponses(
     const entry: Record<string, unknown> = { description: spec.description };
     if (spec.schema !== undefined) {
       const contentType = spec.contentType ?? 'application/json';
-      entry.content = { [contentType]: { schema: spec.schema as JsonSchema } };
+      entry.content = {
+        [contentType]: { schema: spec.schema as JsonSchema },
+        ...(spec.orJson !== undefined && {
+          'application/json': { schema: spec.orJson as JsonSchema },
+        }),
+      };
     }
     doc[status] = entry;
   }
