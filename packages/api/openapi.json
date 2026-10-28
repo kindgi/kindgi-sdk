@@ -24255,7 +24255,7 @@
       "ScheduleDefinition": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a schedule's version runs, when and as whom, as its record names them, and never its state (status, next or last fire). A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out.",
+        "description": "What a schedule's version runs, when and as whom, as its record names them, and never its state (status, next or last fire). The versions keep every input the trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it.",
         "required": [
           "projectId",
           "owner",
@@ -24416,7 +24416,7 @@
       "WebhookTriggerDefinition": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a webhook's version runs, as whom, and how it checks and limits a delivery, as its record names them (its secret by name), and never its state (status, next or last fire). A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out.",
+        "description": "What a webhook's version runs, as whom, and how it checks and limits a delivery, as its record names them (its secret by name), and never its state (status, next or last fire). The versions keep every input the trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it.",
         "required": [
           "flowId",
           "flowVersion",
@@ -60592,7 +60592,7 @@
             }
           }
         },
-        "description": "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the schedule can read its versions.",
+        "description": "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.",
         "parameters": [
           {
             "name": "triggerId",
@@ -61786,7 +61786,7 @@
             }
           }
         },
-        "description": "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the webhook trigger can read its versions.",
+        "description": "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.",
         "parameters": [
           {
             "name": "triggerId",

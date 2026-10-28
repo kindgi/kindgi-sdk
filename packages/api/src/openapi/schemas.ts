@@ -14452,7 +14452,7 @@ function triggerVersionPageSchema(version: string): JsonSchema {
 
 const VERSION_DEFINITION = 'and never its state (status, next or last fire).';
 const VERSION_KEEPS_INPUT =
-  'A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out.';
+  'The versions keep every input the trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it.';
 
 export const ScheduleDefinitionSchema: JsonSchema = triggerDefinitionSchema(
   ScheduleRecordSchema,

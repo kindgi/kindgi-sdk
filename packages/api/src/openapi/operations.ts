@@ -10257,7 +10257,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.listVersions',
     summary: "A schedule's versions",
     description:
-      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the schedule can read its versions.",
+      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
@@ -10460,7 +10460,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: "An event trigger's versions",
     description:
-      "Newest first: each version of the event trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next: a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A event trigger from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the event trigger can read its versions.",
+      "Newest first: each version of the event trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next: a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). An event trigger from before versions has none until its next change or its first fire. The versions keep every input the event trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the event trigger can read its versions.",
     tags: ['event-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
@@ -10667,7 +10667,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.listVersions',
     summary: "A webhook trigger's versions",
     description:
-      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out. Whoever can read the webhook trigger can read its versions.",
+      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],

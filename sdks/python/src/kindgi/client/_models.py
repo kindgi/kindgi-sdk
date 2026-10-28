@@ -16050,7 +16050,7 @@ class PatchWebhookTriggerBody(BaseModel):
 
 class WebhookTriggerDefinition(BaseModel):
     """
-    What a webhook's version runs, as whom, and how it checks and limits a delivery, as its record names them (its secret by name), and never its state (status, next or last fire). A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out.
+    What a webhook's version runs, as whom, and how it checks and limits a delivery, as its record names them (its secret by name), and never its state (status, next or last fire). The versions keep every input the trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it.
     """
 
     model_config = ConfigDict(
@@ -17250,7 +17250,7 @@ class PatchScheduleBody(BaseModel):
 
 class ScheduleDefinition(BaseModel):
     """
-    What a schedule's version runs, when and as whom, as its record names them, and never its state (status, next or last fire). A version keeps every input it ever had, so a secret pasted into one is rotated, not edited out.
+    What a schedule's version runs, when and as whom, as its record names them, and never its state (status, next or last fire). The versions keep every input the trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it.
     """
 
     model_config = ConfigDict(
