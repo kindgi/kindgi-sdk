@@ -994,7 +994,7 @@ export const ERROR_ENTRIES = {
   },
   'model-invocation-failed': {
     description:
-      "The model provider call failed, for example it refused the key or was rate limited. The message carries the provider's own words.",
+      "The model provider call failed, for example it refused the key or was rate limited, or the model's reply can't be used (for example, two of its tool calls share an id). When the call failed, the message carries the provider's own words.",
     details: [
       {
         key: 'runId',
