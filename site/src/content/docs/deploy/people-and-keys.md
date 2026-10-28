@@ -542,9 +542,17 @@ once. You can grant `--tenant-admin`, `--tenant-member` and
 `--project=<id>:<role>`, now or later with `kindgi service-accounts grant`
 and `ungrant`.
 
+CI's deploys name that project, with `kindgi deploy --project <id or slug>`.
+A deploy that names no project is tenant-wide, which needs `admin` on the
+tenant, so this key is refused. On Kindgi Cloud, also grant the account
+`--tenant-member`: `kindgi deploy --hosted` waits for the pack service by
+reading the deployment, and that read needs `read` on the tenant. Without
+it, the deploy makes the deployment, then stops with
+`Couldn't read the deployment while waiting for its pack service`.
+
 Give `--tenant-member` only to an account whose job reads the tenant's
-settings. Without it, such a read is refused, and the refusal says how to
-grant it.
+settings, or that deploys on Kindgi Cloud. Without it, a read of the
+settings is refused, and the refusal says how to grant it.
 
 `kindgi service-accounts unregister <service-account-id>` takes its grants
 away, and its keys stop working.
