@@ -141,8 +141,8 @@ digest, with every platform it was built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.10" \
-  quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3
+docker buildx imagetools create --tag "$REPO/runtime:0.2.0" \
+  registry.kindgi.com/kindgi/runtime:0.2.0@sha256:76251214ab450d96995af8d4fecefd747aef1dd6611518221e209e386443aed8
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -920,7 +920,9 @@ The two can go in two Google Cloud projects, or in one:
   instance, and a backup can go into one too (restored into the serving
   instance, it overwrites everything on it). `database_instance` moves the
   server onto the new instance: the instance's name, and a secret of yours
-  holding the server's URL to it. The module's own instance stays as it is.
+  holding the server's URL to it. The module's own instance stays as it is,
+  and doesn't get the erasures made later: empty it once the new one is
+  checked ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
   The module's README has the steps, under
   [Serving from a restored instance](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#serving-from-a-restored-instance):
   - the new instance's URL, and the server's read access to it;
@@ -1004,7 +1006,9 @@ repository from
 [2. The images into Artifact Registry](#2-the-images-into-artifact-registry).
 
 1. **Read the upgrade steps** of each release you're upgrading across, in
-   its release notes, and take the new release's digest from its notes.
+   its release notes, and note the new release's digest: `docker pull
+   registry.kindgi.com/kindgi/runtime:<version>` prints it
+   ([Pull the runtime image](../pull-the-runtime-image/)).
 2. **Copy the new runtime image** into Artifact Registry by digest, every
    platform included, as in
    [2. The images into Artifact Registry](#2-the-images-into-artifact-registry),
@@ -1142,14 +1146,19 @@ database:
      [Operate it](#operate-it) says: set `database_instance` along with the
      old images, and plan again for the apply. The server then moves and
      goes back in one revision, so the new version never serves from the
-     restored instance. Private-IP mode can't serve from another instance.
+     restored instance. The module's instance keeps the migrated database:
+     empty it once the restored one is checked
+     ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
+     Private-IP mode can't serve from another instance.
    - **From an export:** make a fresh database on the instance, import the
      export into it as `kindgi`, and add a version of the server's database
      URL secret that names the fresh database, with the password set as in
      [3. The secrets](#3-the-secrets), never in a command's arguments. Add
      that version last, right before the apply. Don't change
      `database_name` instead: the module would drop the migrated database,
-     then fail to create the fresh one.
+     then fail to create the fresh one. The migrated `kindgi` database stays
+     on the instance: empty it once the fresh one is checked
+     ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
 
      ```sh
      gcloud sql databases create <fresh> --instance=<instance>

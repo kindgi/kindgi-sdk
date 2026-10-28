@@ -273,6 +273,13 @@ Then:
    }
    ```
 
+3. **Empty the database you moved off.** When the restore went into a new
+   database or a new instance, and the runtime moved onto it, the one it
+   left doesn't get the erasures made later, so it keeps whom they erase.
+   Once the restored one is checked, drop that database. A backup
+   restored over the serving database overwrites it, so nothing is left
+   to empty.
+
 ### Copies the runtime keeps on its own
 
 The runtime can also keep copies of the ledger itself, every tenant's at
