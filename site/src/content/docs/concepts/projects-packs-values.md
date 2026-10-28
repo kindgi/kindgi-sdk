@@ -36,6 +36,8 @@ deployment that isn't retired carried the build to, so a change to one of
 them reaches each. For an agent,
 `GET /v1/agents/{agentId}/projects` lists those projects, its first one
 first, naming only the ones you can read.
+[Environments in order](../../deploy/ship-from-ci/#environments-in-order)
+sets an order up and promotes a build along it, by hand or from CI.
 
 ## What a project's runs can use
 
