@@ -170,7 +170,7 @@ final class Citator {
   it writes to (an `Idempotency-Key` header, a client reference, a unique
   column) or looks for it there first: a refund never goes out twice. A
   UUID; `null` outside a run and from a runtime before 0.1.6. Docs:
-  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.projectId()`, `ctx.orgId()`: the run's project, and its org (`null`
   when it has none). The runtime sets them from the run, never from the
   input. To check an id the input names, compare it with these.
@@ -243,7 +243,7 @@ public static final Tool<Input, Output> TOOL = Tool.define("my-pack.send-mail")
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `.mutating(false)` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `.mutating(false)`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null)))`; the last argument, when the token expires, can be `null`. `ctx.connections()` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -344,7 +344,7 @@ In a run a person started (signed in, or with their own API key), the agent's ru
       .needsApprovalWhenUnattended(true)
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.2/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Results that are text from outside: `resultIsOutsideData`
 
@@ -460,7 +460,7 @@ removed field, a narrower type), not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `kindgi.config.json`: `"dev": {"sandbox": {"allowRead": ["~/.aws"]}}`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.2/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 
