@@ -16,7 +16,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.16"
+version: "0.3.17"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -354,10 +354,10 @@ running the older version on it.
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
   https://docs.kindgi.com/v0.1/deploy/self-hosted/cloud-run/#upgrade-by-hand
-- **On Azure Container Apps:** the "Operate it" section of its page,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it.
-- **Otherwise:** the operate page's upgrade steps,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime.
+- **On Azure Container Apps:** the "Operate it" section of its page:
+  https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it
+- **Otherwise:** the operate page's upgrade steps:
+  https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

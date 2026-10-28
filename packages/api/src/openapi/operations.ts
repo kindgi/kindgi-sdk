@@ -3413,6 +3413,23 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/agents/:agentId/projects',
+    openapiPath: '/v1/agents/{agentId}/projects',
+    operationId: 'agents.projects',
+    summary: 'List the projects an agent runs in',
+    description:
+      'The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.',
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam],
+    responses: {
+      '200': { description: 'The projects.', schema: ref('AgentProjectList') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No agent with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/agents/:agentId/versions',
     openapiPath: '/v1/agents/{agentId}/versions',
     operationId: 'agents.listVersions',
@@ -6785,7 +6802,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.tokenSignIn',
     summary: 'Sign in to the console with an API token',
     description:
-      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
+      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -6798,7 +6815,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Signed in by a session, not an API token (`token-sign-in-needs-an-api-token`).',
       ),
       '403': ErrorResponse(
-        "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one; or the workspace requires a second factor (`second-factor-required`).",
+        "Not allowed here (`token-sign-in-off`: the deployment doesn't allow it, or can't read its API keys), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one; or the workspace requires a second factor (`second-factor-required`).",
       ),
       '409': ErrorResponse(
         "A retry with the Idempotency-Key of a sign-in that succeeded: its session was in the cookie, which isn't kept (`idempotency-key-replay-withheld`). Sign in again without the key.",
@@ -9767,7 +9784,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'secrets.list',
     summary: 'List secret metadata',
     description:
-      'Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).',
+      'Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. Names that start with `kindgi.` are reserved for Kindgi and never listed. `value` is ALWAYS absent (structural redaction).',
     tags: ['secrets'],
     security: 'bearer',
     parameters: [
@@ -10039,7 +10056,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Revoke outcome.', schema: ref('SecretRevokeResult') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '400': ErrorResponse(
+        'Missing or malformed scope / envName, or `reserved-name-prefix` for a `kindgi.` name.',
+      ),
       '403': ErrorResponse('Bearer token missing revoke capability.'),
       '404': ErrorResponse('Unknown secret.'),
       '501': ErrorResponse(

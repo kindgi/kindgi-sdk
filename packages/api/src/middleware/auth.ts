@@ -20,6 +20,7 @@ import {
   isSystemCapability,
   isSystemKeysPath,
 } from '../system.js';
+import type { TokenAdmin } from '../token-admin.js';
 
 /**
  * Resolve an API token → tenant identity. For static bearer tokens this
@@ -231,6 +232,21 @@ export function encodeSessionToken(sessionId: SessionId): string {
   return `${SESSION_TOKEN_PREFIX}${sessionId as unknown as string}`;
 }
 
+const TOKEN_SIGN_IN_PROVIDER = 'api-token';
+
+/** The provider of a session token sign-in opens: `api-token:<tokenId>`, or `api-token` for a key with no id. */
+export function tokenSignInProvider(tokenId: ApiTokenId | undefined): string {
+  return tokenId === undefined ? TOKEN_SIGN_IN_PROVIDER : `${TOKEN_SIGN_IN_PROVIDER}:${tokenId}`;
+}
+
+/** The key a session was opened with by token sign-in, from its provider; `undefined` for any other session. */
+export function tokenSignInKey(providerId: string | undefined): ApiTokenId | undefined {
+  const prefix = `${TOKEN_SIGN_IN_PROVIDER}:`;
+  if (providerId === undefined || !providerId.startsWith(prefix)) return undefined;
+  const tokenId = providerId.slice(prefix.length);
+  return tokenId.length > 0 ? (tokenId as ApiTokenId) : undefined;
+}
+
 /**
  * Optional wiring for the session-token flavor. Provided to the
  * middleware via `bearerAuthMiddleware(resolveToken, { sessionStore })`
@@ -248,6 +264,15 @@ export interface BearerAuthMiddlewareOptions {
    * none. An API key's are its own, never its person's.
    */
   readonly personCapabilities?: PersonCapabilitiesBinding;
+  /**
+   * The deployment's API keys, read on each request on a session token
+   * sign-in opened (its provider names the key, `api-token:<tokenId>`) once
+   * the session is found valid: a revoked or missing key refuses it, 401
+   * `auth-revoked`, whatever failed to end it when the key was revoked.
+   * Absent → such a session is refused: nothing can check its key. Other
+   * sessions, and API keys themselves, read nothing more.
+   */
+  readonly apiKeys?: Pick<TokenAdmin, 'get'>;
   /**
    * Inactivity timeout — sessions whose `lastActiveAt` is older than
    * `Date.now() - inactivityTimeoutMs` are rejected with 401
@@ -383,6 +408,13 @@ export function bearerAuthMiddleware(
         return c.json(body, statusFor('session-inactive') as never);
       }
     }
+    const keyRefusal = isSessionToken
+      ? await sessionKeyRefusal(options.apiKeys, resolution)
+      : undefined;
+    if (keyRefusal !== undefined) {
+      const body = toWireError({ code: 'auth-revoked', message: keyRefusal }, requestId);
+      return c.json(body, statusFor('auth-revoked') as never);
+    }
 
     if (resolution.system !== undefined) {
       c.set('systemPrincipal', resolution.system);
@@ -515,6 +547,31 @@ function operatorOnSystemKeys(
     ...(resolution.expiresAt !== undefined && { expiresAt: resolution.expiresAt }),
     ...(resolution.revoked !== undefined && { revoked: resolution.revoked }),
   };
+}
+
+/**
+ * Why a valid session token sign-in opened is refused: its key is revoked or
+ * gone, or the deployment can't read its keys to tell. `undefined` for a
+ * live key, and for every other session (an identity provider's, or the
+ * deployment's own token's, `api-token` with no key id). Read on each
+ * request, never cached, so the session ends at its key's revoke even when
+ * ending it then failed. A read that fails fails the request, as a failed
+ * session lookup does: it never reads as a live key.
+ */
+async function sessionKeyRefusal(
+  apiKeys: Pick<TokenAdmin, 'get'> | undefined,
+  resolution: TokenResolution,
+): Promise<string | undefined> {
+  const tokenId = tokenSignInKey(resolution.providerId);
+  if (tokenId === undefined) return undefined;
+  if (apiKeys === undefined) {
+    return "This session was opened with an API key, and this deployment can't check its API keys: sign in another way";
+  }
+  const key = await apiKeys.get({ tenantId: resolution.tenantId, tokenId });
+  if (key === undefined || key.revokedAt !== undefined) {
+    return 'The API key this session was opened with is revoked: sign in again';
+  }
+  return undefined;
 }
 
 /**

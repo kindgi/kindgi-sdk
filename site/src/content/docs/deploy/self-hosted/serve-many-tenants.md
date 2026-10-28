@@ -197,8 +197,10 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   minted, is in the tenant's audit log, by `system`, with your `--reason`. It
   exits `0` when the key is minted, `1` when it's minted but an audit entry
   couldn't be written or a revoked key's sessions couldn't be ended, and `2`
-  when it's refused and nothing changed. A tenant created with `firstAdmin`
-  has no such account: `tenants make-admin` makes a person its admin.
+  when it's refused and nothing changed. A session that wasn't ended is
+  refused at its next request anyway: each one checks its key. A tenant
+  created with `firstAdmin` has no such account: `tenants make-admin` makes a
+  person its admin.
 - **Production starts blocked.** `"productionAllowed": true` allows it from
   the start, and takes `system:tenants:production`.
 - **`imagePrefix`** is the repository every image the tenant deploys must

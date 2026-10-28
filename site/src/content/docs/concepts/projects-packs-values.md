@@ -43,6 +43,15 @@ share an order unless one moves (`orgId` on
 changes who in the orgs reaches it. The `409` names the fix your runtime
 has.
 
+An environment order, such as staging and then production, is the one way
+a build reaches more than one project: `kindgi promote` carries the same
+build on to the order's next project. Its items still belong to the project
+they were first published in, and they also run in each project a
+deployment that isn't retired carried the build to, so a change to one of
+them reaches each. For an agent,
+`GET /v1/agents/{agentId}/projects` lists those projects, its first one
+first, naming only the ones you can read.
+
 ## What a project's runs can use
 
 A run is in one project, and it can use only what that project reaches:

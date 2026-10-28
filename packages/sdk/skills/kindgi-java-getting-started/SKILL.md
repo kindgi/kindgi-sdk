@@ -17,7 +17,7 @@ description: >
   kindgi-java-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -275,10 +275,10 @@ running the older version on it.
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
   https://docs.kindgi.com/v0.1/deploy/self-hosted/cloud-run/#upgrade-by-hand
-- **On Azure Container Apps:** the "Operate it" section of its page,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it.
-- **Otherwise:** the operate page's upgrade steps,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime.
+- **On Azure Container Apps:** the "Operate it" section of its page:
+  https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it
+- **Otherwise:** the operate page's upgrade steps:
+  https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

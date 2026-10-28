@@ -6,7 +6,7 @@ description: >
   declaration a pack file default-exports (the indexer's shape), the
   three kinds (zero-llm / llm-judge / external), actions, severity
   levels, scope selectors, config schemas via Zod or JSON Schema,
-  validating a declaration with defineGuardrail from @kindgi/guardrails,
+  validating a declaration with validateGuardrail from @kindgi/guardrails,
   and how guardrails reach agents. In 0.1 only the halt action acts
   (retry / escalate / compensate are only recorded: nothing runs the
   turn again), and a check sees only the current turn: its user message
@@ -17,7 +17,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.10"
+version: "0.3.11"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -202,20 +202,20 @@ turn. Each built-in's JSON Schema is its registered check's
 
 ## Validating a declaration in-process
 
-`defineGuardrail(spec, checks)` from `@kindgi/guardrails` validates a
+`validateGuardrail(spec, checks)` from `@kindgi/guardrails` validates a
 `Guardrail` against the wire schema and a check registry: the check id
 must be registered, the check's `kind` must match, and `config` must
 pass the check's config schema. It returns a `Result`; use it in tests
 or wherever guardrails are registered in-process.
 
 ```ts
-import { createCheckRegistry, defineGuardrail } from '@kindgi/guardrails';
+import { createCheckRegistry, validateGuardrail } from '@kindgi/guardrails';
 import type { GuardrailId } from '@kindgi/sdk/types';
 
 import { check } from './index.js';
 
 const checks = createCheckRegistry([check]); // built-in checks are included
-const defined = defineGuardrail(
+const validated = validateGuardrail(
   {
     id: 'acme.no-fabricated-quotes' as GuardrailId,
     kind: 'zero-llm',
@@ -226,8 +226,8 @@ const defined = defineGuardrail(
   },
   checks,
 );
-if (defined.kind === 'err') {
-  throw new Error(`acme.no-fabricated-quotes: ${defined.error.message}`);
+if (validated.kind === 'err') {
+  throw new Error(`acme.no-fabricated-quotes: ${validated.error.message}`);
 }
 ```
 
@@ -252,7 +252,7 @@ available to the runtime that evaluates it.
 - **`check`** — the id of a registered check (built-in, or one built
   with `defineCheck`). In a pack file it may also be the check object.
 - **`config`** — the check's parameters, validated against the check's
-  `configSchema`: by `defineGuardrail`, and in a pack when the pack is
+  `configSchema`: by `validateGuardrail`, and in a pack when the pack is
   indexed (a config that doesn't fit is a file error naming where, and
   `kindgi build` refuses the pack; see "How the pack tooling reads this
   file"). In a pack, the declaration's `config` goes into the index and
@@ -361,7 +361,7 @@ ready for the stricter enforcement.
    silent typos. Prefer Zod for TS-side inference on
    `evaluate(config, ...)`.
 
-5. **Ignoring the `Result` from `defineGuardrail`.** It returns
+5. **Ignoring the `Result` from `validateGuardrail`.** It returns
    `Result<Guardrail, …>`; check `kind` and throw at load time.
    `defineCheck` itself throws when its `configSchema` can't be
    compiled.
@@ -369,7 +369,7 @@ ready for the stricter enforcement.
 ## References
 
 - Type surface: hover any `@kindgi/sdk/define` export for full JSDoc;
-  `Guardrail`, `defineGuardrail` and the built-in checks are in
+  `Guardrail`, `validateGuardrail` and the built-in checks are in
   `@kindgi/guardrails`.
 - API reference: https://docs.kindgi.com/v0.1/reference/typescript/sdk/kindgi/sdk/define/
 - Built-in check implementations: `packages/guardrails/src/checks.ts`.
