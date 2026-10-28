@@ -130,6 +130,8 @@ function harness(
     withProjects?: boolean;
     /** With an authorizer and item rights, as a runtime has; else no authorization at all. */
     rights?: boolean;
+    /** With `rights`, but no item rights: each pin's agent by its own read alone. */
+    noItemRights?: boolean;
   } = {},
 ) {
   const fake = fakeLive(opts);
@@ -147,7 +149,9 @@ function harness(
       promotions: {} as AgentReleaseBindings['promotions'],
     },
     ...(opts.withProjects !== false && { projectBinding: projects }),
-    ...(opts.rights === true && { authz: authz.authz, itemProjects: itemProjects(rows()) }),
+    ...(opts.rights === true && { authz: authz.authz }),
+    ...(opts.rights === true &&
+      opts.noItemRights !== true && { itemProjects: itemProjects(rows()) }),
   });
   const list = async (who: string, projectId: string, query = '') => {
     const res = await app.request(`/v1/projects/${projectId}/pinned-versions${query}`, {
@@ -302,5 +306,13 @@ describe('who sees which pin (item rights, through createApp)', () => {
     expect(res.status, res.text).toBe(200);
     expect(versions(res.body)).toEqual([`${SERVED}@0.9.0`, `${SERVED}@1.0.0`, `${SOLO}@1.0.0`]);
     expect(res.body.data[2].scope).toEqual({ kind: 'org', orgId: ORG });
+  });
+
+  test("without item rights, a pin shows on its agent's own read alone", async () => {
+    const { list } = harness({ rights: true, noItemRights: true });
+    const res = await list('solo-reader', PROD);
+    expect(res.status, res.text).toBe(200);
+    // Read on prod isn't read on acme.desk: only acme.solo's pin.
+    expect(versions(res.body)).toEqual([`${SOLO}@1.0.0`]);
   });
 });
