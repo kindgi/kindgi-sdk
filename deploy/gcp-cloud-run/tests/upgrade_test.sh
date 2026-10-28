@@ -1456,16 +1456,31 @@ else fail "the pin moved or was added again: $(cat "$VAR_FILE")"; fi
 if grep -q "plan got -var" "$STUB_PLAN_SAW"; then fail "the plan was given a -var"; else pass; fi
 assert_present "$STUB_MARKER_APPLY" "apply"
 
-# A pinned var-file whose plan moves the pin anyway (set by hand): this run
-# never moves it, so the plan check names it and stops.
-case_start "a plan that moves a pin set by hand"
+# A pin moved by hand, for a server on another: this run never moves it, so
+# 2a names both and stops, before the mirror, the checks and the backup.
+case_start "a pin moved by hand"
 reset_env; export STUB_TAGS="0.3.0" STUB_DBURL_BEFORE="2"; V_DBURL="3"
 printf 'database_url_secret_version = "3"\n' >>"$VAR_FILE"; cp "$VAR_FILE" "$CASE_DIR/original.tfvars"
 run "yes" --to 0.3.0.1
 assert_rc 1 "a moved pin stops it"
+assert_out "database_url_secret_version is \"3\" (in $VAR_FILE), but the server reads version 2 of kindgi-database-url: the upgrade's apply would move it to another URL. Set it to \"2\", or move the server to version 3 in an apply on the release it runs now, then run again."
+assert_out "a precondition failed (above). Nothing was mirrored, backed up or changed."
+if grep -q "secrets versions describe latest" "$STUB_CALLS_LOG"; then fail "latest was read, for a server on a pin"; else pass; fi
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# The plan is the last word: one that moves the pin anyway (here the
+# var-file's line, which the stub's console reads as the server's 2) names
+# the change and stops at the plan check.
+case_start "a plan that moves the pin anyway"
+reset_env; export STUB_TAGS="0.3.0" STUB_DBURL_BEFORE="2"; V_DBURL="2"
+printf 'database_url_secret_version = "3"\n' >>"$VAR_FILE"; cp "$VAR_FILE" "$CASE_DIR/original.tfvars"
+run "yes" --to 0.3.0.1
+assert_rc 1 "a plan that moves the pin stops it"
 assert_out "PLAN CHECK: the plan changes more than this upgrade does"
 assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_URL" "the change, by its name"
-if grep -q "secrets versions describe latest" "$STUB_CALLS_LOG"; then fail "latest was read, for a server on a pin"; else pass; fi
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 

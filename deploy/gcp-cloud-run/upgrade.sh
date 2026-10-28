@@ -650,9 +650,9 @@ fi
 # before the apply that moves the server onto it. A var-file from before the
 # pin gets one in step 5, the version today's server reads as latest (2a). One
 # that sets it keeps it, never moved to a newer version, which may be a way
-# back's, staged; set by hand for a server that still reads latest, it must
-# be latest's version now (2a). DB_URL_VERSION_FILE is the file that sets it
-# (the last one Terraform reads), where the printed way back changes it.
+# back's, staged: it must be the version the server reads (2a), latest's now
+# for a server that still reads latest. DB_URL_VERSION_FILE is the file that
+# sets it (the last one Terraform reads), where the printed way back changes it.
 if [[ -n ${TF_VAR_database_url_secret_version+set} ]]; then
   die "TF_VAR_database_url_secret_version is set in the environment: the way back this script prints changes the pin in a var file. Unset it and keep database_url_secret_version in $VAR_FILE, then run again. Nothing was changed."
 fi
@@ -822,9 +822,11 @@ fi
 # The version of the URL secret the running server reads: its
 # KINDGI_DATABASE_URL's secret reference, in the v1 object `services describe`
 # returns, as a version number or latest. latest means a module from before
-# the pin, so this run's apply moves the server onto one. The object holds the
-# server's other env values in plain text: it stays in this variable, and only
-# the one reference comes out of it, from exactly one KINDGI_DATABASE_URL.
+# the pin, so this run's apply moves the server onto one. A number must be
+# the pin's: the upgrade never moves the server to another URL. The object
+# holds the server's other env values in plain text: it stays in this
+# variable, and only the one reference comes out of it, from exactly one
+# KINDGI_DATABASE_URL.
 live_json="$(CLOUDSDK_CORE_DISABLE_FILE_LOGGING=true gcloud run services describe "$SERVER_SERVICE" \
   --project="$PROJECT" --region="$REGION" --format=json 2>"$WORK/live.err" || true)"
 DB_URL_LIVE="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "KINDGI_DATABASE_URL") | (.valueFrom.secretKeyRef.key // "")] | if length == 1 then .[0] else "" end' <<<"${live_json:-null}" 2>/dev/null || true)"
@@ -835,6 +837,8 @@ elif [[ ! $DB_URL_LIVE =~ ^[1-9][0-9]*$ ]]; then
   fail_check "couldn't read which version of ${DB_URL_SECRET} the server reads (one KINDGI_DATABASE_URL secret reference). $(cat "$WORK/live.err")"
 elif [[ $DB_URL_VERSION_WRITE == true ]]; then
   fail_check "the server reads version ${DB_URL_LIVE} of ${DB_URL_SECRET}, but no var file sets database_url_secret_version. Set database_url_secret_version = \"${DB_URL_LIVE}\" in $VAR_FILE, then run again."
+elif [[ $DB_URL_VERSION != "$DB_URL_LIVE" ]]; then
+  fail_check "database_url_secret_version is \"${DB_URL_VERSION}\" (in $DB_URL_VERSION_FILE), but the server reads version ${DB_URL_LIVE} of ${DB_URL_SECRET}: the upgrade's apply would move it to another URL. Set it to \"${DB_URL_LIVE}\", or move the server to version ${DB_URL_VERSION} in an apply on the release it runs now, then run again."
 fi
 
 # The version of the URL secret the new revision will read: the pin, or, with
