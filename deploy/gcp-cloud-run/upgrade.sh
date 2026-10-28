@@ -823,18 +823,23 @@ fi
 # KINDGI_DATABASE_URL's secret reference, in the v1 object `services describe`
 # returns, as a version number or latest. latest means a module from before
 # the pin, so this run's apply moves the server onto one. A number must be
-# the pin's: the upgrade never moves the server to another URL. The object
-# holds the server's other env values in plain text: it stays in this
-# variable, and only the one reference comes out of it, from exactly one
-# KINDGI_DATABASE_URL.
+# the pin's, and the secret must be the one the var files give the server (a
+# restored instance's, or the module's own): the upgrade never moves the
+# server to another URL. The reference names the secret by its id, which
+# url_secret is too. The object holds the server's other env values in plain
+# text: it stays in this variable, and only the one reference comes out of
+# it, from exactly one KINDGI_DATABASE_URL.
 live_json="$(CLOUDSDK_CORE_DISABLE_FILE_LOGGING=true gcloud run services describe "$SERVER_SERVICE" \
   --project="$PROJECT" --region="$REGION" --format=json 2>"$WORK/live.err" || true)"
 DB_URL_LIVE="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "KINDGI_DATABASE_URL") | (.valueFrom.secretKeyRef.key // "")] | if length == 1 then .[0] else "" end' <<<"${live_json:-null}" 2>/dev/null || true)"
+DB_URL_LIVE_SECRET="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "KINDGI_DATABASE_URL") | (.valueFrom.secretKeyRef.name // "")] | if length == 1 then .[0] | sub("^projects/[^/]+/secrets/"; "") else "" end' <<<"${live_json:-null}" 2>/dev/null || true)"
 unset live_json
-if [[ $DB_URL_LIVE == latest ]]; then
-  DB_URL_PIN_NEW=true
-elif [[ ! $DB_URL_LIVE =~ ^[1-9][0-9]*$ ]]; then
+if [[ ! $DB_URL_LIVE =~ ^([1-9][0-9]*|latest)$ || -z $DB_URL_LIVE_SECRET ]]; then
   fail_check "couldn't read which version of ${DB_URL_SECRET} the server reads (one KINDGI_DATABASE_URL secret reference). $(cat "$WORK/live.err")"
+elif [[ $DB_URL_LIVE_SECRET != "$DB_URL_SECRET" ]]; then
+  fail_check "the server reads its database URL from ${DB_URL_LIVE_SECRET}, but the var files give it ${DB_URL_SECRET}: the upgrade's apply would move it to another database. Set database_instance to the instance the server serves from now (remove it if that's the module's own), or move the server to ${DB_URL_SECRET} in an apply on the release it runs now, then run again."
+elif [[ $DB_URL_LIVE == latest ]]; then
+  DB_URL_PIN_NEW=true
 elif [[ $DB_URL_VERSION_WRITE == true ]]; then
   fail_check "the server reads version ${DB_URL_LIVE} of ${DB_URL_SECRET}, but no var file sets database_url_secret_version. Set database_url_secret_version = \"${DB_URL_LIVE}\" in $VAR_FILE, then run again."
 elif [[ $DB_URL_VERSION != "$DB_URL_LIVE" ]]; then

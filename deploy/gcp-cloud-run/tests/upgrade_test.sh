@@ -45,12 +45,12 @@ case "$*" in
   "run services describe"*)
     if [[ "$*" == *"--format=json"* ]]; then
       # The v1 object: STUB_SERVICE_JSON's status, and the server's
-      # KINDGI_DATABASE_URL as a secret reference at STUB_DBURL_BEFORE
-      # (latest), or none with STUB_DBURL_BEFORE=-, twice with
-      # STUB_DBURL_TWICE=1.
+      # KINDGI_DATABASE_URL as a secret reference to STUB_DBURL_NAME
+      # (kindgi-database-url) at STUB_DBURL_BEFORE (latest), or none with
+      # STUB_DBURL_BEFORE=-, twice with STUB_DBURL_TWICE=1.
       svc="${STUB_SERVICE_JSON:-}"; if [[ -z $svc ]]; then svc='{}'; fi
-      jq -c --arg k "${STUB_DBURL_BEFORE:-latest}" --arg twice "${STUB_DBURL_TWICE:-}" '. * {spec: {template: {spec: {containers: [{env: ([{name: "KINDGI_ENV", value: "dev"}]
-        + (if $k == "-" then [] else [{name: "KINDGI_DATABASE_URL", valueFrom: {secretKeyRef: {name: "kindgi-database-url", key: $k}}}] end)
+      jq -c --arg n "${STUB_DBURL_NAME:-kindgi-database-url}" --arg k "${STUB_DBURL_BEFORE:-latest}" --arg twice "${STUB_DBURL_TWICE:-}" '. * {spec: {template: {spec: {containers: [{env: ([{name: "KINDGI_ENV", value: "dev"}]
+        + (if $k == "-" then [] else [{name: "KINDGI_DATABASE_URL", valueFrom: {secretKeyRef: {name: $n, key: $k}}}] end)
         + (if $twice == "1" then [{name: "KINDGI_DATABASE_URL", valueFrom: {secretKeyRef: {name: "kindgi-database-url", key: "latest"}}}] else [] end))}]}}}}' <<<"$svc"
     elif [[ "$*" == *"--format=value(spec.template.spec.containers[0].image)"* ]]; then printf '%s\n' "${STUB_RUNNING_IMAGE:-}"
     fi; exit 0 ;;
@@ -236,7 +236,7 @@ reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
         STUB_EXPORT_RC STUB_EXPORT_412 STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
         STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
-        STUB_DBURL_LATEST STUB_DBURL_STATE STUB_DBURL_RC STUB_DBURL_BEFORE STUB_DBURL_TWICE \
+        STUB_DBURL_LATEST STUB_DBURL_STATE STUB_DBURL_RC STUB_DBURL_BEFORE STUB_DBURL_TWICE STUB_DBURL_NAME \
         V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE V_DBURL
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
@@ -511,10 +511,10 @@ assert_rc 0 "pack rebuild runs"
 assert_file_has "$VAR_FILE" "pack_image   = \"registry.local:5000/kindgi-images/pack@$PACK_DIGEST\"" "var-file pins the new pack"
 assert_file_has "$VAR_FILE" "server_image = \"$NEW_IMAGE\"" "var-file pins the new server"
 
-# 18. Serving from a restored instance: the jobs mount that instance's socket
-# and read its URL secret.
+# 18. Serving from a restored instance, whose URL secret the server reads: the
+# jobs mount that instance's socket and read its URL secret.
 case_start "restored instance"
-reset_env; export STUB_TAGS="0.1.8"; V_DBI='{"name":"kindgi-r1","url_secret":"kindgi-r1-database-url"}'
+reset_env; export STUB_TAGS="0.1.8" STUB_DBURL_NAME="kindgi-r1-database-url"; V_DBI='{"name":"kindgi-r1","url_secret":"kindgi-r1-database-url"}'
 run "yes"
 assert_rc 0 "restored instance runs"
 assert_file_has "$STUB_JOBS_LOG" "--set-cloudsql-instances=demo-proj:northamerica-northeast2:kindgi-r1" "check job mounts the restored instance"
@@ -522,7 +522,7 @@ assert_file_has "$STUB_JOBS_LOG" "KINDGI_DATABASE_URL=kindgi-r1-database-url:4" 
 
 # 19. A long name_prefix: every check job name fits in 63 characters.
 case_start "long name_prefix"
-reset_env; export STUB_TAGS="0.1.8"; V_PREFIX="kindgi-a-very-long-prefix-for-a-shared-dev-project-xyz"
+reset_env; export STUB_TAGS="0.1.8" STUB_DBURL_NAME="kindgi-a-very-long-prefix-for-a-shared-dev-project-xyz-database-url"; V_PREFIX="kindgi-a-very-long-prefix-for-a-shared-dev-project-xyz"
 run "yes"
 assert_rc 0 "long prefix runs"
 long=0
@@ -1484,6 +1484,23 @@ assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
+# Part way through a move to a restored instance: database_instance names it,
+# and the pin is the server's, but the server still reads the module's own URL
+# secret. 2a names both secrets and stops, before the checks read the
+# restored instance's URL and the backup exports it.
+case_start "part way through a move to a restored instance"
+reset_env; export STUB_TAGS="0.3.0" STUB_DBURL_BEFORE="2"; V_DBURL="2"; V_DBI='{"name":"kindgi-r1","url_secret":"kindgi-r1-database-url"}'
+printf 'database_url_secret_version = "2"\n' >>"$VAR_FILE"; cp "$VAR_FILE" "$CASE_DIR/original.tfvars"
+run "yes" --to 0.3.0.1
+assert_rc 1 "a move part way stops it"
+assert_out "the server reads its database URL from kindgi-database-url, but the var files give it kindgi-r1-database-url: the upgrade's apply would move it to another database. Set database_instance to the instance the server serves from now (remove it if that's the module's own), or move the server to kindgi-r1-database-url in an apply on the release it runs now, then run again."
+assert_out "a precondition failed (above). Nothing was mirrored, backed up or changed."
+if [[ -s $STUB_JOBS_LOG ]]; then fail "a check job ran: $(head -n 1 "$STUB_JOBS_LOG")"; else pass; fi
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
 case_start "the pinned version isn't enabled"
 reset_env; export STUB_TAGS="0.3.0" STUB_DBURL_BEFORE="2" STUB_DBURL_STATE="DISABLED"; V_DBURL="2"
 printf 'database_url_secret_version = "2"\n' >>"$VAR_FILE"; cp "$VAR_FILE" "$CASE_DIR/original.tfvars"
@@ -1604,7 +1621,7 @@ if grep -qxF "    then add \"database_url_secret_version\": \"<N>\" to $VAR_FILE
 else fail "the go-back doesn't give the JSON form: $(grep -F 'then ' "$OUT")"; fi
 
 case_start "a restored instance's URL secret is pinned"
-reset_env; export STUB_TAGS="0.1.10"; V_DBI='{"name":"kindgi-r1","url_secret":"kindgi-r1-database-url"}'
+reset_env; export STUB_TAGS="0.1.10" STUB_DBURL_NAME="kindgi-r1-database-url"; V_DBI='{"name":"kindgi-r1","url_secret":"kindgi-r1-database-url"}'
 run "yes"
 assert_rc 0 "the upgrade runs"
 assert_file_has "$STUB_CALLS_LOG" "gcloud secrets versions describe latest --secret=kindgi-r1-database-url --project=demo-proj --format=json" "the restored URL secret's latest is read"
