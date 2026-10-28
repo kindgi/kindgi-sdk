@@ -14,7 +14,7 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { type ConnectWaitResult, computeConnectWaitToken } from '@kindgi/agents';
-import { comparableName } from '@kindgi/api';
+import { comparableName, fitName } from '@kindgi/api';
 import type {
   ConnectFinishInput,
   ConnectFinishOutcome,
@@ -278,29 +278,6 @@ function ownerKey(owner: ConnectionOwner): string {
 
 function union(a: readonly string[], b: readonly string[]): string[] {
   return [...new Set([...a, ...b])];
-}
-
-/**
- * Every character that can disguise a name, as `@kindgi/api`'s
- * `hasHiddenCharacters` refuses them: controls, format characters, lone
- * surrogates, line and paragraph separators, the default-ignorable ones
- * that render as nothing, and a variation selector anywhere but right
- * after an emoji or inside a keycap.
- */
-const HIDDEN_CHARACTERS_RE =
-  /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<![\p{Extended_Pictographic}0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)/gu;
-
-/**
- * Its first `max` characters, without what the cut leaves hidden (half a
- * keycap: its digit and selector without the U+20E3), trimmed at the end.
- */
-function fit(text: string, max: number): string {
-  return cut(text, max).replace(HIDDEN_CHARACTERS_RE, '').trimEnd();
-}
-
-/** Its first `max` characters, never half of one. */
-function cut(text: string, max: number): string {
-  return [...text].slice(0, max).join('');
 }
 
 function page<T>(items: readonly T[], limit: number, cursor?: Cursor): ConnectionPage<T> {
@@ -616,20 +593,19 @@ export function createInMemoryConnections(
   }
 
   /**
-   * A new connection's label: the request's, else the account's without its
-   * hidden characters, trimmed and cut to 100 characters. When
-   * another has it, the first free `<label> 2`, `<label> 3`, and so on: a
+   * A new connection's label: the request's, else the account's made to fit
+   * in 100 characters (`fitName`). When another has it, the first free
+   * `<label> 2`, `<label> 3`, and so on, the label cut to fit the number: a
    * finish isn't failed for it.
    */
   function newLabel(request: ConnectRequestRecord, account: ConnectionAccount): string | undefined {
-    const label =
-      request.label ??
-      fit(account.label.replace(HIDDEN_CHARACTERS_RE, '').trim(), MAX_LABEL_LENGTH);
+    const label = request.label ?? fitName(account.label, MAX_LABEL_LENGTH);
     if (label.length === 0) return undefined;
     if (!labelTaken(request, label)) return label;
     for (let n = 2; ; n += 1) {
       const suffix = ` ${n}`;
-      const next = `${fit(label, MAX_LABEL_LENGTH - suffix.length)}${suffix}`;
+      // A label of one character longer than the cut leaves only the number.
+      const next = `${fitName(label, MAX_LABEL_LENGTH - suffix.length)}${suffix}`.trimStart();
       if (!labelTaken(request, next)) return next;
     }
   }

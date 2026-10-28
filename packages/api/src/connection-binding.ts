@@ -445,8 +445,8 @@ export interface ConnectionBinding {
    * permissions are both sets.
    *
    * A new connection's `label` is the request's, else the account's label
-   * with its hidden characters (`hasHiddenCharacters`) removed, trimmed
-   * and cut to 100 characters, a cut never leaving half an emoji. When
+   * made to fit in 100 characters by `fitName`: its hidden characters
+   * removed, trimmed, and cut between the characters a person sees. When
    * another live connection of the same app, owner and env has it by then,
    * by `comparableName`, it's the first free `<label> 2`, `<label> 3`, and
    * so on: the grant isn't wasted. A reconnect keeps the connection's label

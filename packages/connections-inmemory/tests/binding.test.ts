@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { type ConnectRequestRecord, hasHiddenCharacters } from '@kindgi/api';
+import { type ConnectRequestRecord, fitName, hasHiddenCharacters } from '@kindgi/api';
 import type { PrincipalRef } from '@kindgi/authz';
 import { type AppEntry, defineApp } from '@kindgi/connections';
 import { github } from '@kindgi/connections/github';
@@ -1306,7 +1306,7 @@ describe('names', () => {
     });
   });
 
-  test('a cut to 100 characters never leaves half a keycap, in a default or a numbered name', async () => {
+  test('a cut to 100 characters keeps a flag, a keycap or a family whole or leaves it out, in a default or a numbered name', async () => {
     const made = registrations();
     const [a, b, c] = made.appIds as [string, string, string];
     // The account's label: 98 letters, then a keycap across the 100th character.
@@ -1314,7 +1314,7 @@ describe('names', () => {
       appId: a,
       code: `${'a'.repeat(98)}#\uFE0F\u20E3x`,
     });
-    expect(fromAccount.connection.label).toBe(`${'a'.repeat(98)}#`);
+    expect(fromAccount.connection.label).toBe('a'.repeat(98));
     // A name asked for, taken by the finish: its cut to 98 for " 2" lands inside a keycap.
     const name = `${'b'.repeat(96)}1\uFE0F\u20E3c`;
     const created = await made.binding.createRequest({
@@ -1346,10 +1346,24 @@ describe('names', () => {
     if (finished.kind !== 'ok' || finished.value.kind !== 'connected') {
       throw new Error('expected a connection');
     }
-    expect(finished.value.connection.label).toBe(`${'b'.repeat(96)}1 2`);
+    expect(finished.value.connection.label).toBe(`${'b'.repeat(96)} 2`);
     for (const label of [fromAccount.connection.label, finished.value.connection.label]) {
       expect(hasHiddenCharacters(label as string)).toBe(false);
     }
+  });
+
+  test('fitName cuts between the characters a person sees', () => {
+    const flag = '\u{1F1E9}\u{1F1EA}';
+    expect(fitName(`${'a'.repeat(99)}${flag}`, 100)).toBe('a'.repeat(99));
+    expect(fitName(`${'a'.repeat(98)}${flag}`, 100)).toBe(`${'a'.repeat(98)}${flag}`);
+    expect(fitName(`${'a'.repeat(98)}1\uFE0F\u20E3`, 100)).toBe('a'.repeat(98));
+    expect(fitName(`${'a'.repeat(97)}1\uFE0F\u20E3`, 100)).toBe(`${'a'.repeat(97)}1\uFE0F\u20E3`);
+    // A joined family loses its joiners first, so its people are cut one by one.
+    const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
+    expect(fitName(`${'a'.repeat(98)}${family}`, 100)).toBe(`${'a'.repeat(98)}\u{1F468}\u{1F469}`);
+    // An accented letter written as two code points stays whole.
+    expect(fitName(`${'a'.repeat(99)}e\u0301`, 100)).toBe('a'.repeat(99));
+    expect(fitName(' \u202Ename\u3164 ', 100)).toBe('name');
   });
 
   test("a reconnect keeps the connection's name and ignores the one asked", async () => {

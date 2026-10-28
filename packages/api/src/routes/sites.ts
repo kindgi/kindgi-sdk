@@ -512,9 +512,34 @@ export function siteOrigin(raw: unknown): string | undefined {
  * name needs a joiner.
  */
 export function hasHiddenCharacters(text: string): boolean {
-  return /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<![\p{Extended_Pictographic}0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)/u.test(
-    text,
-  );
+  return HIDDEN_CHARACTER.test(text);
+}
+
+const HIDDEN_CHARACTER =
+  /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<![\p{Extended_Pictographic}0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)/u;
+
+/** Every hidden character (`hasHiddenCharacters`), for removing them. */
+const HIDDEN_CHARACTERS = new RegExp(HIDDEN_CHARACTER.source, 'gu');
+
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/**
+ * A name made from `text` that fits in `max` characters (code points): its
+ * hidden characters (`hasHiddenCharacters`) removed, trimmed, and cut
+ * between the characters a person sees, never inside one, so a flag, a
+ * keycap or an accented letter is kept whole or left out. What the cut
+ * leaves hidden goes too, and the end is trimmed. A connection's default
+ * name and a numbered one are made with it. It can be empty.
+ */
+export function fitName(text: string, max: number): string {
+  let kept = '';
+  let size = 0;
+  for (const { segment } of GRAPHEMES.segment(text.replace(HIDDEN_CHARACTERS, '').trim())) {
+    size += [...segment].length;
+    if (size > max) break;
+    kept += segment;
+  }
+  return kept.replace(HIDDEN_CHARACTERS, '').trimEnd();
 }
 
 /**
