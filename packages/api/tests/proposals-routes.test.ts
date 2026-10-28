@@ -1668,6 +1668,16 @@ describe('a proposal a drafter wrote (not a person)', () => {
     expect(approval).toMatchObject({ separateApprover: false });
   });
 
+  test('the only reviewer, who asked with their id in upper case, is still the one who asked', async () => {
+    // A seed user id an older version kept in upper case; the roster's id is a uuid's, in lower case.
+    const id = 'abcdef00-0000-4000-8000-0000000000ab';
+    const approval = await draftedApprovalFor(roster({ userId: id }), {
+      kind: 'user',
+      id: id.toUpperCase(),
+    });
+    expect(approval).toMatchObject({ separateApprover: false });
+  });
+
   test('a second reviewer besides the person who asked requires a separate approver', async () => {
     const approval = await draftedApprovalFor(roster({ userId: 'u-solo' }, { userId: 'u-two' }), {
       kind: 'user',

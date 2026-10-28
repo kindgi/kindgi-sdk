@@ -29,6 +29,7 @@ import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.j
 import { approvalResourceRef, projectOfScope } from './approval-resource.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
+import { sameUserId } from './caller.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
@@ -223,7 +224,7 @@ async function hasOtherEligibleReviewer(
     for (const reviewer of data) {
       if (reviewer.deactivatedAt !== undefined) continue;
       if (REVIEWER_ROLE_RANK[reviewer.role] < required) continue;
-      if (requesterUserId !== undefined && reviewer.userId === requesterUserId) continue;
+      if (requesterUserId !== undefined && sameUserId(reviewer.userId, requesterUserId)) continue;
       if (
         authz !== undefined &&
         !(await authz.check(userPrincipal(reviewer.userId, tenantId), 'read', resource)).allowed

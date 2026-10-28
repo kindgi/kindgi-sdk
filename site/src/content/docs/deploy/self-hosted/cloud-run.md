@@ -874,15 +874,21 @@ The two can go in two Google Cloud projects, or in one:
   Google's in the instance, in place, while `database_deletion_protection`
   is on (the default). If the plan says the instance `must be replaced`,
   stop: a replace deletes the database.
-- **Or upgrade with the module's `upgrade.sh`:** a small dev deployment
-  (`network_mode = "none"`, on runtime 0.1.8 or later) can run it instead,
-  to 0.2.0 or later. It copies the new image from `registry.kindgi.com`, so
-  [log in there](../pull-the-runtime-image/) first. It runs the upgrade
-  checks against the database, then backs the database up, and changes the
-  running deployment only when you type `yes`, which applies exactly the
-  saved plan it showed. Terraform made that plan with every
-  `*.auto.tfvars.json` in the folder too, your pack's env among them. If
-  the new revision doesn't
+- **Or upgrade with the module's `upgrade.sh`:** a deployment of the
+  module on runtime 0.1.8 or later, in any `network_mode`, can run it
+  instead, to 0.2.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes
+  `network_mode = "none"` only. It copies the new image from
+  `registry.kindgi.com`, so [log in there](../pull-the-runtime-image/)
+  first. It runs the upgrade checks against the database, then backs the
+  database up, and changes the running deployment only when you type
+  `yes`. Before it asks, it checks the plan: it stops if the plan creates,
+  deletes or replaces anything, or changes anything but the new image and
+  what the releases crossed change in place. So a var file left off the
+  command, whose variables the plan would empty, stops it: give it one
+  `--var-file` for each file your variables are in, since Terraform loads
+  only `terraform.tfvars` and `*.auto.tfvars` (and their `.json`) on its
+  own. `yes` applies exactly that plan, which it keeps next to the
+  var-file's copy. If the new revision doesn't
   come up, it prints the way back rather than rolling back on its own. To
   see what it would do first, add `--dry-run`: it lists every change a real
   run would make, in order, and shows Terraform's plan for the new image,
@@ -891,7 +897,9 @@ The two can go in two Google Cloud projects, or in one:
   the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
   you're upgrading to, or, before that release is out, its newest
   `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
-  and refuses a later `--to`. A server-only release, such as 0.2.0.1, is a
+  and refuses a later `--to`. With an earlier `--to` it still plans its own
+  module, whose changes past the target's release it lists and allows, and
+  it says so. A server-only release, such as 0.2.0.1, is a
   server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
   `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. The
   module's README has the rest, under
@@ -992,9 +1000,11 @@ The two can go in two Google Cloud projects, or in one:
 
 ## Upgrade by hand
 
-`upgrade.sh` covers the small dev shape only. With `network_mode`
-`direct` or `connector`, upgrade by hand, staging first
-([Staging and production](#staging-and-production)). Run the steps in the
+`upgrade.sh` runs these steps for you. Upgrade by hand instead if you'd
+rather, or with `network_mode` `direct` or `connector` and an `upgrade.sh`
+from before the `@kindgi/sdk@0.3.0` tag, which takes `"none"` only. Upgrade
+staging first ([Staging and production](#staging-and-production)). Run the
+steps in the
 module's folder, as the identity that deploys the module, with `gcloud` set
 to this deployment's project, the `project_id` in its var-file:
 
