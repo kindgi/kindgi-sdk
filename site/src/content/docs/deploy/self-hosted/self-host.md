@@ -129,6 +129,11 @@ uuidgen | tr 'A-Z' 'a-z'
 
 It prints the id in lower case. Keep it for the config and `kindgi.env`.
 
+Keep the id in lower case. With an upper-case one, manage the tenant's people
+one way only: with the API token as the bearer of your CLI or API calls, or
+through the console and API keys, not both. A runtime that already runs with
+an upper-case id keeps it as it is.
+
 Create a signing key. `acme-selfhost` is the key's id, and `--env selfhost`
 also prints the lines to add to the `selfhost` environment:
 

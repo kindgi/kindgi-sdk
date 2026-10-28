@@ -34,11 +34,24 @@ days after it was released, and the runtime warns from 30 days before
 ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 A restart after that day doesn't come back up.
 
+Each way of running the runtime has its own way to upgrade:
+
+| You run the runtime | How to upgrade | Script |
+| --- | --- | --- |
+| With Docker, as [Self-host Kindgi](../self-host/) sets it up | [With Docker](#with-docker), below: back up, then pull and restart | None |
+| On Cloud Run, as the small dev deployment (`network_mode = "none"`), on 0.1.8 or later | The module's `upgrade.sh`, under [Operate it](../cloud-run/#operate-it) on the Cloud Run page | `upgrade.sh` |
+| On Cloud Run, with `network_mode` `direct` or `connector` | [Upgrade by hand](../cloud-run/#upgrade-by-hand) on the Cloud Run page | None: `upgrade.sh` stops on these |
+| On Azure Container Apps | [Upgrade](../azure-container-apps/#upgrade) on the Azure Container Apps page | None |
+
 **Before you start, read the upgrade steps of each release you're
-upgrading across:** [0.1.10's](../../../releases/0.1.10/#upgrade-steps),
+upgrading across.** From 0.1.8 on, they're in each release's notes:
+[0.2.0's](../../../releases/0.2.0/#upgrade-steps),
+[0.1.10's](../../../releases/0.1.10/#upgrade-steps),
 [0.1.9's](../../../releases/0.1.9/#upgrade-steps) and
-[0.1.8's](../../../releases/0.1.8/#upgrade-steps) are in their release
-notes, and earlier releases' are below.
+[0.1.8's](../../../releases/0.1.8/#upgrade-steps). Up to 0.1.7, they're
+on this page, from [From 0.1.6 to 0.1.7](#from-016-to-017) down.
+
+### With Docker
 
 1. [Back up Postgres.](../back-up-and-restore/#back-up-postgres)
 2. Pull the new version, with Docker logged in to `registry.kindgi.com` with your license key ([Pull the runtime image](../pull-the-runtime-image/)), and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:

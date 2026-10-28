@@ -183,7 +183,8 @@ It answers at once with the Improve run. `--wait` waits for its outcome, at
 most 30 minutes, and prints it:
 
 - **`proposed`**, with the suggested change it wrote, which a person decides:
-  run `kindgi proposals request <proposal-id>`, then decide the approval. An
+  the Improve run asks for its review itself, in the name of whoever started
+  it, so the suggested change waits in reviewers' approvals. An
   Improve run's suggested change always waits for a reviewer, because Improve,
   not a person, drafted it. Who may approve it depends on the scope's
   [release gate policy](../release-an-agent-version/#gate-a-release):
@@ -413,7 +414,7 @@ The same loop runs in the console. On an agent's **Suggested changes** page,
 **Improve** starts an Improve run, and the Improve run's page follows it. The
 suggested change it writes shows its verdict and the figures from its run on
 the test cases, under **Evidence** the corrections it learned from, each with
-its verdict and reason and a link to its run, and an **Ask to make it live**
+its verdict and reason and a link to its run, and an **Ask to pin it**
 button to send it for a decision. **Schedule Improve**, on the same page,
 makes a schedule that starts Improve runs for the agent, as
 [Schedule Improve in the console](../../runs/run-on-a-schedule/#schedule-improve-in-the-console)
