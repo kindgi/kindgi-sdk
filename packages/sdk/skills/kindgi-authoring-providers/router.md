@@ -4,6 +4,7 @@
 
 - The order the router sorts (provider, model) tuples in
 - Practical rule: preferences rank, they never exclude
+- A/B testing a specific agent across models within one Anthropic registration
 - A/B testing across vendors
 
 When an agent turn fires, the router expands each registered provider
