@@ -126,8 +126,10 @@ brief_writer = Agent(
   chat-only agent.
 - **`guardrails`** — `Guardrail` objects or ids. They check the final
   answer, before it is stored; one whose action is `retry` sends the
-  answer back to the model for a new one. An id with no registered
-  guardrail fails the turn (`unresolved-guardrail`).
+  answer back to the model for a new one, up to `retry.maxAttempts`
+  answers in all (default 2), then the turn fails
+  (`guardrail-violation`). An id with no registered guardrail fails the
+  turn (`unresolved-guardrail`).
 - **`parameters`** — inputs the caller supplies per run
   (`{"name", "type", "required"}`); they fill `{{ … }}` in the
   instructions.

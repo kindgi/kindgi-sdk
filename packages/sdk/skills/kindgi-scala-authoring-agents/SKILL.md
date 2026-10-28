@@ -134,7 +134,9 @@ object BriefWriter {
   start. An agent with no tools is chat-only.
 - **`guardrail(guardrail)`** or **`guardrail(id)`:** checks the final answer,
   before it is stored. One whose action is `retry` sends the answer back to
-  the model for a new one. An id with no registered guardrail fails the turn.
+  the model for a new one, up to `retry.maxAttempts` answers in all (default
+  2); then the turn fails (`guardrail-violation`). An id with no registered
+  guardrail fails the turn.
 - **`set("parameters", List(Map("name" -> …, "type" -> …, "required" -> …)))`:**
   inputs the caller supplies per run. They fill `{{ … }}` in the
   instructions.

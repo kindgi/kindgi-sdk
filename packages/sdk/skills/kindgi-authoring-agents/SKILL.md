@@ -114,7 +114,9 @@ export default defined.value;
   fails with `unresolved-guardrail`. Guardrails check the final
   response before it is stored — a blocking (`halt`) violation fails
   the turn and the response is never written to the conversation; a
-  `retry` one sends the response back to the model for a new one.
+  `retry` one sends the response back to the model for a new one, up
+  to `retry.maxAttempts` answers in all (default 2); then the turn
+  fails with `guardrail-violation`.
 - **`parameters`** — typed inputs the caller supplies at invoke time.
   UI builds a "configure agent" form from these; runtime validates
   each required parameter is provided.
