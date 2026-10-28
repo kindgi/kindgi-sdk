@@ -100,14 +100,15 @@ To: support@acme.example
 No tracking number yet. Can you check?
 
 [earlier mail left out]
-Attachments: receipt.pdf (application/pdf, 84 KB)
+Attachments: 1. receipt.pdf (application/pdf, 84 KB)
 ```
 
 - **Each mail says who it's from and when.** The new mail has its id, so
-  the agent can name it, and its `To`, `Cc` and `Reply-To`. Mail the
-  mailbox sent shows as "(this mailbox)". Other mail from the mailbox's
-  address shows as "(this mailbox's address, not its sent mail)", since
-  anyone can put that address on a mail.
+  the agent can name it, and its `To`, `Cc` and `Reply-To`. An earlier
+  mail that lists attachments has its id too, for the attachment tools.
+  Mail the mailbox sent shows as "(this mailbox)". Other mail from the
+  mailbox's address shows as "(this mailbox's address, not its sent
+  mail)", since anyone can put that address on a mail.
 - **Quoted earlier mail is left out,** since the thread already has it.
   On Gmail, it's marked `[earlier mail left out]`. What's left out is a
   run of `>` lines to the end of the mail, and an English `On … wrote:`
@@ -124,8 +125,12 @@ Attachments: receipt.pdf (application/pdf, 84 KB)
   `fbclid`. A web address still over 100 characters keeps its scheme, its
   host and the start of its path, with `…`, so the agent can't give it back
   whole. Ready-made read tools keep every address whole.
-- **Attachments are listed,** with their names, types and sizes. The agent
-  doesn't read what's in them.
+- **Attachments are listed,** numbered from 1, with their names, types and
+  sizes. A size is in thousands of bytes, rounded up (1 MB is 1,000,000
+  bytes), as the file limits are. The agent doesn't see what's in them
+  unless the pack includes `gmailAttachmentGet` or `outlookAttachmentGet`
+  ([Use a connection](../../connections/use-a-connection/)), which show it
+  one attachment by the mail's id and its number.
 - **A long thread is cut to fit:** each mail's text to 50,000 characters,
   the turn to 60,000, and at most 100 mails. The turn takes the new mail,
   then the thread's first mail, then the newest, and says how many it left
