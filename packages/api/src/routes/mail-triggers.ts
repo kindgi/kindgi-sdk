@@ -556,7 +556,9 @@ export function mailTriggersRouter(
       ...(Object.keys(config.value).length > 0 && { config: config.value }),
       ...(target !== undefined && { target: target.value }),
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
-      ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
+      // The same tools in another order change nothing: no version, as no audit entry.
+      ...(tools.kind === 'ok' &&
+        !sameToolList(kept, tools.value) && { toolsAllowedUnattended: tools.value }),
     };
     const result = await binding.update(updateInput);
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);

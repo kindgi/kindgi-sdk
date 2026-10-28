@@ -525,7 +525,9 @@ export function schedulesRouter(
       ...(target !== undefined && { target: target.value }),
       ...policy.value,
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
-      ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
+      // The same tools in another order change nothing: no version, as no audit entry.
+      ...(tools.kind === 'ok' &&
+        !sameToolList(kept, tools.value) && { toolsAllowedUnattended: tools.value }),
     };
 
     // What it runs: its target or version, its input, its tool list. On a

@@ -14377,7 +14377,7 @@ export const TriggerVersionCauseSchema: JsonSchema = {
   type: 'string',
   enum: [...TRIGGER_VERSION_CAUSES],
   description:
-    "What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).",
+    "What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).",
 };
 
 /**
@@ -14428,7 +14428,7 @@ function triggerVersionSchema(
       createdBy: {
         type: 'string',
         description:
-          'Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `pin`).',
+          'Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).',
       },
       cause: { $ref: '#/components/schemas/TriggerVersionCause' },
       definition: { $ref: `#/components/schemas/${definition}` },

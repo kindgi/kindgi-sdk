@@ -687,10 +687,19 @@ export interface TriggerLifecycleInput {
  * What made a version: `register` (version 1), `edit` (an update that
  * changed the definition), `owner` (a take-ownership to another owner),
  * `first-fire` (a trigger registered before versions, at its first fire or
- * poll: its definition as it was), or `pin` (the runtime pinned a company
- * mailbox to its only connection).
+ * poll: its definition as it was), `unversioned-edit` (at a fire or poll,
+ * a definition its newest version doesn't hold, as when a release from
+ * before versions changed it during an upgrade: the definition as it is),
+ * or `pin` (the runtime pinned a company mailbox to its only connection).
  */
-export const TRIGGER_VERSION_CAUSES = ['register', 'edit', 'owner', 'first-fire', 'pin'] as const;
+export const TRIGGER_VERSION_CAUSES = [
+  'register',
+  'edit',
+  'owner',
+  'first-fire',
+  'unversioned-edit',
+  'pin',
+] as const;
 export type TriggerVersionCause = (typeof TRIGGER_VERSION_CAUSES)[number];
 
 /**
@@ -750,7 +759,7 @@ interface TriggerVersionBase {
   readonly createdAt: string;
   /**
    * Who made it: the `by` of the register, update or take-ownership.
-   * Absent only when the runtime made it (`first-fire`, `pin`).
+   * Absent only when the runtime made it (`first-fire`, `unversioned-edit`, `pin`).
    */
   readonly createdBy?: string;
   readonly cause: TriggerVersionCause;

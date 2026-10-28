@@ -552,6 +552,19 @@ describe('toolsAllowedUnattended', () => {
     expect(cleared.body.toolsAllowedUnattended).toBeUndefined();
   });
 
+  test('the same tools in another order: no change, so no version and nothing audited', async () => {
+    const h = harness();
+    const id = await wrensTrigger(h, {}, ['acme.reply', 'acme.lookup']);
+    const listed = h.events('trigger-tools-allowed-unattended-set').length;
+    const reordered = await h.call('PATCH', `${BASE}/${id}`, {
+      toolsAllowedUnattended: ['acme.lookup', 'acme.reply'],
+    });
+    expect(reordered.status).toBe(200);
+    expect(reordered.body.version).toBe(2);
+    expect(reordered.body.toolsAllowedUnattended).toEqual(['acme.reply', 'acme.lookup']);
+    expect(h.events('trigger-tools-allowed-unattended-set')).toHaveLength(listed);
+  });
+
   test('a version change keeps it; a mailbox change without it is a 400', async () => {
     const h = harness();
     const id = await wrensTrigger(h, { agentVersion: '1.0.0' }, ['acme.reply']);

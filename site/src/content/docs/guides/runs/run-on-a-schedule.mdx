@@ -327,11 +327,13 @@ From your app, newest first:
 
 Whoever can read the schedule can read its versions. Each one says when it
 was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
-`register`, `edit`, `owner` for a take-over to another owner, or
-`first-fire` for one the runtime made at the first fire of a schedule from
-before versions, which names no one). Its `definition` is what it ran, with
-which input, as whom, when, and with which policies, label and tools
-allowed unattended: never its status.
+`register`, `edit` or `owner` for a take-over to another owner). Two causes
+name no one, since the runtime made the version itself: `first-fire`, at
+the first fire of a schedule from before versions, and `unversioned-edit`,
+at a fire after a release from before versions changed the schedule during
+an upgrade. Its `definition` is what it ran, with which input, as whom,
+when, and with which policies, label and tools allowed unattended: never
+its status.
 
 The evidence of a change names the version it made (`version`), on
 `trigger-changed-for-owner`, `trigger-owner-set` and
