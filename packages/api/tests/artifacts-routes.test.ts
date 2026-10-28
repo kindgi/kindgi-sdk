@@ -335,6 +335,53 @@ describe('reading and deleting', () => {
   });
 });
 
+describe('a download is saved as a file, never opened as a page of this origin', () => {
+  const SAVED = {
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; sandbox",
+  };
+
+  test('GET and HEAD answer an attachment under its whole name, nosniff and sandboxed', async () => {
+    const h = harness();
+    const up = await h.upload('alice', {
+      name: 'résumé (v2) "final".html',
+      contentType: 'text/html; charset=utf-8',
+    });
+    for (const method of ['GET', 'HEAD']) {
+      const res = await h.call('alice', method, `/v1/artifacts/${up.body.blobId}`);
+      expect(res.status, method).toBe(200);
+      expect(res.headers, method).toMatchObject({
+        ...SAVED,
+        'content-type': 'text/html; charset=utf-8',
+        'content-disposition':
+          'attachment; filename="r_sum_ (v2) _final_.html"; ' +
+          "filename*=UTF-8''r%C3%A9sum%C3%A9%20%28v2%29%20%22final%22.html",
+      });
+    }
+  });
+
+  test.each([
+    ['no subtype', 'html'],
+    ['a list', 'text/html, image/png'],
+    ['a line break', 'text/html\r\nx-other: 1'],
+    ['a character outside ASCII', 'text/html; charset=ü'],
+  ])('a stored type with %s is served as application/octet-stream', async (_what, stored) => {
+    const h = harness();
+    const blobId = (await h.upload('alice', { name: 'page.html' })).body.blobId as string;
+    const meta = h.blobs.rows.get(blobId) as BlobMeta;
+    h.blobs.rows.set(blobId, { ...meta, contentType: stored });
+    for (const method of ['GET', 'HEAD']) {
+      const res = await h.call('alice', method, `/v1/artifacts/${blobId}`);
+      expect(res.status, method).toBe(200);
+      expect(res.headers, method).toMatchObject({
+        ...SAVED,
+        'content-type': 'application/octet-stream',
+        'content-disposition': `attachment; filename="page.html"; filename*=UTF-8''page.html`,
+      });
+    }
+  });
+});
+
 describe('an upload sent with an Idempotency-Key', () => {
   test('keeps its bytes as sent, and a repeat replays the first answer', async () => {
     const h = harness();

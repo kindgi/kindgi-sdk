@@ -150,6 +150,16 @@ Semantic notes:
   `bytes=N-`, `bytes=-M`) — response is `206 Partial Content` with
   `Content-Range: bytes N-M/total`. Multi-range (comma-separated)
   requests are rejected with `416 InvalidRange`.
+- **Object reads** (GET and HEAD, a presigned link's included) answer
+  `X-Content-Type-Options: nosniff`. An object of a type a browser shows
+  without running it (PNG, JPEG, GIF, WebP, AVIF, PDF, plain text, MP3,
+  Ogg, WAV, WebM and MP4 audio, and MP4, WebM and Ogg video) is served
+  inline; any other is an attachment (`Content-Disposition: attachment`)
+  with `Content-Security-Policy: default-src 'none'; sandbox`, so a
+  browser never runs it as a page of this origin. A stored type that
+  isn't a well-formed media type is served as `application/octet-stream`.
+  The `response-content-type` and other response override parameters
+  aren't read.
 - **DELETE** always returns `204` — whether the key existed or not
   (S3 semantics).
 - **ListObjectsV2** requires `?list-type=2`; v1 listing is not
