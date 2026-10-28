@@ -453,7 +453,7 @@ const NOT_SHOWN: Readonly<Record<FileNotShownReason, string>> = {
   changed: 'not the file that was checked',
   refused: "the model couldn't read it when it was attached",
   storage: 'no room left in storage',
-  reading: 'still being read',
+  reading: 'not ready yet',
 };
 
 /** The line a model reads in place of a file it isn't shown. */
