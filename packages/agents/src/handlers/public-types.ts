@@ -137,7 +137,9 @@ export interface InvokeAgentInput {
    * When `true`, executes the turn as a plan preview: no side effects
    * to the conversation, memory, or provenance. Retrievals + guardrails
    * still run for real (pure reads); the model call is skipped and
-   * returns a fixed mock response with no tool calls, so no tools run;
+   * returns a fixed mock response with no tool calls, so no tools run
+   * and no guardrail runs at a loop point; a failed `halt` or `retry`
+   * guardrail at the final answer fails the turn, as in any run;
    * every `persist-*` node skips its write. The returned
    * `AgentTurnResult` carries `dryRun: true`, and the underlying run is
    * journaled as a dry run.

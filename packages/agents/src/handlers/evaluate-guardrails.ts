@@ -44,8 +44,9 @@ import { parseJsonAnswer } from './structured-output.js';
  * finish on the other guardrails. A final answer the loop didn't judge in
  * this process (a turn resumed elsewhere) is judged here on every
  * guardrail, and a `retry` guardrail that fails it is out of attempts:
- * the turn fails, as for a `halt`, except on a dry run, where it's only
- * recorded. Failures with any other action are stashed on `ctx` for
+ * the turn fails, as for a `halt`. So is a dry run's answer: the loop
+ * judges none of a dry run's answers, and a dry run fails as any run
+ * does. Failures with any other action are stashed on `ctx` for
  * `compose-result` to surface in `AgentTurnResult.violations`. Every
  * failure emits a `guardrail.violated` event. A guardrail whose check
  * couldn't run (no such check, a bad configuration) emits
@@ -81,9 +82,9 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
     const guardrails = inLoop !== undefined ? atFinal.filter((g) => !judgedInLoop(g)) : atFinal;
     const categorized = await judgeAnswer(ctx, kctx, final.message, guardrails, evaluatedAt);
     // A `retry` guardrail that fails here can't send the answer back, as the
-    // loop is done: it's out of attempts, and the turn fails. A dry run never
-    // asks the model again, so there it's only recorded.
-    const outOfAttempts = kctx.dryRun ? [] : categorized.retry;
+    // loop is done: it's out of attempts, and the turn fails. A dry run's
+    // too: it never sends an answer back, so its first failure is its last.
+    const outOfAttempts = categorized.retry;
     // Recorded before the gate acts on them, so a blocked turn is counted too.
     await recordOutcomes(ctx, kctx, evaluatedAt, withBlocked(categorized.checks, outOfAttempts));
     await emitGateEvents(ctx, categorized);

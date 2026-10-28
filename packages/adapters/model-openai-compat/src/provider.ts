@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { randomUUID } from 'node:crypto';
+
 import OpenAI from 'openai';
 
 import type {
@@ -365,6 +367,7 @@ function extractToolCalls(
 ): ModelToolCall[] {
   if (raw === undefined || raw.length === 0) return [];
   const out: ModelToolCall[] = [];
+  const ids = new Set<string>();
   for (const tc of raw) {
     if (tc.type !== 'function') continue;
     let args: Record<string, unknown>;
@@ -374,9 +377,24 @@ function extractToolCalls(
       args = {};
     }
     // The wire names the tool as it was sent; the framework expects its id.
-    out.push({ id: tc.id, name: toolIdOf(tc.function.name), arguments: args });
+    out.push({ id: callIdOf(tc.id, ids), name: toolIdOf(tc.function.name), arguments: args });
   }
   return out;
+}
+
+/**
+ * A call's id is the server's, or one made here when the server sent none,
+ * an empty one, or one an earlier call of the reply has. A compatible
+ * server may do any of those, and each call of a reply needs an id of its
+ * own, since the agent loop records what it decided for a call by its id.
+ * The id goes back to the server with the call and with its result, so
+ * the two still match.
+ */
+function callIdOf(sent: string | undefined, ids: Set<string>): string {
+  const id =
+    typeof sent === 'string' && sent !== '' && !ids.has(sent) ? sent : `call-${randomUUID()}`;
+  ids.add(id);
+  return id;
 }
 
 function mapFinishReason(reason: string | null | undefined): ModelCallResult['finishReason'] {

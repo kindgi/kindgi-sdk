@@ -306,8 +306,9 @@ action: { 'on-violation': 'retry', retry: { maxAttempts: 3 } },
   is finishing, the turn it picks up judges its last answer on its `halt`
   and `retry` guardrails again, and those checks are counted again. If a
   `retry` check fails this time, the turn fails as out of answers.
-- **A dry run** records a `retry` guardrail's failure, as `log-only` does,
-  and sends nothing back.
+- **A dry run** skips the model call: its answer is a placeholder, and
+  nothing is sent back. A `retry` guardrail that fails that answer fails
+  the turn, as one out of attempts does.
 
 ## At a tool call or a model reply
 
@@ -333,8 +334,8 @@ Its action applies to that step:
   reply.
 - **With `log-only`,** the step goes ahead, and the failure joins the turn's
   `violations`.
-- **A dry run** records a `retry` guardrail's failure, as `log-only` does:
-  the call runs, its result is kept and the reply goes on.
+- **A dry run** skips the model call, so its reply asks for no tools and no
+  guardrail runs at these points.
 
 With `halt`, the message says where the turn stopped. For the refund-limit
 guardrail from
@@ -424,8 +425,7 @@ What happens next depends on the action:
 - With `retry` at a tool call or a model reply, the error counts as a failed
   check: the call is refused, the result withheld or the reply sent back,
   with the reason `its check couldn't run (<code>): <message>`. So with
-  `halt`, or with `retry` outside a dry run, a check that can't run never
-  lets a call through.
+  `halt` or `retry`, a check that can't run never lets a call through.
 - With any other action, the turn completes.
 
 Where each deployment has its own pack service, as on Kindgi Cloud

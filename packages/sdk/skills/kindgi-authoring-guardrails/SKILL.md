@@ -82,9 +82,9 @@ Read this before you plan a guardrail. These decide what can be built:
   withheld, counts once, so two calls of one reply that it refuses are one
   attempt. When they run out, or the turn has no steps left, the turn
   fails with `attempts`, the replies there were. A tool's own result never
-  counts as one. A `log-only` failure joins the turn's `violations`, and
-  so does a `retry` failure in a dry run: the call runs, its result is
-  kept and the reply goes on.
+  counts as one. A `log-only` failure joins the turn's `violations`. A
+  dry run skips the model call, so no guardrail runs at these points in
+  one.
   `escalate` and `compensate` are refused away from the final answer
   (by `kindgi build`, `deployment-validation-failed` on deploy,
   `400 validation-failed` on register). A failure names `details.point` and, at a tool point,
@@ -379,11 +379,10 @@ available to the runtime that evaluates it.
   can't run (a point its check doesn't run at as
   `check-point-unsupported`, or its time ran out as `check-timed-out`)
   acts as a failed one: `halt` fails the turn, `retry` refuses, withholds
-  or sends back with the reason `its check couldn't run (<code>): <message>`
-  (in a dry run, a `retry` only records it). A check that isn't
-  registered counts there as one that runs at the final answer only, so
-  it fails as `check-point-unsupported`, saying no check by that name is
-  registered; at the final answer it's `unknown-check`. At the
+  or sends back with the reason `its check couldn't run (<code>): <message>`.
+  A check that isn't registered counts there as one that runs at the final
+  answer only, so it fails as `check-point-unsupported`, saying no check by
+  that name is registered; at the final answer it's `unknown-check`. At the
   final answer, a `retry` whose check can't run goes on as if it passed.
 - **`action.on-violation`** — `'halt'`, `'retry'` (with `retry.maxAttempts`,
   1–10), `'escalate'` (with `escalateTo`), `'log-only'`, `'compensate'`

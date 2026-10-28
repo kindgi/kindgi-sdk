@@ -221,6 +221,34 @@ async function decideToolGate(
 }
 
 /**
+ * Fails the turn unless each of a reply's calls has an id of its own. A
+ * step records what it decided for a call (its guardrails' verdicts, its
+ * approval, that it ran) by the call's id, so a second call with the same
+ * id would get the first one's decisions and its own checks would never
+ * run. A provider adapter gives each call an id of its own; this stops a
+ * reply from one that didn't before any of its calls is judged.
+ */
+function failOnSharedCallIds(calls: readonly ModelToolCall[]): void {
+  const ids = new Set<string>();
+  for (const [index, call] of calls.entries()) {
+    const id: unknown = call.id;
+    if (typeof id === 'string' && id !== '' && !ids.has(id)) {
+      ids.add(id);
+      continue;
+    }
+    const which = `call ${index + 1} of ${calls.length}, to ${call.name}`;
+    throwAgentTurnFailure({
+      code: 'model-invocation-failed',
+      message:
+        typeof id === 'string' && id !== ''
+          ? `The model's reply has two calls with the id ${JSON.stringify(id)} (${which}): each call needs an id of its own`
+          : `The model's reply has a call with no id (${which}): each call needs an id of its own`,
+      cause: null,
+    });
+  }
+}
+
+/**
  * Loop-body node #2. If the model returned `finishReason='tool-use'`
  * with a non-empty tool-call list, persist the assistant tool-call
  * message + dispatch every tool + persist every tool result. Update
@@ -267,6 +295,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       return forwarded;
     }
 
+    failOnSharedCallIds(assistantMsg.toolCalls ?? []);
     const iterationAppended: ConversationMessage[] = [];
     const points = stepPoints(partial.step, iterationAppended);
 

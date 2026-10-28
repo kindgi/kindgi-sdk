@@ -616,11 +616,14 @@ describe("before-tool: a call, before it runs and before any approval's asked", 
     ]);
   });
 
-  test('a dry run records a retry and runs the call', async () => {
+  test('a dry run refuses a call as any run does', async () => {
     const { ctx, seen } = turn([BIG]);
-    await step(ctx, seen, [call('call-1', REFUND, { amount: 500 })], { dryRun: true });
-    expect(seen.runs.get(REFUND)).toBe(1);
-    expect(ctx.pointViolations?.size).toBe(1);
+    const out = await step(ctx, seen, [call('call-1', REFUND, { amount: 500 })], {
+      dryRun: true,
+    });
+    expect(seen.runs.get(REFUND)).toBeUndefined();
+    expect(out.nextMessages.at(-1)?.guardrailNote).toEqual(['acme.no-big-refund']);
+    expect(ctx.pointViolations?.size ?? 0).toBe(0);
     expect(seen.rows).toEqual([]);
   });
 
@@ -727,6 +730,16 @@ describe('after-tool: what a call came to, before the model sees it', () => {
     });
   });
 
+  test('a dry run withholds a result as any run does', async () => {
+    const { ctx, seen } = turn([SECRET], { lookup: secretLookup });
+    const out = await step(ctx, seen, [call('call-1', LOOKUP, { q: 'A-1042' })], {
+      dryRun: true,
+    });
+    expect(JSON.stringify(out.nextMessages)).not.toContain('secret code');
+    expect(out.nextMessages.at(-1)?.guardrailNote).toEqual(['acme.no-secret']);
+    expect(ctx.pointViolations?.size ?? 0).toBe(0);
+  });
+
   test("a replay's recorded result is screened as a live one is", async () => {
     const { ctx, seen } = turn([SECRET], { replayed: { text: 'the secret code is 7' } });
     await step(ctx, seen, [call('call-1', LOOKUP, { q: 'A-1042' })]);
@@ -800,6 +813,18 @@ describe('model-step: a reply that asks for calls, before any of them runs', () 
     });
   });
 
+  test('a dry run sends a reply back as any run does', async () => {
+    const { ctx, seen } = turn([SECRET]);
+    const out = await step(ctx, seen, [call('call-1', REFUND, { amount: 5 })], {
+      text: 'The secret is out, refunding.',
+      dryRun: true,
+    });
+    expect(seen.runs.get(REFUND)).toBeUndefined();
+    expect(out.iterationAppended).toEqual([]);
+    expect(out.nextMessages.at(-1)?.role).toBe('user');
+    expect(ctx.pointViolations?.size ?? 0).toBe(0);
+  });
+
   test('a reply that passes is stored and its calls run', async () => {
     const { ctx, seen } = turn([SECRET]);
     await step(ctx, seen, [call('call-1', REFUND, { amount: 5 })], { text: 'Refunding.' });
@@ -813,6 +838,37 @@ describe('model-step: a reply that asks for calls, before any of them runs', () 
   test("a reply's note isn't an answer sent back", () => {
     const answer = guardrail('acme.cite', 'acme.seen', 'final-answer', 'retry');
     expect(answerNotes([['acme.no-secret'], ['acme.cite']], [answer])).toEqual([['acme.cite']]);
+  });
+});
+
+describe("a reply's calls each have an id of their own", () => {
+  const BIG = guardrail('acme.no-big-refund', 'acme.no-big-refund', 'before-tool', 'retry');
+
+  test('two calls with one id fail the turn before either is judged or runs', async () => {
+    const { ctx, seen } = turn([BIG]);
+    const error = await failureOf(() =>
+      step(ctx, seen, [
+        call('call-1', REFUND, { amount: 5 }),
+        call('call-1', REFUND, { amount: 500 }),
+      ]),
+    );
+    expect(error).toMatchObject({ code: 'model-invocation-failed' });
+    expect(String(error.message)).toContain(
+      `two calls with the id "call-1" (call 2 of 2, to ${REFUND})`,
+    );
+    expect(seen.runs.get(REFUND)).toBeUndefined();
+    expect(seen.traces.get('acme.no-big-refund')).toBeUndefined();
+    expect(seen.stored).toEqual([]);
+  });
+
+  test('a call with an empty id fails the turn', async () => {
+    const { ctx, seen } = turn([BIG]);
+    const error = await failureOf(() =>
+      step(ctx, seen, [call('call-1', REFUND, { amount: 5 }), call('', LOOKUP, { q: 'A-1' })]),
+    );
+    expect(error).toMatchObject({ code: 'model-invocation-failed' });
+    expect(String(error.message)).toContain(`a call with no id (call 2 of 2, to ${LOOKUP})`);
+    expect(seen.runs.get(REFUND)).toBeUndefined();
   });
 });
 

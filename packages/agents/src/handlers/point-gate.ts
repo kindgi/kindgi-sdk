@@ -276,9 +276,9 @@ export function pointCheckNodes(points: StepPoints): readonly PointCheckNode[] {
  * stored and its checks go in provenance before the failure, as a final
  * answer's do (`budget-check`).
  *
- * On a dry run, a `retry` is recorded only: nothing is refused, withheld
- * or sent back, as the final answer's `retry` isn't. The failed checks
- * and the recorded failures are gathered on `points`.
+ * A dry run acts on a `retry` as any run does, so a dry run never lets
+ * through what a run would refuse. The failed checks and the recorded
+ * failures are gathered on `points`.
  */
 export async function judgeAtPoint(
   ctx: TurnContext,
@@ -303,10 +303,11 @@ export async function judgeAtPoint(
   );
   const categorized = categorizeOutcomes(outcomes, guardrails);
   const halted = categorized.blocking.length > 0 || categorized.blockingErrors.length > 0;
-  const retryErrors = kctx.dryRun ? [] : categorized.errors.filter((e) => e.action === 'retry');
-  const failures: RetryFailure[] = kctx.dryRun
-    ? []
-    : [...categorized.retry.map(retryFailureOf), ...retryErrors.map(retryFailureOfError)];
+  const retryErrors = categorized.errors.filter((e) => e.action === 'retry');
+  const failures: RetryFailure[] = [
+    ...categorized.retry.map(retryFailureOf),
+    ...retryErrors.map(retryFailureOfError),
+  ];
   // At a tool point the reply is the attempt: its calls refused or
   // withheld so far are this attempt, not earlier ones.
   const sentBack = sentBackSoFar(
@@ -346,11 +347,7 @@ export async function judgeAtPoint(
   }
   gatherChecks(points, where, categorized, evaluatedAt);
 
-  for (const v of [
-    ...categorized.warnings,
-    ...categorized.other,
-    ...(kctx.dryRun ? categorized.retry : []),
-  ]) {
+  for (const v of [...categorized.warnings, ...categorized.other]) {
     const key = `${stepId}:${v.guardrailId as string}`;
     ctx.pointViolations ??= new Map();
     ctx.pointViolations.set(key, v);
