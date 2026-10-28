@@ -118,21 +118,40 @@ async function run(
     /** No pack config: the cwd has none. */
     readonly noPack?: boolean;
     readonly projects?: readonly Record<string, unknown>[];
+    /** `agents.promotions.get`: a carried version's promotion, as a `--wait` reads it. */
+    readonly promotionsGet?: (agentId: string, promotionId: string) => unknown;
   } = {},
 ) {
   const calls: Call[] = [];
   let page = 0;
+  // `--wait`'s clock: each pause moves it on, so a wait takes no time.
+  let clock = 0;
   const out = await runCli({
     argv: [...argv, '--url=https://x', '--token=t'],
     env: {},
     cwd,
     home,
+    approvalWaitSeam: {
+      now: () => clock,
+      pause: async (ms: number) => {
+        calls.push(['pause', ms]);
+        clock += ms;
+      },
+    },
     ...(opts.noPack !== true && {
       buildConfigLoader: async () => (opts.config ?? CONFIG) as { readonly [k: string]: unknown },
     }),
     clientFactory: (url: string) => {
       calls.push(['client', url]);
       return {
+        agents: {
+          promotions: {
+            get: async (agentId: string, promotionId: string) => {
+              calls.push(['promotions.get', agentId, promotionId]);
+              return opts.promotionsGet?.(agentId, promotionId);
+            },
+          },
+        },
         projects: {
           list: async (...args: unknown[]) => {
             calls.push(['projects.list', ...args]);
@@ -509,5 +528,150 @@ describe('kindgi promote', () => {
     const half = await run(['promote', '--from=staging']);
     expect(half.out.exitCode).not.toBe(0);
     expect(half.out.stderr).toContain('--from=staging --to=prod');
+  });
+});
+
+describe('kindgi promote --make-live: exit 3 when a carried version does not go live', () => {
+  const PROMOTED = { deployment: deployment('dep-prod-1'), created: true, moved: MOVES };
+  const gate = (status: string, promotionId: string, approvalId?: string) => ({
+    status,
+    promotionId,
+    policy: null,
+    ...(approvalId !== undefined && { approvalId }),
+  });
+  const LIVE = {
+    id: 'acme.matcher',
+    version: '1.0.2',
+    pinned: true,
+    gate: gate('promoted', 'pr-0'),
+  };
+  const WAITING = {
+    id: 'acme.helper',
+    version: '2.1.0',
+    pinned: false,
+    gate: gate('pending-approval', 'pr-1', 'ap-1'),
+  };
+  const HELD = {
+    id: 'acme.writer',
+    version: '3.0.0',
+    pinned: false,
+    gate: gate('refused', 'pr-2'),
+  };
+  const promotion = (status: string) => ({
+    id: 'pr-1',
+    agentId: 'acme.helper',
+    toVersion: '2.1.0',
+    status,
+    approvalId: 'ap-1',
+  });
+  /** `promotions.get` answers each read with the next of `statuses`, then the last. */
+  const reads = (...statuses: string[]) => {
+    let i = 0;
+    return () => promotion(statuses[Math.min(i++, statuses.length - 1)] as string);
+  };
+
+  test('every carried version live: exit 0, and makeLive is asked for', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', '--make-live'], {
+      promote: () => ({ ...PROMOTED, live: [LIVE] }),
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(named(calls, 'promote')).toEqual([
+      ['promote', 'dep-s1', { toProjectId: 'p-prod', makeLive: true }],
+    ]);
+    expect(out.stdout).toContain('Live in prod:\n  acme.matcher 1.0.2 — live\n');
+  });
+
+  test('one waits for an approval, one is held: each said, exit 3, and nothing waits without --wait', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', '--make-live'], {
+      promote: () => ({ ...PROMOTED, live: [LIVE, WAITING, HELD] }),
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stdout).toContain(
+      'Live in prod:\n  acme.matcher 1.0.2 — live\n  acme.helper 2.1.0 — waiting for an approval\n  acme.writer 3.0.0 — held by the gate\n',
+    );
+    expect(named(calls, 'promotions.get')).toEqual([]);
+  });
+
+  test('--wait: reads the waiting version until it is approved, exit 0, and the answer shows it live', async () => {
+    const { out, calls } = await run(
+      ['promote', '--from=staging', '--to=prod', '--make-live', '--wait=1m', '--json'],
+      {
+        promote: () => ({ ...PROMOTED, live: [LIVE, WAITING] }),
+        promotionsGet: reads('pending-approval', 'pending-approval', 'promoted'),
+      },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(named(calls, 'promotions.get')).toEqual([
+      ['promotions.get', 'acme.helper', 'pr-1'],
+      ['promotions.get', 'acme.helper', 'pr-1'],
+      ['promotions.get', 'acme.helper', 'pr-1'],
+    ]);
+    expect(named(calls, 'pause')).toEqual([
+      ['pause', 5000],
+      ['pause', 5000],
+    ]);
+    expect(out.stderr).toContain(
+      'Waiting up to 1m for approval ap-1 of acme.helper 2.1.0: `kindgi approvals complete ap-1 --decision=approve` approves it.',
+    );
+    expect(JSON.parse(out.stdout).promotion.live).toEqual([
+      LIVE,
+      { ...WAITING, pinned: true, gate: { ...WAITING.gate, status: 'promoted' } },
+    ]);
+  });
+
+  test('--wait: a rejected approval ends the wait, exit 3, said in the text', async () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod', '--make-live', '--wait'], {
+      promote: () => ({ ...PROMOTED, live: [WAITING] }),
+      promotionsGet: reads('pending-approval', 'rejected'),
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stdout).toContain('  acme.helper 2.1.0 — its approval was rejected\n');
+    expect(out.stderr).toContain("Approval ap-1 was rejected: acme.helper 2.1.0 doesn't go live.");
+    expect(out.stderr).toContain('Waiting up to 1h for approval ap-1');
+  });
+
+  test('--wait: the wait runs out, exit 3, and the approval stays open', async () => {
+    const { out, calls } = await run(
+      ['promote', '--from=staging', '--to=prod', '--make-live', '--wait=12s'],
+      {
+        promote: () => ({ ...PROMOTED, live: [WAITING] }),
+        promotionsGet: reads('pending-approval'),
+      },
+    );
+    expect(out.exitCode).toBe(3);
+    // 5 s, 5 s, then the 2 s left.
+    expect(named(calls, 'pause')).toEqual([
+      ['pause', 5000],
+      ['pause', 5000],
+      ['pause', 2000],
+    ]);
+    expect(out.stderr).toContain(
+      "Still waiting after 12s. Approval ap-1 stays open: once it's approved, acme.helper 2.1.0 goes live.",
+    );
+    expect(out.stdout).toContain('  acme.helper 2.1.0 — waiting for an approval\n');
+  });
+
+  test('--wait: a version held by the gate cannot go live, so nothing waits: exit 3', async () => {
+    const { out, calls } = await run(
+      ['promote', '--from=staging', '--to=prod', '--make-live', '--wait'],
+      { promote: () => ({ ...PROMOTED, live: [WAITING, HELD] }) },
+    );
+    expect(out.exitCode).toBe(3);
+    expect(named(calls, 'promotions.get')).toEqual([]);
+    expect(out.stderr).toContain(
+      'Not waiting: acme.writer 3.0.0 is held by the gate, so not every version goes live.',
+    );
+  });
+
+  test.each([
+    [['--wait']],
+    [['--make-live', '--wait', '--check']],
+    [['--make-live', '--wait=soon']],
+    [['--make-live', '--wait=0m']],
+  ])('%j is refused before anything is read: exit 2', async (flags) => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', ...flags]);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('--wait');
+    expect(calls.filter((c) => c[0] !== 'client')).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { KindgiApiError } from '@kindgi/client';
 import type {
   AgentCollectionPage,
   LivePin,
@@ -14,8 +15,21 @@ import type { AgentId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { type Rendered, renderJson, successNote } from '../output.js';
+import { progressLines } from '../progress-lines.js';
 import { callWaitingOutRateLimits } from '../rate-limit-wait.js';
 import {
+  WAIT_FLAG,
+  endedLine,
+  stillOpenLine,
+  waitDeadline,
+  waitFlag,
+  waitForApproval,
+  waitWords,
+  waitingLine,
+} from './approval-wait.js';
+import {
+  ANSWER_NO_EXIT_CODE,
   type TableSpec,
   integerFlag,
   listFlag,
@@ -23,6 +37,7 @@ import {
   readJsonInput,
   requiredPositional,
   runSdk,
+  runSdkRendered,
   segmentsFlag,
   stringFlag,
 } from './helpers.js';
@@ -378,8 +393,8 @@ const promote: LeafCommand = {
   kind: 'leaf',
   name: 'promote',
   description:
-    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate policy for the scope, the run on the test cases named by --eval-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing.",
-  usage: `kindgi agents promote <agent-id> <version> ${SCOPE_USAGE} [--eval-run=<eval-run-id>] [--reason=<text>] [--check]`,
+    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate policy for the scope, the run on the test cases named by --eval-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
+  usage: `kindgi agents promote <agent-id> <version> ${SCOPE_USAGE} [--eval-run=<eval-run-id>] [--reason=<text>] [--check] [--wait[=<duration>]]`,
   optionSpec: {
     ...SCOPE_FLAGS,
     'eval-run': {
@@ -389,27 +404,79 @@ const promote: LeafCommand = {
     check: {
       type: 'boolean',
       description:
-        'What the release gate policy would say: would-promote, needs-approval or gate-failed. Changes nothing.',
+        'What the release gate policy would say: would-promote, needs-approval or gate-failed. Changes nothing. Exits 3 unless it would promote.',
     },
+    ...WAIT_FLAG,
     ...WRITE_FLAGS,
   },
-  run: (ctx) =>
-    runSdk(ctx, 'agents promote', async () => {
-      const agentId = requiredPositional(ctx, 0, 'agent-id');
-      const version = requiredPositional(ctx, 1, 'version');
-      const evalRunId = stringFlag(ctx, 'eval-run');
-      const input = {
-        version,
-        scope: scopeFrom(ctx, true),
-        ...reasonFlag(ctx),
-        ...(evalRunId !== undefined && { evalRunId }),
-      };
-      if (ctx.options.check === true) {
-        return await ctx.client().agents.promotions.check(agentId, input);
-      }
-      return await ctx.client().agents.promotions.create(agentId, input, idempotency(ctx));
-    }),
+  run: (ctx) => runSdkRendered(ctx, 'agents promote', () => promoteAgent(ctx), gateFailed),
 };
+
+/** A release gate policy's refusal (`422 gate-failed`): the command's answer, not a failure. */
+function gateFailed(err: unknown): boolean {
+  if (!(err instanceof KindgiApiError)) return false;
+  const e = err.error;
+  return e.code === 'server' && e.serverCode === 'gate-failed';
+}
+
+async function promoteAgent(
+  ctx: CommandContext,
+): Promise<Rendered & { readonly exitCode?: number }> {
+  const agentId = requiredPositional(ctx, 0, 'agent-id');
+  const version = requiredPositional(ctx, 1, 'version');
+  const evalRunId = stringFlag(ctx, 'eval-run');
+  const waitMs = waitFlag(ctx);
+  const input = {
+    version,
+    scope: scopeFrom(ctx, true),
+    ...reasonFlag(ctx),
+    ...(evalRunId !== undefined && { evalRunId }),
+  };
+  const format = ctx.globals.format;
+  const promotions = ctx.client().agents.promotions;
+  if (ctx.options.check === true) {
+    if (waitMs !== undefined) {
+      throw new UsageError('--wait waits for a promotion, and --check makes none: leave one out');
+    }
+    const check = await promotions.check(agentId, input);
+    return {
+      ...renderJson(check, format),
+      ...(check.outcome !== 'would-promote' && { exitCode: ANSWER_NO_EXIT_CODE }),
+    };
+  }
+  const promotion = await promotions.create(agentId, input, idempotency(ctx));
+  if (promotion.status !== 'pending-approval') return renderJson(promotion, format);
+  if (waitMs === undefined) {
+    return {
+      stdout: renderJson(promotion, format).stdout,
+      stderr: successNote(
+        format,
+        `${stillOpenLine(promotion)} \`--wait\` waits for the decision.\n`,
+      ),
+      exitCode: ANSWER_NO_EXIT_CODE,
+    };
+  }
+  const out = progressLines(ctx.progress, format === 'quiet');
+  out.line(waitingLine(promotion, waitMs));
+  const waited = await waitForApproval(
+    ctx,
+    promotion,
+    () => promotions.get(agentId, promotion.id),
+    waitDeadline(ctx, waitMs),
+  );
+  const stdout = renderJson(waited.promotion, format).stdout;
+  if (waited.kind === 'stopped') {
+    out.line(`Stopped waiting. ${stillOpenLine(waited.promotion)}`);
+    return { stdout, stderr: out.kept(), exitCode: 130 };
+  }
+  if (waited.kind === 'still-waiting') {
+    out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(waited.promotion)}`);
+    return { stdout, stderr: out.kept(), exitCode: ANSWER_NO_EXIT_CODE };
+  }
+  if (waited.promotion.status === 'promoted') return { stdout, stderr: out.kept() };
+  out.problem(endedLine(waited.promotion));
+  return { stdout, stderr: out.kept(), exitCode: ANSWER_NO_EXIT_CODE };
+}
 
 const gatePolicy: LeafCommand = {
   kind: 'leaf',

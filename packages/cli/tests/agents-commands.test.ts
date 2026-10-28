@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { KindgiApiError, fromWire } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runCli } from '../src/main.js';
@@ -282,5 +283,221 @@ describe('kindgi agents — live versions', () => {
       ['list', 'acme.drafter', { limit: 10, scope: { kind: 'project', projectId: PROJECT } }],
       ['get', 'acme.drafter', 'p-1'],
     ]);
+  });
+});
+
+describe('agents promote: exit 3 when the answer is no, and --wait for an approval', () => {
+  const SCOPE = ['acme.drafter', '1.1.0', `--project=${PROJECT}`];
+  const PENDING = promotion({ status: 'pending-approval', approvalId: 'ap-1' });
+
+  /** `run`, with `--wait`'s clock and pauses: each pause moves the clock on, so a wait takes no time. */
+  async function runWaiting(
+    argv: readonly string[],
+    client: Record<string, unknown>,
+    stopSignal?: AbortSignal,
+  ) {
+    const pauses: number[] = [];
+    let clock = 0;
+    const out = await runCli({
+      argv: [...argv, '--url=https://x', '--token=t'],
+      env: {},
+      cwd,
+      home,
+      clientFactory: () => client as never,
+      approvalWaitSeam: {
+        now: () => clock,
+        pause: async (ms: number) => {
+          pauses.push(ms);
+          clock += ms;
+        },
+      },
+      ...(stopSignal !== undefined && { stopSignal }),
+    });
+    return { out, pauses };
+  }
+
+  /** `get` answers each read with the next of `statuses`, then the last, recording each. */
+  function reads(calls: unknown[][], ...statuses: string[]) {
+    let i = 0;
+    return async (...args: unknown[]) => {
+      calls.push(['get', ...args]);
+      const status = statuses[Math.min(i++, statuses.length - 1)];
+      return promotion({ status, approvalId: 'ap-1', resolvedAt: '2026-10-05T12:05:00.000Z' });
+    };
+  }
+
+  test.each([
+    ['would-promote', 0],
+    ['needs-approval', 3],
+    ['gate-failed', 3],
+  ])('--check answering %s exits %i, the answer printed as it is', async (outcome, code) => {
+    const answer = { outcome, policy: null, checks: [] };
+    const out = await run(['agents', 'promote', ...SCOPE, '--check'], {
+      agents: { promotions: { check: async () => answer } },
+    });
+    expect(out.exitCode, out.stderr).toBe(code);
+    expect(JSON.parse(out.stdout)).toEqual(answer);
+  });
+
+  test("the gate's refusal (422 gate-failed) is said as before, exit 3", async () => {
+    const message =
+      'The release gate policy refused acme.drafter 1.1.0: Precision at 5 is 0.75; the policy needs at least 0.8.';
+    const out = await run(['agents', 'promote', ...SCOPE], {
+      agents: {
+        promotions: {
+          create: async () => {
+            throw new KindgiApiError(fromWire({ code: 'gate-failed', message }, 422));
+          },
+        },
+      },
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stderr).toContain(`Error [gate-failed]: ${message}`);
+  });
+
+  test('any other error is still 1', async () => {
+    const out = await run(['agents', 'promote', ...SCOPE], {
+      agents: {
+        promotions: {
+          create: async () => {
+            throw new KindgiApiError(fromWire({ code: 'forbidden', message: 'Not allowed' }, 403));
+          },
+        },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+  });
+
+  test('a promotion that waits for an approval, without --wait: printed, exit 3, and the approval named', async () => {
+    const calls: unknown[][] = [];
+    const out = await run(['agents', 'promote', ...SCOPE], {
+      agents: { promotions: { create: async () => PENDING, get: reads(calls, 'promoted') } },
+    });
+    expect(out.exitCode).toBe(3);
+    expect(JSON.parse(out.stdout)).toEqual(PENDING);
+    expect(calls).toEqual([]);
+    expect(out.stderr).toBe(
+      "Approval ap-1 stays open: once it's approved, acme.drafter 1.1.0 goes live. `--wait` waits for the decision.\n",
+    );
+  });
+
+  test('--wait: reads the promotion every 5 s until it is approved, exit 0, and prints it as it ended', async () => {
+    const calls: unknown[][] = [];
+    const { out, pauses } = await runWaiting(['agents', 'promote', ...SCOPE, '--wait=30m'], {
+      agents: {
+        promotions: {
+          create: async () => PENDING,
+          get: reads(calls, 'pending-approval', 'promoted'),
+        },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['get', 'acme.drafter', 'p-1'],
+      ['get', 'acme.drafter', 'p-1'],
+    ]);
+    expect(pauses).toEqual([5000, 5000]);
+    expect(JSON.parse(out.stdout)).toMatchObject({ id: 'p-1', status: 'promoted' });
+    expect(out.stderr).toBe(
+      'Waiting up to 30m for approval ap-1 of acme.drafter 1.1.0: `kindgi approvals complete ap-1 --decision=approve` approves it.\n',
+    );
+  });
+
+  test.each([
+    ['rejected', "Approval ap-1 was rejected: acme.drafter 1.1.0 doesn't go live."],
+    ['expired', "Approval ap-1 expired undecided: acme.drafter 1.1.0 doesn't go live."],
+    [
+      'superseded',
+      "acme.drafter 1.1.0 was superseded while it waited: the scope's live version or its release gate policy changed. Promote it again to ask again.",
+    ],
+  ])('--wait: a promotion that ends %s exits 3 and says how it ended', async (status, line) => {
+    const calls: unknown[][] = [];
+    const { out } = await runWaiting(['agents', 'promote', ...SCOPE, '--wait'], {
+      agents: { promotions: { create: async () => PENDING, get: reads(calls, status) } },
+    });
+    expect(out.exitCode).toBe(3);
+    expect(JSON.parse(out.stdout)).toMatchObject({ status });
+    expect(out.stderr).toContain('Waiting up to 1h for approval ap-1');
+    expect(out.stderr).toContain(line);
+  });
+
+  test.each([
+    ['90s', '90s'],
+    ['45m', '45m'],
+    ['2h', '2h'],
+    ['120m', '2h'],
+  ])('--wait=%s waits up to %s', async (given, said) => {
+    const calls: unknown[][] = [];
+    const { out } = await runWaiting(['agents', 'promote', ...SCOPE, `--wait=${given}`], {
+      agents: { promotions: { create: async () => PENDING, get: reads(calls, 'promoted') } },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(`Waiting up to ${said} for approval ap-1`);
+  });
+
+  test('--wait: the wait runs out, exit 3; the approval stays open', async () => {
+    const calls: unknown[][] = [];
+    const { out, pauses } = await runWaiting(['agents', 'promote', ...SCOPE, '--wait=8s'], {
+      agents: {
+        promotions: { create: async () => PENDING, get: reads(calls, 'pending-approval') },
+      },
+    });
+    expect(out.exitCode).toBe(3);
+    expect(pauses).toEqual([5000, 3000]);
+    expect(out.stderr).toContain(
+      "Still waiting after 8s. Approval ap-1 stays open: once it's approved, acme.drafter 1.1.0 goes live.",
+    );
+  });
+
+  test('--wait: Ctrl-C stops the wait, not the promotion: exit 130', async () => {
+    const controller = new AbortController();
+    const calls: unknown[][] = [];
+    const get = reads(calls, 'pending-approval');
+    const { out } = await runWaiting(
+      ['agents', 'promote', ...SCOPE, '--wait'],
+      {
+        agents: {
+          promotions: {
+            create: async () => PENDING,
+            get: async (...args: unknown[]) => {
+              controller.abort();
+              return await get(...args);
+            },
+          },
+        },
+      },
+      controller.signal,
+    );
+    expect(out.exitCode).toBe(130);
+    expect(out.stderr).toContain("Stopped waiting. Approval ap-1 stays open: once it's approved");
+  });
+
+  test('--wait on a promotion that went live at once reads nothing: exit 0', async () => {
+    const calls: unknown[][] = [];
+    const { out, pauses } = await runWaiting(['agents', 'promote', ...SCOPE, '--wait'], {
+      agents: {
+        promotions: {
+          create: async () => promotion({ status: 'promoted' }),
+          get: reads(calls, 'promoted'),
+        },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([]);
+    expect(pauses).toEqual([]);
+  });
+
+  test.each([
+    [['--check', '--wait'], '--check makes none'],
+    [['--wait=tomorrow'], '--wait must be like 90s, 30m or 2h, got "tomorrow"'],
+    [['--wait=0s'], '--wait must be like'],
+  ])('%j is refused before anything is sent: exit 2', async (flags, message) => {
+    const { calls, rec } = recorder();
+    const out = await run(['agents', 'promote', ...SCOPE, ...flags], {
+      agents: { promotions: { create: rec('create'), check: rec('check') } },
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(message);
+    expect(calls).toEqual([]);
   });
 });
