@@ -964,9 +964,13 @@ The API URL and token come from, in order:
 
 `kindgi dev` writes `.kindgirc.json` in the pack. For another API, save the
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
-with `kindgi auth whoami`. Login writes `~/.kindgi/config.json` `0600`, in a
-`~/.kindgi` that's `0700`, and tightens ones an older CLI left looser (not on
-Windows).
+with `kindgi auth whoami`. Login keeps a login `~/.kindgi/config.json` holds
+for another address, or a key with no address beside it, and exits 2 naming
+it: to use both, give the new one its own `.kindgirc.json` (`apiUrl` and
+`token`) in the folder you use it from, or `KINDGI_API_URL` and
+`KINDGI_API_TOKEN`. `--force` replaces it, and warns that its key is no
+longer stored. Login writes `~/.kindgi/config.json` `0600`, in a `~/.kindgi`
+that's `0700`, and tightens ones an older CLI left looser (not on Windows).
 
 **In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
 There, `.kindgirc.json` points every command at the dev runtime, ahead of
