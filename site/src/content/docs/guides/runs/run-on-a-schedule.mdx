@@ -311,9 +311,10 @@ A project's **Schedules** page lists its schedules. Each row says:
 - its label, its cron in words, such as "Every day at 2:00 AM UTC", and the
   cron;
 - whether it's **Active** or **Paused**;
-- what it runs, such as "the agent Dev-Echo Agent (its live version)", "the
-  flow Refunds 1.0.0" or, for a schedule that starts Improve runs, "Improve
-  runs on Acme Rank Scorer, when enough new answers have been marked wrong";
+- what it runs, such as "the agent Dev-Echo Agent (its pinned version, or
+  the latest)", "the flow Refunds 1.0.0" or, for a schedule that starts
+  Improve runs, "Improve runs on Acme Rank Scorer, when enough new answers
+  have been marked wrong";
 - when it next fires, such as "Next in 23h (25 Oct 2026, 10:00 PM EDT)", or
   that it's paused;
 - its last scheduled fire, and **Runs it started →**. A **Run now** fire is
@@ -331,7 +332,7 @@ column's header. **Columns** chooses which columns it shows. **Schedule Improve*
 makes a schedule that starts Improve runs
 ([Schedule Improve in the console](#schedule-improve-in-the-console)).
 
-![The Schedules page, with Schedule Improve at the top, a search box and the Columns menu: the active nightly digest (every day at 2:00 AM UTC, 0 2 * * *; the agent Dev-Echo Agent, its live version; next in 23h) with Pause, and the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1; the flow Refunds 1.0.0) with Resume, neither fired yet, each with Runs it started →, Run now and Remove.](../../../../assets/schedules/schedules-list.png)
+![The Schedules page, with Schedule Improve at the top, a search box and the Columns menu: the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1; the flow Refunds 1.0.0) with Resume, and the active nightly digest (every day at 2:00 AM UTC, 0 2 * * *; the agent Dev-Echo Agent, its pinned version, or the latest; when it next fires) with Pause, neither fired yet, each with Runs it started →, Run now and Remove.](../../../../assets/schedules/schedules-list.png)
 
 A schedule's page has:
 - **When:** its cron in words and the cron, in the schedule's own zone, and
@@ -351,7 +352,7 @@ A schedule's page has:
   without waiting for a person's yes, or "None"
   ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 
-![The nightly digest's page: Active, with Pause, Run now, Change owner… and Remove, "Starts the agent Dev-Echo Agent (its live version). Next in 21h (25 Oct 2026, 10:00 PM EDT).", When: "Every day at 2:00 AM UTC", 0 2 * * * and its next five times in UTC, each also on the viewer's clock in EDT, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with Runs it started →, the Columns menu and two fires, each for run now, "Started a run (run now)" and its run.](../../../../assets/schedules/schedule-fires.png)
+![The nightly digest's page: Active, with Pause, Run now, Change owner… and Remove, "Starts the agent Dev-Echo Agent (its pinned version, or the latest). Next in 15h (27 Oct 2026, 10:00 PM EDT).", When: "Every day at 2:00 AM UTC", 0 2 * * * and its next five times in UTC, each also on the viewer's clock in EDT, Runs as: "Runs as you, with your access." and "Checked again at every fire: if its owner can no longer run what it runs, the fire is refused, and after repeated refusals the schedule pauses itself.", What it fired: "Of its 2 fires, 2 started a run.", with Runs it started →, the Columns menu and two fires, each for run now, "Started a run (run now)" and its run, and Details, folded.](../../../../assets/schedules/schedule-fires.png)
 
 Project editors and up have, on the list and on the page:
 - **Pause** and **Resume**;
@@ -372,7 +373,7 @@ the new owner's access.
 After it, the page says "Runs as you, with your access.", and a paused
 schedule stays paused:
 
-![The weekly report's page after Take over: Paused, with Resume, Run now, Change owner… and Remove, "Starts the flow Refunds 1.0.0. Paused.", When: "Mondays at 9:00 AM UTC", 0 9 * * 1 and "It doesn’t fire while paused.", "Runs as you, with your access.", and What it fired: "It hasn’t fired yet. Runs it started →".](../../../../assets/schedules/schedule-page.png)
+![The weekly report's page after Take over: Paused, with Resume, Run now, Change owner… and Remove, "Starts the flow Refunds 1.0.0. Paused.", When: "Mondays at 9:00 AM UTC", 0 9 * * 1 and "It doesn’t fire while paused.", Runs as: "Runs as you, with your access." and "Checked again at every fire: if its owner can no longer run what it runs, the fire is refused, and after repeated refusals the schedule pauses itself.", What it fired: "It hasn’t fired yet. Runs it started →", and Details, folded.](../../../../assets/schedules/schedule-page.png)
 
 A tenant admin gets **Change owner…** instead (runtime 0.1.9 or later),
 whenever the tenant has a registered service account the schedule doesn't
