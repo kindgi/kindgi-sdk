@@ -1,4 +1,4 @@
-# Step 4: publish, and ask to make it live
+# Step 4 — Publish, and ask to make it live
 
 For a **setting** change, publish the block, then derive a new agent version
 that pins it — no code change:

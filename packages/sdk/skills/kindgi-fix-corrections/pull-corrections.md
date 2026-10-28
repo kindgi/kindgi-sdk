@@ -1,4 +1,4 @@
-# Step 1: pull the corrections
+# Step 1 — Pull the corrections
 
 The corrections are the agent's "no" judgments. Start from the version the
 agent is running now, so you don't re-fix something an earlier version already
