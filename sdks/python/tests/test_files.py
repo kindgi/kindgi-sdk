@@ -31,7 +31,7 @@ from kindgi import (
     tool,
 )
 from kindgi.pack.context import Cancellation
-from kindgi.pack.files import file_store_from_wire
+from kindgi.pack.files import _FILE_NOT_SHOWN_REASONS, file_store_from_wire
 from kindgi.pack.index import run_indexer
 from kindgi.pack.service import PackService
 
@@ -377,11 +377,11 @@ def test_the_limits_are_the_typescript_sdks(name: str, value: int) -> None:
     assert int(found.group(1)) == value
 
 
-def test_a_file_value_may_carry_any_reason_the_typescript_sdk_has(link: Link) -> None:
+def test_a_file_value_may_carry_exactly_the_reasons_the_typescript_sdk_has(link: Link) -> None:
     found = re.search(r"export const FILE_NOT_SHOWN_REASONS = \[([^\]]*)\]", TYPES_FILE.read_text())
     assert found is not None
     reasons = re.findall(r"'([a-z]+)'", found.group(1))
-    assert reasons
+    assert set(reasons) == _FILE_NOT_SHOWN_REASONS
     for reason in reasons:
         link.answer = (200, {"file": {**STORED, "notShown": reason}})
         answer = _store(link).store(name="x", content_type="text/plain", data=b"test")
