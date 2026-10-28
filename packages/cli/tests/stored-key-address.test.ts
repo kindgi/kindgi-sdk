@@ -195,6 +195,7 @@ describe('a stored key for another address is refused before anything is sent', 
 
     const login = await cli(['auth', 'login', `--url=${ALIAS}`], { KINDGI_API_TOKEN: HOME_KEY });
     expect(login.exitCode, login.stderr).toBe(0);
+    expect(login.stderr).toBe('');
     const out = await cli(['auth', 'whoami', `--url=${ALIAS}`]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.sent).toEqual([
@@ -291,7 +292,7 @@ describe('kindgi auth login saves a stored key only for its own address', () => 
 
 describe("kindgi auth login keeps another address's login unless --force", () => {
   const kept = (other: string, whose: string) =>
-    `${homeFile()} holds ${whose}. kindgi auth login would replace it with ${other}'s, and its API key would be lost.\nTo keep both, give ${other} its own place: a .kindgirc.json with its apiUrl and token in the folder you use it from, or KINDGI_API_URL and KINDGI_API_TOKEN.\nTo replace it, run again with --force.\n`;
+    `${homeFile()} holds ${whose}. kindgi auth login would replace it with ${other}'s, and its API key would be lost.\nTo keep both, skip the login: set KINDGI_API_URL and KINDGI_API_TOKEN to ${other} and its key in the shell you use it from.\nTo replace it, run again with --force.\n`;
 
   test.each([
     ['--token', [`--token=${GIVEN_KEY}`], {}],
@@ -329,6 +330,23 @@ describe("kindgi auth login keeps another address's login unless --force", () =>
     printsNoKey(out);
   });
 
+  test('with --force and --quiet: nothing on stdout, the warning still said', async () => {
+    await signedIn();
+    const out = await cli([
+      'auth',
+      'login',
+      `--url=${OTHER}`,
+      `--token=${GIVEN_KEY}`,
+      '--force',
+      '--quiet',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe(
+      `⚠ Replaced the login for ${SIGNED_IN} in ${homeFile()}: its API key is no longer stored.\n`,
+    );
+  });
+
   test('a new key for its own address: saved, as before, with nothing to force', async () => {
     await signedIn();
     const out = await cli(['auth', 'login', `--token=${GIVEN_KEY}`]);
@@ -356,10 +374,12 @@ describe("kindgi auth login keeps another address's login unless --force", () =>
     });
   });
 
-  test("the way out it names: a folder's .kindgirc.json, with the home login kept", async () => {
+  test('the way out it names: KINDGI_API_URL and KINDGI_API_TOKEN, with the home login kept', async () => {
     await signedIn();
-    await inFolder({ apiUrl: OTHER, token: GIVEN_KEY });
-    const out = await cli(['auth', 'whoami']);
+    const out = await cli(['auth', 'whoami'], {
+      KINDGI_API_URL: OTHER,
+      KINDGI_API_TOKEN: GIVEN_KEY,
+    });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.sent).toEqual([
       { url: `${OTHER}/v1/identity/whoami`, authorization: `Bearer ${GIVEN_KEY}` },

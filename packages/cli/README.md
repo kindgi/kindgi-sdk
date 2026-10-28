@@ -966,9 +966,9 @@ The API URL and token come from, in order:
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
 with `kindgi auth whoami`. Login keeps a login `~/.kindgi/config.json` holds
 for another address, or a key with no address beside it, and exits 2 naming
-it: to use both, give the new one its own `.kindgirc.json` (`apiUrl` and
-`token`) in the folder you use it from, or `KINDGI_API_URL` and
-`KINDGI_API_TOKEN`. `--force` replaces it, and warns that its key is no
+it: to use both, skip the login, and set `KINDGI_API_URL` and
+`KINDGI_API_TOKEN` to the new address and its key in the shell you use it
+from. `--force` replaces it, and warns that its key is no
 longer stored. Login writes `~/.kindgi/config.json` `0600`, in a `~/.kindgi`
 that's `0700`, and tightens ones an older CLI left looser (not on Windows).
 

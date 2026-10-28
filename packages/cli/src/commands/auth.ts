@@ -85,7 +85,7 @@ const login: LeafCommand = {
     if (lost !== undefined && ctx.options.force !== true) {
       return {
         kind: 'error',
-        stderr: `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, give ${url} its own place: a .kindgirc.json with its apiUrl and token in the folder you use it from, or KINDGI_API_URL and KINDGI_API_TOKEN.\nTo replace it, run again with --force.\n`,
+        stderr: `${lost.path} holds ${whoseLogin(lost)}. kindgi auth login would replace it with ${url}'s, and its API key would be lost.\nTo keep both, skip the login: set KINDGI_API_URL and KINDGI_API_TOKEN to ${url} and its key in the shell you use it from.\nTo replace it, run again with --force.\n`,
         exitCode: 2,
       };
     }
