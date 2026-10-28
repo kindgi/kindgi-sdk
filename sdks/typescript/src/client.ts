@@ -58,6 +58,7 @@ import { type ProvenanceClient, makeProvenanceClient } from './resources/provena
 import { type ProvidersClient, makeProvidersClient } from './resources/providers.js';
 import { type RetentionClient, makeRetentionClient } from './resources/retention.js';
 import { type RunsClient, makeRunsClient } from './resources/runs.js';
+import { type RuntimeClient, makeRuntimeClient } from './resources/runtime.js';
 import { type SchedulesClient, makeSchedulesClient } from './resources/schedules.js';
 import { type SecretsClient, makeSecretsClient } from './resources/secrets.js';
 import {
@@ -157,6 +158,8 @@ export interface KindgiClient {
   /** The keys this deployment signs its exports with (audit bundles, provenance, compliance evidence). */
   readonly exportSigningKeys: ExportSigningKeysClient;
   readonly license: LicenseClient;
+  /** Which runtime answers: its version, how it's hosted, and whether it runs in development mode. */
+  readonly runtime: RuntimeClient;
   /** The operator's system keys, on a runtime serving many tenants: the full system capability only. */
   readonly systemKeys: SystemKeysClient;
   /**
@@ -249,6 +252,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     signingKeys: makeSigningKeysClient(transport),
     exportSigningKeys: makeExportSigningKeysClient(transport),
     license: makeLicenseClient(transport),
+    runtime: makeRuntimeClient(transport),
     systemKeys: makeSystemKeysClient(transport),
     systemDeployments: makeSystemDeploymentsClient(transport),
     systemTenants: makeSystemTenantsClient(transport),

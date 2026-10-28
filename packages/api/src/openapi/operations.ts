@@ -5121,6 +5121,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/runtime',
+    openapiPath: '/v1/runtime',
+    operationId: 'runtime.get',
+    summary: 'Which runtime answers',
+    description:
+      "Its version, how it's hosted and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.",
+    tags: ['system'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'Which runtime answers.', schema: ref('RuntimeInfo') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/license/usage',
     openapiPath: '/v1/license/usage',
     operationId: 'license.usage',

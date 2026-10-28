@@ -211,6 +211,7 @@ function makeApp(tenancy: 'single' | 'multi' | 'unset' = 'multi') {
         people: 2,
       }),
     },
+    runtime: { version: '0.0.0', hosting: 'hosted', development: false },
   });
   const call = async (
     token: string,
@@ -256,6 +257,8 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
       ['GET', '/v1/tokens'],
       ['POST', '/v1/tokens'],
       ['GET', '/v1/identity/whoami'],
+      // Which runtime answers is a tenant's read too, though it asks no right.
+      ['GET', '/v1/runtime'],
     ] as const) {
       const r = await call(key.token, method, path, method === 'POST' ? {} : undefined);
       expect(r.status, `${method} ${path}`).toBe(403);
@@ -267,6 +270,7 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
       'GET /v1/tokens',
       'POST /v1/tokens',
       'GET /v1/identity/whoami',
+      'GET /v1/runtime',
     ]);
   });
 

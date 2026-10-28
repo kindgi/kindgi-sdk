@@ -2796,6 +2796,29 @@ export const ExportSigningKeySchema: JsonSchema = {
   },
 };
 
+export const RuntimeInfoSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'hosting', 'development'],
+  description: "Which runtime answers: what a client says about the runtime it's connected to.",
+  properties: {
+    version: {
+      type: 'string',
+      description:
+        "The runtime's version: its release, such as `0.3.0`, or `dev` for a runtime built outside a release.",
+    },
+    hosting: {
+      type: 'string',
+      enum: ['hosted', 'self-hosted'],
+      description: '`hosted`: the runtime serves many tenants. `self-hosted`: it serves one.',
+    },
+    development: {
+      type: 'boolean',
+      description: 'The runtime runs in development mode, which allows development-only settings.',
+    },
+  },
+};
+
 export const LicenseStatusSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -15507,6 +15530,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['RuntimeInfo', RuntimeInfoSchema],
   ['UsageGroup', UsageGroupSchema],
   ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],

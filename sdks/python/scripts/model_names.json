@@ -689,6 +689,7 @@
   "RunWaitingFor": ["RunWaitingFor"],
   "RunWaitingToken": ["RunWaitingToken"],
   "RunWaitingTokenTool": ["RunWaitingTokenTool"],
+  "RuntimeInfo": ["RuntimeInfo"],
   "RuntimeLimits": ["RuntimeLimits"],
   "SamlIdentityProviderConfig": ["SamlIdentityProviderConfig"],
   "Sampling": ["JudgedComparisonSummary.sampling"],

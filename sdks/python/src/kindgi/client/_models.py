@@ -1928,6 +1928,29 @@ class ExportSigningKeyList(BaseModel):
     """
 
 
+class RuntimeInfo(BaseModel):
+    """
+    Which runtime answers: what a client says about the runtime it's connected to.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The runtime's version: its release, such as `0.3.0`, or `dev` for a runtime built outside a release.
+    """
+    hosting: Annotated[Literal["hosted", "self-hosted"] | str, _open.OPEN]
+    """
+    `hosted`: the runtime serves many tenants. `self-hosted`: it serves one.
+    """
+    development: bool
+    """
+    The runtime runs in development mode, which allows development-only settings.
+    """
+
+
 class UsageGroup(BaseModel):
     """
     One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.
