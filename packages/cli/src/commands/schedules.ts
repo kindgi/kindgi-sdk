@@ -283,7 +283,9 @@ const get: LeafCommand = {
       const version = triggerVersionPositional(ctx, 1);
       const upcoming = integerFlag(ctx, 'upcoming');
       if (version !== undefined && upcoming !== undefined) {
-        throw new UsageError("--upcoming doesn't go with a <version>: it shows the schedule's next times as it is now");
+        throw new UsageError(
+          "--upcoming doesn't go with a <version>: it shows the schedule's next times as it is now",
+        );
       }
       const schedulesClient = ctx.client().schedules;
       return version === undefined
