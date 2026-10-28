@@ -319,6 +319,26 @@ export const LivePinListSchema: JsonSchema = {
   properties: { data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } } },
 };
 
+export const AgentProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId'],
+  properties: { projectId: { type: 'string', format: 'uuid' } },
+};
+
+export const AgentProjectListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description: 'Its first project first, then the others, each once.',
+      items: { $ref: '#/components/schemas/AgentProject' },
+    },
+  },
+};
+
 export const PromotionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -5030,6 +5050,12 @@ export const JudgedRunContextSchema: JsonSchema = {
               toolId: { type: 'string' },
               arguments: {},
               result: {},
+              fromEvent: {
+                type: 'boolean',
+                const: true,
+                description:
+                  "An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.",
+              },
             },
           },
         },
@@ -15412,6 +15438,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LiveVersionResolution', LiveVersionResolutionSchema],
   ['LivePin', LivePinSchema],
   ['LivePinList', LivePinListSchema],
+  ['AgentProject', AgentProjectSchema],
+  ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
   ['GateCheck', GateCheckSchema],

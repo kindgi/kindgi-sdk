@@ -161,6 +161,25 @@ class LiveScopeSegment(BaseModel):
     path: Annotated[list[ScopeSegment], Field(max_length=8, min_length=1)]
 
 
+class AgentProject(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class AgentProjectList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[AgentProject]
+    """
+    Its first project first, then the others, each once.
+    """
+
+
 class RequestedBy(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12286,6 +12305,10 @@ class Call(BaseModel):
     tool_id: Annotated[str, Field(alias="toolId")]
     arguments: Any | None = None
     result: Any | None = None
+    from_event: Annotated[Literal[True] | None, Field(alias="fromEvent")] = None
+    """
+    An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.
+    """
 
 
 class Step(BaseModel):

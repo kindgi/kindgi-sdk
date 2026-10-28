@@ -18,7 +18,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   newest version of the child that its project reaches, and every run of the
   flow version runs that one. The client's flow pins have `flows` for those;
   absent when there are none, and from older servers.
-
+- `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a
   mail someone sent or a page a search found. An agent reads each result of the

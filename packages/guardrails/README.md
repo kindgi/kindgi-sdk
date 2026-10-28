@@ -68,7 +68,7 @@ Same trade-off as `@kindgi/tools`: JSON Schema for portable / MCP-published chec
 
 ## The `Guardrail` wire shape
 
-Note that `Guardrail.config` on the wire is always `object` with `additionalProperties: true` — the check declares the concrete schema. Authors extend the guardrail registration surface (`defineCheck`); the guardrail surface itself takes an opaque `config` payload that the resolved check validates when `defineGuardrail` runs.
+Note that `Guardrail.config` on the wire is always `object` with `additionalProperties: true` — the check declares the concrete schema. Authors extend the guardrail registration surface (`defineCheck`); the guardrail surface itself takes an opaque `config` payload that the resolved check validates when `validateGuardrail` runs.
 
 ## The `llm-judge` strategy
 

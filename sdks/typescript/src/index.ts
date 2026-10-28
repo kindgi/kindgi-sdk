@@ -291,6 +291,8 @@ export type {
 export { followRun, subscribeToRun } from './run-follow.js';
 export { comparisonOf } from './resources/eval-runs.js';
 export type {
+  AgentProject,
+  AgentProjectList,
   LivePin,
   LivePinList,
   LiveScope,

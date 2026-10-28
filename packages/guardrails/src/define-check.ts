@@ -61,7 +61,7 @@ export interface DefineCheckSpec<TConfigSchema extends AnySchema> {
   /**
    * Config schema — Zod v4 or JSON Schema. When present, `defineCheck`
    * derives `RegisteredCheck.validateConfig` from it, and
-   * `defineGuardrail` runs that against each `Guardrail.config`.
+   * `validateGuardrail` runs that against each `Guardrail.config`.
    * Zod authors get schema-inferred config types on `evaluate`'s first
    * parameter.
    */
@@ -114,7 +114,7 @@ export type DefinedCheck<TConfigSchema extends AnySchema> = RegisteredCheck & {
  * Failures at author time (Zod conversion or Ajv compile) surface via
  * throw — same failure mode as construction of a bad
  * `RegisteredCheck` object literal. Consumers catch at pack-init;
- * downstream `defineGuardrail` runs the derived `validateConfig` at
+ * downstream `validateGuardrail` runs the derived `validateConfig` at
  * spec-registration time and reports via `Result`.
  */
 export function defineCheck<TConfigSchema extends AnySchema = AnySchema>(

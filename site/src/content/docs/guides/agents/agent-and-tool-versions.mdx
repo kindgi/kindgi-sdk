@@ -134,6 +134,15 @@ A comparison's versions, and `--with`, reach the tools and agents of a
 flow's sub-flows too
 ([Try a flow version on the test cases](../../evals/compare-an-agent-version/#try-a-flow-version-on-the-test-cases)).
 
+**Where a version runs.** An agent version runs in the project it was
+published in, and in each project a deployment that isn't retired shipped
+it into, such as the next environment `kindgi promote` carried its build to.
+So a change to the agent reaches each of them. `client.agents.projects(agentId)`
+(`GET /v1/agents/{agentId}/projects`) lists them, the agent's first project
+first, naming only the ones you can read. A project stays on the list after
+the versions shipped there are unregistered, because reinstating one would
+run there again.
+
 **An agent version published without pins,** such as by an older runtime,
 gets a pinned next version at the first deploy:
 
