@@ -669,10 +669,9 @@ What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
   day, in a log record with `"event": "kindgi.preview_expiry"`: alert on it
   in Log Analytics
   ([Licensing](../../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
-- **Upgrade:** make sure a restorable backup exists. Automatic backups with
-  point-in-time restore are on. Copy the new runtime image by digest, set
-  `server_image`, and apply. Migrations only go forward: never run two runtime
-  versions on one database, and go back by restoring the backup.
+- **Upgrade:** [Upgrade](#upgrade) has the steps. Migrations only go
+  forward: never run two runtime versions on one database, and go back by
+  restoring the backup.
 - **Rotate a secret:** add a version with `put` again. The apps read their
   secrets when they start. The module references every secret but the two
   pinned keys without a version. So a replica that starts after Container
@@ -714,6 +713,160 @@ What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
   platform's events, such as image pulls and restarts, are in
   `ContainerAppSystemLogs_CL`. Filter the runtime's records by `traceId` to
   follow one request or run ([Logs](../logs/)).
+
+## Upgrade
+
+No script upgrades this deployment: run these steps by hand, on a staging
+deployment first if you have one. Run them in the module's folder, as the
+identity that deploys the module. `<rg>` is the resource group, and
+`<name_prefix>` your `name_prefix`.
+
+1. **Read the upgrade steps** of each release you're upgrading across, in
+   its release notes
+   ([Upgrade the runtime](../operate/#upgrade-the-runtime) links them), and
+   take the new release's digest from its notes.
+2. **Copy the new runtime image** into the module's registry by digest,
+   every platform included, as in
+   [2. The images into the registry](#2-the-images-into-the-registry), with
+   Docker logged in to `registry.kindgi.com` (it has 0.2.0 and later):
+
+   ```sh
+   ACR=$(terraform output -raw image_registry)
+   az acr login -n "${ACR%%.*}"
+   docker buildx imagetools create --tag "$ACR/runtime:<version>" \
+     registry.kindgi.com/kindgi/runtime:<version>@sha256:<digest>
+   ```
+
+3. **Check the database can go back.** The module keeps automatic backups
+   with point-in-time restore, for `database_backup_retention_days` (7 by
+   default). This prints the earliest time a restore can go back to:
+
+   ```sh
+   PG=$(terraform output -raw database_server_name)
+   az postgres flexible-server show -g <rg> -n "$PG" --query backup.earliestRestoreDate -o tsv
+   ```
+
+4. **Set the new image:** `server_image` in `dev.tfvars`, to
+   `$ACR/runtime@sha256:<digest>`. If the release notes say to rebuild the
+   pack, rebuild it as in
+   [2. The images into the registry](#2-the-images-into-the-registry) and
+   set `pack_image` too. Keep a copy of the file as it was: it's your way
+   back.
+5. **Plan, and save the plan:**
+
+   ```sh
+   (umask 077 && terraform plan -var-file=dev.tfvars -out=upgrade.tfplan)
+   ```
+
+   Terraform also reads every `*.auto.tfvars.json` in the folder, your
+   pack's env among them. Read the plan: it should change the server's
+   image, the license renewal job's too with `license_renewal_schedule`,
+   and what the release notes say. A plan that removes the pack's env was
+   made without its file ([3. The secrets](#3-the-secrets)).
+
+   The plan holds your variables' values: `umask 077` keeps it readable by
+   you alone, and you delete it once it's applied.
+6. **Note the time, then apply exactly that plan:**
+
+   ```sh
+   date -u +%Y-%m-%dT%H:%M:%SZ
+   terraform apply upgrade.tfplan
+   rm upgrade.tfplan
+   ```
+
+   - `date -u` prints the time, in UTC, that a restore goes back to if you
+     go back. Write it down. Writes made after it aren't in the restore.
+   - A saved plan applies as you read it, with the variables it was made
+     with, so it takes no `-var-file`. If the state changed since,
+     Terraform refuses it as stale: plan again.
+   - The new revision migrates the database as it starts. Once it's
+     ready, it takes all the traffic, and the one before it stops.
+7. **Check it:**
+
+   ```sh
+   az containerapp revision list -n <name_prefix>-server -g <rg> -o table
+   ```
+
+   It lists the active revisions. Once the new one is ready, it's the only
+   one, with all the traffic, and healthy. Then read its startup lines, as
+   in [4. The services](#4-the-services), and run a flow, as in
+   [6. Check it](#6-check-it).
+
+**If it doesn't come up, go back.** Nothing rolls back on its own, and
+migrations only go forward, so never point the old version at the
+migrated database. A point-in-time restore makes a new server, and never
+overwrites the module's. So the runtime moves onto the restored one,
+through its database URL in Key Vault:
+
+1. **First, export the erasure ledger** from the server serving now
+   ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
+   It holds every erasure so far, those made after the time you noted too.
+   If no server answers, the restored database's own ledger is all there
+   is.
+2. **Restore the database as it was at the time you noted,** into a new
+   server:
+
+   ```sh
+   PG=$(terraform output -raw database_server_name)
+   az postgres flexible-server restore -g <rg> --name "$PG-back" \
+     --source-server "$PG" --restore-time <the time you noted>
+   az postgres flexible-server parameter set -g <rg> -s "$PG-back" \
+     --name azure.extensions --value VECTOR
+   ```
+
+   - With no network options, `az` puts the new server in the module
+     server's subnet and private DNS zone.
+   - The new server keeps the module server's tier, storage and backup
+     retention, but none of its server parameters
+     ([Microsoft: Backup and restore](https://learn.microsoft.com/en-us/azure/postgresql/backup-restore/concepts-backup-restore)).
+     The second command allows pgvector on it, as the module does on its
+     own.
+   - The new version keeps serving from the module's server meanwhile.
+3. **Save the plan that goes back.** Put `server_image`, and `pack_image`,
+   back from the copy of `dev.tfvars` you kept, then plan, and read it:
+
+   ```sh
+   (umask 077 && terraform plan -var-file=dev.tfvars -out=back.tfplan)
+   ```
+
+4. **Point the runtime at the restored server, then apply that plan at
+   once.** Set the restored server's admin password and the database URL
+   with it, as in [3. The secrets](#3-the-secrets): the password goes
+   through a pipe, never on a command line.
+
+   ```sh
+   # Off in this shell: az's log file, if it's on, records each request's body.
+   export AZURE_LOGGING_ENABLE_LOG_FILE=no
+
+   V=$(terraform output -raw key_vault_name)
+   BACK=$(az postgres flexible-server show -g <rg> -n "$PG-back" --query fullyQualifiedDomainName -o tsv)
+   put() { az keyvault secret set --vault-name "$V" -n "$1" --file /dev/stdin --query id -o tsv; }
+
+   DBPW=$(openssl rand -hex 24)
+   printf '%s' "$DBPW" | az postgres flexible-server update -g <rg> -n "$PG-back" --admin-password @- -o none
+   printf 'postgres://kindgiadmin:%s@%s:5432/kindgi?sslmode=require' "$DBPW" "$BACK" | put database-url
+   unset DBPW
+
+   terraform apply back.tfplan
+   rm back.tfplan
+   ```
+
+   Container Apps picks up the URL's new version within 30 minutes, and
+   restarts the revisions that read it. So apply at once: the new
+   version's revision, restarted onto the restored server first, would
+   migrate it forward. If its logs show it did, restore again, into
+   another new server, and repeat this step. If Terraform refuses the plan
+   as stale, plan again and apply at once.
+5. **Replay the erasures before anyone uses it**
+   ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
+   A replay matches only with the same ledger key, which the module pins
+   (`erasure_ledger_key_version`).
+
+From then on, the runtime serves from the restored server, which the
+module doesn't manage. The module's own server, which `database_server_name`
+names, still holds the migrated database: Terraform keeps it, and would
+make it again if you deleted it by hand. At the next upgrade, check and
+restore the server the URL names, not the module's.
 
 ## Tear it down
 
