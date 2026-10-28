@@ -18,15 +18,15 @@ import { describe, expect, test } from 'vitest';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
 
-import { createStubAppBindings } from '../src/testing/index.js';
+import { createStubAppBindings, createStubBinding } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
   AgentReleaseBindings,
-  CreateAppInput,
   ListCoveringPinsInput,
   LivePin,
   LiveVersionBinding,
+  RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
 import { type Grant, type ItemRow, grantsAuthz, itemProjects } from './support/order-items.js';
@@ -137,13 +137,18 @@ function harness(
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
+    runHandler: createStubBinding<RunHandlerBinding>('runHandler', {
+      invokeAgent: true,
+      invokeFlow: true,
+      resumeRun: true,
+    }),
     agentReleases: {
       live: fake.live,
       promotions: {} as AgentReleaseBindings['promotions'],
     },
     ...(opts.withProjects !== false && { projectBinding: projects }),
     ...(opts.rights === true && { authz: authz.authz, itemProjects: itemProjects(rows()) }),
-  } as CreateAppInput);
+  });
   const list = async (who: string, projectId: string, query = '') => {
     const res = await app.request(`/v1/projects/${projectId}/pinned-versions${query}`, {
       headers: { authorization: `Bearer ${who}` },
