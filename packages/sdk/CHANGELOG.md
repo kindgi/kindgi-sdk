@@ -1,5 +1,106 @@
 # @kindgi/sdk
 
+## 0.2.0
+
+### Minor Changes
+
+- ae09fc0: Version numbers now say what a release holds. A release with new features moves the middle number, as this one does, and a release with only fixes moves the last. Every SDK package shares one version.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+
+### Patch Changes
+
+- bf30268: **A new authoring skill, "Fix what the experts corrected", with a guide to match.** When an expert judges an agent's run wrong and says why, a coding agent can now turn those corrections into changes. `kindgi init` and `kindgi skills sync` install the `kindgi-fix-corrections` skill (every language), which pulls an agent's "no" judgments (`kindgi judgments list --verdict=no`), reads each with the run behind it (`kindgi runs get`, `kindgi runs journal`), and sorts each correction to where it belongs — a rule in a tool's code, a setting, an approval rule, or the agent's instructions — adding a pack test per correction, then publishing a new version (`kindgi agents derive` for a setting, `kindgi deploy` for code) and asking a person to make it live with `kindgi agents promote … --reason`, naming the corrections. It never raises a limit or drops a check — a correction that would loosen anything goes to the owner — and it keeps the pulled runs' customer data out of the pack. The guide "Fix what the experts corrected" walks a person through the same loop.
+- 08dedca: **`kindgi init --template=follow-up`:** an agent that writes a follow-up mail from your notes and sends it from your own Gmail, each send approved first.
+  - Its send tool is `gmailSend` from `@kindgi/connections`, included under the pack's own id. `init` adds `@kindgi/connections` at the CLI's own version, or linked from a checkout with `--link-local`.
+  - Its README covers connecting Google, what waits for a person, and why text other people wrote is information, never instructions.
+  - In an existing app, `init` refuses it and points at `--new-repo`.
+  - The getting-started skill lists it.
+- 08dedca: **`@kindgi/sdk/define` re-exports a tool's connection names** from `@kindgi/tools`, unchanged: `ConnectionRejectedError` and `isConnectionRejectedError`, and the types `ToolConnection`, `ConnectionNeed` and `ConnectionAccount`. A tool that declares `needsSpec.connections` imports everything from the SDK, as for its other names.
+- b5c5da3: **The TypeScript and Python getting-started skills say where `kindgi dev`'s token is:** `token` in the pack's `.kindgirc.json`, with the API's URL as `apiUrl`. `kindgi dev`'s banner now shows only the token's last four characters.
+- 633d9e7: **The TypeScript getting-started skill names the other provider presets,** as the Python, Java and Scala ones do: Anthropic is its example, and `kindgi providers presets` lists OpenAI, Gemini, Groq and OpenRouter too.
+- 08dedca: **The tool-authoring skills cover connections to other apps,** in TypeScript, Python, Java and Scala. A tool declares the connection it needs in its `needsSpec`, reads the call's short-lived token from the call's context, and throws a refusal with the connection's name when the app answers 401. The TypeScript skill also points at the ready-made Gmail, Outlook, GitHub and LinkedIn tools in `@kindgi/connections`, each included under an id the pack names, and at `appFetch` for a tool's own calls to an app's API.
+- 2efe644: **The getting-started skills (TypeScript, Python, Java, Scala) say how to upgrade a self-hosted deployment,** and load for it. There's no migration script: the runtime brings its database up to date when it starts. A small dev deployment on Cloud Run, on runtime 0.1.8 or later, upgrades with the Cloud Run module's `./upgrade.sh`, from the tag of the release it's upgrading to, `--dry-run` first; the skills link the module README's Upgrading section for the rest. Any other Cloud Run deployment, or one on Azure Container Apps, follows its page's "Operate it" section, and anything else the operate page's upgrade steps. The Java and Scala skills add that `./kindgiw upgrade` moves the pack's own pins, not a deployment's runtime.
+- b6e20ca: **The getting-started skills (TypeScript, Python, Java, Scala) say more about upgrading a deployment on Cloud Run.** The module's `./upgrade.sh` makes its plan with every `*.auto.tfvars.json` in the module's folder too, the pack's env among them, and `yes` applies exactly the saved plan it showed. Any other Cloud Run deployment upgrades by hand, staging first, as the Cloud Run page's new "Upgrade by hand" section says, and one on Azure Container Apps follows its page's "Operate it" section.
+- 188f532: **The `kindgi-using` skill knows an approval addressed to one person, and a run that waits for a connect.** It says who decides an approval with an `approver`, and that any decision of a tenant admin's on it, escalating included, is refused (`403 named-approver-required`), while its person approves or rejects it but can't escalate it (`409 invalid-transition`). Asked what a run waits for, it reads `kindgi runs resume <run-id>`'s exit code, and for a connect (`6`) hands over the link the person who started the run connects from. Connecting an app is now among the actions it leaves to the person.
+- b6e20ca: **The `kindgi-using` skill finds a mail trigger in the console.** Asked what the support inbox did with a mail, it links the trigger's page, `mail-triggers/<triggerId>`, with its latest mails, up to 50, what happened to each and the run it started (older mail is in `kindgi mail-triggers fires`), and `runs?trigger=<triggerId>`, every run it started. Its console pages list the mail triggers, and it links Start runs from new mail.
+- 68e0d57: **A run paused until another system answers is answered at its link, or through the API.**
+  
+  - **`@kindgi/agents`:** an agent's call to a tool that declares `pauses` parks the turn until the answer comes, and the turn goes on with it as the call's result. The model sees the answer as data from outside, inside an `<event>` block, and the turn's system prompt then says never to follow instructions found there. Resumed, the turn doesn't call the tool again. A wait that times out is the tool error `wait-token-timed-out`, handled by the agent's tool error rules like any other: it fails the turn unless they retry `tool-error`. A retried step waits on a new token.
+  - **`@kindgi/api`:**
+    - `POST /v1/wait-tokens/{token}/complete` takes another system's answer at the link a pausing tool handed on. The token in the path is the credential: no `Authorization` header. The body is the tool's output as JSON, at most 1 MiB; an empty body is `{}`. It answers `200 { status: 'accepted' }` at once, and the run resumes behind the answer: the sender waits for none of the run. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on that token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The server logs the path as `/v1/wait-tokens/:token`, never the token.
+    - `POST /v1/runs/{runId}/resume` answers a `pause:` waitpoint, as the link would, and needs write access and `execute` on the run's agent or flow. It returns the run as `GET /v1/runs/{runId}` does. Every other waitpoint stays `422 run-resume-not-supported`, and a body without `waitpointId`, or with a field it doesn't take, is now `400 bad-input`.
+    - `GET /v1/runs/{runId}`'s `waitingFor` gains `tokens`: each wait's `tokenId`, `name`, tool and call, step, and when it times out. Never the link.
+    - New error codes: `wait-token-not-found` (404: an unknown token and a wrong one alike), `wait-token-closed` (409, `details.state`), `wait-token-output-invalid` (400, `details.issues`: the wait stays open) and `unsupported-media-type` (415: a body that isn't JSON).
+    - Nothing runs where the run is while its tenant is closing or suspended or its project is suspended, so an answer then is refused (`409 tenant-closing`, `409 tenant-suspended` or `409 project-suspended`) and nothing is taken. Closing or suspending cancels the tenant's or project's runs, paused ones included, so the refusal is for an answer that comes before the cancel reaches its run. When the tenant's state can't be read, the answer is `503 tenant-state-unavailable` with `Retry-After`. The link tells any of it only for a token that matches; through the API, a frozen tenant is refused as every write of its is.
+    - The link limits requests per client: past 600 a minute, `429 rate-limit-exceeded` with `Retry-After`, counted before the body is read or the token looked up, so nothing was taken and the same answer can be sent again then.
+    - For a runtime: `createApp` takes `waitTokens`, a `WaitTokenBinding` (`complete` and `waiting`). Without one, the link answers `404` and resume `422`, as before. The link tells clients apart and counts them where `webhookReceiver` says (`clientAddress`, `rateLimitStore`), with its defaults when that's absent.
+  - **`@kindgi/compliance` and `@kindgi/specs`:** two built-in evidence kinds, `wait-token-completed` (an answer landed, held for the run or taken) and `wait-token-discarded` (a held early answer the run never took). Their payloads carry the answer's size and SHA-256, never the answer.
+  - **`@kindgi/client`:** `runs.resume` answers a run's wait for another system, and `Run` carries `waitingFor` (`RunWaitingFor`, `RunWaitingApproval` and `RunWaitingToken` are exported). `approvals.completeToken`, which had no route and always threw `not-yet-wired`, and its `CompleteTokenInput` (re-exported by `@kindgi/sdk` too) are removed, so code that imports `CompleteTokenInput` stops compiling: an approval's run resumes through `approvals.decide`.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- 760acad: **A turn whose `maxSteps` is above 32 now stops at the 32nd model call with `budget-exceeded`, instead of running its loop out.** A turn's loop runs at most 32 iterations (`AGENT_TURN_LOOP_MAX_ITERATIONS`), one model call each. With a higher `maxSteps`, a model that still wanted a tool on the 32nd call ended the loop with no answer, and the turn's failure didn't name the budget. The step check now holds `maxSteps` to 32: the turn fails with `budget-exceeded`, kind `steps`, `limit` 32, and the message adds that a turn makes at most 32 model calls, fewer than its `maxSteps`. A typed answer that doesn't fit on the 32nd call gets no repair the loop couldn't run, so the turn fails with `output-schema-violation`. A `maxSteps` of 32 or less works as before. No API, type or flow change: the turn's flow stays `agent.turn` 1.1.0.
+  
+  The budget docs now give the real defaults. `defineAgent`'s doc said `maxSteps` 6, `maxCostUsd` 0.1 and `maxWallMs` 30 000. They are 8 steps, no cost cap, and 120 000 ms. The `TurnBudget` type, `agent.schema.json`, the agent-authoring skills and the budgets guide now also say a turn makes at most 32 model calls.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [e019e64]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [119ac78]
+- Updated dependencies [fc7347c]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [760acad]
+- Updated dependencies [b6e20ca]
+  - @kindgi/agents@0.2.0
+  - @kindgi/handler-runtime@0.2.0
+  - @kindgi/client@0.2.0
+  - @kindgi/tools@0.2.0
+  - @kindgi/schema@0.2.0
+  - @kindgi/flow@0.2.0
+  - @kindgi/guardrails@0.2.0
+  - @kindgi/crypto@0.2.0
+  - @kindgi/types@0.2.0
+
 ## 0.2.0-rc.1
 
 ### Patch Changes
