@@ -212,6 +212,8 @@ function runStep(setup: Setup) {
     },
     turnAbort: new AbortController(),
     appended: [],
+    // The loop's messages are the step's own (`nextMessages: []`).
+    initialMessageCount: 0,
     hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
     ...(setup.storedBeforePark !== undefined && { storedBeforePark: [...setup.storedBeforePark] }),
   } as unknown as TurnContext;
