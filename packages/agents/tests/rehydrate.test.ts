@@ -157,6 +157,13 @@ const firstModelCall = completed(
 );
 
 /** A turn parked on a tool-call approval in its second loop iteration. */
+/** A fact the turn retrieved before the park, as `run-retrievals` journals it. */
+const retrievedFact = {
+  fact: { id: 'fact-1', type: 'note', contentHash: 'sha256:abc' },
+  intent: { scope: 'tenant' },
+  score: 0.9,
+};
+
 const parkedJournal: readonly JournalEntry[] = [
   completed('setup', {
     turnNumber: 2,
@@ -166,7 +173,7 @@ const parkedJournal: readonly JournalEntry[] = [
   }),
   completed('render-prompt', {}),
   completed('persist-user-message', { sequence: 3 }),
-  completed('run-retrievals', { count: 1, retrieved: [{ intent: 'facts', content: 'a fact' }] }),
+  completed('run-retrievals', { count: 1, retrieved: [retrievedFact] }),
   completed('build-initial-messages', {
     nextMessages: [
       { role: 'system', content: 'Help.' },
@@ -214,7 +221,7 @@ describe('rehydrateTurnContext', () => {
     expect(ctx.appended.map((m) => m.sequence)).toEqual([3, 4, 5, 6, 7]);
     expect(ctx.storedBeforePark?.map((m) => m.sequence)).toEqual([6, 7]);
     expect(ctx.userMessage?.sequence).toBe(3);
-    expect(ctx.retrieved).toEqual([{ intent: 'facts', content: 'a fact' }]);
+    expect(ctx.retrieved).toEqual([retrievedFact]);
     // Where the loop's own messages start, from what build-initial-messages journaled.
     expect(ctx.initialMessageCount).toBe(3);
     // Usage across both model calls, so the budgets count the whole turn.
