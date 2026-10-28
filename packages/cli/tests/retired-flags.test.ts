@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Finding a retired agent, tool or test set, and an unregistered version,
- * from the CLI: `--include-retired` on the lists, `--include-unregistered`
+ * Finding a retired agent, tool, test set, block or gate policy, and an
+ * unregistered version, from the CLI: `--include-retired` on the lists, `--include-unregistered`
  * on the versions lists (the same flag blocks and flows take; tools'
  * old `--include-tombstoned` is gone).
  */
@@ -42,6 +42,8 @@ async function run(argv: readonly string[]) {
     agents: { list: rec('agents.list'), versions: { list: rec('agents.versions.list') } },
     tools: { list: rec('tools.list'), versions: { list: rec('tools.versions.list') } },
     evalSuites: { list: rec('evalSuites.list') },
+    blocks: { list: rec('blocks.list') },
+    gatePolicies: { list: rec('gatePolicies.list') },
   };
   const out = await runCli({
     argv: [...argv, '--url=https://x', '--token=t'],
@@ -75,6 +77,14 @@ describe('retired items and unregistered versions', () => {
       ['eval-suites', 'list', '--include-retired'],
       ['evalSuites.list', { includeRetired: true }],
     ],
+    [
+      ['blocks', 'list', '--include-retired'],
+      ['blocks.list', { includeRetired: true }],
+    ],
+    [
+      ['gate-policies', 'list', '--include-retired'],
+      ['gatePolicies.list', { includeRetired: true }],
+    ],
   ])('%j', async (argv, call) => {
     const { out, calls } = await run(argv);
     expect(out.exitCode, out.stderr).toBe(0);
@@ -85,6 +95,8 @@ describe('retired items and unregistered versions', () => {
     const { calls } = await run(['agents', 'versions', 'acme.drafter']);
     expect(calls).toEqual([['agents.versions.list', 'acme.drafter', {}]]);
     expect((await run(['tools', 'list'])).calls).toEqual([['tools.list', {}]]);
+    expect((await run(['blocks', 'list'])).calls).toEqual([['blocks.list', {}]]);
+    expect((await run(['gate-policies', 'list'])).calls).toEqual([['gatePolicies.list', {}]]);
   });
 
   test("tools' old --include-tombstoned is gone", async () => {

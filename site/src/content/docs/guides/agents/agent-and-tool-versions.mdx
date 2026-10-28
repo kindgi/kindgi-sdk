@@ -295,7 +295,12 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   `410`, such as `agent-gone`. Its list leaves it out unless you ask with
   `?includeRetired=true`, or `kindgi agents list --include-retired`, and the
   same for `flows`, `tools` and `eval-suites`. Then it's listed as its
-  highest version, with `unregisteredAt`.
+  highest version, with `unregisteredAt`. The lists of blocks, policies and
+  gate policies take `?includeRetired=true` too, as
+  `client.blocks.list({ includeRetired: true })` does, and the same for
+  `policies` and `gatePolicies`. From the CLI, ask with
+  `kindgi blocks list --include-retired` or
+  `kindgi gate-policies list --include-retired`.
 - **A run waiting on an approval** resumes after its version is
   unregistered.
 

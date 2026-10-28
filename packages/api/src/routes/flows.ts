@@ -33,6 +33,7 @@ import {
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import { includeRetiredOf } from './include-retired.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -177,10 +178,6 @@ export function flowsRouter(
 
     const cursorRaw = c.req.query('cursor');
     const nameRaw = c.req.query('name');
-    // `?includeRetired=true` lists retired flows too (no active version),
-    // each as its highest version with `unregisteredAt`. Anything else →
-    // active flows only (the default).
-    const includeRetired = c.req.query('includeRetired') === 'true';
 
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
@@ -197,7 +194,7 @@ export function flowsRouter(
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
-      ...(includeRetired && { includeRetired: true }),
+      ...includeRetiredOf(c),
     });
     // Only what the caller may read (T243 A), as `GET …/:id` asks.
     const visible =
