@@ -14377,7 +14377,7 @@ export const TriggerVersionCauseSchema: JsonSchema = {
   type: 'string',
   enum: [...TRIGGER_VERSION_CAUSES],
   description:
-    "What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).",
+    "What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).",
 };
 
 /**

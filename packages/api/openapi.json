@@ -24250,7 +24250,7 @@
           "first-fire",
           "pin"
         ],
-        "description": "What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use)."
+        "description": "What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use)."
       },
       "ScheduleDefinition": {
         "type": "object",
@@ -62831,7 +62831,7 @@
             }
           }
         },
-        "description": "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its first fire. Whoever can read the mail trigger can read its versions.",
+        "description": "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.",
         "parameters": [
           {
             "name": "triggerId",
