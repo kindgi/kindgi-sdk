@@ -7,10 +7,10 @@ import type { FileNotReadReason, FileNotShownReason, FileValue } from '@kindgi/t
  * Files a tool stores and reads.
  *
  * A tool that declares `storesFiles: true` gets `ctx.files.store` with each
- * call: it fetches a file (a mail's attachment, say) and stores it, and the
- * runtime checks the bytes, stores them as a file the call's run owns, and
- * answers a file value. The tool returns that value in its result's
- * top-level `files`, and an agent is shown the file.
+ * call with an `idempotencyKey`: it fetches a file (a mail's attachment,
+ * say) and stores it, and the runtime checks the bytes, stores them as a
+ * file the call's run owns, and answers a file value. The tool returns that
+ * value in its result's top-level `files`, and an agent is shown the file.
  *
  * A tool that declares `readsFiles: true` gets `ctx.files.read`: it reads
  * the bytes of a file its run may be shown, by the file value's
