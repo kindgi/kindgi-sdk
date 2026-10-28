@@ -270,6 +270,14 @@ refuses `latest`:
 secrets_aad_key_version is a version number ("1" for a new deployment), never "latest": every secret stored in Postgres is bound to the key it names.
 ```
 
+The database URL is pinned the same way: the server reads the version of
+`$N-database-url` that `database_url_secret_version` names, `"1"` too, and
+the example files have it. A version you add later reaches no revision
+until you set it and apply. So going back from an upgrade, the URL to a
+fresh database moves the server in the same apply as its old image, and no
+instance of the newer version reaches that database first
+([Upgrade by hand](#upgrade-by-hand)).
+
 **The database user** is a built-in Cloud SQL user. It isn't a superuser. But
 it has `CREATEROLE`, and owns the database through `cloudsqlsuperuser`, which
 is what the runtime needs. An IAM database user has neither.
@@ -869,7 +877,20 @@ The two can go in two Google Cloud projects, or in one:
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
-  it, `terraform plan` stops and asks for it.
+  it, `terraform plan` stops and asks for it. The same goes for
+  `database_url_secret_version`, from the `@kindgi/sdk@0.3.0` module on:
+  set it to the version of `$N-database-url` your server reads now, which
+  `gcloud secrets versions describe latest --secret=$N-database-url --format='value(name.basename())'`
+  prints. `upgrade.sh` adds it for you.
+- **A server doesn't start on a database a newer version migrated**
+  (runtime 0.3.0 on), naming the migrations it doesn't have
+  ([Upgrade the runtime](../operate/#upgrade-the-runtime)). With one
+  server instance, an instance of the old revision that starts during an
+  upgrade, after the new one migrated, refuses: an outage until the new
+  revision is ready. After a failed upgrade, the old revision serves only
+  until one of its instances starts, so act at once: fix forward (fix what
+  failed and apply the new version again), or go back to a database from
+  before the upgrade, as [Upgrade by hand](#upgrade-by-hand) says.
 - **Or upgrade with the module's `upgrade.sh`:** a deployment of the
   module on runtime 0.1.8 or later, in any `network_mode`, can run it
   instead, to 0.2.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes
@@ -878,8 +899,9 @@ The two can go in two Google Cloud projects, or in one:
   first. It runs the upgrade checks against the database, then backs the
   database up, and changes the running deployment only when you type
   `yes`. Before it asks, it checks the plan: it stops if the plan creates,
-  deletes or replaces anything, or changes anything but the new image and
-  what the releases crossed change in place. So a var file left off the
+  deletes or replaces anything, or changes anything but the new image (and
+  the database URL's pin, when it adds it) and what the releases crossed
+  change in place. So a var file left off the
   command, whose variables the plan would empty, stops it: give it one
   `--var-file` for each file your variables are in, since Terraform loads
   only `terraform.tfvars` and `*.auto.tfvars` (and their `.json`) on its
@@ -940,6 +962,10 @@ The two can go in two Google Cloud projects, or in one:
   - the switch, and the way back.
 - **Rotate a secret:** add a version, then roll a new revision of each service
   that reads it (`gcloud run services update … --update-labels=rotated=$(date +%s)`).
+  A secret pinned to a version moves only when you change its pin.
+- **Rotate the database URL** (a new password, say): add the version, set
+  `database_url_secret_version` to its number (`gcloud secrets versions add`
+  prints it: `Created version [N]`), and apply.
 - **The AAD key is never rotated.** Every stored secret is bound to the
   version the server reads, so a new version is a key change that needs every
   stored secret re-encrypted first. The pin keeps a version added by mistake
@@ -1037,11 +1063,17 @@ repository from
    SA=$(terraform output -json service_accounts | jq -r .server)
    gcloud run jobs create $N-upgrade-check --region=<region> \
      --image="$REPO/runtime@sha256:<new digest>" --service-account="$SA" \
-     --set-secrets=KINDGI_DATABASE_URL=$N-database-url:latest \
+     --set-secrets=KINDGI_DATABASE_URL=$N-database-url:<url version> \
      --network=$N --subnet=$N-run --vpc-egress=all-traffic \
      --args=check,provider-keys --max-retries=0
    gcloud run jobs execute $N-upgrade-check --region=<region> --wait
    ```
+
+   `<url version>` is the version of the URL the server reads:
+   `database_url_secret_version` in `prod.tfvars`, or, from a module copy
+   before it, what
+   `gcloud secrets versions describe latest --secret=$N-database-url --format='value(name.basename())'`
+   prints.
 
    - **Other shapes:** with `connector` and a private-IP database, use
      `--vpc-connector=<your connector> --vpc-egress=private-ranges-only`
@@ -1085,8 +1117,9 @@ repository from
    Writes made after the backup aren't in it.
 5. **Set the new image:** `server_image` in `prod.tfvars`, to
    `$REPO/runtime@sha256:<new digest>`. If the release notes say to rebuild
-   the pack, rebuild it and set `pack_image` too. Keep a copy of the file as
-   it was: it's your way back.
+   the pack, rebuild it and set `pack_image` too. From a module copy before
+   `database_url_secret_version`, add it too, set to the `<url version>`
+   from step 3. Keep a copy of the file as it was: it's your way back.
 6. **Plan, and save the plan:**
 
    ```sh
@@ -1115,30 +1148,53 @@ repository from
 
 **If it doesn't come up, go back.** Nothing rolls back on its own, and
 migrations only go forward, so never point the old version at the migrated
-database:
+database. The server runs its migrations each time one of its instances
+starts, so no instance of the new version may reach the database you go
+back to: the old image and that database go in together, in one apply.
 
 1. **First, export the erasure ledger** from the server serving now
    ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
    It holds every erasure so far, those made after the backup too. If no
    server answers, the backup's own ledger is all there is.
-2. **Save the plan that goes back, before you bring the database back.**
-   Put `server_image`, and `pack_image`, back from the copy of
-   `prod.tfvars` you kept, then plan, and read it:
+2. **Bring the database back, with the old image,** one of these ways:
+   - **From an export, into a fresh database** (the way `upgrade.sh`
+     prints, with its export):
+     1. Make a fresh database on the instance, and import the export into
+        it as `kindgi`. Don't change `database_name` instead: the module
+        would drop the migrated database, then fail to create the fresh
+        one.
 
-   ```sh
-   (umask 077 && terraform plan -var-file=prod.tfvars -out=back.tfplan)
-   ```
+        ```sh
+        gcloud sql databases create <fresh> --instance=<instance>
+        gcloud sql import sql <instance> gs://<bucket>/<file>.sql.gz \
+          --database=<fresh> --user=kindgi
+        ```
 
-   Like the upgrade's plan, this one holds your secret values too.
+     2. Add a version of the server's database URL secret that names the
+        fresh database, with the password set as in
+        [3. The secrets](#3-the-secrets), never in a command's arguments.
+        `gcloud secrets versions add` prints its number, `N`
+        (`Created version [N]`). No revision reads it yet: the new
+        version's revisions read the version `database_url_secret_version`
+        names, so none of them reaches the fresh database to migrate it,
+        and nothing needs doing at once.
+     3. Put `server_image`, and `pack_image`, back from the copy of
+        `prod.tfvars` you kept, and set `database_url_secret_version` to
+        `"N"` there (the copy has the version from before, or, from a
+        module copy before the pin, none). Then plan, and read it:
 
-   The server runs its migrations each time one of its instances starts.
-   So apply this plan as soon as the database is back: an instance of the
-   new version that starts in between, on a restart or a scale-up, would
-   migrate the database forward again.
-3. **Bring the database back, then apply that plan at once:**
-   - **From a backup:** restore it into the instance it came from. That
-     overwrites everything on the instance, which is what going back
-     needs:
+        ```sh
+        (umask 077 && terraform plan -var-file=prod.tfvars -out=back.tfplan)
+        ```
+
+        It moves the server's image and its database in one revision.
+        Like the upgrade's plan, this one holds your secret values too.
+   - **From a backup, into the instance it came from:** that overwrites
+     everything on the instance, which is what going back needs, and the
+     URL doesn't change. Save the plan first: put `server_image`, and
+     `pack_image`, back from the copy you kept, keep
+     `database_url_secret_version` as it is now, plan as above, and read
+     it. Then restore, and apply it (step 3) at once:
 
      ```sh
      gcloud sql backups list --instance=$N
@@ -1146,38 +1202,26 @@ database:
      ```
 
      The new version serves until the apply, and a restore takes the
-     instance down for minutes. If the new version's revision started an
-     instance after the restore finished (its logs show it), restore once
-     more after the apply: by then only the old revision serves.
-
-     With a database on a public IP, you can restore into a new instance
-     instead, and move the server onto it, as **Restore Cloud SQL** under
-     [Operate it](#operate-it) says: set `database_instance` along with the
-     old images, and plan again for the apply. The server then moves and
-     goes back in one revision, so the new version never serves from the
+     instance down for minutes. An instance of the new version that starts
+     in between, on a restart or a scale-up, would migrate the database
+     forward again: if one started after the restore finished (its logs
+     show it), restore once more after the apply, when only the old
+     revision serves.
+   - **From a backup, into a new instance,** with a database on a public
+     IP: move the server onto it, as **Restore Cloud SQL** under
+     [Operate it](#operate-it) says. Set `database_instance`, and
+     `database_url_secret_version` to the version of its URL secret, along
+     with the old images, then plan as above. The server moves and goes
+     back in one revision, so the new version never serves from the
      restored instance. Private-IP mode can't serve from another instance.
-   - **From an export:** make a fresh database on the instance, import the
-     export into it as `kindgi`, and add a version of the server's database
-     URL secret that names the fresh database, with the password set as in
-     [3. The secrets](#3-the-secrets), never in a command's arguments. Add
-     that version last, right before the apply. Don't change
-     `database_name` instead: the module would drop the migrated database,
-     then fail to create the fresh one.
-
-     ```sh
-     gcloud sql databases create <fresh> --instance=<instance>
-     gcloud sql import sql <instance> gs://<bucket>/<file>.sql.gz \
-       --database=<fresh> --user=kindgi
-     ```
-
-   Then apply the saved plan:
+3. **Apply the saved plan:**
 
    ```sh
    terraform apply back.tfplan
    rm back.tfplan
    ```
 
-   If Terraform refuses it as stale, plan again and apply at once.
+   If Terraform refuses it as stale, plan again.
 4. **Replay the erasures before anyone uses it**
    ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
    A replay matches only when the server has its ledger key

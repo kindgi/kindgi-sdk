@@ -44,6 +44,10 @@ seed_user_id   = "00000000-0000-0000-0000-000000000002"
 # set secrets_backend = "none" instead if you store no model keys (Vertex AI).
 secrets_aad_key_version = "1"
 
+# The version of the database URL the server reads: the first one added (README step 3).
+# Pinned, never "latest": a URL added later reaches no revision until it is set here.
+database_url_secret_version = "1"
+
 # The pack service sleeps to zero; the first tool call after idle cold-starts.
 pack_min_instances = 0
 pack_max_instances = 2

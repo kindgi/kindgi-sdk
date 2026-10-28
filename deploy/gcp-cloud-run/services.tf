@@ -305,9 +305,12 @@ resource "google_cloud_run_v2_service" "server" {
       env {
         name = "KINDGI_DATABASE_URL"
         value_source {
+          # Pinned (var.database_url_secret_version): a version added for a
+          # way back reaches no revision before the apply that moves the
+          # server onto it with its old image.
           secret_key_ref {
             secret  = local.database_url_secret
-            version = "latest"
+            version = var.database_url_secret_version
           }
         }
       }
@@ -561,6 +564,10 @@ resource "google_cloud_run_v2_service" "server" {
     precondition {
       condition     = !local.kms || var.secrets_aad_key_version != null
       error_message = "secrets_backend = \"postgres\" needs secrets_aad_key_version: the version of <prefix>-secrets-aad-key the server reads (\"1\" for a new deployment), never \"latest\"."
+    }
+    precondition {
+      condition     = var.database_url_secret_version != null
+      error_message = "database_url_secret_version is required: the version of ${local.database_url_secret}, the secret the server reads its database URL from, as a number (\"1\" for a new deployment), never \"latest\". upgrade.sh adds it to an older var-file. The version the server reads today: gcloud secrets versions describe latest --secret=${local.database_url_secret} --project=${var.project_id} --format='value(name.basename())'"
     }
     precondition {
       condition     = var.export_signing != "kms" || var.export_signing_kms_key != ""

@@ -55,7 +55,11 @@ notes, and earlier releases' are below.
 
 When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list them: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says `kindgi-runtime: fatal: Error: migration failed for …` and why.
 
-Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](../back-up-and-restore/#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
+Migrations only go forward. From 0.3.0, a runtime doesn't start on a database a newer version migrated: it exits with code 2, and its log says `This database was migrated by a newer Kindgi version: it records a migration this version doesn't have (<id>).`, then the ways out. A runtime before 0.3.0 doesn't check, and isn't guaranteed to work on such a database. From 0.3.0 on:
+
+- **During an upgrade,** once the new version has migrated the database, an instance of the old version that starts (a restart, a replacement, a scale-up) refuses, after waiting for a migration still running to finish. With one instance, that's an outage until the new version is ready. With several, the requests the old version's new instances took fail, and the ones already running serve on.
+- **After a failed upgrade,** the old version serves the migrated database only until one of its instances starts, then refuses, so act at once. Fix forward: fix what failed and start the new version again, since it serves that database. Or go back: [restore the backup](../back-up-and-restore/#restore-into-a-fresh-database) you took before the upgrade into a fresh database, and run the older version on it.
+- **Under `kindgi dev`,** the refusal says to update the CLI to the version that migrated the database, or start the project with a fresh one (`kindgi dev --reset` drops it in the bundled Postgres).
 
 ### Checks you can run before upgrading
 

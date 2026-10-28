@@ -51,6 +51,10 @@
 #     image. The previous file is kept next to it as
 #     <var-file>.pre-upgrade-<UTC time>; if you don't confirm the plan, the
 #     var-file is put back.
+#   - A var-file from before database_url_secret_version gets that line, in
+#     the same file: the version of the database URL secret the server reads
+#     today, read from Secret Manager (its number only, never its value). One
+#     that sets it keeps it.
 #   - It keeps the plan it applies next to that copy, as
 #     <var-file>.upgrade-<UTC time>.tfplan: `terraform show <file>` reads what
 #     was applied. A plan file holds what the var files and the state hold, so
@@ -236,6 +240,25 @@ varfile_set() {
     || die "couldn't write $name into $VAR_FILE."
 }
 
+# Add a variable the var-file doesn't set, on a line of its own at the end
+# (its mode is kept), then read it back.
+varfile_add() {
+  local name="$1" value="$2" tmp="$WORK/varfile.new"
+  varfile_value_ok "$name" "$value"
+  if [[ $VARFILE_JSON == true ]]; then
+    jq --arg n "$name" --arg v "$value" '.[$n] = $v' "$VAR_FILE" >"$tmp"
+  else
+    {
+      cat "$VAR_FILE"
+      if [[ -n "$(tail -c 1 "$VAR_FILE")" ]]; then printf '\n'; fi
+      printf '%s = "%s"\n' "$name" "$value"
+    } >"$tmp"
+  fi
+  cat "$tmp" >"$VAR_FILE"
+  [[ "$(varfile_value "$name")" == "$value" ]] \
+    || die "couldn't write $name into $VAR_FILE."
+}
+
 # Whether a var file sets a variable at all, in any form.
 varfile_sets() {
   local file="$1" name="$2"
@@ -254,7 +277,10 @@ var_file_flags() {
 # The go-back path, printed (never run) when the apply fails or the new revision
 # doesn't come up. It reads variables set by the time it's called (steps 5/6).
 # Migrations only go forward, so going back restores the backup into a FRESH
-# database — never points an old runtime at the migrated one.
+# database — never points an old runtime at the migrated one. The new
+# version's revisions read the URL's pinned version, so the version that
+# names the fresh database reaches none of them: the old image and that
+# version go in together, in one apply, with nothing to do at once.
 print_go_back() {
   local fresh="${DATABASE_NAME}_r$(date -u +%Y%m%d)"
   local ledger="erasures-$(date -u +%F).json"
@@ -283,6 +309,20 @@ print_go_back() {
   if [[ $DATABASE_PRIVATE == true ]]; then
     db_where="dbname ${fresh}, and the host, port and sslmode=require of its current version"
   fi
+  # The pin the way back sets, in the file that sets it: the var-file's copy
+  # from before the upgrade has none (this run added it) or the version the
+  # server reads now. Another file that sets it isn't copied back.
+  local pin_line='database_url_secret_version = "<N>"' pin_do old_note=""
+  if [[ $DB_URL_VERSION_FILE == *.json ]]; then pin_line='"database_url_secret_version": "<N>"'; fi
+  if [[ $DB_URL_VERSION_WRITE == true ]]; then
+    pin_do="add ${pin_line} to $(printf '%q' "$VAR_FILE"): the copy, from before the upgrade, has no pin."
+    old_note=$'\n'"    A revision from before the upgrade reads latest, so it may read it: that's"
+    old_note+=$'\n'"    the old version, on the database from before the upgrade."
+  elif [[ $DB_URL_VERSION_FILE == "$VAR_FILE" ]]; then
+    pin_do="set ${pin_line} in $(printf '%q' "$VAR_FILE"): the copy has \"${DB_URL_VERSION}\", the version the server reads now."
+  else
+    pin_do="set ${pin_line} in $(printf '%q' "$DB_URL_VERSION_FILE"), which sets it (to \"${DB_URL_VERSION}\" now)."
+  fi
   cat <<EOT >&2
 
 ======================================================================
@@ -299,36 +339,37 @@ To go back:
     If no server answers, the backup's own ledger is all there is: an
     erasure made after ${STAMP} can't be replayed.
 
- 2. Before the database changes, put the old image(s) back and save the
-    plan, then read it:
-      cp $(printf '%q' "$VARFILE_BACKUP") $(printf '%q' "$VAR_FILE")
-      (umask 077 && terraform plan$(var_file_flags) -out=back.tfplan)
-    The plan holds your variables' values, secret ones too: umask 077 keeps
-    it readable by you alone, and step 6 deletes it.
-    The server runs its migrations each time an instance of it starts. An
-    instance of the new version that starts after step 5 and before the
-    apply would migrate the fresh database too, so apply right after step 5.
-
- 3. A fresh database on the same instance:
+ 2. A fresh database on the same instance:
       gcloud sql databases create ${fresh} --instance=${DB_INSTANCE} --project=${PROJECT}
 
- 4. Import the backup into it (the instance's service account already has
+ 3. Import the backup into it (the instance's service account already has
     objectAdmin on gs://${BUCKET_ONLY}, from the backup step):
       gcloud sql import sql ${DB_INSTANCE} ${EXPORT_URI} \\
         --database=${fresh} --user=kindgi --project=${PROJECT}
 
- 5. Point the server at the fresh database: add a new version of the secret
-    ${DB_URL_SECRET}, with ${db_where}.
-    Set the password as in README step 3, never in a command's
-    arguments. (Don't change database_name instead: the module would drop
-    the migrated database, then fail to create ${fresh}.)
+ 4. Add a new version of the secret ${DB_URL_SECRET}, with ${db_where}.
+    Set the password as in README step 3, never in a command's arguments.
+    gcloud says the new version's number, N ("Created version [N]").
+    No revision of the new version reads it: they read version
+    ${DB_URL_VERSION} (database_url_secret_version), so no instance of it
+    reaches the fresh database, to migrate it.${old_note}
+    (Don't change database_name instead: the module would drop the migrated
+    database, then fail to create ${fresh}.)
 
- 6. Right away, apply the saved plan. The new revision reads the new
-    secret version when it starts:
+ 5. Put the old image(s) back and point the server at version N:
+      cp $(printf '%q' "$VARFILE_BACKUP") $(printf '%q' "$VAR_FILE")
+    then ${pin_do}
+    Save the plan, then read it:
+      (umask 077 && terraform plan$(var_file_flags) -out=back.tfplan)
+    It moves the server's image(s) and its database in one revision. The
+    plan holds your variables' values, secret ones too: umask 077 keeps it
+    readable by you alone, and step 6 deletes it.
+
+ 6. Apply the saved plan. The new revision reads version N, the fresh
+    database, when it starts:
       terraform apply back.tfplan
       rm back.tfplan
-    If Terraform refuses the plan as stale, plan again as in step 2 and
-    apply at once.
+    If Terraform refuses the plan as stale, plan again as in step 5.
 
  7. Before anyone uses it, replay the erasures:
       npx --yes ${cli} memory erasures replay ${ledger}
@@ -484,7 +525,7 @@ SERVER_URL="$(jq -r '.server_url.value // empty' "$TF_OUT")"
 
 # One terraform console call returns the variables as a JSON object. console
 # renders jsonencode()'s string with HCL quoting, so `jq fromjson` unwraps it.
-VARS_EXPR='jsonencode({project_id=var.project_id, region=var.region, name_prefix=var.name_prefix, network_mode=var.network_mode, vpc_connector=var.vpc_connector, database_private_network=var.database_private_network, database_host_instance=var.database_host_instance, database_name=var.database_name, secrets_backend=var.secrets_backend, secrets_aad_key_version=var.secrets_aad_key_version, tenancy=var.tenancy, server_image=var.server_image, pack_image=var.pack_image, database_instance=var.database_instance})'
+VARS_EXPR='jsonencode({project_id=var.project_id, region=var.region, name_prefix=var.name_prefix, network_mode=var.network_mode, vpc_connector=var.vpc_connector, database_private_network=var.database_private_network, database_host_instance=var.database_host_instance, database_name=var.database_name, secrets_backend=var.secrets_backend, secrets_aad_key_version=var.secrets_aad_key_version, tenancy=var.tenancy, server_image=var.server_image, pack_image=var.pack_image, database_instance=var.database_instance, database_url_secret_version=var.database_url_secret_version})'
 VARS_RAW="$(terraform console "${TF_VAR_FILE_ARGS[@]}" <<<"$VARS_EXPR" 2>"$WORK/console.err")" \
   || die "couldn't read the module's variables with 'terraform console'. $(cat "$WORK/console.err")"
 VARS="$(jq 'fromjson' <<<"$VARS_RAW")" \
@@ -505,6 +546,7 @@ OLD_SERVER_IMAGE="$(jq -r '.server_image' <<<"$VARS")"
 OLD_PACK_IMAGE="$(jq -r '.pack_image // ""' <<<"$VARS")"
 DATABASE_INSTANCE_NAME="$(jq -r '.database_instance.name // ""' <<<"$VARS")"
 DATABASE_INSTANCE_URL_SECRET="$(jq -r '.database_instance.url_secret // ""' <<<"$VARS")"
+DB_URL_VERSION="$(jq -r '.database_url_secret_version // ""' <<<"$VARS")"
 
 SERVER_SERVICE="${NAME_PREFIX}-server"
 
@@ -599,6 +641,34 @@ if [[ -n ${TF_VAR_server_image+set} ]]; then
 fi
 if [[ $REBUILD_PACK == true && -n ${TF_VAR_pack_image+set} ]]; then
   die "TF_VAR_pack_image is set in the environment: a later apply without -var-file=$VAR_FILE would put its image back. Unset it and keep pack_image in $VAR_FILE only, then run again. Nothing was changed."
+fi
+
+# The version of the URL secret the server reads (database_url_secret_version),
+# pinned: a version added for a way back then reaches no running revision
+# before the apply that moves the server onto it. A var-file from before the
+# pin gets one in step 5, the version today's server reads as latest (2a). One
+# that sets it keeps it, never moved to a newer version, which may be a way
+# back's, staged. DB_URL_VERSION_FILE is the file that sets it (the last one
+# Terraform reads), where the printed way back changes it.
+if [[ -n ${TF_VAR_database_url_secret_version+set} ]]; then
+  die "TF_VAR_database_url_secret_version is set in the environment: the way back this script prints changes the pin in a var file. Unset it and keep database_url_secret_version in $VAR_FILE, then run again. Nothing was changed."
+fi
+# Terraform reads the *.auto.tfvars and *.auto.tfvars.json files in one
+# lexical order of their names, after terraform.tfvars(.json).
+DB_URL_VERSION_FILE=""
+auto_var_files=()
+while IFS= read -r f; do auto_var_files+=("$f"); done < <(
+  for f in *.auto.tfvars *.auto.tfvars.json; do if [[ -f $f ]]; then printf '%s\n' "$f"; fi; done | LC_ALL=C sort
+)
+for f in terraform.tfvars terraform.tfvars.json ${auto_var_files[@]+"${auto_var_files[@]}"} "${VAR_FILES[@]}"; do
+  if [[ -f $f ]] && varfile_sets "$f" database_url_secret_version; then DB_URL_VERSION_FILE="$f"; fi
+done
+DB_URL_VERSION_WRITE=false
+if [[ -z $DB_URL_VERSION ]]; then
+  [[ -z $DB_URL_VERSION_FILE ]] \
+    || die "$DB_URL_VERSION_FILE sets database_url_secret_version, but to no version. Set it to the version of $DB_URL_SECRET the server reads (gcloud secrets versions describe latest --secret=$DB_URL_SECRET --project=$PROJECT --format='value(name.basename())'), or remove it and this script adds it, then run again. Nothing was changed."
+  DB_URL_VERSION_WRITE=true
+  DB_URL_VERSION_FILE="$VAR_FILE"
 fi
 for v in $(compgen -e | grep '^TF_VAR_' || true); do
   info "also set       $v (in the environment)"
@@ -743,6 +813,29 @@ if [[ $SECRETS_BACKEND == "postgres" && -z $SECRETS_AAD_KEY_VERSION ]]; then
   fail_check "secrets_backend = \"postgres\" needs secrets_aad_key_version in $VAR_FILE: the version of ${NAME_PREFIX}-secrets-aad-key the server reads now, never \"latest\" (README \"Upgrading\")."
 fi
 
+# The version of the URL secret the new revision will read: the pin, or, with
+# none, the one latest is now, which a start of today's revision reads. Its
+# metadata only, never its value. It must be enabled, or the new revision
+# couldn't read it.
+if [[ $DB_URL_VERSION_WRITE == true ]]; then dburl_asked=latest; else dburl_asked="$DB_URL_VERSION"; fi
+dburl_json="$(gcloud secrets versions describe "$dburl_asked" --secret="$DB_URL_SECRET" --project="$PROJECT" --format=json 2>"$WORK/dburl.err" || true)"
+dburl_name="$(jq -r '.name // empty' <<<"${dburl_json:-null}" 2>/dev/null || true)"
+dburl_state="$(jq -r '.state // empty' <<<"${dburl_json:-null}" 2>/dev/null || true)"
+if [[ ! ${dburl_name##*/} =~ ^[1-9][0-9]*$ ]]; then
+  fail_check "couldn't read version ${dburl_asked} of ${DB_URL_SECRET}, the database URL the server reads. $(cat "$WORK/dburl.err")"
+elif [[ $dburl_state != ENABLED && $DB_URL_VERSION_WRITE == true ]]; then
+  fail_check "version ${dburl_name##*/} of ${DB_URL_SECRET}, the one today's server reads (latest), is ${dburl_state:-in no state}, not enabled: a start of today's revision couldn't read it either. Enable it, or set database_url_secret_version in $VAR_FILE to the version the server should read, then run again."
+elif [[ $dburl_state != ENABLED ]]; then
+  fail_check "database_url_secret_version is \"${DB_URL_VERSION}\" (in $DB_URL_VERSION_FILE), but that version of ${DB_URL_SECRET} is ${dburl_state:-in no state}, not enabled: the new revision couldn't read it. Enable it, or set the pin to the version the server reads, then run again."
+elif [[ $DB_URL_VERSION_WRITE == true ]]; then
+  DB_URL_VERSION="${dburl_name##*/}"
+  info "the server reads version ${DB_URL_VERSION} of ${DB_URL_SECRET} (latest today): step 5 pins it in $VAR_FILE (database_url_secret_version)"
+else
+  info "the server reads version ${DB_URL_VERSION} of ${DB_URL_SECRET} (database_url_secret_version), enabled"
+fi
+DB_URL_PLAN_ARGS=()
+if [[ $DB_URL_VERSION_WRITE == true ]]; then DB_URL_PLAN_ARGS=(-var "database_url_secret_version=${DB_URL_VERSION}"); fi
+
 # The release's own tag must be the digest given, or the mirror below would put
 # the version tag (which a later run's step 1 reads) on the wrong image.
 release_digest="$(docker buildx imagetools inspect "${RUNTIME_REPO}:${TARGET}" --format '{{json .Manifest}}' 2>"$WORK/inspect.err" | jq -r '.digest // empty' 2>/dev/null || true)"
@@ -857,6 +950,11 @@ EOT
      default). If a plan says the instance must be replaced, answer no: a
      replace deletes the database. (This script's plan check stops on a
      replace before it asks.)
+   - The server's database URL is pinned, in place: KINDGI_DATABASE_URL
+     reads one version of its secret, database_url_secret_version, in place
+     of latest. With a var-file from before it, this run adds that line:
+     the version the server reads today. A version added later, for a way
+     back, then reaches no running revision before the apply that sets it.
 EOT
       ;;
   esac
@@ -887,16 +985,21 @@ print_by_hand_steps() {
   info "The secret-manager secret-name grammar — this module stores secrets under \"$SECRETS_BACKEND\", never KINDGI_SECRETS_BACKEND=secret-manager."
 }
 
-# 5. The plan's check. Besides the new image(s), a plan may change only what
-# the module's releases after the current one (MODULE_CROSSED) change in
-# place, as their steps to confirm by hand say (module_changes):
-# "<resource type>.<name> <attribute path>", the path without list indices,
-# an env var or a database flag by its name. The module's own changes in that
-# release (services.tf, data.tf, foundation.tf), each made in place.
+# 5. The plan's check. Besides the new image(s), and the database URL's pin
+# when this run adds it, a plan may change only what the module's releases
+# after the current one (MODULE_CROSSED) change in place, as their steps to
+# confirm by hand say (module_changes): "<resource type>.<name> <attribute
+# path>", the path without list indices, an env var or a database flag by its
+# name. The module's own changes in that release (services.tf, data.tf,
+# foundation.tf), each made in place.
 plan_allowed_changes() {
   local r
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
   if [[ $REBUILD_PACK == true ]]; then printf '%s\n' "google_cloud_run_v2_service.pack template.containers.image"; fi
+  # The URL's version, from latest to the pin step 5 adds.
+  if [[ $DB_URL_VERSION_WRITE == true ]]; then
+    printf '%s\n' "google_cloud_run_v2_service.server template.containers.env.KINDGI_DATABASE_URL"
+  fi
   for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do
     case "$r" in
       0.1.10)
@@ -1054,6 +1157,9 @@ if [[ $DRY_RUN == true ]]; then
   if [[ $REBUILD_PACK == true ]]; then
     info "   set pack_image to the rebuilt pack (its digest is known only after the build)"
   fi
+  if [[ $DB_URL_VERSION_WRITE == true ]]; then
+    info "   add database_url_secret_version = \"${DB_URL_VERSION}\" to ${VAR_FILE} (the version of ${DB_URL_SECRET} the server reads today)"
+  fi
   info "   plan, check the plan as below, show it and ask you to type yes"
   info "   apply exactly that plan, kept as $(plan_kept_name "<YYYYMMDDTHHMMSSZ>")"
   info "6. wait for the new revision of ${SERVER_SERVICE}"
@@ -1064,7 +1170,8 @@ if [[ $DRY_RUN == true ]]; then
   if [[ $REBUILD_PACK == true ]]; then
     info "pack_image is unchanged in this plan: the rebuilt pack's digest is known only after the build."
   fi
-  terraform plan "${TF_VAR_FILE_ARGS[@]}" -var "server_image=${NEW_SERVER_IMAGE}" -lock=false -out="$WORK/dry-run.tfplan" \
+  terraform plan "${TF_VAR_FILE_ARGS[@]}" -var "server_image=${NEW_SERVER_IMAGE}" \
+    ${DB_URL_PLAN_ARGS[@]+"${DB_URL_PLAN_ARGS[@]}"} -lock=false -out="$WORK/dry-run.tfplan" \
     || die "terraform plan failed. Nothing has changed."
   check_plan "$WORK/dry-run.tfplan" false \
     || die "a real run would stop at this plan (above). Nothing was changed."
@@ -1092,7 +1199,8 @@ info "mirrored to $NEW_SERVER_IMAGE"
 
 # 2c. The runtime's own read-only checks, run with the NEW image against the
 # database, as ephemeral Cloud Run jobs (one per check, deleted on exit). They
-# need only KINDGI_DATABASE_URL: nothing starts, no migrations, no license. The
+# need only KINDGI_DATABASE_URL, at the version the server reads, so they
+# check the database it serves: nothing starts, no migrations, no license. The
 # check name is baked into the job's args at create time, since `jobs execute`
 # can't override them across gcloud versions. provider-keys, secret-scopes and
 # mcp-header-credentials apply for 0.1.8 -> 0.1.10 (stored-secrets is a restore
@@ -1119,7 +1227,7 @@ for check in "${CHECKS[@]}"; do
       --image="$NEW_SERVER_IMAGE" \
       --service-account="$SERVER_SA" \
       "${job_db_args[@]}" \
-      --set-secrets="KINDGI_DATABASE_URL=${DB_URL_SECRET}:latest" \
+      --set-secrets="KINDGI_DATABASE_URL=${DB_URL_SECRET}:${DB_URL_VERSION}" \
       --args="$args" --max-retries=0 --quiet >/dev/null 2>"$WORK/job.err"; then
     CHECK_JOBS+=("$job")
     # --wait exits non-zero when the execution fails: the check exited 1
@@ -1224,7 +1332,14 @@ cp "$VAR_FILE" "$VARFILE_BACKUP"
 VARFILE_PENDING=true
 varfile_set server_image "$NEW_SERVER_IMAGE"
 if [[ $REBUILD_PACK == true ]]; then varfile_set pack_image "$NEW_PACK_IMAGE"; fi
-info "$VAR_FILE now pins the new image(s); the previous copy is $VARFILE_BACKUP."
+# The upgrade's own apply pins the URL's version, so every revision that
+# runs the new image reads the version the server reads today.
+if [[ $DB_URL_VERSION_WRITE == true ]]; then
+  varfile_add database_url_secret_version "$DB_URL_VERSION"
+  info "$VAR_FILE now pins the new image(s) and version ${DB_URL_VERSION} of ${DB_URL_SECRET}; the previous copy is $VARFILE_BACKUP."
+else
+  info "$VAR_FILE now pins the new image(s); the previous copy is $VARFILE_BACKUP."
+fi
 
 # The plan is saved in the work folder, removed at exit, until "yes": only the
 # plan applied is kept, next to the var-file's copy.
