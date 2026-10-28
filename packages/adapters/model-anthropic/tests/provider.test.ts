@@ -4,6 +4,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, test, vi } from 'vitest';
 
+import { ModelProviderError } from '@kindgi/adapter-model-shared';
 import type { ModelCallInput } from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
 
@@ -459,7 +460,7 @@ describe('createAnthropicProvider — lazy apiKey resolver', () => {
 });
 
 describe('createAnthropicProvider — what the vendor says about the call', () => {
-  test('a call the vendor refuses on every attempt throws its own error; attemptsOf counts them', async () => {
+  test('a call the vendor refuses on every attempt throws the shared typed failure; attemptsOf counts them', async () => {
     let sent = 0;
     const fetch: typeof globalThis.fetch = async () => {
       sent += 1;
@@ -479,9 +480,10 @@ describe('createAnthropicProvider — what the vendor says about the call', () =
         messages: [{ role: 'user', content: 'hi' }],
       } as ModelCallInput)
       .catch((error: unknown) => error);
-    // The SDK's own error, unchanged: callers can still read its status.
-    expect(thrown).toBeInstanceOf(Anthropic.APIError);
-    expect((thrown as InstanceType<typeof Anthropic.APIError>).status).toBe(529);
+    // The shared typed failure, with the status; the SDK's own error is its cause.
+    expect(thrown).toBeInstanceOf(ModelProviderError);
+    expect(thrown).toMatchObject({ kind: 'unavailable', status: 529 });
+    expect((thrown as ModelProviderError).cause).toBeInstanceOf(Anthropic.APIError);
     expect(sent).toBe(3);
     expect(attemptsOf(thrown)).toBe(3);
   });
