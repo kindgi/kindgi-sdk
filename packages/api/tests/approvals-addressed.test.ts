@@ -258,3 +258,20 @@ describe('decided: by its approver alone', () => {
     expect(h.submitted).toEqual([{ reviewerId: `rev-${OTHER}` }]);
   });
 });
+
+describe('its approver, their id in another case: a seed user id an older version kept in upper case', () => {
+  const UPPER = OWNER.toUpperCase();
+
+  test('sees it, in the list and alone, with no tenant-admin check', async () => {
+    const h = harness();
+    expect(await h.listed(UPPER)).toEqual(['appr-open', 'appr-owner']);
+    expect((await h.call(UPPER, 'GET', '/v1/approvals/appr-owner')).status).toBe(200);
+    expect(h.adminChecks).toEqual([]);
+  });
+
+  test('decides it', async () => {
+    const h = harness();
+    await h.call(UPPER, 'POST', '/v1/approvals/appr-owner/complete', { decision: 'approve' });
+    expect(h.submitted).toEqual([{ reviewerId: `rev-${UPPER}` }]);
+  });
+});

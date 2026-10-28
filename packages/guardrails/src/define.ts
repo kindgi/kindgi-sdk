@@ -37,7 +37,7 @@ function schemaRegistry(): SpecRegistry {
  *
  * Every failure surfaces at pack-init — before any run touches the guardrail.
  */
-export function defineGuardrail(
+export function validateGuardrail(
   spec: Guardrail,
   checks: CheckRegistry,
 ): Result<Guardrail, InvalidGuardrailError | UnknownCheckError | InvalidCheckConfigError> {
@@ -104,7 +104,7 @@ export function defineGuardrail(
 
 /**
  * Validate an arbitrary wire spec against `@kindgi/specs/guardrail.schema.json`.
- * Unlike `defineGuardrail`, this does NOT resolve the `check` reference
+ * Unlike `validateGuardrail`, this does NOT resolve the `check` reference
  * against a `CheckRegistry` — used by transport layers (e.g. the
  * `@kindgi/api` guardrail routes) that accept metadata-only guardrail
  * registrations. The check implementation must already be available to

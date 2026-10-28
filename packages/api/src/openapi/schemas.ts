@@ -330,6 +330,26 @@ export const ProjectPinnedVersionPageSchema: JsonSchema = {
   },
 };
 
+export const AgentProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId'],
+  properties: { projectId: { type: 'string', format: 'uuid' } },
+};
+
+export const AgentProjectListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description: 'Its first project first, then the others, each once.',
+      items: { $ref: '#/components/schemas/AgentProject' },
+    },
+  },
+};
+
 export const PromotionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -5036,6 +5056,12 @@ export const JudgedRunContextSchema: JsonSchema = {
               toolId: { type: 'string' },
               arguments: {},
               result: {},
+              fromEvent: {
+                type: 'boolean',
+                const: true,
+                description:
+                  "An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.",
+              },
             },
           },
         },
@@ -14205,7 +14231,7 @@ export const PatchMailTriggerBodyConfigSchema: JsonSchema = {
     folder: {
       ...MAIL_TRIGGER_CONFIG_PROPERTIES.folder,
       description:
-        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` moves to the other app; then it watches that app's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
+        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes; then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
     },
   },
 };
@@ -15415,6 +15441,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LivePin', LivePinSchema],
   ['LivePinList', LivePinListSchema],
   ['ProjectPinnedVersionPage', ProjectPinnedVersionPageSchema],
+  ['AgentProject', AgentProjectSchema],
+  ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
   ['GateCheck', GateCheckSchema],

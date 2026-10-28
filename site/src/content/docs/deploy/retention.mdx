@@ -562,9 +562,10 @@ describes:
 The changes on legal hold are these kinds:
 
 - **Approvals:** `hitl-decision`, and
-  `trigger-tools-allowed-unattended-set`, a change to a schedule's,
-  webhook trigger's or mail trigger's
-  [tools allowed unattended](../../guides/approvals/ask-before-a-tool-runs/#tools-allowed-unattended);
+  `trigger-tools-allowed-unattended-set`, a change to the
+  [tools allowed unattended](../../guides/approvals/ask-before-a-tool-runs/#tools-allowed-unattended)
+  of a schedule, webhook trigger or
+  [mail trigger](../../guides/runs/start-runs-from-new-mail/);
 - **Secrets:** `secret-set`, `secret-rotated`, `secret-rotation`,
   `secret-rotation-started`, `secret-rotation-failed`, `secret-revoked`,
   `secret-hard-revoked`;
@@ -572,9 +573,10 @@ The changes on legal hold are these kinds:
 - **Service accounts:** `service-account-created`, `service-account-granted`,
   `service-account-ungranted`, `service-account-unregistered`;
 - **Triggers' owners** (runtime 0.2.0 or later): `trigger-owner-set`, a
-  schedule, webhook trigger or mail trigger made to run as a service
-  account, and each take-over; `trigger-changed-for-owner`, a project
-  admin's change to a trigger a person owns
+  schedule, webhook trigger or
+  [mail trigger](../../guides/runs/start-runs-from-new-mail/) made to run
+  as a service account, and each take-over; `trigger-changed-for-owner`, a
+  project admin's change to a trigger a person owns
   ([Shared or personal](../../guides/runs/run-on-a-schedule/#shared-or-personal));
 - **People:** `person-added`, `person-invite-sent`, `person-granted`,
   `person-ungranted`;

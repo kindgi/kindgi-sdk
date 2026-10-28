@@ -18,6 +18,7 @@ contact@kindgi.com.
 | Tool calls in flight | Tool calls running at the same time | 50 |
 | Approvals pending | Approvals waiting for a decision | 500 |
 | Projects in production | Projects in production at the same time | 1 |
+| Projects with their own tool identity | Projects whose tools' code runs under an identity of their own | 3 |
 | Agent turns' memory | What your workspace's running agent turns hold, by the size of their conversations | 192 MiB |
 | Agent turns' memory, shared | The same for all workspaces together, so other workspaces' turns count toward it too | 384 MiB |
 
@@ -169,6 +170,16 @@ Production must also be allowed for your workspace, as `productionAllowed`
 in `GET /v1/tenant` shows. Until it is, putting a project in production is
 refused with `403 production-not-allowed` instead, and its `details.next`
 links to the same page.
+
+### Projects with their own tool identity
+
+Your workspace's tools' code runs apart from every other workspace's. Up to
+3 of its projects run their tools' code under an identity of their own, so
+other projects' code can't read their secrets. Past that, projects share
+one identity within your workspace: their secrets are apart from those 3
+projects', not from one another's. Nothing is refused past the limit, and
+`GET /v1/tenant` doesn't list it
+([Your tools' code](../../concepts/security/#your-tools-code)).
 
 ### Agent turns' memory
 

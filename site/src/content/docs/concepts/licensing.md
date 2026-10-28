@@ -71,6 +71,23 @@ the key's name: for a key from access.kindgi.com, your company's domain,
 your GitHub login, or your email address cut short
 ([Your key's name](../../deploy/self-hosted/pull-the-runtime-image/#your-keys-name)).
 
+## What a key covers
+
+A key covers the installation it's set on. The runtime reads it once, when
+it starts, and every tenant and project that runtime serves runs under it:
+a key names no tenant or project, and no number of them.
+
+A project in production
+([Put a project in production](../../guides/projects/organize-by-org-and-project/#put-a-project-in-production))
+works the same on either kind of key, and putting it there doesn't read the
+key. What makes use production is what the installation serves, not the
+label ([Two licenses](#two-licenses)): one that serves end users or
+processes live business data needs a production key, for every project on
+it. So to test apart from production, run a separate installation, with
+its own database. One that serves no end users and processes no live
+business data is non-production use, so the free non-production key
+covers it.
+
 ## Without a valid key
 
 Outside development mode, a runtime with no key doesn't start. It exits with

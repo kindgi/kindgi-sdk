@@ -101,7 +101,11 @@ Each record has a builder.
 - **Newer runtimes are expected.** Unknown properties are ignored. An enum
   value this client doesn't know is kept: `status().value()` is
   `UNRECOGNIZED`, and `asString()` has the text. A union variant it doesn't
-  know is kept too, as the union's `Unrecognized`.
+  know is kept too, as the union's `Unrecognized`. A request body is checked
+  against the values this client knows before it's sent (a
+  `ValidationException` if not), so a value read from a newer runtime can't
+  be sent back. `build()` doesn't check that, so an answer that carries one
+  can still be copied and changed.
 - **An update can clear a property:** a property that can be left out or
   `null` is an `OptionalNullable`. Not calling the builder's setter leaves
   it as it is; `label(null)` sends `null`, which clears it.

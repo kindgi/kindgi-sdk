@@ -89,6 +89,10 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   as the project, with the `editor` role on the project, so they may do
   what the project's editors may
   ([A project's own account](../../../deploy/people-and-keys/#a-projects-own-account)).
+  With an authorization store, an agent or flow the project's editors
+  can't run is refused, `409 trigger-owner-cannot-run-target`: "The
+  project's own account runs only what the project's editors can: run the
+  trigger as a service account that can, or own it yourself."
 
 For an account of your own instead, one used across projects, with other
 grants, or with keys for an app, create a service account, give it the
@@ -130,8 +134,8 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   owner can run, an account or a person (`409
   trigger-owner-cannot-run-target`). It isn't checked when you're the
   owner, nor for an owner that was unregistered or removed. A tenant admin
-  can give an account the role, or a project admin can take the schedule
-  over first.
+  can give an account the role (not the project's own account, whose role
+  is fixed), or a project admin can take the schedule over first.
 - **A fire it may no longer run is `refused`:** after a grant is taken
   away, and every fire after the account is unregistered (runtime 0.1.9 or
   later). Take the schedule over, or delete it.
@@ -307,9 +311,10 @@ A project's **Schedules** page lists its schedules. Each row says:
 - its label, its cron in words, such as "Every day at 2:00 AM UTC", and the
   cron;
 - whether it's **Active** or **Paused**;
-- what it runs, such as "the agent Dev-Echo Agent (its live version)", "the
-  flow Refunds 1.0.0" or, for a schedule that starts Improve runs, "Improve
-  runs on Acme Rank Scorer, when enough new answers have been marked wrong";
+- what it runs, such as "the agent Dev-Echo Agent (its pinned version, or
+  the latest)", "the flow Refunds 1.0.0" or, for a schedule that starts
+  Improve runs, "Improve runs on Acme Rank Scorer, when enough new answers
+  have been marked wrong";
 - when it next fires, such as "Next in 23h (25 Oct 2026, 10:00 PM EDT)", or
   that it's paused;
 - its last scheduled fire, and **Runs it started →**. A **Run now** fire is

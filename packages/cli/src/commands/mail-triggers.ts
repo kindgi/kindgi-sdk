@@ -99,7 +99,7 @@ function mailFlags(on: 'register' | 'update'): Record<string, ParseArgsOption> {
     },
     folder: {
       type: 'string',
-      description: `The Gmail label id, or the Outlook folder id or well-known name, to watch${on === 'register' ? ' (default: the inbox)' : ": `INBOX` on Gmail or `inbox` on Outlook to watch the inbox again. On a person's mailbox, only the trigger's owner changes it"}.`,
+      description: `The Gmail label id, or the Outlook folder id or well-known name, to watch${on === 'register' ? ' (default: the inbox)' : ": `INBOX` on Gmail or `inbox` on Outlook to watch the inbox again. Left out, it keeps the trigger's folder, unless --mailbox and --as name another mailbox: then that mailbox's inbox. On a person's mailbox, only the trigger's owner changes it"}.`,
     },
     poll: {
       type: 'string',

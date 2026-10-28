@@ -306,7 +306,7 @@ assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures export --out=e
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.2 memory erasures replay erasures-" "the replay runs the rc's CLI line"
 note="$(grep -A4 -F "memory erasures export" "$OUT" | tail -n 4)"
 if [[ $note == "    This deployment runs a pre-release, 0.2.0-rc.0. Until 0.2.0 is out,
-    npx finds no @kindgi/cli@0.2: in this step and in step 6, name the
+    npx finds no @kindgi/cli@0.2: in this step and in step 7, name the
     CLI's own pre-release instead, as @kindgi/cli@0.2.0-rc.N
     (npm view @kindgi/cli versions lists them)." ]]; then pass
 else fail "the pre-release note isn't right under the export: $note"; fi

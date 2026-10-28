@@ -25,6 +25,8 @@
   "AgentOutputSpec": ["AgentOutputSpec"],
   "AgentPinSwaps": ["AgentPinSwaps"],
   "AgentPins": ["AgentPins"],
+  "AgentProject": ["AgentProject"],
+  "AgentProjectList": ["AgentProjectList"],
   "AllowedRole": [
     "RegisterSiteBody.allowedRoles",
     "Site.allowedRoles",

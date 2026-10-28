@@ -24,7 +24,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import {
   type RateLimitStore,
   createInMemoryRateLimitStore,
@@ -104,8 +104,9 @@ export function connectionAppsRouter(
   );
   r.use('/:appId', refuseMalformedUuidParam('appId', 'a connection app id'));
 
-  // A model provider's key is never an app's secret, and on a runtime that
-  // refuses other envs each secret is named under its env.
+  // A reserved `kindgi.` name or a model provider's key is never an app's
+  // secret, and on a runtime that refuses other envs each secret is named
+  // under its env.
   const secretRefusal = async (
     tenantId: TenantId,
     secrets: readonly (readonly [string, SecretRefInput])[],
@@ -114,7 +115,7 @@ export function connectionAppsRouter(
       const refusal = refuseUnservedReference(options.servedEnv, secretRef, `\`${field}\``);
       if (refusal !== undefined) return refusal;
     }
-    return refuseProviderKeys(
+    return refuseSecretNames(
       options.providerKeys,
       tenantId,
       secrets.map(([, secretRef]) => secretRef.name),

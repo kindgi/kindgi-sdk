@@ -129,6 +129,11 @@ uuidgen | tr 'A-Z' 'a-z'
 
 It prints the id in lower case. Keep it for the config and `kindgi.env`.
 
+Keep the id in lower case. With an upper-case one, manage the tenant's people
+one way only: with the API token as the bearer of your CLI or API calls, or
+through the console and API keys, not both. A runtime that already runs with
+an upper-case id keeps it as it is.
+
 Create a signing key. `acme-selfhost` is the key's id, and `--env selfhost`
 also prints the lines to add to the `selfhost` environment:
 
@@ -228,6 +233,11 @@ service drops any other variable before your code loads. Its log names each
 one, as `env-dropped`, never its value.
 [Declare the environment your code reads](../../../guides/secrets/pack-env/#in-a-deployment)
 says more.
+
+This one service runs the tools' code of every project the runtime serves,
+in the same processes, with one environment.
+[Your tools' code](../../../concepts/security/#your-tools-code) says what
+that means, and how to keep projects apart.
 
 ## 5. Configure and start the runtime
 

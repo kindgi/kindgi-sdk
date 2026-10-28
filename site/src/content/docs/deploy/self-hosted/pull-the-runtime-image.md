@@ -115,13 +115,13 @@ base64-encoded, so anyone who can read that file can read the key.
 ## Pull
 
 ```sh
-docker pull registry.kindgi.com/kindgi/runtime:0.1.11
+docker pull registry.kindgi.com/kindgi/runtime:0.2.0
 ```
 
 `docker pull` prints the image's digest when it's done. The image is built
 for `amd64` and `arm64`, and Docker pulls the one for your machine.
 
-`registry.kindgi.com` has Kindgi 0.1.11 and later.
+`registry.kindgi.com` has Kindgi 0.2.0 and later.
 
 ## Copy it into your own registry
 
@@ -131,8 +131,8 @@ copy the image into your own registry first, by digest, with every platform
 it was built for:
 
 ```sh
-docker buildx imagetools create --tag "$REPO/runtime:0.1.11" \
-  registry.kindgi.com/kindgi/runtime:0.1.11
+docker buildx imagetools create --tag "$REPO/runtime:0.2.0" \
+  registry.kindgi.com/kindgi/runtime:0.2.0
 ```
 
 `REPO` is your registry and repository. `crane copy` does the same. Either one
