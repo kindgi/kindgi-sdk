@@ -49,7 +49,8 @@ export const FLOW_PROVENANCE_VERSION = '1.1.0';
  * `maxNodeAttributeBytes`. A loop execution keeps whole iterations
  * within its node budget, by its depth (1: a loop of the flow itself),
  * and at most `iterationsKeptPerEnd` from each end; the rest fold into
- * one node. An id over `maxIdLength` takes a digest form.
+ * one node, which counts the loops run inside them too. An id over
+ * `maxIdLength` takes a digest form.
  */
 export const FLOW_PROVENANCE_LIMITS = {
   maxNodes: 5000,
@@ -904,12 +905,13 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
   interface Folding {
     /** Steps not shown: they sit in a folded iteration. */
     readonly hidden: Set<string>;
+    /** The folded nodes of the loop runs still shown. */
     readonly nodes: Candidate[];
   }
 
   function foldLoops(): Folding {
     const hidden = new Set<string>();
-    const nodes: Candidate[] = [];
+    const nodes: { readonly loopScope: string; readonly node: Candidate }[] = [];
     const kept = new Map<string, number>();
     const loops = [...steps.values()].filter((s) => s.nodeKind === 'loop');
     const depth = (s: StepAcc): number => {
@@ -956,11 +958,19 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
       // A partial loop that kept every iteration still gets its folded node when steps went unplaced.
       if (foldedIts.length > 0 || unplacedHere > 0) {
         used += 1;
-        nodes.push(foldedNode(loop, foldedIts, unplacedHere, hidden));
+        nodes.push({
+          loopScope: loop.scope,
+          node: foldedNode(loop, foldedIts, unplacedHere, hidden),
+        });
       }
       kept.set(loop.scope, used);
     }
-    return { hidden, nodes };
+    // A loop run in a folded iteration has no node, and so no folded node:
+    // the outer folded node counts its steps.
+    return {
+      hidden,
+      nodes: nodes.filter((f) => !hidden.has(f.loopScope)).map((f) => f.node),
+    };
   }
 
   function foldedNode(
@@ -972,8 +982,12 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
     const byStatus: Record<string, number> = {};
     let runs = 0;
     const reused = new Map<string, ReusedRef>();
+    // Its own set, not `hidden`: an inner loop's fold hid some of these
+    // steps already, and this node counts them too.
+    const seen = new Set<string>();
     const hide = (scope: string): void => {
-      if (hidden.has(scope)) return;
+      if (seen.has(scope)) return;
+      seen.add(scope);
       hidden.add(scope);
       const s = steps.get(scope);
       if (s === undefined) return;

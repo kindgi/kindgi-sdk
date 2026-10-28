@@ -273,6 +273,29 @@ const edgeSet = (edges: readonly ProvenanceEdge[]): string[] =>
 const digestId = (raw: string): string =>
   `step:~${createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 32)}`;
 
+/** Every node is on an edge, and every folded node's loop step is in the record. */
+function expectConnected(record: Provenance): void {
+  const onEdge = new Set(record.edges.flatMap((e) => [e.from, e.to]));
+  for (const n of record.nodes) expect(onEdge.has(n.id), `${n.id} has no edge`).toBe(true);
+  for (const id of ids(record).filter((x) => x.endsWith('#folded'))) {
+    expect(has(record, id.slice(0, -'#folded'.length)), `${id}'s loop`).toBe(true);
+  }
+}
+
+/** The child runs a record counts: each step node's list and what it cut, each folded node's count. */
+function countedRuns(record: Provenance): number {
+  let n = 0;
+  for (const node of record.nodes) {
+    const a = (node.attributes ?? {}) as {
+      runs?: unknown[];
+      truncated?: { runsOmitted?: number };
+      folded?: { runs?: number };
+    };
+    n += (a.runs?.length ?? 0) + (a.truncated?.runsOmitted ?? 0) + (a.folded?.runs ?? 0);
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------------------
 
 describe('flowProvenanceId', () => {
@@ -735,6 +758,14 @@ describe('loops', () => {
     }
     expect(has(record, 'step:I@O#24')).toBe(false);
     expect(has(record, 'step:z@I#0/O#50')).toBe(false);
+    // A run of I in a folded iteration of O has no folded node of its own.
+    for (let i = 24; i <= 75; i += 1) {
+      expect(has(record, `step:I@O#${i}#folded`), `I@O#${i}#folded`).toBe(false);
+    }
+    // O's nodes, within depth 1's budget: 48 iterations of 52, and its folded node. Then input, O, output.
+    expect(record.nodes.length - 3).toBe(48 * 52 + 1);
+    expect(record.nodes.length - 3).toBeLessThanOrEqual(L.loopNodeBudgets[0]);
+    expectConnected(record);
     expect(edgeSet(record.edges)).toContain('step:z@I#99/O#99 -invoked-> step:I@O#99');
     expect(edgeSet(record.edges)).toContain('step:I@O#99 -invoked-> step:O');
     expect(edgeSet(record.edges)).toContain('output -produced-> step:O');
@@ -768,6 +799,54 @@ describe('loops', () => {
     expect(has(record, 'step:z@L3#12/L2#0/L1#0')).toBe(true);
     expect(has(record, 'step:z@L3#18/L2#0/L1#0')).toBe(true);
     expect(has(record, 'step:z@L3#13/L2#0/L1#0')).toBe(false);
+    expectConnected(record);
+  });
+
+  test('loops in a folded iteration have no folded nodes: the outer one counts their runs', () => {
+    const w = agent('w', 'acme.writer');
+    const l3 = loopOf('L3', w);
+    const l2 = loopOf('L2', l3);
+    const l1 = loopOf('L1', l2);
+    const f = flowOf([l1], [edge('e1', '$start', 'L1')]);
+    const j = new Journal();
+    const children: FlowProvenanceChild[] = [];
+    const body = oneStepBody(j, l3, 'w');
+    j.edge('e1');
+    runLoop(j, l1, undefined, [], 12, (p1) => {
+      runLoop(j, l2, inBody('L2', p1), p1, 12, (p2) => {
+        runLoop(j, l3, inBody('L3', p2), p2, 30, (p3, i) => {
+          body(p3, i);
+          children.push({
+            runId: `turn-${children.length}` as RunId,
+            flowId: 'acme.writer',
+            status: 'completed',
+            parentNodeId: 'w',
+            parentScope: JSON.stringify(p3),
+          });
+        });
+      });
+    });
+    const record = build(runOf(f, { hasOutput: false, children }), j.entries);
+
+    // L3 keeps 25 of its 30 iterations: 26 nodes with its folded node. L2 keeps 9 of 12,
+    // 27 nodes each, within 250. L1 keeps 10 of 12, 245 nodes each, within 2500.
+    expect(attrs(record, 'step:L3@L2#0/L1#0#folded')).toMatchObject({
+      folded: { from: 13, to: 17, count: 5, runs: 5 },
+    });
+    expect(attrs(record, 'step:L2@L1#0#folded')).toMatchObject({
+      folded: { from: 5, to: 7, count: 3, runs: 3 * 30 },
+    });
+    expect(attrs(record, 'step:L1#folded')).toMatchObject({
+      folded: { from: 5, to: 6, count: 2, runs: 2 * 12 * 30 },
+    });
+    // Folded by L2, folded by L1, and inside both.
+    expect(has(record, 'step:L3@L2#5/L1#0#folded')).toBe(false);
+    expect(has(record, 'step:L2@L1#5#folded')).toBe(false);
+    expect(has(record, 'step:L3@L2#0/L1#5#folded')).toBe(false);
+    expect(has(record, 'step:L3@L2#5/L1#5#folded')).toBe(false);
+    // Each child is counted once.
+    expect(countedRuns(record)).toBe(children.length);
+    expectConnected(record);
   });
 
   test('body steps from before the kernel kept facts are counted, and their loop is partial', () => {
