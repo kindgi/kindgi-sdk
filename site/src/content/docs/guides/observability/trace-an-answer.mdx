@@ -412,10 +412,11 @@ Read it from the output backwards:
 | `runs` | The runs it started: an agent step's turn, or a sub-flow's run. |
 | `reusedFrom` | The earlier results it reused, when the runtime records them. |
 
-`stepUsage` holds each step's model usage from the cost ledger, by the
-step's node id: its calls, their cost in USD and their tokens, over every
-run it started and the runs under them. A step that made no model calls has
-no entry. Here the turn ran on dev-echo, which costs nothing.
+`stepUsage` holds each step's model usage from the cost ledger, keyed by the
+step's node id in the record (`step:classify`): its calls, their cost in USD
+and their tokens, over every run it started and the runs under them. A step
+that made no model calls has no entry. Here the turn ran on dev-echo, which
+costs nothing.
 
 The record holds ids, kinds, statuses, times and codes, never a value. What
 a step read or returned stays in the run's journal: `kindgi runs journal
@@ -434,11 +435,12 @@ grievances, with one agent step in its body:
 ```
 
 Each iteration's step is `step:<step>@<loop>#<iteration>`, `invoked` by its
-loop, with its own entry in `stepUsage`. A long loop keeps whole iterations
-from both ends, at most 25 from each. The iterations between fold into one
-node, `step:<loop>#folded`, whose `folded` attribute has their range
-(`from`, `to`), their `count` by status, and the runs their steps started.
-Its `stepUsage` entry sums theirs.
+loop, with its own entry in `stepUsage`. In a nested loop, the inner loop's
+iteration comes first: `step:<step>@<inner>#<j>/<outer>#<i>`. A long loop
+keeps whole iterations from both ends, at most 25 from each. The iterations
+between fold into one node, `step:<loop>#folded`, whose `folded` attribute
+has their range (`from`, `to`), their `count` and `byStatus`, and how many
+runs their steps started (`runs`). Its `stepUsage` entry sums theirs.
 
 A record holds at most 5,000 nodes and 4 MiB. A larger one is cut from the
 middle: a `truncated` node says what was left out, and a step cut with it

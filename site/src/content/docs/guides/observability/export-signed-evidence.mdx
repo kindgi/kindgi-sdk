@@ -132,7 +132,7 @@ uv run kindgi provenance export 11a79b0a-ebdd-4d21-9e66-e0cacaea50e8 > provenanc
 </Tabs>
 
 - **An approval** must be decided: approved, rejected, escalated, expired or withdrawn. An open one answers `409 approval-not-decided`. `--include-messages` adds the conversation of the approval's run.
-- **A flow run's provenance** is its own record: its steps and the runs they started, as [A flow's answers](../trace-an-answer/#a-flows-answers) reads it. Its bundle carries the record's `stepUsage` too, at `bundleSchemaVersion` `1.3.0`. Until the record is written, the export answers `404 provenance-not-found`, and the CLI prints `Record state: being-written`.
+- **A flow run's provenance** is its own record: its steps and the runs they started, as [A flow's answers](../trace-an-answer/#a-flows-answers) reads it. Its bundle carries the record's `stepUsage` too (`bundleSchemaVersion` `1.3.0`). Until the record is written, the export answers `404 provenance-not-found`, and the CLI prints `Record state: being-written`.
 - **Compliance evidence** is exported over HTTP. With no body, it covers every kind the classifier marks exportable. Here `filter` keeps one run's events:
 
   ```sh

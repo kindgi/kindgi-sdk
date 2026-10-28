@@ -229,7 +229,8 @@ flow's run.
 To see what each step cost, read the flow run's provenance record. Once the
 run has finished, `GET /v1/provenance/{runId}` with the flow run's id returns
 `stepUsage` beside the record's graph. It has each step's calls, their cost
-in USD and their tokens, keyed by the step's node id, and it sums every run
+in USD and their tokens, keyed by the step's node id in the record
+(`step:classify`), and it sums every run
 the step started and the runs under those:
 
 ```json excerpt
@@ -241,7 +242,8 @@ the step started and the runs under those:
 A step that made no model calls has no entry. A step the record has no node
 for has no entry either, such as one cut from a record over its size limit,
 so the entries can sum to less than the whole tree. In a loop, each
-iteration's step has its own entry.
+iteration's step has its own entry, and a long loop's folded iterations
+share their `#folded` node's entry.
 [A flow's answers](../trace-an-answer/#a-flows-answers) reads the record.
 
 ## One customer's month
