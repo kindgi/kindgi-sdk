@@ -14,6 +14,7 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { type ConnectWaitResult, computeConnectWaitToken } from '@kindgi/agents';
+import { comparableName } from '@kindgi/api';
 import type {
   ConnectFinishInput,
   ConnectFinishOutcome,
@@ -282,10 +283,12 @@ function union(a: readonly string[], b: readonly string[]): string[] {
 /**
  * Every character that can disguise a name, as `@kindgi/api`'s
  * `hasHiddenCharacters` refuses them: controls, format characters, lone
- * surrogates, line and paragraph separators, and the default-ignorable
- * ones that render as nothing.
+ * surrogates, line and paragraph separators, the default-ignorable ones
+ * that render as nothing, and a variation selector anywhere but right
+ * after an emoji or inside a keycap.
  */
-const HIDDEN_CHARACTERS_RE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu;
+const HIDDEN_CHARACTERS_RE =
+  /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<![\p{Extended_Pictographic}0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)/gu;
 
 /** Its first `max` characters, never half of one. */
 function cut(text: string, max: number): string {
@@ -576,8 +579,9 @@ export function createInMemoryConnections(
   }
 
   /**
-   * Another live connection of the app, owner and env named `label`,
-   * ignoring case; `except` is the connection being named.
+   * Another live connection of the app, owner and env named `label`, by
+   * `comparableName` (ignoring case and an emoji's variation selector);
+   * `except` is the connection being named.
    */
   function labelTaken(
     of: Pick<ConnectionRecord, 'tenantId' | 'app' | 'owner' | 'envName'>,
@@ -585,7 +589,7 @@ export function createInMemoryConnections(
     except?: string,
   ): boolean {
     const key = ownerKey(of.owner);
-    const wanted = label.toLowerCase();
+    const wanted = comparableName(label);
     for (const { record: c } of connections.values()) {
       if (
         c.connectionId !== except &&
@@ -594,7 +598,8 @@ export function createInMemoryConnections(
         c.envName === of.envName &&
         ownerKey(c.owner) === key &&
         c.state !== 'removed' &&
-        c.label?.toLowerCase() === wanted
+        c.label !== undefined &&
+        comparableName(c.label) === wanted
       ) {
         return true;
       }

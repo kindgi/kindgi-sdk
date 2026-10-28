@@ -502,15 +502,32 @@ export function siteOrigin(raw: unknown): string | undefined {
  * characters (bidirectional marks, overrides and isolates, zero-width
  * characters, the byte-order mark), lone surrogates, the line and
  * paragraph separators, and the others that render as nothing (Unicode's
- * default-ignorable ones, such as the Hangul fillers, the combining
- * grapheme joiner and the variation selectors). A site's display name, a
+ * default-ignorable ones, such as the Hangul fillers and the combining
+ * grapheme joiner). A variation selector is one too, except right after an
+ * emoji or inside a keycap such as `1️⃣`, whose look it picks: `✉️ Contact`
+ * is fine. A site's display name, a
  * console link's label and a connection's name are refused when they have
  * one. A person's `name`, which a site sends, is cleaned instead
  * (`withoutHiddenCharacters`): refusing it would keep out a person whose
  * name needs a joiner.
  */
 export function hasHiddenCharacters(text: string): boolean {
-  return /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(text);
+  return /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<![\p{Extended_Pictographic}0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)/u.test(
+    text,
+  );
+}
+
+/**
+ * What two names compare by: composed (NFC), without variation selectors,
+ * lower-cased. `✅ Done` and `✅️ Done` look the same, and so do a composed
+ * and a decomposed `Café`, so each pair has one key. A connection's name is
+ * taken when another live one of its app, owner and env has the same key.
+ */
+export function comparableName(text: string): string {
+  return text
+    .normalize('NFC')
+    .replace(/[\uFE0E\uFE0F]/gu, '')
+    .toLowerCase();
 }
 
 /**

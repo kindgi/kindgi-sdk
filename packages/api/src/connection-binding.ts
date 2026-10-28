@@ -381,8 +381,9 @@ export interface ConnectionBinding {
   }): Promise<Result<ConnectionRecord, ConnectionError>>;
   /**
    * Renames it. A label another live connection of the same app, owner and
-   * env has, ignoring case, is `connection-label-taken`; a removed
-   * connection is `connection-not-found`.
+   * env has, by `comparableName` (ignoring case and an emoji's variation
+   * selector), is `connection-label-taken`; a removed connection is
+   * `connection-not-found`.
    */
   update(input: {
     readonly tenantId: TenantId;
@@ -395,7 +396,7 @@ export interface ConnectionBinding {
   /**
    * A connect from outside a run (a Connect button, the CLI). A run's
    * connects are the resolver's. A `label` another live connection of the
-   * same app, owner and env has, ignoring case, is
+   * same app, owner and env has, by `comparableName`, is
    * `connection-label-taken`, unless the request reconnects: a reconnect
    * keeps the connection's label and doesn't check the one asked.
    */
@@ -444,9 +445,10 @@ export interface ConnectionBinding {
    * permissions are both sets.
    *
    * A new connection's `label` is the request's, else the account's label
-   * with its hidden characters (`hasHiddenCharacters`) removed, trimmed and cut to 100
-   * characters. When another live connection of the same app,
-   * owner and env has it by then, ignoring case, it's the first free
+   * with its hidden characters (`hasHiddenCharacters`) removed, trimmed
+   * and cut to 100 characters. When another live connection of the same
+   * app, owner and env has it by then, by `comparableName`, it's the first
+   * free
    * `<label> 2`, `<label> 3`, and so on: the grant isn't wasted. A
    * reconnect keeps the connection's label and ignores the request's.
    *

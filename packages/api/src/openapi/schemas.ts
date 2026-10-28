@@ -14931,7 +14931,7 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       minLength: 1,
       maxLength: 100,
       description:
-        "The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.",
+        "The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case and an emoji's variation selector. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.",
     },
   },
 };
@@ -14946,7 +14946,7 @@ export const UpdateConnectionBodySchema: JsonSchema = {
       minLength: 1,
       maxLength: 100,
       description:
-        "The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case.",
+        "The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case and an emoji's variation selector.",
     },
   },
 };

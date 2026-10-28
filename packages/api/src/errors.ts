@@ -656,7 +656,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'connection-account-mismatch': 409,
   /**
    * A connect's or a rename's `label` another live connection of the same
-   * app, owner and env has, ignoring case: `details.field` is `label`.
+   * app, owner and env has, ignoring case and an emoji's variation selector: `details.field` is `label`.
    */
   'connection-label-taken': 409,
   /**

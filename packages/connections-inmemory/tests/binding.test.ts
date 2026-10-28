@@ -1200,7 +1200,7 @@ describe('names', () => {
 
   test("an account's label names a connection without its hidden characters", async () => {
     const made = registrations();
-    const [a, b] = made.appIds as [string, string];
+    const [a, b, c] = made.appIds as [string, string, string];
     const code = '\u200B ana\u202E@\uD800acme\u2028.\u034Fexample\u0007\u3164 ';
     const marked = await connect(made.binding, { appId: a, code });
     expect(marked.connection).toMatchObject({
@@ -1212,6 +1212,42 @@ describe('names', () => {
       code: '\u202E\u200B\u0007\uD800\u2029\u3164\uFE0F',
     });
     expect(bare.connection).not.toHaveProperty('label');
+    // An emoji or a keycap keeps the variation selector that picks its look; a letter loses one.
+    const emoji = await connect(made.binding, {
+      appId: c,
+      code: '\u2709\uFE0F ana\uFE0F 1\uFE0F\u20E3',
+    });
+    expect(emoji.connection.label).toBe('\u2709\uFE0F ana 1\uFE0F\u20E3');
+  });
+
+  test("names that look the same are the same name: an emoji's variation selector, and composed or decomposed letters", async () => {
+    const made = registrations();
+    const [a, b, c] = made.appIds as [string, string, string];
+    await connect(made.binding, { appId: a, label: '\u2705 Done' });
+    const other = await connect(made.binding, { appId: b, label: 'Caf\u00E9' });
+    // A default from an account labelled with the selector is numbered.
+    const third = await connect(made.binding, { appId: c, code: '\u2705\uFE0F Done' });
+    expect(third.connection.label).toBe('\u2705\uFE0F Done 2');
+    const renamed = (label: string) =>
+      made.binding.update({
+        tenantId,
+        connectionId: other.connection.connectionId,
+        label,
+        by: ana,
+      });
+    expect(await renamed('\u2705\uFE0F done')).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-label-taken' },
+    });
+    expect(await renamed('Cafe\u0301')).toMatchObject({ kind: 'ok' });
+    expect(await renamed('CAF\u00C9')).toMatchObject({ kind: 'ok' });
+    const taken = await made.binding.update({
+      tenantId,
+      connectionId: third.connection.connectionId,
+      label: 'cafe\u0301',
+      by: ana,
+    });
+    expect(taken).toMatchObject({ kind: 'err', error: { code: 'connection-label-taken' } });
   });
 
   test('a name another live connection has by the finish, ignoring case, gets the first free number after it', async () => {

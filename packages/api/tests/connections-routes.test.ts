@@ -700,6 +700,16 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
       'label',
     ],
     [
+      'a label with a variation selector after a letter',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\uFE0F' },
+      'label',
+    ],
+    [
+      'a label with a variation selector after a digit, outside a keycap',
+      { app: 'google', permissions: ['gmail.send'], label: '1\uFE0F' },
+      'label',
+    ],
+    [
       'a label that is not a string',
       { app: 'google', permissions: ['gmail.send'], label: 7 },
       'label',
@@ -732,6 +742,21 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
     expect(res.status).toBe(201);
     expect(res.json.label).toBe('Work mail');
     expect(calls.createRequest?.[0]).toMatchObject({ label: 'Work mail' });
+    // An emoji keeps the variation selector that picks its look.
+    const emoji = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '\u2709\uFE0F Contact',
+    });
+    expect(emoji.status).toBe(201);
+    expect(emoji.json.label).toBe('\u2709\uFE0F Contact');
+    const keycap = await call(app, 'ben', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '1\uFE0F\u20E3 Start',
+    });
+    expect(keycap.status).toBe(201);
+    expect(keycap.json.label).toBe('1\uFE0F\u20E3 Start');
     // Characters, not UTF-16 units: 100 emoji are 200 units.
     const long = await call(app, 'ben', 'POST', '/v1/connections', {
       app: 'google',
@@ -1165,6 +1190,7 @@ describe('the connections themselves', () => {
     ['a label with a line separator', { label: 'Work\u2029mail' }, 'label'],
     ['a label with a Hangul filler', { label: '\u3164' }, 'label'],
     ['a label with a combining grapheme joiner', { label: 'Work\u034Fmail' }, 'label'],
+    ['a label with a variation selector after a letter', { label: 'Work\uFE0F' }, 'label'],
     ['a null label', { label: null }, 'label'],
     ['an unknown field', { label: 'Work', account: 'x' }, 'account'],
   ])('a rename refuses %s before the binding, naming the field', async (_what, body, field) => {

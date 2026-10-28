@@ -338,6 +338,14 @@ describe("sign-in options: the deployment's own links, for the console", () => {
     expect(body.links).toStrictEqual([HELP, STATUS]);
   });
 
+  test('a label may hold an emoji, or a keycap, with the variation selector that picks its look', async () => {
+    const CONTACT = { label: '\u2709\uFE0F Contact', url: HELP.url };
+    const START = { label: '1\uFE0F\u20E3 Start', url: STATUS.url };
+    const { app } = makeApp({ links: [CONTACT, START] });
+    const body = (await (await lookup(app)).json()) as { links?: unknown };
+    expect(body.links).toStrictEqual([CONTACT, START]);
+  });
+
   test('createApp takes 8 links, and refuses 9', () => {
     const links = (n: number) =>
       Array.from({ length: n }, (_, i) => ({
