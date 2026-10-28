@@ -450,6 +450,7 @@
           "service-account-not-found": 404,
           "service-account-name-taken": 409,
           "service-account-unregistered": 409,
+          "trigger-owner-cannot-run-target": 409,
           "service-account-project-owned": 409,
           "identity-user-email-taken": 409,
           "last-tenant-admin": 409,
@@ -1144,6 +1145,35 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/LivePin"
+            }
+          }
+        }
+      },
+      "AgentProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "AgentProjectList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "description": "Its first project first, then the others, each once.",
+            "items": {
+              "$ref": "#/components/schemas/AgentProject"
             }
           }
         }
@@ -6023,7 +6053,12 @@
                       "type": "string"
                     },
                     "arguments": {},
-                    "result": {}
+                    "result": {},
+                    "fromEvent": {
+                      "type": "boolean",
+                      "const": true,
+                      "description": "An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept."
+                    }
                   }
                 }
               },
@@ -23097,11 +23132,11 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it."
+            "description": "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named, and again when the schedule's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it."
           },
           "runAsProject": {
             "type": "boolean",
-            "description": "`true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
+            "description": "`true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the schedule's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
           },
           "config": {
             "type": "object",
@@ -23685,11 +23720,11 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it."
+            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it."
           },
           "runAsProject": {
             "type": "boolean",
-            "description": "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
+            "description": "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named: if it can't run the flow, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
           },
           "toolsAllowedUnattended": {
             "type": "array",
@@ -23779,11 +23814,11 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`)."
+            "description": "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`)."
           },
           "runAsProject": {
             "type": "boolean",
-            "description": "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
+            "description": "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named: if it can't run what the trigger runs, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
           }
         }
       },
@@ -24003,7 +24038,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 512,
-            "description": "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` moves to the other app; then it watches that app's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook."
+            "description": "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes; then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook."
           },
           "pollSeconds": {
             "type": "integer",
@@ -24053,11 +24088,11 @@
           "runAsServiceAccountId": {
             "type": "string",
             "minLength": 1,
-            "description": "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it."
+            "description": "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it."
           },
           "runAsProject": {
             "type": "boolean",
-            "description": "On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
+            "description": "On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says."
           },
           "config": {
             "$ref": "#/components/schemas/RegisterMailTriggerBodyConfig"
@@ -33943,6 +33978,74 @@
         ]
       }
     },
+    "/v1/agents/{agentId}/projects": {
+      "get": {
+        "operationId": "agents.projects",
+        "summary": "List the projects an agent runs in",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The projects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProjectList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No agent with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/agents/{agentId}/versions": {
       "get": {
         "operationId": "agents.listVersions",
@@ -37021,7 +37124,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `reserved-name-prefix`: the tool names a secret under the reserved `kindgi.` prefix (`details.secret`); those are Kindgi's own. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -37549,7 +37652,7 @@
             }
           },
           "400": {
-            "description": "`provider-key-refused`: the version declares or sends a model provider's key (`details.secret`, `details.providerId`), so it stays retired; publish a version that names a key of its own.",
+            "description": "`provider-key-refused`: the version declares or sends a model provider's key (`details.secret`, `details.providerId`), or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`); either way it stays retired; publish a version that names a key of its own.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42732,7 +42835,7 @@
             }
           }
         },
-        "description": "Streams raw bytes. Response headers: `Content-Type` (as declared at upload), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).",
+        "description": "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).",
         "parameters": [
           {
             "name": "blobId",
@@ -43348,7 +43451,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.reason`).",
+            "description": "Validation failed (see `details.reason`), a `secret_ref.name` under the reserved `kindgi.` prefix among them (`bad-input`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -44997,7 +45100,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`).",
+            "description": "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`). Or `reserved-name-prefix`: it names a secret under the reserved `kindgi.` prefix (`details.secret`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50409,7 +50512,7 @@
             }
           },
           "403": {
-            "description": "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one; or the workspace requires a second factor (`second-factor-required`).",
+            "description": "Not allowed here (`token-sign-in-off`: the deployment doesn't allow it, or can't read its API keys), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one; or the workspace requires a second factor (`second-factor-required`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50429,7 +50532,7 @@
             }
           }
         },
-        "description": "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
+        "description": "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, when the key expires if sooner, or when the key is revoked: each request on it reads the key, and one revoked or gone answers `401 auth-revoked`. `403 token-sign-in-off` when the deployment doesn't allow it, or can't read its API keys to check such a session (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session. `403 second-factor-required` in a workspace that requires a second factor at sign-in, which a token can't give.",
         "security": [
           {
             "bearerAuth": []
@@ -53257,7 +53360,7 @@
             }
           },
           "400": {
-            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The tenant's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
+            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. When `image-unverifiable` comes from a failed registry read, `details.cause` names why: `image-not-found`, `image-file-not-found`, `image-registry-unreachable`, `image-registry-unauthorized`, `image-unreadable` (a layer that isn't a readable archive), or `image-limit-exceeded`, with the bound in `details.limit` (`manifest`, `file`, `layer`, `read` or `unpack`: the image's own, so the same image is refused again). The tenant's hour of image reads passes, so it answers `429`. A tool that declares or sends a model provider's key, or a secret under the reserved `kindgi.` prefix, is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key or one of Kindgi's own secrets. An agent's `output.schema`, or a flow's loop, fanout branch or subgraph `outputSchema` or its `output.schema`, that doesn't compile is one too (`path` where it sits, such as `/output/schema` or `/nodes/<i>/branches/<k>/outputSchema`), as `defineAgent` and the flow loader refuse it: every turn or run would. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`. Or `reference-out-of-scope`: an agent or flow names a tool, agent, flow, guardrail or data block that neither the deployment brings nor its project reaches (`details.issues`, at `/agents/<i>/…` or `/flows/<i>/…`); nothing is registered.",
             "content": {
               "application/json": {
                 "schema": {
@@ -60868,7 +60971,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. `value` is ALWAYS absent (structural redaction).",
+        "description": "Cursor-paginated list of secret metadata at the given `(scope, envName)`, in name order, with `nextCursor` while more remain. Live secrets only unless `?includeRevoked=true`. Names that start with `kindgi.` are reserved for Kindgi and never listed. `value` is ALWAYS absent (structural redaction).",
         "parameters": [
           {
             "name": "envName",
@@ -61239,7 +61342,7 @@
             }
           },
           "400": {
-            "description": "Missing or malformed scope / envName.",
+            "description": "Missing or malformed scope / envName, or `reserved-name-prefix` for a `kindgi.` name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62071,7 +62174,7 @@
             }
           },
           "409": {
-            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the schedule runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the schedule runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62374,7 +62477,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "A new target the schedule's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -62414,7 +62517,7 @@
             }
           }
         },
-        "description": "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.",
+        "description": "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.",
         "parameters": [
           {
             "name": "triggerId",
@@ -63089,7 +63192,7 @@
             }
           },
           "409": {
-            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the schedule runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the schedule runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63139,7 +63242,7 @@
             }
           }
         },
-        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
         "parameters": [
           {
             "name": "triggerId",
@@ -63198,7 +63301,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), `runAsProject` with `runAsServiceAccountId` or for a trigger with no project (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant, or `flowVersion` isn't a version that project runs (`details.issues`, at `/flowId`, whose message names the version), and nothing is registered. Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule) or `reserved-name-prefix`.",
+            "description": "A body that fails validation (`bad-input`), `runAsProject` with `runAsServiceAccountId` or for a trigger with no project (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant, or `flowVersion` isn't a version that project runs (`details.issues`, at `/flowId`, whose message names the version), and nothing is registered. Or, with `generateSecret`, a name the secrets store can't write, refused before anything is stored: `secret-name-invalid` (a name that isn't 1 to 255 ASCII letters, digits, `.`, `-` and `_` starting with a letter, digit or `_`, with any `.` between two non-`.` characters, or, under `kindgi dev`, isn't capital letters, digits and underscores, starts with a digit, or is `KINDGI_*`; the message says the rule).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63218,7 +63321,7 @@
             }
           },
           "409": {
-            "description": "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the route-minted webhookId collided (astronomically rare).",
+            "description": "`secret-write-conflict`: with `generateSecret`, the trigger's project already has a secret of that name (it's never overwritten, and no trigger is left). Or `runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run the flow (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run the flow either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the route-minted webhookId collided (astronomically rare).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63470,7 +63573,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the new `flowVersion` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/flowVersion`, whose message names the version). Nothing changes.",
+            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key, or `reserved-name-prefix`: it's under the reserved `kindgi.` prefix. Or `reference-out-of-scope`: the new `flowVersion` isn't a version the trigger's project runs, such as one made in an earlier environment and not yet promoted (`details.issues`, at `/flowVersion`, whose message names the version). Nothing changes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64096,7 +64199,7 @@
             }
           },
           "409": {
-            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run the flow (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run the flow either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64146,7 +64249,7 @@
             }
           }
         },
-        "description": "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+        "description": "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
         "parameters": [
           {
             "name": "triggerId",
@@ -64225,7 +64328,7 @@
             }
           },
           "409": {
-            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64507,7 +64610,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "A new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64547,7 +64650,7 @@
             }
           }
         },
-        "description": "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
+        "description": "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
         "parameters": [
           {
             "name": "triggerId",
@@ -65063,7 +65166,7 @@
             }
           },
           "409": {
-            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), or a project's own account (`service-account-project-owned`: name it with `runAsProject`). Or, with `runAsProject`, an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65113,7 +65216,7 @@
             }
           }
         },
-        "description": "The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account. Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).",
+        "description": "The only way a mail trigger's owner changes. The caller becomes it, so its runs act as the caller, with the caller's connections, from the next poll; on a person's mailbox, the mailbox becomes the caller's own, and the next poll starts afresh. Needs `admin` on the trigger's project and `execute` on its target. On the company's mailbox, name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account, and the account must itself hold what its target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`; a body naming it is refused (change it with PATCH).",
         "parameters": [
           {
             "name": "triggerId",
@@ -65425,7 +65528,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), or it's a model provider's key (`provider-key-refused`).",
+            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -65763,7 +65866,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, or it's a model provider's key (`provider-key-refused`).",
+            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, it's a model provider's key (`provider-key-refused`), or it's under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -66517,7 +66620,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); or a model provider's key named as a secret (`provider-key-refused`).",
+            "description": "Malformed body or unknown field (`bad-input`, `details.field`); a registration that doesn't fit its entry, or that would serve a project another registration of the app serves (`connection-app-invalid`, `details.field`); no such app (`connection-app-unknown-entry`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -66722,7 +66825,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); or a model provider's key named as a secret (`provider-key-refused`).",
+            "description": "Malformed body, unknown field or an `app` (`bad-input`, `details.field`); a registration that doesn't fit its entry, that would serve a project another registration of the app serves, or a change of its client (`oauth2.clientId`, `oauth2.tenant`, `githubApp.appNumber` or `githubApp.clientId`) while it has live connections: disconnect them first (`connection-app-invalid`, `details.field`); a model provider's key named as a secret (`provider-key-refused`); or a secret under the reserved `kindgi.` prefix (`reserved-name-prefix`).",
             "content": {
               "application/json": {
                 "schema": {

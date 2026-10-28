@@ -46,7 +46,7 @@ import {
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
-import { resumeInline } from '../resume-inline.js';
+import { logResumeAfterAnswer, resumeInline } from '../resume-inline.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
 import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
@@ -1042,12 +1042,7 @@ async function resumeAfterAnswer(
     traceId: trace.traceId,
     spanId: trace.spanId,
   });
-  if (resumed.kind === 'failed') {
-    c.get('log').warn('resume after a wait token answer failed', {
-      runId,
-      code: resumed.code,
-    });
-  }
+  logResumeAfterAnswer(c.get('log'), runId, resumed);
 }
 
 /** `{ waitpointId, value? }`, and nothing else. */

@@ -491,7 +491,11 @@ export interface UpdateWebhookTriggerInput extends UpdateBase {
 
 export interface UpdateMailTriggerInput extends Omit<UpdateBase, 'flowVersion'> {
   readonly kind: 'mail';
-  /** The fields given replace the trigger's; `mailbox` is replaced whole. */
+  /**
+   * The fields given replace the trigger's; `mailbox` is replaced whole.
+   * Another mailbox (the other app, or the other `as`) with no `folder`
+   * drops the trigger's folder, so it watches the new mailbox's inbox.
+   */
   readonly config?: Partial<MailTriggerConfig>;
   /** Run something else: another agent or agent version, another flow version. */
   readonly target?: MailTriggerTarget;

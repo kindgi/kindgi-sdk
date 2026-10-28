@@ -458,7 +458,26 @@ function updatedMail(
   return {
     ...withToolsAllowed(row, input.toolsAllowedUnattended),
     ...common,
-    config: { ...row.config, ...input.config },
+    config: mailConfigAfter(row.config, input.config),
     ...(input.target !== undefined && { target: input.target }),
   };
+}
+
+/**
+ * A mail trigger's config after an update, as a runtime merges it. A folder
+ * or label id belongs to one mailbox, so another mailbox (the other app, or
+ * the other `as`) with no `folder` drops it: the trigger watches the new
+ * mailbox's inbox. The same mailbox sent again keeps it.
+ */
+function mailConfigAfter(
+  config: MailTriggerRecord['config'],
+  edit: UpdateMailTriggerInput['config'],
+): MailTriggerRecord['config'] {
+  const merged = { ...config, ...edit };
+  const moved =
+    edit?.mailbox !== undefined &&
+    (edit.mailbox.app !== config.mailbox.app || edit.mailbox.as !== config.mailbox.as);
+  if (!moved || edit?.folder !== undefined) return merged;
+  const { folder: _, ...inbox } = merged;
+  return inbox;
 }

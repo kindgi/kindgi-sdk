@@ -258,6 +258,7 @@
         "guides/runs/list-runs",
         "guides/runs/read-the-journal",
         "guides/runs/run-on-a-schedule",
+        "guides/runs/start-runs-from-new-mail",
         "start/coding-agents"
       ],
       "samples": "none"

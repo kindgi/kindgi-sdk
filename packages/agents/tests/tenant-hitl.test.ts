@@ -17,6 +17,11 @@ import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
 import { APPROVAL_WITHDRAWN_REASON } from '../src/handlers/gate-decision.js';
+import {
+  TOOL_GATE_RECORD_PREFIX,
+  computeToolCallWaitToken,
+  hashToolArgs,
+} from '../src/handlers/tool-hitl.js';
 import { resolveTurnHitlPolicy } from '../src/handlers/turn-environment.js';
 import { resolveEffectiveHitlPolicy, separateApproverFor } from '../src/hitl-policy.js';
 import type { Agent } from '../src/types.js';
@@ -165,6 +170,8 @@ async function dispatchUnder(
     readonly answer?: (tokenId: string) => Promise<unknown>;
     /** Whom the turn runs for. */
     readonly principal?: Principal;
+    /** The step's scope: in a loop, one per iteration. */
+    readonly stepScope?: string;
   } = {},
 ) {
   const ran: unknown[] = [];
@@ -216,6 +223,7 @@ async function dispatchUnder(
     testNodeContext(
       {
         runId: 'run-1' as RunId,
+        ...(options.stepScope !== undefined && { stepScope: options.stepScope }),
         waitForToken: (async (tokenId: string, wait: { readonly timeoutMs: number }) => {
           waits.push({ tokenId, timeoutMs: wait.timeoutMs });
           return options.answer !== undefined ? options.answer(tokenId) : { decided: 'approve' };
@@ -330,6 +338,46 @@ describe('a tool gate that parked keeps its decision when the turn resumes', () 
       },
     );
     expect(waits).toHaveLength(1);
+    expect(ran).toEqual([{ q: 'x' }]);
+  });
+});
+
+describe("a tool gate's wait, per loop iteration", () => {
+  const gated = { tools: { 'pack.lookup': 'always_ask' as const } };
+  const ITERATION_2 = 'agent-loop#2/dispatch-tools';
+  const ITERATION_3 = 'agent-loop#3/dispatch-tools';
+
+  test('a call a later iteration makes again, with the same id and arguments, asks again', async () => {
+    // Each iteration is a step of its own, so each has its own records.
+    const second = await dispatchUnder(gated, agent(), { stepScope: ITERATION_2 });
+    const third = await dispatchUnder(gated, agent(), { stepScope: ITERATION_3 });
+    expect(second.waits).toHaveLength(1);
+    expect(third.waits).toHaveLength(1);
+    expect(third.waits[0]?.tokenId).not.toBe(second.waits[0]?.tokenId);
+    expect(third.enqueued[0]?.waitTokenId).toBe(third.waits[0]?.tokenId);
+    expect(third.enqueued[0]?.waitTokenId).not.toBe(second.enqueued[0]?.waitTokenId);
+  });
+
+  test('the same step run again waits on the same answer', async () => {
+    const first = await dispatchUnder(gated, agent(), { stepScope: ITERATION_2 });
+    const again = await dispatchUnder(gated, agent(), { stepScope: ITERATION_2 });
+    expect(again.waits[0]?.tokenId).toBe(first.waits[0]?.tokenId);
+  });
+
+  test('a gate recorded before the token took the step scope resumes on the token it recorded', async () => {
+    const argsHash = hashToolArgs({ q: 'x' });
+    const recorded = computeToolCallWaitToken({ runId: 'run-1', callId: 'call-0', argsHash });
+    const records = new Map<string, unknown>([
+      [
+        `${TOOL_GATE_RECORD_PREFIX}call-0`,
+        { argsHash, waitTokenId: recorded, requiredRole: 'standard', timeoutMs: HOUR },
+      ],
+    ]);
+    const { waits, ran } = await dispatchUnder(gated, agent(), {
+      records,
+      stepScope: ITERATION_2,
+    });
+    expect(waits.map((w) => w.tokenId)).toEqual([recorded]);
     expect(ran).toEqual([{ q: 'x' }]);
   });
 });

@@ -710,9 +710,11 @@ times: Dev-Echo Agent"). Below it:
 - **Versions:** "Runs use the latest unless they name a version." Every
   version is listed, a retired one marked **retired**, each with what it
   runs and **Runs →**, the runs list filtered to that version.
-- **What triggers it:** the schedules and incoming webhooks that start it,
-  each with the version it starts, such as "Schedule: Every day at 2:00 AM
-  UTC · version 2.0.0".
+- **What triggers it:** the schedules, incoming webhooks and mail triggers
+  that start it, each with the version it starts, such as "Schedule: Every
+  day at 2:00 AM UTC · version 2.0.0" or "Mail trigger: new mail in the
+  company's Gmail, inbox · version 2.0.0". With none, it says "No schedule,
+  incoming webhook or mail trigger: people and apps start it."
 
 ![Refunds' page at 2.0.0, its latest: Runs, Cost and Start run; the graph Start, triage, a step repeating for each of the run's items, answer, End, each agent locked at 1.0.0; What 2.0.0 uses: Dev-Echo Agent, locked at 1.0.0; Versions: 2.0.0 (latest) and 1.1.0, each with Runs → and Retire's archive icon at the row's end, and 1.0.0 (retired) with Runs → and Bring back; and What triggers it: the nightly refunds schedule and the Refund requests incoming webhook, each starting version 2.0.0.](../../../../assets/flows/flow-page.png)
 

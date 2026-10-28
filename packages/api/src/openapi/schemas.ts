@@ -319,6 +319,26 @@ export const LivePinListSchema: JsonSchema = {
   properties: { data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } } },
 };
 
+export const AgentProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId'],
+  properties: { projectId: { type: 'string', format: 'uuid' } },
+};
+
+export const AgentProjectListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description: 'Its first project first, then the others, each once.',
+      items: { $ref: '#/components/schemas/AgentProject' },
+    },
+  },
+};
+
 export const PromotionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -5035,6 +5055,12 @@ export const JudgedRunContextSchema: JsonSchema = {
               toolId: { type: 'string' },
               arguments: {},
               result: {},
+              fromEvent: {
+                type: 'boolean',
+                const: true,
+                description:
+                  "An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.",
+              },
             },
           },
         },
@@ -13527,12 +13553,12 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+        "A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named, and again when the schedule's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
     },
     runAsProject: {
       type: 'boolean',
       description:
-        "`true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
+        "`true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the schedule's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
     config: {
       type: 'object',
@@ -13991,12 +14017,12 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
     },
     runAsProject: {
       type: 'boolean',
       description:
-        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
+        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named: if it can't run the flow, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project.",
@@ -14052,12 +14078,12 @@ export const TakeTriggerOwnerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`).",
+        "A service account the trigger's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold what the trigger runs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`).",
     },
     runAsProject: {
       type: 'boolean',
       description:
-        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
+        "`true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named: if it can't run what the trigger runs, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
   },
 };
@@ -14227,7 +14253,7 @@ export const PatchMailTriggerBodyConfigSchema: JsonSchema = {
     folder: {
       ...MAIL_TRIGGER_CONFIG_PROPERTIES.folder,
       description:
-        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` moves to the other app; then it watches that app's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
+        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes; then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
     },
   },
 };
@@ -14249,12 +14275,12 @@ export const RegisterMailTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
+        "On the company's mailbox only: a service account that owns the trigger, so it's shared, named by id instead of the caller. Needs `act_as` on that account, which a tenant admin holds, and the account must itself hold the access the target needs. With an authorization store, that's checked when the account is named, and again when the trigger's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.",
     },
     runAsProject: {
       type: 'boolean',
       description:
-        "On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
+        "On the company's mailbox only. `true`: the trigger's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the trigger's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the trigger's project, as the company's mailbox does (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, on a person's mailbox, or without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.",
     },
     config: { $ref: '#/components/schemas/RegisterMailTriggerBodyConfig' },
     label: { type: 'string' },
@@ -15436,6 +15462,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LiveVersionResolution', LiveVersionResolutionSchema],
   ['LivePin', LivePinSchema],
   ['LivePinList', LivePinListSchema],
+  ['AgentProject', AgentProjectSchema],
+  ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
   ['GateCheck', GateCheckSchema],

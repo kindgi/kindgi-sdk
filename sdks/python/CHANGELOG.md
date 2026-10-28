@@ -13,6 +13,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
+
 - `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a model
   step asks for on its own.** By default an agent now runs a step's calls to
   read-only tools (`mutating=False`, no changing effect) that come one after

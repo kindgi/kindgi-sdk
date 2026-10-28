@@ -37,7 +37,7 @@ import {
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
-import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import { type SecretScopeDeps, secretScopesFor } from '../secret-scope.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
@@ -237,8 +237,8 @@ export function mcpRouter(
       );
     }
 
-    // A model provider's key is never an MCP endpoint's.
-    const refusal = await refuseProviderKeys(
+    // A reserved `kindgi.` name or a model provider's key is never an MCP endpoint's.
+    const refusal = await refuseSecretNames(
       options.providerKeys,
       tenantId,
       mcpEndpointSecretNames(validation.value),

@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
-import { type Action, type ResourceRef, ref } from '@kindgi/authz';
+import { type Action, type ResourceRef, ref, targetAccess } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
@@ -43,6 +43,7 @@ import {
   isTriggerAdmin,
   namesAnOwner,
   noteChangeForOwner,
+  ownerCannotRunRefusal,
   ownerJson,
   ownerNamesOf,
   ownerRequestOf,
@@ -272,6 +273,7 @@ export function schedulesRouter(
     const resolved = await resolveTriggerOwner(
       c,
       ownerRequest,
+      target.value,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -532,6 +534,17 @@ export function schedulesRouter(
     ) {
       return ownerRuleRefused(c, authorizer, names, owned(found.value), 'schedule');
     }
+    // The owner stays, so a new target must be one it can run, or every fire is refused.
+    if (target !== undefined && retargeted) {
+      const cannot = await ownerCannotRunRefusal(
+        c,
+        authorizer,
+        names,
+        found.value.owner,
+        target.value,
+      );
+      if (cannot !== undefined) return cannot;
+    }
     const result = await binding.update(updateInput);
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     // A change of the list is audited; so is a new target it names again.
@@ -713,6 +726,7 @@ export function schedulesRouter(
     const resolved = await resolveTriggerOwner(
       c,
       ownerRequest,
+      found.value.target,
       triggerOwnerDeps(c, authorizer, names?.serviceAccounts),
     );
     if (resolved.kind === 'refused') return resolved.response;
@@ -848,22 +862,6 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     ...(f.missedCount !== undefined && { missedCount: f.missedCount }),
     ...(f.manual === true && { manual: true }),
   };
-}
-
-/**
- * What firing the target needs, as starting it by hand does: `execute` on
- * the agent or flow a run starts; `publish` on the agent an improvement
- * pass works on (as `POST /v1/proposals/improve`).
- */
-function targetAccess(target: TriggerTarget): [Action, ResourceRef] {
-  switch (target.kind) {
-    case 'flow':
-      return ['execute', ref('flow', target.flowId)];
-    case 'agent':
-      return ['execute', ref('agent', target.agentId)];
-    case 'improve':
-      return ['publish', ref('agent', target.agentId)];
-  }
 }
 
 /** `flowId` + `flowVersion`, `agentId` (+ `agentVersion`), or `improve`: exactly one target. */

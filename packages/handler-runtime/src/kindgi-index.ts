@@ -20,7 +20,7 @@
  *   3. Dynamically imports each file (from its bundle, given a map).
  *      Reads the `default` export
  *      (accepting either the raw primitive shape or a `Result`-wrapped
- *      envelope from `defineTool` / `defineGuardrail` / etc.).
+ *      envelope from `defineTool` / `validateGuardrail` / etc.).
  *   4. Kind-maps the discovered file by its default folder (primary) or
  *      by structural shape of the default export (fallback for
  *      custom-pattern files).

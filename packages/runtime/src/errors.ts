@@ -81,16 +81,25 @@ export interface StuckRunError {
 }
 
 /**
- * This executor no longer holds the run's lease: another executor claimed
- * it (after this one's lease expired) and owns the run now. The executor
- * stops without failing or finishing the run; whoever holds the lease
- * decides what happens to it. Returned by `runGraph` / `resumeRun` when a
- * write is refused because the run's lease epoch moved on.
+ * This executor doesn't hold the run's lease. Either another executor
+ * claimed it (after this one's lease expired) and owns the run now, or a
+ * resume found it held (`held`). The executor stops without failing or
+ * finishing the run; whoever holds the lease decides what happens to it.
+ * Returned by `runGraph` / `resumeRun` when a write is refused because the
+ * run's lease epoch moved on, and by `resumeRun` when it can't take the run.
  */
 export interface RunLeaseLostError {
   readonly code: 'run-lease-lost';
   readonly message: string;
   readonly runId: string;
+  /**
+   * The resume never took the run: another executor held it, or it was
+   * queued for a slot. Nothing ran here, and the run goes on where it is
+   * held. Absent when this executor ran the run and lost it. In-process
+   * only: the API's resume after a wait's answer logs by it, and no HTTP
+   * answer carries it.
+   */
+  readonly held?: true;
 }
 
 /**

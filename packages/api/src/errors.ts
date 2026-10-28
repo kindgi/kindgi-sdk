@@ -376,6 +376,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'service-account-name-taken': 409,
   /** A grant for an unregistered service account. */
   'service-account-unregistered': 409,
+  /** A trigger's owner can't run what it starts: a service account it's named to run as, the project's own account, or the owner a new target keeps. */
+  'trigger-owner-cannot-run-target': 409,
   /**
    * A project's own account, used where it can't be: a grant or ungrant
    * (its grant is fixed), a key (it has none), or naming it by id as a

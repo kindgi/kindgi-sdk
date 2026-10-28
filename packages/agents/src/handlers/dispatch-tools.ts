@@ -154,9 +154,10 @@ interface ToolGateRecord {
 /**
  * Whether `call` waits for a review, decided once (`NodeContext.record`):
  * a step resumed after the park reads the gate it parked on back, so a
- * policy relaxed meanwhile can't skip the reviewer's answer. A call the
- * gate lets through isn't recorded: it runs, and its stored result is
- * reused after a park further down the list.
+ * policy relaxed meanwhile can't skip the reviewer's answer, and a gate
+ * recorded before its wait token took the step's scope keeps the token it
+ * was recorded with. A call the gate lets through isn't recorded: it runs,
+ * and its stored result is reused after a park further down the list.
  */
 async function decideToolGate(
   ctx: TurnContext,
@@ -191,6 +192,7 @@ async function decideToolGate(
       argsHash,
       waitTokenId: computeToolCallWaitToken({
         runId: kctx.runId as unknown as string,
+        ...(kctx.stepScope !== undefined && { stepScope: kctx.stepScope }),
         callId: call.id,
         argsHash,
       }),
@@ -387,15 +389,17 @@ interface ToolResultTarget {
 
 /**
  * Record a result the framework writes for a call (a rejection, a failed
- * call sent back to the model) the way a tool's own result is recorded:
- * persisted to the conversation with the call it answers, and added to
- * the messages the next model call sees.
+ * call sent back to the model, a replay's recorded result) the way a
+ * tool's own result is recorded: persisted to the conversation with the
+ * call it answers, and added to the messages the next model call sees.
+ * `fromOutside`: the result is outside data, kept marked and sent as data.
  */
 async function appendToolResult(
   ctx: TurnContext,
   call: ModelToolCall,
   output: unknown,
   target: ToolResultTarget,
+  fromOutside = false,
 ): Promise<ModelMessage[]> {
   const persisted = await ctx.bindings.conversationBinding.appendMessage({
     tenantId: ctx.input.tenantId,
@@ -403,6 +407,8 @@ async function appendToolResult(
     role: 'tool',
     content: output as Record<string, unknown>,
     toolCall: { toolId: target.toolId, invocationId: call.id },
+    // Outside data stays data in every later turn's history.
+    ...(fromOutside && { fromEvent: true as const }),
   });
   if (persisted.kind === 'err') throwAgentTurnFailure(persisted.error);
   ctx.appended.push(persisted.value);
@@ -411,8 +417,9 @@ async function appendToolResult(
     ...target.nextMessages,
     {
       role: 'tool',
-      // As a tool's own result reaches the model: a string as it is.
-      content: typeof output === 'string' ? output : JSON.stringify(output),
+      // As a tool's own result reaches the model: a string as it is, and
+      // outside data as data.
+      content: toolResultForModel(output, fromOutside),
       toolCallId: call.id,
     },
   ];
@@ -544,6 +551,8 @@ interface AnsweredCall {
   readonly binding: ToolBinding;
   readonly output: unknown;
   readonly replay?: 'recorded' | 'refused';
+  /** The result is outside data: kept marked and sent as data. */
+  readonly fromOutside?: true;
 }
 
 /** A call that runs its tool. */
@@ -689,7 +698,19 @@ async function planCall(step: StepCalls, call: ModelToolCall): Promise<DecidedCa
           gated: gate !== undefined,
         });
   if (replayed?.kind === 'recorded' || replayed?.kind === 'refused') {
-    return { kind: 'answered', call, binding, output: replayed.result, replay: replayed.kind };
+    // A recorded result is outside data when the past run kept it so,
+    // or when the tool says its results are, as a live call's is.
+    const fromOutside =
+      replayed.kind === 'recorded' &&
+      (replayed.fromEvent === true || tool.resultIsOutsideData === true);
+    return {
+      kind: 'answered',
+      call,
+      binding,
+      output: replayed.result,
+      replay: replayed.kind,
+      ...(fromOutside && { fromOutside: true as const }),
+    };
   }
 
   // The call's connections (`needsSpec.connections`), before any
@@ -973,11 +994,13 @@ async function answerCall(
     invocationId: call.id,
     arguments: call.arguments,
   });
-  const next = await appendToolResult(ctx, call, answered.output, {
-    toolId: binding.tool.id as unknown as string,
-    nextMessages,
-    iterationAppended,
-  });
+  const next = await appendToolResult(
+    ctx,
+    call,
+    answered.output,
+    { toolId: binding.tool.id as unknown as string, nextMessages, iterationAppended },
+    answered.fromOutside === true,
+  );
   await emitTurnEvent(ctx.bindings.onEvent, {
     kind: 'tool.completed',
     step: step.step,

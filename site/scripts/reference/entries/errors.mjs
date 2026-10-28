@@ -2373,6 +2373,11 @@ export const ERROR_ENTRIES = {
     description: "The service account has been unregistered, so it can't be granted anything.",
     details: [],
   },
+  'trigger-owner-cannot-run-target': {
+    description:
+      "A trigger's owner can't run what the trigger starts: `execute` on the agent or flow, or `publish` on the agent for an improvement schedule. Checked only with an authorization store, at two points. When a schedule, webhook or mail trigger names a service account to run as (`runAsServiceAccountId`), on create or take-over: give the account the editor role on the target's project, or name another account. When it's to run as the project's own account (`runAsProject`), which runs only what the project's editors can: run it as a service account that can, or own it yourself. And when a schedule's or mail trigger's target changes, since its owner stays: the owner, a service account or a person, must be able to run the new one (not checked when you're the owner, or when the owner was unregistered or removed). A tenant admin can give an account the role (not the project's own account, whose role is fixed), or a project admin can take the trigger over first. The message names the owner and the target.",
+    details: [],
+  },
   'service-account-project-owned': {
     description:
       "The service account is a project's own account, the account a trigger with `runAsProject` runs as. It has no keys, so none can be minted `for` it. Its grant is fixed, so it can't be granted or ungranted anything. A trigger can't name it in `runAsServiceAccountId`: name it with `runAsProject: true` instead. An app that needs keys needs a service account of its own.",
@@ -3467,8 +3472,8 @@ export const ERROR_ENTRIES = {
   },
   'reserved-name-prefix': {
     description:
-      "The name starts with the prefix reserved for the runtime's own secrets, so you can't write it.",
-    details: [],
+      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app.",
+    details: [{ key: 'secret', meaning: 'on a registration, the reserved name it names' }],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
   'secret-name-invalid': {

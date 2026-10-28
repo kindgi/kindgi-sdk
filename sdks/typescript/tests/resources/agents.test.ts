@@ -184,6 +184,14 @@ describe('agents.live and agents.promotions', () => {
     expect(stub.calls[0]!.url).toBe('https://api.example.com/v1/agents/acme.drafter/live-versions');
   });
 
+  it('projects GETs /projects and returns the answer as sent', async () => {
+    const stub = jsonFetch({ data: [{ projectId: PROJECT_ID }] });
+    const got = await client(stub).agents.projects('acme.drafter');
+    expect(stub.calls[0]!.url).toBe('https://api.example.com/v1/agents/acme.drafter/projects');
+    expect(stub.calls[0]!.method).toBe('GET');
+    expect(got).toEqual({ data: [{ projectId: PROJECT_ID }] });
+  });
+
   it('promotions.create POSTs the version and scope, with an idempotency key', async () => {
     const stub = jsonFetch(promotion, { status: 201 });
     const made = await client(stub).agents.promotions.create(

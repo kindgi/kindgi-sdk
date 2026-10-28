@@ -139,6 +139,8 @@ export function agentsRouter(
   //   POST /:agentId/promotions, /live/rollback, /live/unpin → promote on the agent
   //   POST /:agentId/promotions/check                → read on the agent (changes nothing)
   //   GET /:agentId/live, /live-versions, /promotions[/…]    → read on the agent
+  //   GET /:agentId/projects                         → read on the agent; names
+  //                                                    the projects the caller reads
   //   GET / (list)                                   → tenant-scoped fetch;
   //                                                    with a project scope
   //                                                    (?scopeKind=project&scopeId=),
@@ -389,6 +391,61 @@ export function agentsRouter(
     }
     return c.json(serializeAgent(shown.row));
   });
+
+  // ---------- GET /:agentId/projects (the projects it runs in) ----------
+  // Its own project first, then each other project a version of it can run
+  // in (`ItemProjectsBinding.projectsOf`, unregistered versions included): a
+  // change to the agent reaches each. Only the projects the caller reads are
+  // named, its own included. With no binding, its own project alone.
+  r.get('/:agentId/projects', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const agentId = c.req.param('agentId') as AgentId;
+    const served = itemRights ?? itemServing;
+    const projects =
+      served !== undefined
+        ? await served.projects(c, 'agent', agentId as unknown as string)
+        : await ownProject(tenantId, agentId);
+    if (projects === undefined) {
+      c.status(statusFor('agent-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-not-found',
+            message: `No agent registered with id "${agentId as unknown as string}"`,
+            agentId: agentId as unknown as string,
+          },
+          c.get('requestId'),
+        ),
+      );
+    }
+    const named =
+      authorizer === undefined
+        ? projects
+        : await authorizer.filterByCan(c, 'read', projects, (p) =>
+            ref('project', p as unknown as string),
+          );
+    return c.json({ data: named.map((projectId) => ({ projectId })) });
+  });
+
+  /**
+   * An agent's own project with no item-projects binding: every version
+   * reads the same one (`AgentVersionRecord.projectId`), a retired agent's
+   * too. `undefined`: no such agent; empty: the store records none.
+   */
+  async function ownProject(
+    tenantId: TenantId,
+    agentId: AgentId,
+  ): Promise<readonly ProjectId[] | undefined> {
+    if (!(await binding.headExists({ tenantId, agentId }))) return undefined;
+    const page = await binding.listVersions({
+      tenantId,
+      agentId,
+      limit: 1,
+      includeTombstoned: true,
+    });
+    const projectId = page.data[0]?.projectId;
+    return projectId !== undefined ? [projectId] : [];
+  }
 
   // ---------- GET /:agentId/versions (list versions) ----------
   r.get('/:agentId/versions', async (c) => {
