@@ -15,7 +15,7 @@ description: >
   with the person.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.2"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -88,7 +88,7 @@ decided one opens its own page.
 | Page | `<page>` | Shows |
 |---|---|---|
 | Dashboard | *(empty)* | how the project is doing |
-| Agents | `agents`, one: `agents/<agentId>` | the agents, their versions, which one is live |
+| Agents | `agents`, one: `agents/<agentId>` | the agents, their versions, which one runs here: pinned, or the latest |
 | Runs | `runs` | every answer and flow run, newest first, with its cost |
 | One run | `runs/<runId>`, with tabs `/journal`, `/provenance`, `/cost`, `/judgments` | the message, each tool it called with what it sent, the answer or what stopped it; then every step, what ran with what, what it cost, how it was rated |
 | What failed | `runs/failures` | failed runs, grouped by why |
