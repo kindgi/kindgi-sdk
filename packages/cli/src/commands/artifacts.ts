@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { access, open, readFile, rename, rm } from 'node:fs/promises';
+import { access, link, open, readFile, rename, rm } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -150,16 +150,44 @@ const exists = (path: string) =>
     () => false,
   );
 
+const existsError = (target: string) =>
+  new Error(`${target} exists: pass --force to overwrite it, or -o <file>`);
+
+/** What `link` answers on a file system with no hard links. */
+const NO_HARD_LINKS: ReadonlySet<string> = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
+
+/**
+ * Without --force, `partial` takes `target`'s name only while nothing has
+ * it, a file that turned up there during the download included: `link`
+ * refuses a name that's taken in one step. Where the file system has no
+ * hard links, `target` is looked for again right before the rename.
+ */
+async function placeNew(partial: string, target: string): Promise<void> {
+  try {
+    await link(partial, target);
+    return;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST') throw existsError(target);
+    if (code === undefined || !NO_HARD_LINKS.has(code)) throw err;
+  }
+  if (await exists(target)) throw existsError(target);
+  await rename(partial, target);
+}
+
 /**
  * The body written to a new file beside `target` (as `kindgi exports
- * create` writes its files), and renamed over it only once the whole body
- * has arrived: the stream ended, with the sha256 the server sent. Otherwise
- * that file is removed, and `target` is as it was. Returns the size and
- * sha256 of the bytes written.
+ * create` writes its files), which takes `target`'s name only once the
+ * whole body has arrived: the stream ended, with the sha256 the server
+ * sent. With `force`, it is renamed over `target`; without, it takes the
+ * name only while nothing has it (`placeNew`). Otherwise that file is
+ * removed, and `target` is as it was. Returns the size and sha256 of the
+ * bytes written.
  */
 async function saveWhole(
   got: DownloadedArtifact,
   target: string,
+  force: boolean,
 ): Promise<{ size: number; hash: string }> {
   const partial = `${target}.${randomBytes(4).toString('hex')}.partial`;
   const file = await open(partial, 'wx').catch(async (err: unknown) => {
@@ -196,11 +224,19 @@ async function saveWhole(
       `the bytes that arrived have the sha256 ${hash}, not the artifact's ${got.hash}: ${target} wasn't written`,
     );
   }
-  await rename(partial, target).catch(async (err: unknown) => {
+  try {
+    await (force ? rename(partial, target) : placeNew(partial, target));
+  } finally {
+    // Gone after a rename; after a link, its second name; after a failure, the file.
     await rm(partial, { force: true });
-    throw err;
-  });
+  }
   return { size, hash };
+}
+
+/** The file a download writes unless `-o` names one: the artifact's own name, or its id when that name is no file's. */
+function ownName(name: string, blobId: string): string {
+  const own = basename(name);
+  return own === '' || own === '.' || own === '..' ? basename(blobId) : own;
 }
 
 const download: LeafCommand = {
@@ -217,12 +253,13 @@ const download: LeafCommand = {
     runSdk(ctx, 'artifacts download', async () => {
       const blobId = requiredPositional(ctx, 0, 'blob-id');
       const got = await ctx.client().artifacts.download(blobId as never);
-      const target = resolve(ctx.cwd, stringFlag(ctx, 'o') ?? basename(got.name || blobId));
-      if (ctx.options.force !== true && (await exists(target))) {
+      const target = resolve(ctx.cwd, stringFlag(ctx, 'o') ?? ownName(got.name, blobId));
+      const force = ctx.options.force === true;
+      if (!force && (await exists(target))) {
         await got.body.cancel();
-        throw new Error(`${target} exists: pass --force to overwrite it, or -o <file>`);
+        throw existsError(target);
       }
-      const saved = await saveWhole(got, target);
+      const saved = await saveWhole(got, target, force);
       return { blobId, file: target, ...saved };
     }),
 };
