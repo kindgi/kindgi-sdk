@@ -161,6 +161,25 @@ class LiveScopeSegment(BaseModel):
     path: Annotated[list[ScopeSegment], Field(max_length=8, min_length=1)]
 
 
+class AgentProject(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class AgentProjectList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[AgentProject]
+    """
+    Its first project first, then the others, each once.
+    """
+
+
 class RequestedBy(BaseModel):
     model_config = ConfigDict(
         extra="allow",

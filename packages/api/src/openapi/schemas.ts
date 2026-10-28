@@ -319,6 +319,26 @@ export const LivePinListSchema: JsonSchema = {
   properties: { data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } } },
 };
 
+export const AgentProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId'],
+  properties: { projectId: { type: 'string', format: 'uuid' } },
+};
+
+export const AgentProjectListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description: 'Its first project first, then the others, each once.',
+      items: { $ref: '#/components/schemas/AgentProject' },
+    },
+  },
+};
+
 export const PromotionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -15409,6 +15429,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LiveVersionResolution', LiveVersionResolutionSchema],
   ['LivePin', LivePinSchema],
   ['LivePinList', LivePinListSchema],
+  ['AgentProject', AgentProjectSchema],
+  ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
   ['GateCheck', GateCheckSchema],
