@@ -548,8 +548,10 @@ tenant, so this key is refused.
 
 On Kindgi Cloud, CI needs a tenant admin's key instead, because Kindgi
 Cloud builds a pack only with one: an account made with `--tenant-admin`,
-and a key made with `--role=admin` and no `--project`, like the deploy key
-in [Make someone a tenant admin](#make-someone-a-tenant-admin).
+and a key made with `--role=admin` and no `--project`. The key needs no
+capability: add `--capability=secrets:write` only when CI runs
+`kindgi deploy --sync-secrets`. That key reaches the whole tenant, so keep
+it in CI's deploy step only.
 
 Give `--tenant-member` only to an account whose job reads the tenant's
 settings. Without it, such a read is refused, and the refusal says how to
