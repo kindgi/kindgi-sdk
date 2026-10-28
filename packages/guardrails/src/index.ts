@@ -4,7 +4,7 @@
 export {
   GUARDRAIL_SCHEMA_URI,
   GUARDRAIL_SPEC_KEYS,
-  defineGuardrail,
+  validateGuardrail,
   validateGuardrailSpec,
 } from './define.js';
 export { defineCheck } from './define-check.js';

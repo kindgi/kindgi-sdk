@@ -3413,6 +3413,23 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/agents/:agentId/projects',
+    openapiPath: '/v1/agents/{agentId}/projects',
+    operationId: 'agents.projects',
+    summary: 'List the projects an agent runs in',
+    description:
+      'The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.',
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam],
+    responses: {
+      '200': { description: 'The projects.', schema: ref('AgentProjectList') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No agent with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/agents/:agentId/versions',
     openapiPath: '/v1/agents/{agentId}/versions',
     operationId: 'agents.listVersions',
