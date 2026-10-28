@@ -17,6 +17,10 @@ seed_user_id   = "00000000-0000-0000-0000-000000000002"
 # Pinned, never "latest": every secret stored in Postgres is bound to it.
 secrets_aad_key_version = "1"
 
+# The version of the database URL the server reads: the first one added (README step 3).
+# Pinned, never "latest": a URL added later reaches no revision until it is set here.
+database_url_secret_version = "1"
+
 cors_origins = ["https://app.acme.example"]
 
 # One server instance until multiple replicas are verified (the default).

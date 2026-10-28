@@ -34,15 +34,16 @@ mock_provider "google" {
 }
 
 variables {
-  project_id              = "acme-app-dev"
-  region                  = "northamerica-northeast2"
-  name_prefix             = "kindgi-dev"
-  kindgi_env              = "dev"
-  server_image            = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  pack_image              = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  seed_tenant_id          = "00000000-0000-0000-0000-000000000001"
-  seed_user_id            = "00000000-0000-0000-0000-000000000002"
-  secrets_aad_key_version = "1"
+  project_id                  = "acme-app-dev"
+  region                      = "northamerica-northeast2"
+  name_prefix                 = "kindgi-dev"
+  kindgi_env                  = "dev"
+  server_image                = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pack_image                  = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  seed_tenant_id              = "00000000-0000-0000-0000-000000000001"
+  seed_user_id                = "00000000-0000-0000-0000-000000000002"
+  secrets_aad_key_version     = "1"
+  database_url_secret_version = "1"
 }
 
 run "defaults_keep_kms_and_the_own_repository" {
@@ -157,6 +158,52 @@ run "latest_is_refused" {
   }
 
   expect_failures = [var.secrets_aad_key_version]
+}
+
+run "the_database_url_is_read_at_its_pinned_version" {
+  command = plan
+
+  variables {
+    database_url_secret_version = "3"
+  }
+
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : "${e.value_source[0].secret_key_ref[0].secret}@${e.value_source[0].secret_key_ref[0].version}"
+      if e.name == "KINDGI_DATABASE_URL"
+    ]) == "kindgi-dev-database-url@3"
+    error_message = "KINDGI_DATABASE_URL reads <prefix>-database-url at database_url_secret_version, so a version added later reaches no revision until an apply sets it."
+  }
+}
+
+run "the_database_url_version_is_required" {
+  command = plan
+
+  variables {
+    database_url_secret_version = null
+  }
+
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_database_url_version_refuses_latest" {
+  command = plan
+
+  variables {
+    database_url_secret_version = "latest"
+  }
+
+  expect_failures = [var.database_url_secret_version]
+}
+
+run "the_database_url_version_refuses_zero" {
+  command = plan
+
+  variables {
+    database_url_secret_version = "0"
+  }
+
+  expect_failures = [var.database_url_secret_version]
 }
 
 run "an_existing_repository_in_the_same_project" {
@@ -1212,6 +1259,13 @@ run "database_instance_moves_the_server_and_keeps_its_own_instance" {
       if e.name == "KINDGI_DATABASE_URL"
     ]) == "kindgi-dev-restored-database-url"
     error_message = "KINDGI_DATABASE_URL reads database_instance.url_secret."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value_source[0].secret_key_ref[0].version
+      if e.name == "KINDGI_DATABASE_URL"
+    ]) == "1"
+    error_message = "KINDGI_DATABASE_URL reads database_instance.url_secret at database_url_secret_version too."
   }
   assert {
     condition     = google_project_iam_member.server_sql_client_served[0].condition[0].expression == "resource.name == \"projects/acme-app-dev/instances/kindgi-dev-restored\""

@@ -27,15 +27,16 @@ mock_provider "google" {
 }
 
 variables {
-  project_id      = "acme-app-dev"
-  region          = "northamerica-northeast2"
-  name_prefix     = "kindgi-dev"
-  kindgi_env      = "dev"
-  server_image    = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  pack_image      = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  seed_tenant_id  = "00000000-0000-0000-0000-000000000001"
-  seed_user_id    = "00000000-0000-0000-0000-000000000002"
-  secrets_backend = "postgres"
+  project_id                  = "acme-app-dev"
+  region                      = "northamerica-northeast2"
+  name_prefix                 = "kindgi-dev"
+  kindgi_env                  = "dev"
+  server_image                = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pack_image                  = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  seed_tenant_id              = "00000000-0000-0000-0000-000000000001"
+  seed_user_id                = "00000000-0000-0000-0000-000000000002"
+  secrets_backend             = "postgres"
+  database_url_secret_version = "1"
 }
 
 run "a_deployment_without_a_store" {

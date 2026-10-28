@@ -458,6 +458,16 @@ variable "secrets_aad_key_version" {
   }
 }
 
+variable "database_url_secret_version" {
+  description = "Required: the Secret Manager version of the database URL the server reads (KINDGI_DATABASE_URL), in <prefix>-database-url, or in database_instance.url_secret when that's set. \"1\" for a new deployment (the first version added). Pin it; never \"latest\". A version added later reaches no revision until an apply sets it, so a way back's URL to a fresh database moves the server in the same apply as its image, and no instance of the newer version reaches that database first. upgrade.sh adds it to a var-file from before it: the version the server reads then. Rotating the URL is: add a version, set this to it, apply."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.database_url_secret_version == null || can(regex("^[1-9][0-9]*$", var.database_url_secret_version))
+    error_message = "database_url_secret_version is a version number (\"1\" for a new deployment), never \"latest\": a version added later must reach no revision until an apply sets it."
+  }
+}
+
 variable "secrets_backend" {
   description = "Where secrets set through Kindgi's API live (KINDGI_SECRETS_BACKEND). \"postgres\" (default): envelope-encrypted in Kindgi's database under a Cloud KMS key the module creates, with secrets_aad_key_version required. \"none\": the runtime stores no secrets of its own (no KMS key, no AAD key); for a deployment whose pack secrets all come by reference from Secret Manager and whose model uses the service's own credentials."
   type        = string
