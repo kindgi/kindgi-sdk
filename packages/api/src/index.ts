@@ -28,7 +28,7 @@ export type {
   LicenseStatusBinding,
   LicenseUsage,
 } from './routes/license.js';
-export type { RuntimeInfo } from './routes/runtime.js';
+export type { RuntimeInfo, RuntimeInfoInput } from './routes/runtime.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
 export type { EgressAddresses } from './routes/tenant.js';

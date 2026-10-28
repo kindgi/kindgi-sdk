@@ -735,7 +735,7 @@ export function fullAppInput(): CreateAppInput {
         people: 0,
       }),
     },
-    runtime: { version: '0.0.0', hosting: 'self-hosted', development: false },
+    runtime: { version: '0.0.0', development: false },
     systemKeys: {
       mint: async () => {
         throw new Error('not used: no system principal in the sweeps');

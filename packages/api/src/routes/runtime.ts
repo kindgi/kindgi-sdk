@@ -11,7 +11,7 @@ import type { AppEnv } from '../types.js';
  * to.
  */
 export interface RuntimeInfo {
-  /** Its release, such as `0.3.0`, or `dev` for a runtime built outside a release. */
+  /** Its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none). */
   readonly version: string;
   /** `hosted`: the runtime serves many tenants; `self-hosted`: it serves one. */
   readonly hosting: 'hosted' | 'self-hosted';
@@ -19,13 +19,22 @@ export interface RuntimeInfo {
   readonly development: boolean;
 }
 
+/**
+ * What the host says about itself (`CreateAppInput.runtime`). How it's hosted
+ * isn't asked: it follows from `CreateAppInput.tenancy`, so the two can't disagree.
+ */
+export type RuntimeInfoInput = Omit<RuntimeInfo, 'hosting'>;
+
 /** `GET /v1/runtime`: any caller of a tenant reads it; no right is asked. */
-export function runtimeRouter(info: RuntimeInfo): Hono<AppEnv> {
+export function runtimeRouter(
+  input: RuntimeInfoInput,
+  tenancy: 'single' | 'multi' | undefined,
+): Hono<AppEnv> {
   // The three fields only: nothing else the host's object carries reaches the wire.
   const body: RuntimeInfo = {
-    version: info.version,
-    hosting: info.hosting,
-    development: info.development,
+    version: input.version,
+    hosting: tenancy === 'multi' ? 'hosted' : 'self-hosted',
+    development: input.development,
   };
   const r = new Hono<AppEnv>();
   r.get('/', (c) => c.json(body));

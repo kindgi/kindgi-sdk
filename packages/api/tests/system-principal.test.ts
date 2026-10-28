@@ -211,7 +211,7 @@ function makeApp(tenancy: 'single' | 'multi' | 'unset' = 'multi') {
         people: 2,
       }),
     },
-    runtime: { version: '0.0.0', hosting: 'hosted', development: false },
+    runtime: { version: '0.0.0', development: false },
   });
   const call = async (
     token: string,

@@ -178,7 +178,7 @@ import { publicRunTokensRouter } from './routes/public-run-tokens.js';
 import { retentionRouter } from './routes/retention.js';
 import { reviewersRouter } from './routes/reviewers.js';
 import { type RunsRouterOptions, runsRouter } from './routes/runs.js';
-import { type RuntimeInfo, runtimeRouter } from './routes/runtime.js';
+import { type RuntimeInfoInput, runtimeRouter } from './routes/runtime.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
 import { authSettingsRouter, secondFactorIdentityRouter } from './routes/second-factor.js';
@@ -624,12 +624,13 @@ export interface CreateAppInput {
    */
   readonly license?: LicenseStatusBinding;
   /**
-   * Optional. Which runtime this is: its release, how it's hosted, and
-   * whether it runs in development mode, as `GET /v1/runtime` answers any
-   * caller of a tenant. Without it the route isn't mounted (404), as on a
-   * runtime that doesn't report it.
+   * Optional. Which runtime this is: its release and whether it runs in
+   * development mode, as `GET /v1/runtime` answers any caller of a tenant,
+   * with how it's hosted from `tenancy` (`multi` is hosted; otherwise
+   * self-hosted). Without it the route isn't mounted (404), as on a runtime
+   * that doesn't report it.
    */
-  readonly runtime?: RuntimeInfo;
+  readonly runtime?: RuntimeInfoInput;
   /**
    * Optional. How many tenants the runtime serves (default `single`). With
    * `multi`, a tenant's key is never minted holding `kindgi:system`: the
@@ -1922,7 +1923,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/license', licenseRouter(input.license, authorizer));
   }
   if (input.runtime !== undefined) {
-    v1.route('/runtime', runtimeRouter(input.runtime));
+    v1.route('/runtime', runtimeRouter(input.runtime, input.tenancy));
   }
   if (input.systemKeys !== undefined) {
     v1.route(

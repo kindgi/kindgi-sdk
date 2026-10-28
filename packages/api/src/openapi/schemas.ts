@@ -2805,7 +2805,7 @@ export const RuntimeInfoSchema: JsonSchema = {
     version: {
       type: 'string',
       description:
-        "The runtime's version: its release, such as `0.3.0`, or `dev` for a runtime built outside a release.",
+        "The runtime's version: its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none).",
     },
     hosting: {
       type: 'string',
