@@ -39,7 +39,7 @@ import type {
 } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
-import { type ResumeReport, resumeInline } from '../resume-inline.js';
+import { type ResumeReport, resumeAnswer, resumeInline } from '../resume-inline.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import {
@@ -796,7 +796,7 @@ export function approvalsRouter(
       }),
       waitpointResolved,
       ...(runStatus !== undefined && { runStatus }),
-      ...(resume !== undefined && { resume }),
+      ...(resume !== undefined && { resume: resumeAnswer(resume) }),
     });
   });
 
