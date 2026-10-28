@@ -37,6 +37,7 @@ from kindgi.pack.service import PackService
 
 TOKEN = "kgi_tf_test-token"
 TOOLS_FILES = Path(__file__).resolve().parents[3] / "packages" / "tools" / "src" / "files.ts"
+TYPES_FILE = Path(__file__).resolve().parents[3] / "packages" / "types" / "src" / "file.ts"
 
 STORED = {
     "type": "kindgi.file",
@@ -374,6 +375,17 @@ def test_the_limits_are_the_typescript_sdks(name: str, value: int) -> None:
     found = re.search(rf"export const {name} = ([0-9_]+);", TOOLS_FILES.read_text())
     assert found is not None
     assert int(found.group(1)) == value
+
+
+def test_a_file_value_may_carry_any_reason_the_typescript_sdk_has(link: Link) -> None:
+    found = re.search(r"export const FILE_NOT_SHOWN_REASONS = \[([^\]]*)\]", TYPES_FILE.read_text())
+    assert found is not None
+    reasons = re.findall(r"'([a-z]+)'", found.group(1))
+    assert reasons
+    for reason in reasons:
+        link.answer = (200, {"file": {**STORED, "notShown": reason}})
+        answer = _store(link).store(name="x", content_type="text/plain", data=b"test")
+        assert answer == FileStoreAnswer(file={**STORED, "notShown": reason})
 
 
 @pytest.mark.parametrize(

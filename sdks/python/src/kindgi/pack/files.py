@@ -55,7 +55,7 @@ checked), `size` (over its type's limit)."""
 _NOT_STORED_REASONS: Final = frozenset(("type", "size", "limit", "storage"))
 _NOT_READ_REASONS: Final = frozenset(("rule", "gone", "changed", "size"))
 _FILE_NOT_SHOWN_REASONS: Final = frozenset(
-    ("type", "size", "model", "limit", "store", "gone", "changed", "refused", "storage")
+    ("type", "size", "model", "limit", "store", "gone", "changed", "refused", "storage", "reading")
 )
 _SHA256_HEX: Final = re.compile(r"[0-9a-f]{64}")
 _TIMEOUT: Final = httpx.Timeout(60.0, connect=10.0)
