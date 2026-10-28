@@ -20,6 +20,7 @@ import type { ConnectionResolver, ToolRegistry, ToolSecretRef } from '@kindgi/to
 import type {
   AgentVersionVia,
   EnvName,
+  FileValue,
   LiveScope,
   OrgId,
   ProjectId,
@@ -39,6 +40,7 @@ import type { OnTurnEvent } from '../streaming.js';
 import type { TemplateRenderer } from '../template-renderer.js';
 import type { Agent, ConversationId } from '../types.js';
 
+import type { FileBindings } from './files.js';
 import type { ReplayBinding } from './replay.js';
 import type { TurnMemoryBinding } from './turn-memory.js';
 
@@ -72,6 +74,13 @@ export interface InvokeAgentInput {
   /** The segment path the turn runs for; recorded on its run (`KernelRunRecord.segments`). */
   readonly segments?: readonly ScopeSegment[];
   readonly userMessage: string;
+  /**
+   * Stored files the turn's message carries: the run input's `files`, which
+   * the runtime admitted when the run started. The user message carries
+   * them, and the conversation keeps them with it. The model is shown them
+   * as the run's rule and the agent's `vision` need allow.
+   */
+  readonly files?: readonly FileValue[];
   readonly parameters?: Readonly<Record<string, string | number | boolean>>;
   /**
    * Structured input for this turn — what a flow step hands its agent.
@@ -259,6 +268,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * fails with `turn-memory-limit-reached`. Absent: nothing is charged.
    */
   readonly turnMemory?: TurnMemoryBinding;
+  /**
+   * The turn's stored files: for the turn's run, the run's rule for which
+   * files its model may be shown, and their bytes for each model call.
+   * Absent: no file is shown, and a tool result's file values stay plain
+   * JSON.
+   */
+  readonly files?: FileBindings;
   /**
    * Where the turn records what each guardrail's check came to (passed,
    * violated, blocked or errored), before it acts on them: a blocked turn

@@ -310,6 +310,7 @@ export type {
   UnresolvedToolError,
 } from './handlers/errors.js';
 export type { TurnMemoryBinding, TurnMemoryCharge } from './handlers/turn-memory.js';
+export type { FileBinding, FileBindings, FileHold } from './handlers/files.js';
 export type {
   HitlBindings,
   HitlEnqueueInput,
@@ -369,5 +370,7 @@ export function turnInputFromSnapshot(
     // stored its message (marked) and built its first model call, and a
     // resumed turn reads that stored mark. If a replay could park sooner,
     // derive it here from the replay's past run.
+    // No `files` either: a turn parks only after its message is stored,
+    // and a resumed turn reads the files kept with it.
   };
 }

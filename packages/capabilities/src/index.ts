@@ -26,19 +26,23 @@ export { CAPABILITY_SCHEMA_URI, defineCapability } from './define.js';
 export {
   DOCUMENT_FILE_TYPES,
   FILE_LIMITS,
-  FILE_NOT_SHOWN_REASONS,
   IMAGE_FILE_TYPES,
   PROVIDER_FILE_LIMITS,
   TEXT_FILE_TYPES,
+  filesForCall,
   fileParts,
   headedFileParts,
+  isReadable,
   notShownLine,
 } from './message-files.js';
 export type {
   DocumentFileType,
-  FileNotShownReason,
+  FileExtract,
+  FileForm,
   FilePart,
   FilePartsOptions,
+  FilePlanOptions,
+  FileRendition,
   ImageFileType,
   MessageFile,
 } from './message-files.js';

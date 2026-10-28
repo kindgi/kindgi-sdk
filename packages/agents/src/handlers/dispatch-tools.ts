@@ -24,6 +24,7 @@ import type {
 } from '@kindgi/tools';
 import type { Result } from '@kindgi/types';
 
+import type { AppendMessageInput } from '../conversation-binding.js';
 import { toolResultForModel } from '../event-data.js';
 import { REMEMBER_TOOL_ID, rememberStaysInProject } from '../remember.js';
 import { emitTurnEvent } from '../streaming.js';
@@ -51,6 +52,7 @@ import {
   approvalsPendingLimitOf,
   throwAgentTurnFailure,
 } from './errors.js';
+import { admitHistoryFiles, admitToolResultFiles, asMessageFile } from './files.js';
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import type { ToolCallAuthorization } from './public-types.js';
 import { decideReplayTool } from './replay.js';
@@ -268,7 +270,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       );
       if (stored !== undefined) {
         iterationAppended.push(stored);
-        nextMessages = [...nextMessages, toolMessageOf(stored, call.id)];
+        nextMessages = [...nextMessages, await toolMessageOf(ctx, stored, call.id)];
         continue;
       }
       // Look up the resolved binding before emitting `tool.started` so
@@ -704,12 +706,18 @@ function sameCalls(m: ConversationMessage, callIds: readonly string[]): boolean 
   );
 }
 
-/** A stored tool result, as the model sees it. */
-function toolMessageOf(stored: ConversationMessage, callId: string): ModelMessage {
+/** A stored tool result, as the model sees it, with its files as the run's rule admits them now. */
+async function toolMessageOf(
+  ctx: TurnContext,
+  stored: ConversationMessage,
+  callId: string,
+): Promise<ModelMessage> {
+  const [files = []] = await admitHistoryFiles(ctx, [stored.files]);
   return {
     role: 'tool',
     content: toolResultForModel(stored.content, stored.fromEvent === true),
     toolCallId: callId,
+    ...(files.length > 0 && { files }),
   };
 }
 
@@ -989,15 +997,8 @@ async function dispatchOne(
       ...(connections !== undefined && { connections }),
     };
   }
-  const persist = await ctx.bindings.conversationBinding.appendMessage({
-    tenantId: ctx.input.tenantId,
-    conversationId: ctx.input.conversationId,
-    role: 'tool',
-    content: (result.value as unknown as string | Record<string, unknown>) ?? '',
-    toolCall: { toolId: tool.id, invocationId: call.id },
-    // Outside data stays data in every later turn's history.
-    ...(fromOutside && { fromEvent: true as const }),
-  });
+  const kept = await keptToolResult(ctx, tool, call, result.value, fromOutside);
+  const persist = await ctx.bindings.conversationBinding.appendMessage(kept.message);
   if (persist.kind === 'err') {
     // A DB failure persisting the tool result surfaces as the more
     // generic invocation-failed to keep the caller's error shape stable.
@@ -1013,13 +1014,40 @@ async function dispatchOne(
   }
   return {
     kind: 'ok',
-    value: {
-      persisted: persist.value,
-      toolMessage: {
-        role: 'tool',
-        content: toolResultForModel(result.value, fromOutside),
-        toolCallId: call.id,
-      },
+    value: { persisted: persist.value, toolMessage: kept.toolMessage },
+  };
+}
+
+/**
+ * A tool's result as the conversation keeps it and as the model reads it.
+ * The file values the run's rule admits become the message's files; the
+ * rest of the result is its text.
+ */
+async function keptToolResult(
+  ctx: TurnContext,
+  tool: Tool,
+  call: ModelToolCall,
+  result: unknown,
+  fromOutside: boolean,
+): Promise<{ readonly message: AppendMessageInput; readonly toolMessage: ModelMessage }> {
+  const { result: value, files } = await admitToolResultFiles(ctx, result);
+  const hasFiles = files.length > 0;
+  return {
+    message: {
+      tenantId: ctx.input.tenantId,
+      conversationId: ctx.input.conversationId,
+      role: 'tool',
+      content: (value as string | Record<string, unknown> | undefined) ?? '',
+      toolCall: { toolId: tool.id, invocationId: call.id },
+      // Outside data stays data in every later turn's history.
+      ...(fromOutside && { fromEvent: true as const }),
+      ...(hasFiles && { files }),
+    },
+    toolMessage: {
+      role: 'tool',
+      content: toolResultForModel(value, fromOutside),
+      toolCallId: call.id,
+      ...(hasFiles && { files: files.map(asMessageFile) }),
     },
   };
 }

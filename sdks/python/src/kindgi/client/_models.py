@@ -3671,6 +3671,56 @@ class Conversation(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+class FileValue(BaseModel):
+    """
+    A stored file as a value: in a run's input, a tool's result or a conversation message. Only `artifactId` is trusted: the runtime shows a model a file by its own checked record of it, never by the value's other fields. A message's files are the ones its run admitted, with the record's fields.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: Literal["kindgi.file"]
+    artifact_id: Annotated[str, Field(alias="artifactId", min_length=1)]
+    """
+    The stored file (`POST /v1/artifacts`): its `blobId`.
+    """
+    name: str | None = None
+    """
+    The file's name.
+    """
+    content_type: Annotated[str, Field(alias="contentType")]
+    """
+    Its type, as checked from its bytes.
+    """
+    size: Annotated[int, Field(ge=0)]
+    """
+    Its size in bytes.
+    """
+    sha256: Annotated[str, Field(pattern="^[0-9a-f]{64}$")]
+    """
+    sha256 of its bytes, hex-encoded, lowercase.
+    """
+    pages: Annotated[int | None, Field(ge=1)] = None
+    """
+    A PDF's page count, as checked from its bytes.
+    """
+    not_shown: Annotated[
+        Annotated[
+            Literal[
+                "type", "size", "model", "limit", "store", "gone", "changed", "refused", "reading"
+            ]
+            | str,
+            _open.OPEN,
+        ]
+        | None,
+        Field(alias="notShown"),
+    ] = None
+    """
+    Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached), `reading` (what the model is sent in its place, an image or a text made from it, isn't made yet).
+    """
+
+
 class ToolCall(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -3692,7 +3742,11 @@ class ConversationMessage(BaseModel):
     role: Annotated[Literal["user", "agent", "tool", "system"] | str, _open.OPEN]
     content: Any
     """
-    Free-form string OR a structured object (tool results, multi-modal payloads).
+    Free-form string OR a structured object (tool results).
+    """
+    files: list[FileValue] | None = None
+    """
+    Stored files the message carries, on a user message (its run's input files) or a tool's result: references, never bytes. A later turn shows its model each one the run's rule still admits, and a line for one that's gone.
     """
     tool_call: Annotated[ToolCall | None, Field(alias="toolCall")] = None
     actor: str | None = None
