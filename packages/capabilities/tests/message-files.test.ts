@@ -531,7 +531,7 @@ describe("fileParts: what's made of a file, in its place", () => {
       ...ALL,
     });
     expect(texts(parts ?? [])).toEqual([
-      'File "photo.jpg" (image/jpeg, 8 bytes): not shown: still being read.',
+      'File "photo.jpg" (image/jpeg, 8 bytes): not shown: not ready yet.',
     ]);
     expect(readFile).not.toHaveBeenCalled();
   });
