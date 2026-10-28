@@ -8,12 +8,12 @@ description: >
   selectors, config schemas via Zod or JSON Schema, validating a declaration
   with validateGuardrail from @kindgi/guardrails, and how guardrails reach
   agents. A guardrail judges the final answer unless its `at` puts it
-  before a tool call, after it, or on each model reply (the check must
-  name that point in `points`). halt fails the turn; retry sends the
-  answer or reply back, refuses the call, or withholds its result
-  (escalate / compensate are only recorded, at the final answer only), and
-  a check sees only the current turn: its user message and tool results,
-  not earlier turns'. Load this whenever you are authoring or editing code
+  before a tool call, after it, or on each model reply that asks for tool
+  calls (the check must name that point in `points`). halt fails the
+  turn; retry sends the answer or reply back, refuses the call, or
+  withholds its result (escalate / compensate are only recorded, at the
+  final answer only), and a check sees only the current turn: its user
+  message and tool results, not earlier turns'. Load this whenever you are authoring or editing code
   inside a pack's guardrails/ directory, defining a check, or wiring a
   guardrail onto an agent. Authoring tools is covered by
   kindgi-authoring-tools; authoring agents is covered by
@@ -79,10 +79,14 @@ Read this before you plan a guardrail. These decide what can be built:
   nor a later turn's history sees it; a replay's recorded result is judged
   as a live one is. At `'model-step'`, `retry` sends the reply back: none
   of its calls runs, nothing of it is stored, and the model writes a new
-  reply. `retry.maxAttempts` counts every call refused, result withheld and
-  reply sent back across the turn; when they run out, or the turn has no
-  steps left, the turn fails with `attempts`. A tool's own result never
-  counts as one. A `log-only` failure joins the turn's `violations`.
+  reply. `retry.maxAttempts` counts replies across the turn: each reply
+  the guardrail sent back, or one with a call it refused or a result it
+  withheld, counts once, so two calls of one reply that it refuses are one
+  attempt. When they run out, or the turn has no steps left, the turn
+  fails with `attempts`, the replies there were. A tool's own result never
+  counts as one. A `log-only` failure joins the turn's `violations`, and
+  so does a `retry` failure in a dry run: the call runs, its result is
+  kept and the reply goes on.
   `escalate` and `compensate` are refused away from the final answer
   (by `kindgi build`, `deployment-validation-failed` on deploy,
   `400 validation-failed` on register). A failure names `details.point` and, at a tool point,
@@ -179,7 +183,7 @@ How the pack tooling reads this file:
 - The **indexer** (`packages/handler-runtime/src/kindgi-index.ts`)
   recognises a guardrail by a default export with a `kind` and an
   `action` object carrying `on-violation`. It records `id`, `name`,
-  `kind`, `action`, `severity`, `scope`, `at`, `budget`, `sandbox` /
+  `kind`, `action`, `severity`, `scope`, `at`, `sees`, `budget`, `sandbox` /
   `limits` / `network`, and the check: its id (`check` may be the check
   id as a string, or the check object), its points (`checkPoints`, for a
   check the module ships) and its config schema (from the check's
@@ -258,7 +262,7 @@ trace holds every call the model asked for. A failed `halt` at a loop
 point reads
 `Turn blocked by guardrail 'acme.refund-limit' before calling acme.orders.refund: …`
 (`after <tool> ran`, `on a model reply`; out of attempts,
-`…, after 2 tries: …`, or `replies` at a model reply).
+`…, after 2 replies: …`).
 
 ## Using a built-in check
 
@@ -374,10 +378,14 @@ available to the runtime that evaluates it.
 - **`at`** — where in the turn it runs: `'final-answer'` (the default),
   `'before-tool'`, `'after-tool'` or `'model-step'`. It must be one of
   its check's `points`. At a tool point or a model reply, a check that
-  can't run (no such check, a point its check doesn't run at as
+  can't run (a point its check doesn't run at as
   `check-point-unsupported`, or its time ran out as `check-timed-out`)
   acts as a failed one: `halt` fails the turn, `retry` refuses, withholds
-  or sends back with the reason `its check couldn't run (<code>): <message>`. At the
+  or sends back with the reason `its check couldn't run (<code>): <message>`
+  (in a dry run, a `retry` only records it). A check that isn't
+  registered counts there as one that runs at the final answer only, so
+  it fails as `check-point-unsupported`, saying no check by that name is
+  registered; at the final answer it's `unknown-check`. At the
   final answer, a `retry` whose check can't run goes on as if it passed.
 - **`action.on-violation`** — `'halt'`, `'retry'` (with `retry.maxAttempts`,
   1–10), `'escalate'` (with `escalateTo`), `'log-only'`, `'compensate'`

@@ -908,7 +908,7 @@ export const ERROR_ENTRIES = {
   },
   'guardrail-violation': {
     description:
-      "A blocking guardrail stopped the agent's turn, a halting guardrail's check couldn't run, or a `retry` guardrail's attempts ran out (it sent each answer it failed back to the model for a new one, until it had failed `retry.maxAttempts`). The run fails; the violations say which guardrails fired.",
+      "A blocking guardrail stopped the agent's turn, a halting guardrail's check couldn't run, or a `retry` guardrail's attempts ran out: at the final answer it sends each answer it fails back to the model for a new one, and in the agent loop it refuses a call, withholds a result or sends a reply back, until it has failed `retry.maxAttempts` answers or replies. The run fails; the violations say which guardrails fired, and `point` says where in the turn.",
     details: [
       {
         key: 'violations',
@@ -921,7 +921,16 @@ export const ERROR_ENTRIES = {
       {
         key: 'attempts',
         meaning:
-          "the answers the turn had when a `retry` guardrail's attempts ran out, the first one included; absent when a `halt` guardrail stopped it",
+          "the attempts the turn had when a `retry` guardrail's ran out, the first one included: its answers at the final answer, or in the agent loop its replies the guardrail sent back or refused or withheld a call of; absent when a `halt` guardrail stopped it",
+      },
+      {
+        key: 'point',
+        meaning:
+          'where in the turn the guardrails stopped it: `before-tool`, `after-tool` or `model-step`; absent at the final answer',
+      },
+      {
+        key: 'callId',
+        meaning: "at `before-tool` and `after-tool`: the model's id for the call",
       },
       {
         key: 'runId',

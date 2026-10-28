@@ -565,7 +565,7 @@ describe("rehydrateTurnContext: the guardrails at the loop's points", () => {
       {
         step: 1,
         ranCalls: ['4:c1'],
-        guardrailViolations: [{ key: 'dispatch-tools@0:c1:acme.warn', violation }],
+        guardrailViolations: [{ key: 'dispatch-tools@0:before-tool:c1:acme.warn', violation }],
         guardrailChecks: [
           { id: check, timestamp: '2026-10-01T00:00:00Z', attributes: {}, to: 'tool-call:c1' },
         ],
@@ -575,7 +575,7 @@ describe("rehydrateTurnContext: the guardrails at the loop's points", () => {
     expect(await rehydrateTurnContext(ctx, 'run-1', journal)).toBe(true);
     expect([...(ctx.ranCalls ?? [])]).toEqual(['4:c1']);
     expect([...(ctx.pointViolations?.entries() ?? [])]).toEqual([
-      ['dispatch-tools@0:c1:acme.warn', violation],
+      ['dispatch-tools@0:before-tool:c1:acme.warn', violation],
     ]);
     expect(nodes).toContain(check);
     expect(nodes.indexOf(check)).toBeGreaterThan(nodes.indexOf('tool-call:c1'));

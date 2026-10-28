@@ -73,7 +73,10 @@ export interface CheckFailedError {
   readonly guardrailId: GuardrailId;
 }
 
-/** The check ran past its time (`budget.maxLatencyMs`, or its kind's default) and was stopped. */
+/**
+ * The check ran past its time (`budget.maxLatencyMs`, or its kind's
+ * default): the loop stopped waiting for it and cancelled it.
+ */
 export interface CheckTimedOutError {
   readonly code: 'check-timed-out';
   readonly message: string;

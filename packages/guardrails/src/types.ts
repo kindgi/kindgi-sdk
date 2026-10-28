@@ -72,8 +72,8 @@ export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
  *   before any approval is asked (`RunTrace.call`).
  * - `'after-tool'`: a call that ran, before the model sees its result
  *   (`RunTrace.call` and `RunTrace.result`).
- * - `'model-step'`: each model reply, before any of its calls runs
- *   (`RunTrace.step`).
+ * - `'model-step'`: each model reply that asks for tool calls, before
+ *   any of them runs (`RunTrace.step`).
  * - `'final-answer'`: the answer that would be stored (`RunTrace.output`).
  */
 export const GUARDRAIL_POINTS = [

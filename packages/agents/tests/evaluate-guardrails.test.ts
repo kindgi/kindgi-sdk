@@ -273,7 +273,7 @@ describe("evaluate-guardrails — the final answer's guardrails only", () => {
           action: { 'on-violation': 'halt' },
         } as Guardrail,
       ],
-      pointViolations: new Map([['dispatch-tools@0:c1:acme.warn', recorded]]),
+      pointViolations: new Map([['dispatch-tools@0:before-tool:c1:acme.warn', recorded]]),
     } as unknown as TurnContext;
     await buildEvaluateGuardrailsHandler(withPoint)(loopOutput, {} as NodeContext);
     expect(judged).toEqual([]);

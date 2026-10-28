@@ -50,8 +50,14 @@ import {
   turnStepsLeft,
   verdictKey,
 } from './guardrail-points.js';
-import { type RetryFailure, attemptsOf, sentBackSoFar, turnRetryNotes } from './guardrail-retry.js';
-import type { PointCheckNode } from './turn-provenance.js';
+import {
+  type RetryFailure,
+  attemptsOf,
+  beforeReply,
+  sentBackSoFar,
+  turnRetryNotes,
+} from './guardrail-retry.js';
+import { type PointCheckNode, addPointCheckNodes, addStepToolNodes } from './turn-provenance.js';
 
 /**
  * Each guardrail's outcome at a loop point, in order, decided once per
@@ -61,7 +67,7 @@ import type { PointCheckNode } from './turn-provenance.js';
  * this run of the step decided. A guardrail whose check doesn't run at
  * the point (`ctx.guardrailPointFaults`) fails as a check that couldn't
  * run, uncalled. Each check gets its time (`checkTimeLimitMs`); one that
- * runs past it is stopped and fails as `check-timed-out`. A cancelled
+ * runs past it is cancelled and fails as `check-timed-out`. A cancelled
  * turn propagates, as at the final answer.
  */
 async function evaluateAtPoint(
@@ -154,7 +160,7 @@ async function evaluateOne(
     kind: 'err',
     error: {
       code: 'check-timed-out',
-      message: `Guardrail "${guardrail.id}"'s check "${guardrail.check}" ran past ${limitMs} ms and was stopped`,
+      message: `Guardrail "${guardrail.id}"'s check "${guardrail.check}" ran past ${limitMs} ms: the turn stopped waiting for it and cancelled it`,
       guardrailId: guardrail.id,
       limitMs,
     },
@@ -251,17 +257,24 @@ export function pointCheckNodes(points: StepPoints): readonly PointCheckNode[] {
  * Judges a loop point on the turn's guardrails there (`guardrailsAt`, and
  * at a tool point those whose `scope.tools` covers the call's tool).
  * Records the outcomes under this step and point (`dispatch-tools@<iteration>`,
- * with `:<callId>` at a tool point), emits the events (once: a step run
- * again after a park emits none for the outcomes it gets back), then acts:
+ * with `:<point>:<callId>` at a tool point, so a call's two points are two
+ * records), emits the events (once: a step run again after a park emits
+ * none for the outcomes it gets back), then acts:
  *
  * - a `halt` that failed it, or couldn't run, fails the turn;
  * - a `retry` that failed it, or couldn't run, comes back as `retry`,
- *   while the guardrail has attempts left (`retry.maxAttempts`, the notes
- *   of every point counted, `sent` being the loop's messages so far) and
- *   the turn has steps left; otherwise the turn fails, as at the final
- *   answer;
+ *   while the guardrail has attempts left (`retry.maxAttempts`) and the
+ *   turn has steps left; otherwise the turn fails, as at the final
+ *   answer. An attempt is a reply of the model's: each reply the
+ *   guardrail sent back, or one or more of whose calls it refused or
+ *   withheld, counts once, from the notes of every point (`sent` being
+ *   the loop's messages so far);
  * - every other failure is recorded on `ctx.pointViolations`, for the
  *   turn's result.
+ *
+ * A point that fails the turn ends its step there: the calls the step
+ * stored and its checks go in provenance before the failure, as a final
+ * answer's do (`budget-check`).
  *
  * On a dry run, a `retry` is recorded only: nothing is refused, withheld
  * or sent back, as the final answer's `retry` isn't. The failed checks
@@ -294,7 +307,11 @@ export async function judgeAtPoint(
   const failures: RetryFailure[] = kctx.dryRun
     ? []
     : [...categorized.retry.map(retryFailureOf), ...retryErrors.map(retryFailureOfError)];
-  const sentBack = sentBackSoFar(turnRetryNotes(ctx, sent, true));
+  // At a tool point the reply is the attempt: its calls refused or
+  // withheld so far are this attempt, not earlier ones.
+  const sentBack = sentBackSoFar(
+    turnRetryNotes(ctx, call !== undefined ? beforeReply(sent) : sent, true),
+  );
   const stepsLeft = turnStepsLeft(ctx, kctx);
   const byId = new Map(guardrails.map((g) => [g.id as string, g]));
   const outOfAttempts = halted
@@ -304,8 +321,7 @@ export async function judgeAtPoint(
         const tries = (sentBack.get(f.guardrailId) ?? 0) + 1;
         return !stepsLeft || guardrail === undefined || tries >= attemptsOf(guardrail);
       });
-  const iteration = loopIteration(kctx, ctx);
-  const stepId = `${kctx.nodeId as unknown as string}@${iteration}${call !== undefined ? `:${call.callId}` : ''}`;
+  const stepId = pointStepId(ctx, kctx, where);
   const outOfAttemptsViolations = categorized.retry.filter((v) =>
     outOfAttempts.some((f) => f.guardrailId === (v.guardrailId as string)),
   );
@@ -340,6 +356,10 @@ export async function judgeAtPoint(
     ctx.pointViolations.set(key, v);
     points.violations.push({ key, violation: v });
   }
+  if (halted || outOfAttempts.length > 0) {
+    addStepToolNodes(ctx, points.step, points.stored);
+    addPointCheckNodes(ctx, pointCheckNodes(points));
+  }
   if (halted) {
     return failTurn(
       ctx,
@@ -362,6 +382,16 @@ export async function judgeAtPoint(
     );
   }
   return failures.length === 0 ? { kind: 'pass' } : { kind: 'retry', failures };
+}
+
+/**
+ * The id a point's outcomes are recorded under: the step's,
+ * `dispatch-tools@<iteration>`, and at a tool point `:<point>:<callId>`
+ * after it, so a call's two points are two records.
+ */
+function pointStepId(ctx: TurnContext, kctx: NodeContext, where: PointWhere): string {
+  const step = `${kctx.nodeId as unknown as string}@${loopIteration(kctx, ctx)}`;
+  return where.call === undefined ? step : `${step}:${where.point}:${where.call.callId}`;
 }
 
 /**

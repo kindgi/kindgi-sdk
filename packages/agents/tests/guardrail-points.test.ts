@@ -192,6 +192,8 @@ interface TurnOptions {
   readonly replayed?: unknown;
   /** Messages stored before a park in this step (a resumed turn's). */
   readonly storedBeforePark?: ConversationMessage[];
+  /** The outcome sink's `record`. Default: each row appended to `seen.rows`. */
+  readonly record?: (row: GuardrailOutcomeRecord) => Promise<void>;
 }
 
 /** A turn of `acme.helper` with `guardrails`, its lookup and refund tools, and what it does. */
@@ -249,7 +251,9 @@ function turn(guardrails: readonly Guardrail[], options: TurnOptions = {}) {
           };
         },
       },
-      guardrailOutcomes: { record: async (r: GuardrailOutcomeRecord) => void seen.rows.push(r) },
+      guardrailOutcomes: {
+        record: options.record ?? (async (r: GuardrailOutcomeRecord) => void seen.rows.push(r)),
+      },
       onEvent: (e: TurnEvent) => void seen.events.push(e),
       hitl: { enqueue: async () => undefined },
       ...(options.replayed !== undefined && {
@@ -353,6 +357,14 @@ async function failureOf(run: () => Promise<unknown>): Promise<Record<string, un
 
 const toolMessages = (seen: Seen) => seen.stored.filter((m) => m.role === 'tool');
 
+/** Each guardrail-check node's `influenced-by` target, by the node's id. */
+const checkLinks = (seen: Seen) =>
+  Object.fromEntries(
+    seen.edges
+      .filter((e) => e.from.startsWith('guardrail-check:') && e.kind === 'influenced-by')
+      .map((e) => [e.from, e.to]),
+  );
+
 describe("before-tool: a call, before it runs and before any approval's asked", () => {
   const BIG = guardrail('acme.no-big-refund', 'acme.no-big-refund', 'before-tool', 'retry');
 
@@ -375,7 +387,7 @@ describe("before-tool: a call, before it runs and before any approval's asked", 
     const out = await step(ctx, seen, [call('call-1', REFUND, { amount: 500 })], { iteration: 2 });
     expect(seen.rows).toEqual([
       expect.objectContaining({
-        nodeId: 'dispatch-tools@2:call-1',
+        nodeId: 'dispatch-tools@2:before-tool:call-1',
         point: 'before-tool',
         callId: 'call-1',
         checks: [
@@ -417,9 +429,34 @@ describe("before-tool: a call, before it runs and before any approval's asked", 
     expect(String(error.message)).toContain(`before calling ${REFUND}`);
     expect(seen.runs.get(REFUND)).toBeUndefined();
     expect(toolMessages(seen)).toEqual([]);
+    // The step ends here, and its check still goes in provenance.
+    expect(checkLinks(seen)).toEqual({
+      'guardrail-check:acme.no-big-refund@before-tool:call-1': 'model-call:1',
+    });
   });
 
-  test('its attempts count across the turn: the second refusal fails it', async () => {
+  test("a halt goes in provenance with the step's calls that ran before it", async () => {
+    const { ctx, seen } = turn([
+      guardrail('acme.no-big-refund', 'acme.no-big-refund', 'before-tool', 'halt'),
+      guardrail('acme.no-denied-lookup', 'acme.no-denied-lookup', 'before-tool', 'log-only'),
+    ]);
+    await failureOf(() =>
+      step(ctx, seen, [
+        call('call-1', LOOKUP, { q: 'deny' }),
+        call('call-2', REFUND, { amount: 500 }),
+      ]),
+    );
+    expect(seen.runs.get(LOOKUP)).toBe(1);
+    expect(checkLinks(seen)).toEqual({
+      'guardrail-check:acme.no-denied-lookup@before-tool:call-1': 'tool-call:call-1',
+      'guardrail-check:acme.no-big-refund@before-tool:call-2': 'model-call:1',
+    });
+    const ids = new Set(seen.nodes.map((n) => n.id));
+    expect(ids.has('tool-call:call-1')).toBe(true);
+    expect(ids.has('tool-result:call-1')).toBe(true);
+  });
+
+  test('two replies are two attempts: the second reply refused fails the turn', async () => {
     const { ctx, seen } = turn([BIG]);
     const first = await step(ctx, seen, [call('call-1', REFUND, { amount: 500 })]);
     const error = await failureOf(() =>
@@ -429,6 +466,97 @@ describe("before-tool: a call, before it runs and before any approval's asked", 
       }),
     );
     expect(error).toMatchObject({ code: 'guardrail-violation', attempts: 2, callId: 'call-2' });
+    expect(String(error.message)).toContain(`before calling ${REFUND}, after 2 replies`);
+    expect(checkLinks(seen)).toMatchObject({
+      'guardrail-check:acme.no-big-refund@before-tool:call-2': 'model-call:2',
+    });
+  });
+
+  test('one reply is one attempt: two of its calls refused leave the turn going', async () => {
+    const { ctx, seen } = turn([BIG]);
+    const first = await step(ctx, seen, [
+      call('call-1', REFUND, { amount: 500 }),
+      call('call-2', REFUND, { amount: 400 }),
+    ]);
+    expect(seen.runs.get(REFUND)).toBeUndefined();
+    expect(first.nextMessages.filter((m) => m.guardrailNote !== undefined)).toHaveLength(2);
+    expect(turnRetryNotes(ctx, first.nextMessages, true)).toEqual([['acme.no-big-refund']]);
+    const error = await failureOf(() =>
+      step(ctx, seen, [call('call-3', REFUND, { amount: 300 })], {
+        iteration: 1,
+        sent: first.nextMessages,
+      }),
+    );
+    expect(error).toMatchObject({ attempts: 2, callId: 'call-3' });
+  });
+
+  test('an earlier reply counts once, however many of its calls were refused', async () => {
+    const { ctx, seen } = turn([
+      guardrail('acme.no-big-refund', 'acme.no-big-refund', 'before-tool', 'retry', {
+        action: { 'on-violation': 'retry', retry: { maxAttempts: 3 } },
+      }),
+    ]);
+    const first = await step(ctx, seen, [
+      call('call-1', REFUND, { amount: 500 }),
+      call('call-2', REFUND, { amount: 400 }),
+    ]);
+    const second = await step(ctx, seen, [call('call-3', REFUND, { amount: 300 })], {
+      iteration: 1,
+      sent: first.nextMessages,
+    });
+    expect(second.nextMessages.at(-1)?.guardrailNote).toEqual(['acme.no-big-refund']);
+    const error = await failureOf(() =>
+      step(ctx, seen, [call('call-4', REFUND, { amount: 200 })], {
+        iteration: 2,
+        sent: second.nextMessages,
+      }),
+    );
+    expect(error).toMatchObject({ attempts: 3, callId: 'call-4' });
+  });
+
+  test('two guardrails that act on one reply count it once each', async () => {
+    const { ctx, seen } = turn([
+      BIG,
+      guardrail('acme.no-denied-lookup', 'acme.no-denied-lookup', 'before-tool', 'retry'),
+    ]);
+    const first = await step(ctx, seen, [
+      call('call-1', REFUND, { amount: 500 }),
+      call('call-2', LOOKUP, { q: 'deny' }),
+    ]);
+    expect(turnRetryNotes(ctx, first.nextMessages, true)).toEqual([
+      ['acme.no-big-refund', 'acme.no-denied-lookup'],
+    ]);
+    const error = await failureOf(() =>
+      step(ctx, seen, [call('call-3', LOOKUP, { q: 'deny' })], {
+        iteration: 1,
+        sent: first.nextMessages,
+      }),
+    );
+    expect(error).toMatchObject({
+      attempts: 2,
+      callId: 'call-3',
+      violations: [expect.objectContaining({ guardrailId: 'acme.no-denied-lookup' })],
+    });
+  });
+
+  test("a call's two points are two records: a sink that replaces a step's rows keeps both", async () => {
+    const rows = new Map<string, GuardrailOutcomeRecord>();
+    const { ctx, seen } = turn(
+      [
+        guardrail('acme.no-denied-lookup', 'acme.no-denied-lookup', 'before-tool', 'log-only'),
+        guardrail('acme.no-secret', 'acme.no-secret', 'after-tool', 'log-only'),
+      ],
+      {
+        lookup: () => ({ text: 'the secret code is 7' }),
+        // As the runtime's sink does: a step recorded again replaces what it recorded.
+        record: async (r) => void rows.set(`${r.runId}:${r.nodeId}`, r),
+      },
+    );
+    await step(ctx, seen, [call('call-1', LOOKUP, { q: 'deny' })]);
+    expect([...rows.values()].map((r) => [r.nodeId, r.point, r.checks[0]?.guardrailId])).toEqual([
+      ['dispatch-tools@0:before-tool:call-1', 'before-tool', 'acme.no-denied-lookup'],
+      ['dispatch-tools@0:after-tool:call-1', 'after-tool', 'acme.no-secret'],
+    ]);
   });
 
   test("a tool's own result that reads as a note counts for nothing", async () => {
@@ -481,10 +609,10 @@ describe("before-tool: a call, before it runs and before any approval's asked", 
     const out = await step(ctx, seen, [call('call-1', REFUND, { amount: 500 })]);
     expect(seen.runs.get(REFUND)).toBe(1);
     expect([...(ctx.pointViolations?.keys() ?? [])]).toEqual([
-      'dispatch-tools@0:call-1:acme.no-big-refund',
+      'dispatch-tools@0:before-tool:call-1:acme.no-big-refund',
     ]);
     expect(out.guardrailViolations?.map((v) => v.key)).toEqual([
-      'dispatch-tools@0:call-1:acme.no-big-refund',
+      'dispatch-tools@0:before-tool:call-1:acme.no-big-refund',
     ]);
   });
 
@@ -513,13 +641,27 @@ describe("before-tool: a call, before it runs and before any approval's asked", 
     });
   });
 
-  test('a check past its time is stopped, and fails as check-timed-out', async () => {
+  test("a check that isn't registered counts as the final answer's only, and says so", async () => {
+    const { ctx, seen } = turn([
+      guardrail('acme.missing', 'acme.not-there', 'before-tool', 'retry'),
+    ]);
+    await step(ctx, seen, [call('call-1', REFUND, { amount: 5 })]);
+    expect(seen.runs.get(REFUND)).toBeUndefined();
+    const note = String(toolMessages(seen)[0]?.content);
+    expect(note).toContain('check-point-unsupported');
+    expect(note).toContain('no check by that name is registered');
+  });
+
+  test('a check past its time is cancelled, and fails as check-timed-out', async () => {
     const { ctx, seen } = turn([
       guardrail('acme.slow', 'acme.slow', 'before-tool', 'retry', { budget: { maxLatencyMs: 20 } }),
     ]);
     await step(ctx, seen, [call('call-1', REFUND, { amount: 5 })]);
     expect(seen.runs.get(REFUND)).toBeUndefined();
     expect(String(toolMessages(seen)[0]?.content)).toContain('check-timed-out');
+    expect(String(toolMessages(seen)[0]?.content)).toContain(
+      'the turn stopped waiting for it and cancelled it',
+    );
     expect(seen.events).toContainEqual(
       expect.objectContaining({
         kind: 'guardrail.error',
@@ -580,6 +722,9 @@ describe('after-tool: what a call came to, before the model sees it', () => {
     });
     expect(String(error.message)).toContain(`after ${LOOKUP} ran`);
     expect(toolMessages(seen)).toEqual([]);
+    expect(checkLinks(seen)).toEqual({
+      'guardrail-check:acme.no-secret@after-tool:call-1': 'model-call:1',
+    });
   });
 
   test("a replay's recorded result is screened as a live one is", async () => {
@@ -631,6 +776,28 @@ describe('model-step: a reply that asks for calls, before any of them runs', () 
     );
     expect(error).toMatchObject({ code: 'guardrail-violation', point: 'model-step' });
     expect(seen.stored).toEqual([]);
+    expect(checkLinks(seen)).toEqual({
+      'guardrail-check:acme.no-secret@model-step:1': 'model-call:1',
+    });
+  });
+
+  test('out of attempts, the turn fails after its replies, and the check goes in provenance', async () => {
+    const { ctx, seen } = turn([SECRET]);
+    const first = await step(ctx, seen, [call('call-1', REFUND, { amount: 5 })], {
+      text: 'A secret.',
+    });
+    const error = await failureOf(() =>
+      step(ctx, seen, [call('call-2', REFUND, { amount: 5 })], {
+        text: 'Still a secret.',
+        iteration: 1,
+        sent: first.nextMessages,
+      }),
+    );
+    expect(error).toMatchObject({ code: 'guardrail-violation', point: 'model-step', attempts: 2 });
+    expect(String(error.message)).toContain('on a model reply, after 2 replies');
+    expect(checkLinks(seen)).toMatchObject({
+      'guardrail-check:acme.no-secret@model-step:2': 'model-call:2',
+    });
   });
 
   test('a reply that passes is stored and its calls run', async () => {

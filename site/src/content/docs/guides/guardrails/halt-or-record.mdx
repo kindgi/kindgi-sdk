@@ -333,6 +333,8 @@ Its action applies to that step:
   reply.
 - **With `log-only`,** the step goes ahead, and the failure joins the turn's
   `violations`.
+- **A dry run** records a `retry` guardrail's failure, as `log-only` does:
+  the call runs, its result is kept and the reply goes on.
 
 With `halt`, the message says where the turn stopped. For the refund-limit
 guardrail from
@@ -356,15 +358,17 @@ ends "Go on without its result." A reply that's sent back gets a user
 message instead, which says the reply wasn't acted on and none of its tool
 calls ran, and asks for a new reply.
 
-- **Attempts count across the turn.** `retry.maxAttempts` counts every call
-  the guardrail refused, result it withheld and reply it sent back, the
-  first one included. When they run out, or the turn has no steps left,
-  the turn fails with `guardrail-violation`, and `details.attempts`
-  says how many there were. The message counts tries at a tool call and
-  replies at a model reply: "Turn blocked by guardrail
-  'my-pack.refund-limit' before calling acme.orders.refund, after 2 tries:
-  The refund is 250; the limit is 100." A tool's own result never counts as
-  an attempt, whatever its text.
+- **Attempts count across the turn, one for each reply.**
+  `retry.maxAttempts` counts the model's replies the guardrail acted on,
+  the first one included: a reply it sent back, or one with a call it
+  refused or a result it withheld. Two calls of one reply that it refuses
+  are one attempt, since the model hasn't seen either refusal yet, and two
+  guardrails that act on one reply count it once each. When they run out,
+  or the turn has no steps left, the turn fails with `guardrail-violation`,
+  and `details.attempts` says how many replies there were: "Turn blocked by
+  guardrail 'my-pack.refund-limit' before calling acme.orders.refund, after
+  2 replies: The refund is 250; the limit is 100." A tool's own result
+  never counts as an attempt, whatever its text.
 - **The record says where.** A failed turn's `details.point` names the
   point, and at a tool call `details.callId` names the call. The
   `guardrail.violated` and `guardrail.error` events carry both, and so does
@@ -381,7 +385,11 @@ calls ran, and asks for a new reply.
 A guardrail whose check can't run at all never counts as passed. A check
 can't run when:
 
-- no check by that name is registered;
+- no check by that name is registered. At the final answer that's
+  `unknown-check`. At a tool call or a model reply, such a check counts as
+  one that runs at the final answer only, so it fails as
+  `check-point-unsupported`, and the message says no check by that name is
+  registered;
 - its configuration is invalid;
 - an `llm-judge` guardrail's judge can't be routed to a model;
 - with a pack service for each deployment, the check's pack isn't deployed
@@ -399,7 +407,8 @@ What happens next depends on the action:
 
 - With `halt`, the turn fails with `guardrail-violation`. Its `violations`
   is empty, `evaluationErrors` names the guardrail, and the message says
-  why. Here a guardrail names a pack check that nothing deployed:
+  why. Here a guardrail at the final answer names a pack check that nothing
+  deployed:
 
   ```text
   Error [guardrail-violation]: Turn blocked: guardrail 'acme.pack-only' couldn't run its check (unknown-check: Guardrail "acme.pack-only" references unregistered check "acme.checks.not-deployed")
@@ -408,14 +417,15 @@ What happens next depends on the action:
   At a tool call or a model reply, the message also says where:
 
   ```text
-  Error [guardrail-violation]: Turn blocked before calling acme.orders.refund: guardrail 'my-pack.refund-limit' couldn't run its check (check-timed-out: Guardrail "my-pack.refund-limit"'s check "my-pack.checks.refund-limit" ran past 10000 ms and was stopped)
+  Error [guardrail-violation]: Turn blocked before calling acme.orders.refund: guardrail 'my-pack.refund-limit' couldn't run its check (check-timed-out: Guardrail "my-pack.refund-limit"'s check "my-pack.checks.refund-limit" ran past 10000 ms: the turn stopped waiting for it and cancelled it)
   ```
 - With `retry` at the final answer, the error doesn't send the answer back:
   the turn goes on as if the check had passed.
 - With `retry` at a tool call or a model reply, the error counts as a failed
   check: the call is refused, the result withheld or the reply sent back,
   with the reason `its check couldn't run (<code>): <message>`. So with
-  `halt` or `retry`, a check that can't run never lets a call through.
+  `halt`, or with `retry` outside a dry run, a check that can't run never
+  lets a call through.
 - With any other action, the turn completes.
 
 Where each deployment has its own pack service, as on Kindgi Cloud

@@ -420,13 +420,16 @@ apply either.
 
 ### How long its check may take
 
-At `'before-tool'`, `'after-tool'` and `'model-step'`, the agent loop stops a
-check that runs past its guardrail's `budget.maxLatencyMs`, such as
-`budget: { maxLatencyMs: 2_000 }` for two seconds. A guardrail without one gets a
+At `'before-tool'`, `'after-tool'` and `'model-step'`, a check may take as
+long as its guardrail's `budget.maxLatencyMs`, such as
+`budget: { maxLatencyMs: 2_000 }` for two seconds. Past it, the agent loop
+stops waiting for the check and cancels it. A guardrail without one gets a
 limit by its kind: 10 seconds for `zero-llm`, 60 for `llm-judge` and 30 for
-any other. A check stopped this way fails with `check-timed-out`, and the
+any other. A check cancelled this way fails with `check-timed-out`, and the
 guardrail's action handles it as a check that couldn't run
 ([When the check can't run](../halt-or-record/#when-the-check-cant-run)).
+A pack's check already running on its service can still finish there; its
+result is dropped.
 
 At the final answer, a check has no time limit. `budget.maxCostUsd` isn't
 enforced at any point.

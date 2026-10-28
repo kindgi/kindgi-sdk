@@ -404,7 +404,7 @@ At each point, the trace holds what the check judges:
 - `trace.call`, at `'before-tool'` and `'after-tool'`: the call, with its
   `callId`, `toolId`, `toolName`, `toolVersion` and `arguments`.
 - `trace.result`, at `'after-tool'`: what the call came to. `{ output }`
-  when it returned, or `{ error: { code, message } }` when it threw.
+  when it returned, or `{ error: { code?, message } }` when it threw.
 - `trace.step`, at `'model-step'`: the reply, with its `text` and the
   `toolCalls` it asks for. `text` is empty when the reply only asks for
   calls.

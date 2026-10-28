@@ -68,7 +68,8 @@ export function hasLoopGuardrails(ctx: TurnContext): boolean {
  * checks whenever it resolves its checks: at setup, and again on each
  * resume. Away from the final answer, a check the registry doesn't hold
  * counts as the final answer only, since a strategy that runs without
- * the registry can't say where it runs. At the final answer, such a check
+ * the registry can't say where it runs, and its problem says no check by
+ * that name is registered. At the final answer, such a check
  * is left to the engine's `unknown-check`, as before points existed.
  */
 export function guardrailPointFaults(
@@ -83,7 +84,13 @@ export function guardrailPointFaults(
       g,
       check !== undefined ? checkPoints(check) : DEFAULT_CHECK_POINTS,
     );
-    if (problem !== undefined) faults.set(g.id as string, problem.message);
+    if (problem === undefined) continue;
+    faults.set(
+      g.id as string,
+      check === undefined
+        ? 'no check by that name is registered, so it counts as one that runs at the final answer only'
+        : problem.message,
+    );
   }
   return faults;
 }
@@ -166,7 +173,10 @@ function noteKey(callId: string): string {
   return `guardrail-note:${callId}`;
 }
 
-/** That a call runs, recorded before it runs, so a step run again after a park knows (`callRan`). */
+/**
+ * That a call ran, recorded before its result is stored, so a step run
+ * again after a park knows (`callRan`).
+ */
 function ranKey(callId: string): string {
   return `guardrail-ran:${callId}`;
 }
@@ -177,9 +187,10 @@ export function ranCallKey(replySequence: number, callId: string): string {
 }
 
 /**
- * Records, before the call runs, that it runs (`ctx.ranCalls`), for the
- * trace's `toolCalls` at the loop's points. Only in a turn with a
- * guardrail in the loop: no other trace reads it.
+ * Records that the call ran (`ctx.ranCalls`), once it ran and before its
+ * result is stored (`screen`), for the trace's `toolCalls` at the loop's
+ * points. Only in a turn with a guardrail in the loop: no other trace
+ * reads it.
  */
 export async function markCallRan(
   ctx: TurnContext,

@@ -34,7 +34,10 @@ export function judgedInLoop(guardrail: Guardrail): boolean {
   return isRetryGuardrail(guardrail) || guardrail.action['on-violation'] === 'halt';
 }
 
-/** The answers a `retry` guardrail allows in a turn, the first one included. */
+/**
+ * The attempts a `retry` guardrail allows in a turn, the first one
+ * included: answers at the final answer, replies at the loop's points.
+ */
 export function attemptsOf(guardrail: Guardrail): number {
   return guardrail.action.retry?.maxAttempts ?? DEFAULT_GUARDRAIL_ATTEMPTS;
 }
@@ -85,7 +88,10 @@ export function toWireMessages(messages: readonly ModelMessage[]): readonly Mode
 /**
  * The guardrails each note in `messages` sent an answer back for, in
  * order. The note's first line names them as a JSON array after the
- * marker, so any guardrail id reads back as written. Read only what the
+ * marker, so any guardrail id reads back as written. `withCalls` adds
+ * the calls' notes, one for each reply: the calls of one reply that
+ * guardrails refused or withheld are one note, naming each guardrail
+ * once, since the reply is one attempt of the model's. Read only what the
  * turn's loop added (`turnRetryNotes`): anyone can write a message that
  * starts with the marker.
  */
@@ -94,17 +100,34 @@ export function retryNotes(
   withCalls = false,
 ): readonly (readonly string[])[] {
   const notes: string[][] = [];
+  // The note of the reply whose calls' results follow, once one of them is a note.
+  let replyNote: string[] | undefined;
   for (const m of messages) {
     if (withCalls && isCallNote(m)) {
-      notes.push([...((m as LoopMessage).guardrailNote ?? [])]);
+      if (replyNote === undefined) {
+        replyNote = [];
+        notes.push(replyNote);
+      }
+      addOnce(replyNote, (m as LoopMessage).guardrailNote ?? []);
       continue;
     }
-    if (!isRetryNote(m)) continue;
-    const content = m.content as string;
-    const firstLine = content.slice(RETRY_MARKER.length).split('\n', 1)[0] ?? '';
-    notes.push(idsOf(firstLine));
+    if (m.role !== 'tool') replyNote = undefined;
+    if (isRetryNote(m)) notes.push(answerNoteIds(m));
   }
   return notes;
+}
+
+/** The guardrails an answer's note names: its first line, after the marker. */
+function answerNoteIds(m: ModelMessage): string[] {
+  const content = m.content as string;
+  return idsOf(content.slice(RETRY_MARKER.length).split('\n', 1)[0] ?? '');
+}
+
+/** Adds each of `ids` to `note` that it doesn't name yet. */
+function addOnce(note: string[], ids: readonly string[]): void {
+  for (const id of ids) {
+    if (!note.includes(id)) note.push(id);
+  }
 }
 
 /**
@@ -113,8 +136,9 @@ export function retryNotes(
  * turn's or one in the history, that starts with the marker is theirs,
  * and counts for nothing. What the loop's attempts, the outer node's
  * sent-back provenance and a failure's `attempts` all count. `withCalls`
- * adds the calls' notes, which a guardrail at a tool point counts its
- * attempts by; an answer's are only the answers sent back.
+ * adds the calls' notes, one for each reply, which a guardrail at a tool
+ * point counts its attempts by; an answer's are only the answers sent
+ * back.
  */
 export function turnRetryNotes(
   ctx: TurnContext,
@@ -122,6 +146,17 @@ export function turnRetryNotes(
   withCalls = false,
 ): readonly (readonly string[])[] {
   return retryNotes(loopMessages(ctx, messages, "a guardrail's notes"), withCalls);
+}
+
+/**
+ * The loop's messages before the reply whose calls a tool point judges:
+ * `sent` without that reply, its last assistant message, and the results
+ * of its calls so far. The reply is the attempt being judged, so its
+ * calls' notes don't count as earlier ones.
+ */
+export function beforeReply(sent: readonly ModelMessage[]): readonly ModelMessage[] {
+  const reply = sent.findLastIndex((m) => m.role === 'assistant');
+  return reply < 0 ? sent : sent.slice(0, reply);
 }
 
 /**

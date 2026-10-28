@@ -53,8 +53,10 @@ export interface GuardrailOutcomeRecord {
    * `evaluate-guardrails` after the agent loop, `budget-check@<iteration>`
    * for an answer the loop judged (a turn with a `retry` guardrail),
    * `dispatch-tools@<iteration>` for a model reply (`'model-step'`), and
-   * `dispatch-tools@<iteration>:<callId>` for a tool call, before or after
-   * it ran, so it isn't always a flow node's id.
+   * `dispatch-tools@<iteration>:before-tool:<callId>` and
+   * `dispatch-tools@<iteration>:after-tool:<callId>` for a tool call,
+   * before and after it ran: a call's two points are two steps, so
+   * neither record replaces the other. It isn't always a flow node's id.
    */
   readonly nodeId: string;
   /** Where in the turn the checks ran. Absent: the final answer. */

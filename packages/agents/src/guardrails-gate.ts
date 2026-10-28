@@ -391,13 +391,14 @@ export interface BlockedAt {
  * Message for a turn stopped by blocking violations — names each
  * guardrail that fired, with its check's reason when it gave one, where
  * in the turn when it wasn't the final answer, and, for `retry`
- * guardrails out of attempts, the answers (replies, or tries at a tool
- * call) the turn made:
+ * guardrails out of attempts, the answers (or, in the loop, the replies)
+ * the turn made:
  *
  *   Turn blocked by guardrail 'no-pii': Response contains an email address
  *   Turn blocked by 2 guardrails: 'no-pii' (Response contains …); 'max-length'
  *   Turn blocked by guardrail 'cite' after 2 answers: No source cited
  *   Turn blocked by guardrail 'no-refund' before calling acme.woo.refund: …
+ *   Turn blocked by guardrail 'no-refund' before calling acme.woo.refund, after 2 replies: …
  *   Turn blocked by guardrail 'no-pii' on a model reply, after 2 replies: …
  */
 export function describeBlockingViolations(
@@ -416,11 +417,11 @@ export function describeBlockingViolations(
         : point === 'model-step'
           ? ' on a model reply'
           : '';
-  const noun = point === 'final-answer' ? 'answer' : point === 'model-step' ? 'reply' : 'try';
+  const noun = point === 'final-answer' ? 'answer' : 'reply';
   const counted =
     attempts === undefined
       ? ''
-      : `${attempts} ${attempts === 1 ? noun : noun === 'try' ? 'tries' : `${noun}s`}`;
+      : `${attempts} ${attempts === 1 ? noun : noun === 'reply' ? 'replies' : `${noun}s`}`;
   const after = `${where}${counted === '' ? '' : `${where === '' ? '' : ','} after ${counted}`}`;
   const reasonOf = (v: EvaluationResult): string | undefined => {
     const reason = v.result.reason?.trim();
@@ -500,8 +501,9 @@ export interface GuardrailViolationError {
   readonly evaluationErrors: readonly GuardrailEvaluationError[];
   /**
    * For `retry` guardrails out of attempts: the answers the turn wrote,
-   * the first one included, or at a loop point the tries there. Absent
-   * when a `halt` guardrail blocked it.
+   * the first one included, or at a loop point its replies the guardrail
+   * sent back or refused or withheld a call of. Absent when a `halt`
+   * guardrail blocked it.
    */
   readonly attempts?: number;
   /** Where in the turn the guardrails stopped it (`Guardrail.at`). Absent: the final answer. */
