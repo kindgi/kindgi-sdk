@@ -92,14 +92,19 @@ const children: Record<string, KernelRunRecord[]> = {
   ] as unknown as KernelRunRecord[],
 };
 
-function bindings(options: { journal?: Record<string, unknown[]> } = {}) {
+function bindings(
+  options: {
+    journal?: Record<string, unknown[]>;
+    children?: Record<string, KernelRunRecord[]>;
+  } = {},
+) {
   const runBinding = {
     readJournal: async (_t: TenantId, runId: string) => ({
       kind: 'ok',
       value: (options.journal ?? journals)[runId] ?? [],
     }),
     listRuns: async (input: ListRunsInput) => ({
-      data: children[input.parent?.runId as unknown as string] ?? [],
+      data: (options.children ?? children)[input.parent?.runId as unknown as string] ?? [],
     }),
     getRun: async () => null,
   } as unknown as RunBinding;
@@ -179,6 +184,50 @@ describe('what a judged flow run keeps', () => {
         toolId: 'acme.send',
         arguments: { to: 'desk' },
         result: { sent: true },
+      },
+    ]);
+  });
+
+  test("an agent step's turn's result that was outside data keeps its mark", async () => {
+    // The turn's model read the warehouse's answer to a paused call as data
+    // (its tool message's `fromEvent`); the lookup's result is plain.
+    const turn = (children['run-flow'] ?? [])[0] as KernelRunRecord;
+    const output = {
+      appended: [
+        ...turnOutput.appended.slice(0, 3),
+        {
+          role: 'agent',
+          content: {
+            text: '',
+            toolCalls: [{ id: 'c2', name: 'acme.ask-warehouse', arguments: { sku: 'b-12' } }],
+          },
+        },
+        {
+          role: 'tool',
+          content: { inStock: 4 },
+          toolCall: { toolId: 'acme.ask-warehouse', invocationId: 'c2' },
+          fromEvent: true,
+        },
+      ],
+    };
+    const ctx = await capture(
+      bindings({ children: { 'run-flow': [{ ...turn, output } as KernelRunRecord] } }),
+    );
+    expect(ctx?.flow?.calls.filter((c) => c.runId === 'run-turn')).toEqual([
+      {
+        runId: 'run-turn',
+        nodeId: 'draft',
+        toolId: 'acme.lookup',
+        arguments: { q: 'x' },
+        result: { found: 1 },
+      },
+      {
+        runId: 'run-turn',
+        nodeId: 'draft',
+        toolId: 'acme.ask-warehouse',
+        arguments: { sku: 'b-12' },
+        result: { inStock: 4 },
+        fromEvent: true,
       },
     ]);
   });

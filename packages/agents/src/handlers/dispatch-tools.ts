@@ -352,11 +352,18 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           invocationId: call.id,
           arguments: call.arguments,
         });
-        nextMessages = await appendToolResult(ctx, call, replayed.result, {
-          toolId: tool.id as unknown as string,
-          nextMessages,
-          iterationAppended,
-        });
+        // A recorded result is outside data when the past run kept it so,
+        // or when the tool says its results are, as a live call's is.
+        const fromOutside =
+          replayed.kind === 'recorded' &&
+          (replayed.fromEvent === true || tool.resultIsOutsideData === true);
+        nextMessages = await appendToolResult(
+          ctx,
+          call,
+          replayed.result,
+          { toolId: tool.id as unknown as string, nextMessages, iterationAppended },
+          fromOutside,
+        );
         await emitTurnEvent(ctx.bindings.onEvent, {
           kind: 'tool.completed',
           step: partial.step,
@@ -722,15 +729,17 @@ interface ToolResultTarget {
 
 /**
  * Record a result the framework writes for a call (a rejection, a failed
- * call sent back to the model) the way a tool's own result is recorded:
- * persisted to the conversation with the call it answers, and added to
- * the messages the next model call sees.
+ * call sent back to the model, a replay's recorded result) the way a
+ * tool's own result is recorded: persisted to the conversation with the
+ * call it answers, and added to the messages the next model call sees.
+ * `fromOutside`: the result is outside data, kept marked and sent as data.
  */
 async function appendToolResult(
   ctx: TurnContext,
   call: ModelToolCall,
   output: unknown,
   target: ToolResultTarget,
+  fromOutside = false,
 ): Promise<ModelMessage[]> {
   const persisted = await ctx.bindings.conversationBinding.appendMessage({
     tenantId: ctx.input.tenantId,
@@ -738,6 +747,8 @@ async function appendToolResult(
     role: 'tool',
     content: output as Record<string, unknown>,
     toolCall: { toolId: target.toolId, invocationId: call.id },
+    // Outside data stays data in every later turn's history.
+    ...(fromOutside && { fromEvent: true as const }),
   });
   if (persisted.kind === 'err') throwAgentTurnFailure(persisted.error);
   ctx.appended.push(persisted.value);
@@ -746,8 +757,9 @@ async function appendToolResult(
     ...target.nextMessages,
     {
       role: 'tool',
-      // As a tool's own result reaches the model: a string as it is.
-      content: typeof output === 'string' ? output : JSON.stringify(output),
+      // As a tool's own result reaches the model: a string as it is, and
+      // outside data as data.
+      content: toolResultForModel(output, fromOutside),
       toolCallId: call.id,
     },
   ];

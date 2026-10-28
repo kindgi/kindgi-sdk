@@ -56,11 +56,16 @@ function toolNodes(flow: Flow | null): ReadonlyMap<string, string> {
 /**
  * The tool calls an agent turn made, with their results, from its
  * output's `appended` messages: each agent message's `toolCalls`, paired
- * with the `tool` message that answered it.
+ * with the `tool` message that answered it. A result the turn kept as
+ * outside data (the message's `fromEvent`) keeps the mark, so a replay
+ * hands it to the model as data, as the turn did.
  */
-export function turnToolCalls(
-  output: unknown,
-): readonly { readonly toolId: string; readonly arguments: unknown; readonly result: unknown }[] {
+export function turnToolCalls(output: unknown): readonly {
+  readonly toolId: string;
+  readonly arguments: unknown;
+  readonly result: unknown;
+  readonly fromEvent?: true;
+}[] {
   const appended = obj(output)?.appended;
   if (!Array.isArray(appended)) return [];
   const args = new Map<string, unknown>();
@@ -79,9 +84,15 @@ export function turnToolCalls(
     if (obj(m)?.role !== 'tool' || typeof toolId !== 'string' || typeof invocationId !== 'string') {
       return [];
     }
-    return args.has(invocationId)
-      ? [{ toolId, arguments: args.get(invocationId), result: obj(m)?.content }]
-      : [];
+    if (!args.has(invocationId)) return [];
+    return [
+      {
+        toolId,
+        arguments: args.get(invocationId),
+        result: obj(m)?.content,
+        ...(obj(m)?.fromEvent === true && { fromEvent: true as const }),
+      },
+    ];
   });
 }
 
