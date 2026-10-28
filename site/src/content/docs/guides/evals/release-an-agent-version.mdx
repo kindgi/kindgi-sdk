@@ -687,15 +687,15 @@ It prints the request, with its status, or the policy's refusal:
 It exits 0 when the version is live, and 3 when it waits for an approval or
 the policy refused it.
 
-To wait for the reviewer, add `--wait`. It names the approval it waits for
-and the command that approves it, then exits 0 once the version is live, or
-3 when the approval is rejected or expires or the wait runs out: an hour, or
-the time `--wait=30m` gives. It exits 3 too when the request is superseded:
-it was approved, but something the check measured changed since then, such
-as the version serving the scope or its release gate policy, so check again.
-It exits 1 when it can't read the request 3 times in a row, after printing
-what it read last. Neither that nor Ctrl-C stops the request: once it's
-approved, the version goes live.
+To wait for the reviewer, add `--wait`. It names the approval it waits for and
+the command that approves it, then exits 0 once the version is live, or 3 when
+the approval is rejected or expires or the wait runs out: an hour, or the time
+`--wait=30m` gives. It exits 3 too when the request is superseded: it was
+approved, but something the check measured had changed by then, such as the
+version serving the scope or its release gate policy, so promote it again: the
+check runs anew. It exits 1 when it can't read the request 3 times in a row,
+after printing what it read last. Neither that nor Ctrl-C stops the request:
+once it's approved, the version goes live.
 
 ### Approve it
 
