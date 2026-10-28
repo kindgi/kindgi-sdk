@@ -8,6 +8,7 @@
 - 4. `handler` and `spec` together.
 - 5. `{placeholder}` in `urlTemplate` without a matching input key.
 - 6. An HTTP tool's `secretRef` in the wrong env.
+- 7. Reading a secret from `process.env` in a tool that runs for many tenants.
 - 8. Bumping `version` on every dev save.
 - 9. A package a tool imports, listed only in `devDependencies`.
 - 10. A tool that needs the app's install scripts in the image.

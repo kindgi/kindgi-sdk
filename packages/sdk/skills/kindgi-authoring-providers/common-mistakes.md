@@ -13,6 +13,7 @@
 - 8. Compound `preferredProvider` strings.
 - 9. Replies still come from dev-echo
 - 10. A setting the adapter can't use.
+- 11. A provider registered by hand under `kindgi dev`, with nothing committed.
 
 0. **`adapter_id` uses the short name.** The `adapter_id` field must
    be the FULL npm package name of the adapter — `"@kindgi/adapter-model-anthropic"`,
