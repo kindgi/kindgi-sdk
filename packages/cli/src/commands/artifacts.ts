@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { createWriteStream } from 'node:fs';
-import { access, readFile } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import { access, open, readFile, rename, rm } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import type { BlobMeta, ListPage } from '@kindgi/client';
+import type { BlobMeta, DownloadedArtifact, ListPage } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
@@ -150,11 +150,64 @@ const exists = (path: string) =>
     () => false,
   );
 
+/**
+ * The body written to a new file beside `target` (as `kindgi exports
+ * create` writes its files), and renamed over it only once the whole body
+ * has arrived: the stream ended, with the sha256 the server sent. Otherwise
+ * that file is removed, and `target` is as it was. Returns the size and
+ * sha256 of the bytes written.
+ */
+async function saveWhole(
+  got: DownloadedArtifact,
+  target: string,
+): Promise<{ size: number; hash: string }> {
+  const partial = `${target}.${randomBytes(4).toString('hex')}.partial`;
+  const file = await open(partial, 'wx').catch(async (err: unknown) => {
+    await got.body.cancel();
+    throw err;
+  });
+  const sha256 = createHash('sha256');
+  let size = 0;
+  try {
+    await pipeline(
+      Readable.fromWeb(got.body as Parameters<typeof Readable.fromWeb>[0]),
+      async function* (chunks: AsyncIterable<Buffer>) {
+        for await (const chunk of chunks) {
+          sha256.update(chunk);
+          size += chunk.length;
+          yield chunk;
+        }
+      },
+      file.createWriteStream(),
+    );
+  } catch (err) {
+    await rm(partial, { force: true });
+    throw new Error(
+      `the download stopped part way (${(err as Error).message}): ${target} wasn't written`,
+      { cause: err },
+    );
+  }
+  // The route sends the sha256 as lowercase hex, as digest('hex') gives it.
+  const hash = sha256.digest('hex');
+  // With no hash header (a proxy may drop it), the stream's end is all there is to go on.
+  if (got.hash !== '' && hash !== got.hash) {
+    await rm(partial, { force: true });
+    throw new Error(
+      `the bytes that arrived have the sha256 ${hash}, not the artifact's ${got.hash}: ${target} wasn't written`,
+    );
+  }
+  await rename(partial, target).catch(async (err: unknown) => {
+    await rm(partial, { force: true });
+    throw err;
+  });
+  return { size, hash };
+}
+
 const download: LeafCommand = {
   kind: 'leaf',
   name: 'download',
   description:
-    "Download an artifact to a file: -o's path, else its own name in this directory (an existing file is kept unless --force).",
+    "Download an artifact to a file: -o's path, else its own name in this directory (an existing file is kept unless --force). The file is written only once the whole download has arrived.",
   usage: 'kindgi artifacts download <blob-id> [-o <file>] [--force]',
   optionSpec: {
     o: { type: 'string', description: 'Write it to this file.' },
@@ -169,11 +222,8 @@ const download: LeafCommand = {
         await got.body.cancel();
         throw new Error(`${target} exists: pass --force to overwrite it, or -o <file>`);
       }
-      await pipeline(
-        Readable.fromWeb(got.body as Parameters<typeof Readable.fromWeb>[0]),
-        createWriteStream(target),
-      );
-      return { blobId, file: target, size: got.size, hash: got.hash };
+      const saved = await saveWhole(got, target);
+      return { blobId, file: target, ...saved };
     }),
 };
 
