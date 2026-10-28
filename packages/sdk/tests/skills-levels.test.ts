@@ -36,19 +36,12 @@ const ENTRY_MAX = 6 * 1_024;
 const FILE_MAX = 16 * 1_024;
 const CONTENTS_FROM_LINES = 100;
 
-/**
- * The skills not split yet: the most bytes the entry may hold, and the
- * description's length when it's over the limit.
- */
-const NOT_YET_LEVELED: Readonly<
-  Record<string, { readonly bytes: number; readonly description?: number }>
-> = {
+/** The skills not split yet, and the most bytes each one's entry may hold. */
+const NOT_YET_LEVELED: Readonly<Record<string, { readonly bytes: number }>> = {
   'kindgi-authoring-agents': { bytes: 16_113 },
   'kindgi-authoring-flows': { bytes: 13_128 },
   'kindgi-authoring-guardrails': { bytes: 18_696 },
   'kindgi-authoring-mcp-servers': { bytes: 14_526 },
-  'kindgi-authoring-providers': { bytes: 45_358, description: 1_396 },
-  'kindgi-authoring-tools': { bytes: 32_439 },
   'kindgi-fix-corrections': { bytes: 13_613 },
   'kindgi-framework-feedback': { bytes: 12_337 },
   'kindgi-getting-started': { bytes: 18_214 },
@@ -159,10 +152,7 @@ describe.each(skills)('%s', (skill) => {
     "not split yet, so it can't grow: split it, or raise its ceiling in NOT_YET_LEVELED";
 
   test('its description is within the limit', () => {
-    const length = description(entry.toString('utf8')).length;
-    expect(length, listed?.description === undefined ? 'description' : unsplit).toBeLessThanOrEqual(
-      listed?.description ?? DESCRIPTION_MAX,
-    );
+    expect(description(entry.toString('utf8')).length).toBeLessThanOrEqual(DESCRIPTION_MAX);
   });
 
   test('its entry is within the cap', () => {
@@ -172,9 +162,7 @@ describe.each(skills)('%s', (skill) => {
   });
 
   test('a skill under the caps is off the not-yet-split list', () => {
-    const leveled =
-      entry.byteLength <= ENTRY_MAX &&
-      description(entry.toString('utf8')).length <= DESCRIPTION_MAX;
+    const leveled = entry.byteLength <= ENTRY_MAX;
     expect(leveled && listed !== undefined, 'take it off NOT_YET_LEVELED').toBe(false);
   });
 
