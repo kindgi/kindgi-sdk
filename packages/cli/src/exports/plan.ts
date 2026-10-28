@@ -386,12 +386,26 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     paging: cursor,
     parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
   },
+  {
+    name: 'schedule-versions',
+    route: '/v1/schedules/{triggerId}/versions',
+    paging: cursor,
+    parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
+    covers: ['/v1/schedules/{triggerId}/versions/{version}'],
+  },
   { name: 'webhooks', route: '/v1/webhooks', paging: cursor, covers: ['/v1/webhooks/{triggerId}'] },
   {
     name: 'webhook-fires',
     route: '/v1/webhooks/{triggerId}/fires',
     paging: cursor,
     parent: { kind: 'webhooks', params: { triggerId: 'triggerId' } },
+  },
+  {
+    name: 'webhook-versions',
+    route: '/v1/webhooks/{triggerId}/versions',
+    paging: cursor,
+    parent: { kind: 'webhooks', params: { triggerId: 'triggerId' } },
+    covers: ['/v1/webhooks/{triggerId}/versions/{version}'],
   },
   {
     name: 'mail-triggers',
@@ -404,6 +418,13 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/mail-triggers/{triggerId}/fires',
     paging: cursor,
     parent: { kind: 'mail-triggers', params: { triggerId: 'triggerId' } },
+  },
+  {
+    name: 'mail-trigger-versions',
+    route: '/v1/mail-triggers/{triggerId}/versions',
+    paging: cursor,
+    parent: { kind: 'mail-triggers', params: { triggerId: 'triggerId' } },
+    covers: ['/v1/mail-triggers/{triggerId}/versions/{version}'],
   },
   {
     name: 'webhook-endpoints',

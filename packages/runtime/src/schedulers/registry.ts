@@ -100,8 +100,9 @@ export interface TriggerRegistryBinding {
 
   /**
    * Make `owner` the principal a schedule's runs act as (an admin re-owns
-   * a schedule whose owner left), as the trigger's next version (cause
-   * `owner`). Optional: without it, the route answers `501`.
+   * a schedule whose owner left). A new owner makes the trigger's next
+   * version (cause `owner`); the owner it already has makes none.
+   * Optional: without it, the route answers `501`.
    */
   setOwner?(
     input: TriggerLifecycleInput & {
@@ -684,10 +685,10 @@ export interface TriggerLifecycleInput {
 
 /**
  * What made a version: `register` (version 1), `edit` (an update that
- * changed the definition), `owner` (a take-ownership), `first-fire` (a
- * trigger registered before versions, at its first fire or poll: its
- * definition as it was), or `pin` (the runtime pinned a company mailbox to
- * its only connection).
+ * changed the definition), `owner` (a take-ownership to another owner),
+ * `first-fire` (a trigger registered before versions, at its first fire or
+ * poll: its definition as it was), or `pin` (the runtime pinned a company
+ * mailbox to its only connection).
  */
 export const TRIGGER_VERSION_CAUSES = ['register', 'edit', 'owner', 'first-fire', 'pin'] as const;
 export type TriggerVersionCause = (typeof TRIGGER_VERSION_CAUSES)[number];
