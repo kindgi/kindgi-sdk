@@ -381,8 +381,8 @@ export interface ConnectionBinding {
   }): Promise<Result<ConnectionRecord, ConnectionError>>;
   /**
    * Renames it. A label another live connection of the same app, owner and
-   * env has, by `comparableName` (ignoring case and an emoji's variation
-   * selector), is `connection-label-taken`; a removed connection is
+   * env has, by `comparableName` (names that look the same), is
+   * `connection-label-taken`; a removed connection is
    * `connection-not-found`.
    */
   update(input: {
@@ -446,11 +446,11 @@ export interface ConnectionBinding {
    *
    * A new connection's `label` is the request's, else the account's label
    * with its hidden characters (`hasHiddenCharacters`) removed, trimmed
-   * and cut to 100 characters. When another live connection of the same
-   * app, owner and env has it by then, by `comparableName`, it's the first
-   * free
-   * `<label> 2`, `<label> 3`, and so on: the grant isn't wasted. A
-   * reconnect keeps the connection's label and ignores the request's.
+   * and cut to 100 characters, a cut never leaving half an emoji. When
+   * another live connection of the same app, owner and env has it by then,
+   * by `comparableName`, it's the first free `<label> 2`, `<label> 3`, and
+   * so on: the grant isn't wasted. A reconnect keeps the connection's label
+   * and ignores the request's.
    *
    * A GitHub App's attaches an installation only if the person's GitHub
    * account reaches it: the one GitHub sent back, the one they picked, or

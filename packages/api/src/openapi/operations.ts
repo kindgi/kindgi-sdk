@@ -11322,7 +11322,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No registration with that `appId` (`connection-app-not-found`).'),
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case and an emoji's variation selector, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
       ),
     },
   },
@@ -11451,7 +11451,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "No connection with that id, it was disconnected, or it's not the caller's (`connection-not-found`).",
       ),
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; or another live connection of the same app, owner and env has that `label`, ignoring case and an emoji's variation selector (`connection-label-taken`, `details.field` `label`).",
+        "Idempotency-Key was reused with a different body; or another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded (`connection-label-taken`, `details.field` `label`).",
       ),
       '503': ErrorResponse("The rename couldn't be stored just now (`connection-store-failed`)."),
     },

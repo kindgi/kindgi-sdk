@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import type { ConnectRequestRecord } from '@kindgi/api';
+import { type ConnectRequestRecord, hasHiddenCharacters } from '@kindgi/api';
 import type { PrincipalRef } from '@kindgi/authz';
 import { type AppEntry, defineApp } from '@kindgi/connections';
 import { github } from '@kindgi/connections/github';
@@ -1304,6 +1304,52 @@ describe('names', () => {
       kind: 'ok',
       value: { kind: 'connected', connection: { label: `${'a'.repeat(98)} 2` } },
     });
+  });
+
+  test('a cut to 100 characters never leaves half a keycap, in a default or a numbered name', async () => {
+    const made = registrations();
+    const [a, b, c] = made.appIds as [string, string, string];
+    // The account's label: 98 letters, then a keycap across the 100th character.
+    const fromAccount = await connect(made.binding, {
+      appId: a,
+      code: `${'a'.repeat(98)}#\uFE0F\u20E3x`,
+    });
+    expect(fromAccount.connection.label).toBe(`${'a'.repeat(98)}#`);
+    // A name asked for, taken by the finish: its cut to 98 for " 2" lands inside a keycap.
+    const name = `${'b'.repeat(96)}1\uFE0F\u20E3c`;
+    const created = await made.binding.createRequest({
+      tenantId,
+      envName,
+      app: 'google',
+      appId: c,
+      owner: { kind: 'member', userId: ana.id },
+      permissions: ['gmail.send'],
+      label: name,
+      by: ana,
+    });
+    if (created.kind !== 'ok') throw new Error(created.error.message);
+    const other = await connect(made.binding, { appId: b });
+    await made.binding.update({
+      tenantId,
+      connectionId: other.connection.connectionId,
+      label: name,
+      by: ana,
+    });
+    const started = await made.binding.startRequest({
+      tenantId,
+      requestId: created.value.requestId,
+      caller: ana,
+    });
+    if (started.kind !== 'ok') throw new Error(started.error.message);
+    const state = new URL(started.value.authorizeUrl).searchParams.get('state') as string;
+    const finished = await made.binding.finishRequest({ tenantId, caller: ana, state, code: 'x' });
+    if (finished.kind !== 'ok' || finished.value.kind !== 'connected') {
+      throw new Error('expected a connection');
+    }
+    expect(finished.value.connection.label).toBe(`${'b'.repeat(96)}1 2`);
+    for (const label of [fromAccount.connection.label, finished.value.connection.label]) {
+      expect(hasHiddenCharacters(label as string)).toBe(false);
+    }
   });
 
   test("a reconnect keeps the connection's name and ignores the one asked", async () => {

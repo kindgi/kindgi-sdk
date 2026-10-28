@@ -11110,7 +11110,7 @@ class UpdateConnectionBody(BaseModel):
     )
     label: Annotated[str, Field(max_length=100, min_length=1)]
     """
-    The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case and an emoji's variation selector.
+    The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded.
     """
 
 
@@ -11151,7 +11151,7 @@ class CreateConnectRequestBody(BaseModel):
     """
     label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
     """
-    The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case and an emoji's variation selector. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.
+    The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.
     """
 
 

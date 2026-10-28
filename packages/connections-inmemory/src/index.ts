@@ -290,6 +290,14 @@ function union(a: readonly string[], b: readonly string[]): string[] {
 const HIDDEN_CHARACTERS_RE =
   /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<![\p{Extended_Pictographic}0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)/gu;
 
+/**
+ * Its first `max` characters, without what the cut leaves hidden (half a
+ * keycap: its digit and selector without the U+20E3), trimmed at the end.
+ */
+function fit(text: string, max: number): string {
+  return cut(text, max).replace(HIDDEN_CHARACTERS_RE, '').trimEnd();
+}
+
 /** Its first `max` characters, never half of one. */
 function cut(text: string, max: number): string {
   return [...text].slice(0, max).join('');
@@ -580,7 +588,7 @@ export function createInMemoryConnections(
 
   /**
    * Another live connection of the app, owner and env named `label`, by
-   * `comparableName` (ignoring case and an emoji's variation selector);
+   * `comparableName` (names that look the same);
    * `except` is the connection being named.
    */
   function labelTaken(
@@ -616,12 +624,12 @@ export function createInMemoryConnections(
   function newLabel(request: ConnectRequestRecord, account: ConnectionAccount): string | undefined {
     const label =
       request.label ??
-      cut(account.label.replace(HIDDEN_CHARACTERS_RE, '').trim(), MAX_LABEL_LENGTH).trimEnd();
+      fit(account.label.replace(HIDDEN_CHARACTERS_RE, '').trim(), MAX_LABEL_LENGTH);
     if (label.length === 0) return undefined;
     if (!labelTaken(request, label)) return label;
     for (let n = 2; ; n += 1) {
       const suffix = ` ${n}`;
-      const next = `${cut(label, MAX_LABEL_LENGTH - suffix.length).trimEnd()}${suffix}`;
+      const next = `${fit(label, MAX_LABEL_LENGTH - suffix.length)}${suffix}`;
       if (!labelTaken(request, next)) return next;
     }
   }

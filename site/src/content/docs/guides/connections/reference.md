@@ -29,10 +29,11 @@ separator, and no variation selector except in an emoji. So a typed name
 with a joined emoji such as 👩‍💻 is refused, while ✉️ and 1️⃣ are fine. A
 name taken from the account loses those characters and is cut to 100. One
 owner's live connections to an app in an environment each have their own
-name, whatever the case or an emoji's variation selector. A new connection
-whose name was taken in the meantime gets the first free number after it,
-such as `ana@acme.com 2`. A reconnect keeps the name. A connection made
-before connections had names has none, and shows its account.
+name, whatever the case, an emoji's variation selector or how accented
+letters are encoded. A new connection whose name was taken in the meantime
+gets the first free number after it, such as `ana@acme.com 2`. A reconnect
+keeps the name. A connection made before connections had names has none,
+and shows its account.
 
 Only a connection's owner and your workspace's admins can see, rename or
 remove it. Registering an app is for workspace admins only.

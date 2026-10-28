@@ -3784,7 +3784,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-label-taken': {
     description:
-      "A connect that isn't a reconnect, or a rename, gives a `label` another live connection of the same app, owner and environment already has, ignoring case and an emoji's variation selector. Pick another name, or rename the other connection first.",
+      "A connect that isn't a reconnect, or a rename, gives a `label` another live connection of the same app, owner and environment already has, ignoring case, an emoji's variation selector and how accented letters are encoded. Pick another name, or rename the other connection first.",
     details: [
       {
         key: 'field',
