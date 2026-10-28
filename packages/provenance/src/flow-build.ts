@@ -207,6 +207,95 @@ interface Candidate {
   readonly isStep: boolean;
 }
 
+// ---------------------------------------------------------------------
+// Node ids, as the record keeps them: part of its format.
+// ---------------------------------------------------------------------
+
+/** One level of a loop path, innermost first, as a run row's scope keeps it. */
+interface LoopLevel {
+  readonly loopNodeId: NodeId;
+  readonly iteration: number;
+}
+
+/** A run row's scope as a loop path: `[]` for a step of the flow itself, and for a scope that doesn't parse. */
+function loopPathOf(scope: string): LoopLevel[] {
+  if (scope === '') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(scope);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const path: LoopLevel[] = [];
+  for (const level of parsed as unknown[]) {
+    const l = level as { loopNodeId?: unknown; iteration?: unknown } | null;
+    if (typeof l?.loopNodeId !== 'string' || typeof l.iteration !== 'number') return [];
+    path.push({ loopNodeId: l.loopNodeId as NodeId, iteration: l.iteration });
+  }
+  return path;
+}
+
+/** A step's scope: its node id, or its `bodyStepKey` under its loop path. */
+function scopeOf(nodeId: string, path: readonly LoopLevel[]): string {
+  const inner = path[0];
+  if (inner === undefined) return nodeId;
+  return bodyStepKey(nodeId as NodeId, { ...inner, path: [...path] });
+}
+
+function stepKey(scope: string): string {
+  return `step:${scope}`;
+}
+
+/** The id of a loop run's folded node. */
+function foldedKey(loopScope: string): string {
+  return `${stepKey(loopScope)}#folded`;
+}
+
+/** A node's id in the record: as built, or its digest form when it's long or could meet one. */
+function recordIdOf(raw: string): string {
+  if (raw.length <= FLOW_PROVENANCE_LIMITS.maxIdLength && !raw.startsWith('step:~')) return raw;
+  return `step:~${createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 32)}`;
+}
+
+/** Where a child run is counted in its parent's record: a node's id, or `undefined`. */
+export type FlowStepNodePlace = (
+  child: Pick<FlowProvenanceChild, 'parentNodeId' | 'parentScope'>,
+) => string | undefined;
+
+/**
+ * Finds, in a flow record's nodes, the node that counts a child run of
+ * one of its steps: the step's own node, or, when its iteration was
+ * folded, the folded node of the innermost loop whose `from`..`to`
+ * holds it. `undefined` when the record has neither: the step was cut
+ * with the record's middle, or the record has no such step. It computes
+ * the builder's own ids, which are part of the record's format.
+ */
+export function stepNodePlacer(nodes: readonly ProvenanceNode[]): FlowStepNodePlace {
+  const byId = new Map<string, ProvenanceNode>();
+  for (const node of nodes) if (node.kind === 'step') byId.set(node.id, node);
+  return ({ parentNodeId, parentScope }) => {
+    const path = loopPathOf(parentScope);
+    const own = recordIdOf(stepKey(scopeOf(parentNodeId, path)));
+    if (byId.has(own)) return own;
+    for (const [k, level] of path.entries()) {
+      const id = recordIdOf(foldedKey(scopeOf(level.loopNodeId, path.slice(k + 1))));
+      const range = foldedRange(byId.get(id));
+      if (range !== undefined && level.iteration >= range.from && level.iteration <= range.to) {
+        return id;
+      }
+    }
+    return undefined;
+  };
+}
+
+function foldedRange(node: ProvenanceNode | undefined): { from: number; to: number } | undefined {
+  const folded = (node?.attributes as { folded?: { from?: unknown; to?: unknown } } | undefined)
+    ?.folded;
+  if (typeof folded?.from !== 'number' || typeof folded.to !== 'number') return undefined;
+  return { from: folded.from, to: folded.to };
+}
+
 export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBuilder {
   const L = FLOW_PROVENANCE_LIMITS;
   const topNodes = new Map<string, FlowNode>(run.flow.nodes.map((n) => [n.id, n]));
@@ -562,25 +651,7 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
 
   /** The scope of the step that started a child: its node id, or its `bodyStepKey` in a loop body. */
   function scopeOfChild(child: FlowProvenanceChild): string {
-    if (child.parentScope === '') return child.parentNodeId;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(child.parentScope);
-    } catch {
-      return child.parentNodeId;
-    }
-    if (!Array.isArray(parsed)) return child.parentNodeId;
-    const path: { loopNodeId: NodeId; iteration: number }[] = [];
-    for (const level of parsed as unknown[]) {
-      const l = level as { loopNodeId?: unknown; iteration?: unknown } | null;
-      if (typeof l?.loopNodeId !== 'string' || typeof l.iteration !== 'number') {
-        return child.parentNodeId;
-      }
-      path.push({ loopNodeId: l.loopNodeId as NodeId, iteration: l.iteration });
-    }
-    const inner = path[0];
-    if (inner === undefined) return child.parentNodeId;
-    return bodyStepKey(child.parentNodeId as NodeId, { ...inner, path });
+    return scopeOf(child.parentNodeId, loopPathOf(child.parentScope));
   }
 
   return {
@@ -717,19 +788,12 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
     return cutToCaps(nodes, candidates, edges);
   }
 
-  function stepKey(scope: string): string {
-    return `step:${scope}`;
-  }
-
   /** The node's id: `step:<scope>`, or its digest form when it's long or could meet one. */
   function fixId(candidate: Candidate, ids: Map<string, string>): ProvenanceNode {
     const raw = candidate.node.id;
-    if (raw.length <= L.maxIdLength && !raw.startsWith('step:~')) {
-      ids.set(candidate.key, raw);
-      return candidate.node;
-    }
-    const id = `step:~${createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 32)}`;
+    const id = recordIdOf(raw);
     ids.set(candidate.key, id);
+    if (id === raw) return candidate.node;
     return {
       ...candidate.node,
       id,
@@ -1006,7 +1070,7 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
     }
     const first = foldedIts[0];
     const last = foldedIts[foldedIts.length - 1];
-    const id = `${stepKey(loop.scope)}#folded`;
+    const id = foldedKey(loop.scope);
     return {
       key: id,
       sequence: first?.firstSequence ?? loop.firstSequence,
@@ -1104,7 +1168,7 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
     // A folded node stands for the body steps it folds: it was invoked by their loop step.
     for (const step of steps.values()) {
       if (step.nodeKind === 'loop' && !hidden.has(step.scope)) {
-        add(`${stepKey(step.scope)}#folded`, stepKey(step.scope), 'invoked');
+        add(foldedKey(step.scope), stepKey(step.scope), 'invoked');
       }
     }
     if (hasOutput) {

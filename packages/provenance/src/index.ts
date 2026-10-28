@@ -37,6 +37,7 @@ export {
   FLOW_PROVENANCE_VERSION,
   flowProvenanceBuilder,
   flowProvenanceId,
+  stepNodePlacer,
 } from './flow-build.js';
 export type {
   FlowJournalGap,
@@ -44,6 +45,7 @@ export type {
   FlowProvenanceChild,
   FlowProvenanceRun,
   FlowReusedSource,
+  FlowStepNodePlace,
 } from './flow-build.js';
 
 // ============ Sign + verify ============

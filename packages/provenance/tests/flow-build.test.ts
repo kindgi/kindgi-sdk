@@ -26,6 +26,7 @@ import {
   flowProvenanceId,
   importProvenance,
   signingBytes,
+  stepNodePlacer,
 } from '../src/index.js';
 import type {
   FlowJournalGap,
@@ -282,19 +283,17 @@ function expectConnected(record: Provenance): void {
   }
 }
 
-/** The child runs a record counts: each step node's list and what it cut, each folded node's count. */
-function countedRuns(record: Provenance): number {
-  let n = 0;
-  for (const node of record.nodes) {
-    const a = (node.attributes ?? {}) as {
-      runs?: unknown[];
-      truncated?: { runsOmitted?: number };
-      folded?: { runs?: number };
-    };
-    n += (a.runs?.length ?? 0) + (a.truncated?.runsOmitted ?? 0) + (a.folded?.runs ?? 0);
-  }
-  return n;
+/** The child runs a node counts: a step node's list and what it cut, a folded node's count. */
+function runsCountedBy(node: ProvenanceNode): number {
+  const a = (node.attributes ?? {}) as {
+    runs?: unknown[];
+    truncated?: { runsOmitted?: number };
+    folded?: { runs?: number };
+  };
+  return (a.runs?.length ?? 0) + (a.truncated?.runsOmitted ?? 0) + (a.folded?.runs ?? 0);
 }
+const countedRuns = (record: Provenance): number =>
+  record.nodes.reduce((n, node) => n + runsCountedBy(node), 0);
 
 // ---------------------------------------------------------------------------
 
@@ -1437,6 +1436,162 @@ describe('the caps', () => {
     expect(attrs(record, 'step:L')).toMatchObject({ partial: true });
     expect(attrs(record, 'step:b')).not.toHaveProperty('partial');
     expect(edgeSet(record.edges)).toContain('output -produced-> step:b');
+  });
+});
+
+describe('stepNodePlacer', () => {
+  const long = `w${'x'.repeat(300)}`;
+  const longLoop = `P${'p'.repeat(249)}`;
+  const scopeOfPath = (path: LoopPath): string => JSON.stringify(path);
+
+  /**
+   * One record past every limit, with a child run on each agent step: ids
+   * over the cap (a step's, and a loop's folded node's while the loop's own
+   * fits), a scope starting `~`, a step whose runs list is cut, loops two
+   * and three deep past their budgets, and past 5000 nodes, so the middle
+   * is cut.
+   */
+  function pastEveryLimit(): { record: Provenance; children: FlowProvenanceChild[] } {
+    const i = loopOf('I', agent('w', 'acme.writer'));
+    const o = loopOf('O', i);
+    const s = loopOf('S', agent('v', 'acme.writer'));
+    const r = loopOf('R', s);
+    const q = loopOf('Q', r);
+    const p = loopOf(longLoop, agent('x', 'acme.writer'));
+    const f = flowOf(
+      [agent('~a', 'acme.writer'), agent(long, 'acme.writer'), agent('m', 'acme.writer'), o, q, p],
+      [
+        edge('e0', '$start', '~a'),
+        edge('e1', '~a', long),
+        edge('e2', long, 'm'),
+        edge('e3', 'm', 'O'),
+        edge('e4', 'O', 'Q'),
+        edge('e5', 'Q', longLoop),
+      ],
+    );
+    const j = new Journal();
+    const children: FlowProvenanceChild[] = [];
+    const child = (parentNodeId: string, path: LoopPath = []): void => {
+      children.push({
+        runId: `turn-${children.length}` as RunId,
+        flowId: 'acme.writer',
+        status: 'completed',
+        parentNodeId,
+        parentScope: path.length === 0 ? '' : scopeOfPath(path),
+      });
+    };
+    const agentBody = (loop: LoopNode, inner: string) => {
+      const body = oneStepBody(j, loop, inner);
+      return (path: LoopPath, n: number): void => {
+        body(path, n);
+        child(inner, path);
+      };
+    };
+    j.edge('e0');
+    j.step('~a');
+    child('~a');
+    j.edge('e1');
+    j.step(long);
+    child(long);
+    j.edge('e2');
+    j.step('m');
+    for (let n = 0; n < 400; n += 1) child('m');
+    j.edge('e3');
+    runLoop(j, o, undefined, [], 60, (p1) => {
+      runLoop(j, i, inBody('I', p1), p1, 60, agentBody(i, 'w'));
+    });
+    j.edge('e4');
+    runLoop(j, q, undefined, [], 12, (p1) => {
+      runLoop(j, r, inBody('R', p1), p1, 12, (p2) => {
+        runLoop(j, s, inBody('S', p2), p2, 30, agentBody(s, 'v'));
+      });
+    });
+    j.edge('e5');
+    runLoop(j, p, undefined, [], 60, agentBody(p, 'x'));
+    // Children the record has no step for: a scope that doesn't parse, a step that didn't run.
+    children.push({
+      ...(children[0] as FlowProvenanceChild),
+      runId: 'turn-x' as RunId,
+      parentNodeId: 'w',
+      parentScope: '{not json',
+    });
+    children.push({
+      ...(children[0] as FlowProvenanceChild),
+      runId: 'turn-y' as RunId,
+      parentNodeId: 'nowhere',
+      parentScope: '',
+    });
+    return { record: build(runOf(f, { hasOutput: false, children }), j.entries), children };
+  }
+
+  test('places each child run on the node that counts it, past every limit', () => {
+    const { record, children } = pastEveryLimit();
+    // The fixture reaches each limit.
+    expect(attrs(record, 'truncated')).toMatchObject({ truncated: { reason: 'nodes' } });
+    expect(has(record, digestId('step:~a'))).toBe(true);
+    expect(has(record, digestId(`step:${long}`))).toBe(true);
+    expect(attrs(record, 'step:m')).toMatchObject({ truncated: { reason: 'node-bytes' } });
+    expect(has(record, `step:${longLoop}`)).toBe(true);
+    expect(has(record, digestId(`step:${longLoop}#folded`))).toBe(true);
+    expect(has(record, 'step:O#folded')).toBe(true);
+    expect(has(record, 'step:S@R#11/Q#11#folded')).toBe(true);
+
+    const place = stepNodePlacer(record.nodes);
+    const at = (parentNodeId: string, path: LoopPath): string | undefined =>
+      place({ parentNodeId, parentScope: scopeOfPath(path) });
+    // Kept, folded by its own loop, folded by an outer loop, and digested.
+    expect(
+      at('w', [
+        { loopNodeId: 'I', iteration: 0 },
+        { loopNodeId: 'O', iteration: 0 },
+      ]),
+    ).toBe('step:w@I#0/O#0');
+    expect(
+      at('w', [
+        { loopNodeId: 'I', iteration: 30 },
+        { loopNodeId: 'O', iteration: 0 },
+      ]),
+    ).toBe('step:I@O#0#folded');
+    expect(
+      at('w', [
+        { loopNodeId: 'I', iteration: 0 },
+        { loopNodeId: 'O', iteration: 30 },
+      ]),
+    ).toBe('step:O#folded');
+    expect(at('x', [{ loopNodeId: longLoop, iteration: 30 }])).toBe(
+      digestId(`step:${longLoop}#folded`),
+    );
+    expect(place({ parentNodeId: '~a', parentScope: '' })).toBe(digestId('step:~a'));
+
+    // Every node gets exactly the children it counts; the rest are left out.
+    const placed = new Map<string, number>();
+    let leftOut = 0;
+    for (const c of children) {
+      const id = place(c);
+      if (id === undefined) leftOut += 1;
+      else placed.set(id, (placed.get(id) ?? 0) + 1);
+    }
+    for (const node of record.nodes) {
+      expect(placed.get(node.id) ?? 0, node.id).toBe(runsCountedBy(node));
+    }
+    // The two with no step, and the children of steps cut with the middle.
+    expect(leftOut).toBe(children.length - countedRuns(record));
+    expect(leftOut).toBeGreaterThan(2);
+  });
+
+  test('a child whose step has no node in the record is left out', () => {
+    const f = flowOf([agent('a', 'acme.writer')], [edge('e1', '$start', 'a')]);
+    const j = new Journal();
+    j.edge('e1');
+    j.step('a');
+    const record = build(runOf(f, { hasOutput: false }), j.entries);
+    const place = stepNodePlacer(record.nodes);
+
+    expect(place({ parentNodeId: 'a', parentScope: '' })).toBe('step:a');
+    expect(place({ parentNodeId: 'b', parentScope: '' })).toBeUndefined();
+    expect(
+      place({ parentNodeId: 'a', parentScope: scopeOfPath([{ loopNodeId: 'L', iteration: 0 }]) }),
+    ).toBeUndefined();
   });
 });
 
