@@ -331,7 +331,7 @@ describe('a reserved `kindgi.` name, named where a registration names a secret',
       name: 'Docs MCP',
       transport: 'stdio',
       config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
-      secretRef: { envName: 'local', name: HELD },
+      secretEnv: { DOCS_TOKEN: { envName: 'local', name: HELD } },
     });
     expect([mcp.status, mcp.body.error?.code, mcp.body.error?.message]).toEqual([
       400,
