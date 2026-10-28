@@ -691,8 +691,9 @@ To wait for the reviewer, add `--wait`. It names the approval it waits for
 and the command that approves it, then exits 0 once the version is live, or
 3 when the approval is rejected or expires, the request is superseded
 because the scope's version or its release gate policy changed, or the wait
-runs out: an hour, or the time `--wait=30m` gives. Ctrl-C stops the wait,
-not the request: once it's approved, the version goes live.
+runs out: an hour, or the time `--wait=30m` gives. It exits 1 when it can't
+read the request 3 times in a row, after printing what it read last. Neither
+that nor Ctrl-C stops the request: once it's approved, the version goes live.
 
 ### Approve it
 
