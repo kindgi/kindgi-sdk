@@ -120,6 +120,24 @@ While Postgres is unreachable, `/ready` answers `503` with
 `{"ok":false,"database":"unreachable"}`, and `/health` still answers
 `{"ok":true}`.
 
+`/v1/runtime` says which runtime answers: its release, how many tenants it
+serves, and whether it runs in development mode. Any of the tenant's tokens
+reads it, whatever its rights:
+
+```sh
+curl -s http://localhost:4000/v1/runtime -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
+```
+
+```text
+{"version":"0.3.0","tenancy":"single","development":false}
+```
+
+`version` is the release, or what the build gave otherwise (`dev` when it
+gave none). `tenancy` is `single` for a runtime that serves one tenant and
+`multi` for one that serves many, as
+[`KINDGI_TENANCY`](../../../reference/env-vars/#kindgi_tenancy) sets it. The
+clients read it as `client.runtime.get()`, in TypeScript and in Python.
+
 Point a load balancer's or a platform's readiness check at `/ready`, or
 `/health`, and never at `/`. `/` leads to the console with a `302`. Without
 the console, it answers `200` even while the database is down, so a check on

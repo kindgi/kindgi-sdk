@@ -5126,7 +5126,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runtime.get',
     summary: 'Which runtime answers',
     description:
-      "Its version, how it's hosted and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.",
+      "Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.",
     tags: ['system'],
     security: 'bearer',
     responses: {

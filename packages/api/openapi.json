@@ -5189,7 +5189,7 @@
         "additionalProperties": false,
         "required": [
           "version",
-          "hosting",
+          "tenancy",
           "development"
         ],
         "description": "Which runtime answers: what a client says about the runtime it's connected to.",
@@ -5198,13 +5198,13 @@
             "type": "string",
             "description": "The runtime's version: its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none)."
           },
-          "hosting": {
+          "tenancy": {
             "type": "string",
             "enum": [
-              "hosted",
-              "self-hosted"
+              "single",
+              "multi"
             ],
-            "description": "`hosted`: the runtime serves many tenants. `self-hosted`: it serves one."
+            "description": "`single` when the runtime serves one tenant, `multi` when it serves many."
           },
           "development": {
             "type": "boolean",
@@ -41008,7 +41008,7 @@
             }
           }
         },
-        "description": "Its version, how it's hosted and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.",
+        "description": "Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.",
         "security": [
           {
             "bearerAuth": []

@@ -2799,7 +2799,7 @@ export const ExportSigningKeySchema: JsonSchema = {
 export const RuntimeInfoSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['version', 'hosting', 'development'],
+  required: ['version', 'tenancy', 'development'],
   description: "Which runtime answers: what a client says about the runtime it's connected to.",
   properties: {
     version: {
@@ -2807,10 +2807,10 @@ export const RuntimeInfoSchema: JsonSchema = {
       description:
         "The runtime's version: its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none).",
     },
-    hosting: {
+    tenancy: {
       type: 'string',
-      enum: ['hosted', 'self-hosted'],
-      description: '`hosted`: the runtime serves many tenants. `self-hosted`: it serves one.',
+      enum: ['single', 'multi'],
+      description: '`single` when the runtime serves one tenant, `multi` when it serves many.',
     },
     development: {
       type: 'boolean',

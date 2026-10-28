@@ -158,7 +158,7 @@ export interface KindgiClient {
   /** The keys this deployment signs its exports with (audit bundles, provenance, compliance evidence). */
   readonly exportSigningKeys: ExportSigningKeysClient;
   readonly license: LicenseClient;
-  /** Which runtime answers: its version, how it's hosted, and whether it runs in development mode. */
+  /** Which runtime answers: its version, how many tenants it serves, and whether it runs in development mode. */
   readonly runtime: RuntimeClient;
   /** The operator's system keys, on a runtime serving many tenants: the full system capability only. */
   readonly systemKeys: SystemKeysClient;

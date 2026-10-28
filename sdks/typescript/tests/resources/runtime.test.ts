@@ -11,7 +11,7 @@ const API = 'https://api.example.com';
 
 describe('runtime — wire round-trip', () => {
   it('get: GET /v1/runtime, which runtime answers as it reports it', async () => {
-    const info = { version: '0.3.0', hosting: 'self-hosted', development: false };
+    const info = { version: '0.3.0', tenancy: 'single', development: false };
     const stub = jsonFetch(info);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     expect(await client.runtime.get()).toEqual(info);

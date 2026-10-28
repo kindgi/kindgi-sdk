@@ -3,7 +3,7 @@
 
 /**
  * `GET /v1/runtime`: which runtime answers, as the host passes it
- * (`CreateAppInput.runtime`), with how it's hosted from its tenancy. Any
+ * (`CreateAppInput.runtime`), with its tenancy (`CreateAppInput.tenancy`). Any
  * caller of a tenant reads it; without the input the route isn't mounted.
  */
 
@@ -56,31 +56,31 @@ function makeApp(runtime: RuntimeInfoInput | undefined, tenancy?: 'single' | 'mu
 }
 
 describe('GET /v1/runtime', () => {
-  test('answers a caller of the tenant with its version, how it is hosted and whether it runs in development mode', async () => {
+  test('answers a caller of the tenant with its version, how many tenants it serves and whether it runs in development mode', async () => {
     const answer = await makeApp({ version: '0.3.0', development: false })(MEMBER);
     expect(answer.status).toBe(200);
-    expect(answer.body).toEqual({ version: '0.3.0', hosting: 'self-hosted', development: false });
+    expect(answer.body).toEqual({ version: '0.3.0', tenancy: 'single', development: false });
     expect(validateAgainst('RuntimeInfo', answer.body)).toEqual([]);
   });
 
-  test('how it is hosted follows its tenancy: many tenants is hosted, one (or unset) self-hosted', async () => {
+  test("its tenancy is the app's: many tenants answers multi, one (or unset) single", async () => {
     const info: RuntimeInfoInput = { version: 'dev', development: true };
     const multi = await makeApp(info, 'multi')(MEMBER);
-    expect(multi.body).toEqual({ version: 'dev', hosting: 'hosted', development: true });
+    expect(multi.body).toEqual({ version: 'dev', tenancy: 'multi', development: true });
     expect(validateAgainst('RuntimeInfo', multi.body)).toEqual([]);
-    expect((await makeApp(info, 'single')(MEMBER)).body).toMatchObject({ hosting: 'self-hosted' });
-    expect((await makeApp(info)(MEMBER)).body).toMatchObject({ hosting: 'self-hosted' });
+    expect((await makeApp(info, 'single')(MEMBER)).body).toMatchObject({ tenancy: 'single' });
+    expect((await makeApp(info)(MEMBER)).body).toMatchObject({ tenancy: 'single' });
   });
 
   test("only the three fields: nothing else on the host's object reaches the wire", async () => {
     const info = {
       version: '0.3.0',
-      hosting: 'hosted',
+      tenancy: 'multi',
       development: false,
       licenseKeyRef: 'gcp:projects/acme-prod/secrets/kindgi-license-key',
     } as RuntimeInfoInput;
     const answer = await makeApp(info)(MEMBER);
-    expect(answer.body).toEqual({ version: '0.3.0', hosting: 'self-hosted', development: false });
+    expect(answer.body).toEqual({ version: '0.3.0', tenancy: 'single', development: false });
   });
 
   test('a caller who is not signed in gets 401', async () => {

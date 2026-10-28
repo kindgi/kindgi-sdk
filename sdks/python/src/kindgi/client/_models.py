@@ -1941,9 +1941,9 @@ class RuntimeInfo(BaseModel):
     """
     The runtime's version: its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none).
     """
-    hosting: Annotated[Literal["hosted", "self-hosted"] | str, _open.OPEN]
+    tenancy: Annotated[Literal["single", "multi"] | str, _open.OPEN]
     """
-    `hosted`: the runtime serves many tenants. `self-hosted`: it serves one.
+    `single` when the runtime serves one tenant, `multi` when it serves many.
     """
     development: bool
     """

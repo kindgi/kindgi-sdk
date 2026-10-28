@@ -626,9 +626,8 @@ export interface CreateAppInput {
   /**
    * Optional. Which runtime this is: its release and whether it runs in
    * development mode, as `GET /v1/runtime` answers any caller of a tenant,
-   * with how it's hosted from `tenancy` (`multi` is hosted; otherwise
-   * self-hosted). Without it the route isn't mounted (404), as on a runtime
-   * that doesn't report it.
+   * with `tenancy` (`single` when unset). Without it the route isn't
+   * mounted (404), as on a runtime that doesn't report it.
    */
   readonly runtime?: RuntimeInfoInput;
   /**
