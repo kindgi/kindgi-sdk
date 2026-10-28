@@ -78,7 +78,7 @@ import type { AgentReleaseBindings, LiveVersionBinding } from '../live-version-b
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
-import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import { PROJECT_MISMATCH, PublishRefused, projectMismatchFix } from '../publish-refused.js';
 import {
   type ReferenceScopeBinding,
@@ -856,12 +856,13 @@ export function deploymentsRouter(
     }
     const validated = validation.value;
 
-    // A model provider's key is never a tool's: each tool naming one is an issue.
+    // A reserved `kindgi.` name or a model provider's key is never a tool's:
+    // each tool naming one is an issue.
     const keyIssues: ValidationDetail[] = [];
-    if (bindings.providerKeys !== undefined && validated.tools.length > 0) {
+    if (validated.tools.length > 0) {
       const tenantId = c.get('tenantId') as TenantId;
       for (const [index, tool] of validated.tools.entries()) {
-        const refusal = await refuseProviderKeys(
+        const refusal = await refuseSecretNames(
           bindings.providerKeys,
           tenantId,
           toolSecretNames(tool),

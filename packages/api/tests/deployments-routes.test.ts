@@ -1226,6 +1226,50 @@ describe('POST /v1/deployments — happy path', () => {
     expect(await toolRegistry.get({ tenantId, toolId: 'acme.summarize' as never })).toBeNull();
   });
 
+  test('a tool naming a reserved `kindgi.` secret is refused, with no provider registered', async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.relay',
+            description: "Relay with a token of the runtime's own.",
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/relay.js',
+            needsSpec: { secrets: { 'kindgi.connection-token': { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+    const { app, toolRegistry } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; details: { issues: unknown[] } } };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details.issues).toEqual([
+      {
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.relay',
+        path: '/secrets/kindgi.connection-token',
+        message:
+          '`kindgi.connection-token` uses the reserved "kindgi." prefix: a tool never names one. Those names are Kindgi\'s own; store the secret under a name of its own and use that',
+      },
+    ]);
+    expect(await toolRegistry.get({ tenantId, toolId: 'acme.relay' as never })).toBeNull();
+  });
+
   test('signed deployment → 201 with all primitives registered', async () => {
     const fixture = buildSignedDeploy();
     const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture });
