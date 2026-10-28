@@ -46,11 +46,12 @@ case "$*" in
     if [[ "$*" == *"--format=json"* ]]; then
       # The v1 object: STUB_SERVICE_JSON's status, and the server's
       # KINDGI_DATABASE_URL as a secret reference to STUB_DBURL_NAME
-      # (kindgi-database-url) at STUB_DBURL_BEFORE (latest), or none with
-      # STUB_DBURL_BEFORE=-, twice with STUB_DBURL_TWICE=1.
+      # (kindgi-database-url; a reference with no name with STUB_DBURL_NAME=-)
+      # at STUB_DBURL_BEFORE (latest), or none with STUB_DBURL_BEFORE=-, twice
+      # with STUB_DBURL_TWICE=1.
       svc="${STUB_SERVICE_JSON:-}"; if [[ -z $svc ]]; then svc='{}'; fi
       jq -c --arg n "${STUB_DBURL_NAME:-kindgi-database-url}" --arg k "${STUB_DBURL_BEFORE:-latest}" --arg twice "${STUB_DBURL_TWICE:-}" '. * {spec: {template: {spec: {containers: [{env: ([{name: "KINDGI_ENV", value: "dev"}]
-        + (if $k == "-" then [] else [{name: "KINDGI_DATABASE_URL", valueFrom: {secretKeyRef: {name: $n, key: $k}}}] end)
+        + (if $k == "-" then [] else [{name: "KINDGI_DATABASE_URL", valueFrom: {secretKeyRef: (if $n == "-" then {key: $k} else {name: $n, key: $k} end)}}] end)
         + (if $twice == "1" then [{name: "KINDGI_DATABASE_URL", valueFrom: {secretKeyRef: {name: "kindgi-database-url", key: "latest"}}}] else [] end))}]}}}}' <<<"$svc"
     elif [[ "$*" == *"--format=value(spec.template.spec.containers[0].image)"* ]]; then printf '%s\n' "${STUB_RUNNING_IMAGE:-}"
     fi; exit 0 ;;
@@ -1687,16 +1688,28 @@ assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged
 
 case_start "the server's database URL reference can't be read"
-for shape in none two; do
+for shape in none two unnamed; do
   reset_env; export STUB_TAGS="0.1.10"
-  if [[ $shape == none ]]; then export STUB_DBURL_BEFORE="-"; else export STUB_DBURL_TWICE=1; fi
+  case $shape in
+    none) export STUB_DBURL_BEFORE="-" ;;
+    two) export STUB_DBURL_TWICE=1 ;;
+    unnamed) export STUB_DBURL_NAME="-" ;;
+  esac
   run "yes"
   assert_rc 1 "a server read with $shape KINDGI_DATABASE_URL stops it"
-  assert_out "couldn't read which version of kindgi-database-url the server reads (one KINDGI_DATABASE_URL secret reference)."
+  assert_out "couldn't read which secret and version the server reads its database URL from (one KINDGI_DATABASE_URL secret reference; the var files give it kindgi-database-url)."
   if grep -q "valueFrom\|secretKeyRef\|KINDGI_ENV" "$OUT"; then fail "the service's env was printed ($shape)"; else pass; fi
   assert_absent "$STUB_MARKER_MIRROR" "mirror"
   assert_varfile_unchanged
 done
+
+# A reference may name the secret by its full resource name: it's the same
+# secret as the var files' id.
+case_start "the server's database URL reference names the secret's full path"
+reset_env; export STUB_TAGS="0.1.10" STUB_DBURL_NAME="projects/123456789012/secrets/kindgi-database-url"
+run "yes"
+assert_rc 0 "the upgrade runs"
+assert_out "the server reads version 4 of kindgi-database-url (latest today)"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

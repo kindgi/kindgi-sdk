@@ -835,7 +835,7 @@ DB_URL_LIVE="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name =
 DB_URL_LIVE_SECRET="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "KINDGI_DATABASE_URL") | (.valueFrom.secretKeyRef.name // "")] | if length == 1 then .[0] | sub("^projects/[^/]+/secrets/"; "") else "" end' <<<"${live_json:-null}" 2>/dev/null || true)"
 unset live_json
 if [[ ! $DB_URL_LIVE =~ ^([1-9][0-9]*|latest)$ || -z $DB_URL_LIVE_SECRET ]]; then
-  fail_check "couldn't read which version of ${DB_URL_SECRET} the server reads (one KINDGI_DATABASE_URL secret reference). $(cat "$WORK/live.err")"
+  fail_check "couldn't read which secret and version the server reads its database URL from (one KINDGI_DATABASE_URL secret reference; the var files give it ${DB_URL_SECRET}). $(cat "$WORK/live.err")"
 elif [[ $DB_URL_LIVE_SECRET != "$DB_URL_SECRET" ]]; then
   fail_check "the server reads its database URL from ${DB_URL_LIVE_SECRET}, but the var files give it ${DB_URL_SECRET}: the upgrade's apply would move it to another database. Set database_instance to the instance the server serves from now (remove it if that's the module's own), or move the server to ${DB_URL_SECRET} in an apply on the release it runs now, then run again."
 elif [[ $DB_URL_LIVE == latest ]]; then
