@@ -209,6 +209,7 @@ export default defineConfig({
             'deploy/retention',
             'deploy/authorization',
             'deploy/people-and-keys',
+            'deploy/ship-from-ci',
             { label: 'Kindgi Cloud', items: [{ autogenerate: { directory: 'hosted' } }] },
             {
               label: 'Self-hosted',

@@ -341,15 +341,23 @@ key that carries a capability, or let it expire, make its replacement with
 it. If the first admin doesn't hold a capability and no key in the tenant
 carries it, contact support.
 
-Make the key that deploys, from CI or anywhere else, for a service account
-that's a tenant admin, not for the first admin. It keeps working if the
-first admin stops being a tenant admin or is removed, and as a tenant
-admin, whoever holds it can make new keys with its capabilities:
+Make the key that carries these capabilities for a service account that's
+a tenant admin, not for the first admin. It keeps working if the first
+admin stops being a tenant admin or is removed, and as a tenant admin,
+whoever holds it can make new keys with its capabilities:
 
 ```sh
-npx --yes @kindgi/cli@0.2 service-accounts create acme-deploy --description="Deploys" --tenant-admin
-npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=deploy --expires=90d
+npx --yes @kindgi/cli@0.2 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
+npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
 ```
+
+It can trust signing keys, so keep it out of CI: trusting CI's signing key
+is a person's step, and CI's keys are each made for one job
+([The keys CI uses](../ship-from-ci/#the-keys-ci-uses)). On Kindgi Cloud,
+CI's deploy key is a tenant admin's key too, with no capability. It can
+still promote to prod, replace release gate policies, and make service
+accounts and keys, so main's own protection is what guards prod there
+([The deploy key](../ship-from-ci/#the-deploy-key)).
 
 ## What you may do
 
@@ -443,7 +451,10 @@ Make longer-lived keys with one of those, such as the 90-day key in
   only for a tenant admin. For anyone else, it's refused with
   `403 role-exceeds-principal`.
 - **`--project=<project-id>`** limits the key to one project. A request that
-  names another project is refused with `403 key-project-mismatch`.
+  names another project is refused with `403 key-project-mismatch`. A
+  promotion reads one project and writes another, so a key limited to a
+  project is refused the same way on every promotion
+  ([A promote key for each later environment](../ship-from-ci/#a-promote-key-for-each-later-environment)).
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,
