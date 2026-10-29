@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
 import sys
 import types
 from collections.abc import Iterator
@@ -396,8 +397,9 @@ def test_every_response_enum_in_the_api_is_read_open() -> None:
     # `const` (it never does), which both generate as `Literal['x']`.
     gen = gen_client()
     doc, ops = gen.operations(json.loads(gen.DEFAULT_OPENAPI.read_text("utf-8")))
+    pinned = json.loads(gen.MODEL_NAMES.read_text("utf-8"))
     gen.name_variants(doc)
-    gen.name_owned(doc)
+    gen.name_owned(doc, frozenset(name for name, at in pinned.items() if not at))
     components = doc["components"]["schemas"]
     reached = gen.response_components(doc, ops)
     used: dict[str, list[tuple[str, tuple[Any, ...]]]] = {}
@@ -605,6 +607,35 @@ def test_a_rotations_kind_stays_closed_as_it_tells_the_two_answers_apart() -> No
     with pytest.raises(KindgiApiError) as failed:
         api.secrets.rotate("HOOK", scope_kind="tenant")
     assert failed.value.server_code == "invalid-response"
+
+
+_OPEN_VALUES = json.loads(
+    (
+        Path(__file__).resolve().parents[3] / "packages/specs/test-vectors/open-values/cases.json"
+    ).read_text()
+)
+
+
+def test_the_shared_cases_are_there() -> None:
+    assert len(_OPEN_VALUES) >= 5
+
+
+@pytest.mark.parametrize("case", _OPEN_VALUES, ids=lambda c: c["name"])
+def test_each_shared_case_is_refused_before_sending(case: dict[str, Any]) -> None:
+    # packages/specs/test-vectors/open-values: the Java client replays the same cases.
+    api, seen = client({})
+    method: Any = api
+    for part in case["operation"].split("."):
+        method = getattr(method, re.sub(r"(?<!^)(?=[A-Z])", "_", part).lower())
+    with pytest.raises(pydantic.ValidationError) as refused:
+        method(*case["args"], case["body"])
+    first = refused.value.errors()[0]
+    assert first["loc"][: len(case["at"])] == tuple(case["at"])
+    assert f"'{case['names']}'" in first["msg"]
+    if "tag" in case:
+        assert first["type"] == "union_tag_invalid"
+        assert f"'{case['tag']}'" in first["msg"]
+    assert seen == []
 
 
 def test_a_known_value_is_sent_as_before() -> None:

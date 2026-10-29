@@ -21,7 +21,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
 import {
   type ReferenceScopeBinding,
   reservedToolMetadataKeys,
@@ -169,6 +169,7 @@ export function toolsRouter(
     }
     // An item more than one project serves is checked on those projects
     // instead (`item-rights.ts`). A pin write is checked above.
+    // '/:toolId/*' matches '/:toolId' too: this one gate decides both, once.
     r.use(
       '/:toolId/*',
       itemMiddleware({
@@ -178,18 +179,6 @@ export function toolsRouter(
         id: (c) => c.req.param('toolId') ?? '',
         today: (c) => (c.req.method === 'GET' ? 'read' : pinWrite(c) ? undefined : 'admin'),
         check: itemPathCheck,
-        versionNotFound: toolVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:toolId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'tool',
-        id: (c) => c.req.param('toolId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: toolVersionNotFound,
       }),
     );
@@ -505,8 +494,8 @@ export function toolsRouter(
       );
     }
 
-    // A model provider's key is never a tool's.
-    const refusal = await refuseProviderKeys(
+    // A reserved `kindgi.` name or a model provider's key is never a tool's.
+    const refusal = await refuseSecretNames(
       options.providerKeys,
       tenantId,
       toolSecretNames(validated.value),
@@ -648,23 +637,21 @@ export function toolsRouter(
     const toolId = c.req.param('toolId') as ToolId;
     const version = c.req.param('version') as never;
 
-    // A model provider's key is never a tool's: a version naming one, retired
-    // before its provider was registered, stays retired.
-    if (options.providerKeys !== undefined) {
-      const retired = await binding.getVersion({ tenantId, toolId, version });
-      const refusal =
-        retired === null
-          ? undefined
-          : await refuseProviderKeys(
-              options.providerKeys,
-              tenantId,
-              toolSecretNames(retired),
-              'a tool',
-            );
-      if (refusal !== undefined) {
-        c.status(statusFor(refusal.code) as never);
-        return c.json(toWireError(refusal, requestId));
-      }
+    // A reserved `kindgi.` name or a model provider's key is never a tool's: a
+    // version naming one, retired before it was refused, stays retired.
+    const retired = await binding.getVersion({ tenantId, toolId, version });
+    const named =
+      retired === null
+        ? undefined
+        : await refuseSecretNames(
+            options.providerKeys,
+            tenantId,
+            toolSecretNames(retired),
+            'a tool',
+          );
+    if (named !== undefined) {
+      c.status(statusFor(named.code) as never);
+      return c.json(toWireError(named, requestId));
     }
 
     const outcome = await binding.reinstateVersion({ tenantId, toolId, version });

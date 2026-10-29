@@ -197,8 +197,10 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   minted, is in the tenant's audit log, by `system`, with your `--reason`. It
   exits `0` when the key is minted, `1` when it's minted but an audit entry
   couldn't be written or a revoked key's sessions couldn't be ended, and `2`
-  when it's refused and nothing changed. A tenant created with `firstAdmin`
-  has no such account: `tenants make-admin` makes a person its admin.
+  when it's refused and nothing changed. A session that wasn't ended is
+  refused at its next request anyway: each one checks its key. A tenant
+  created with `firstAdmin` has no such account: `tenants make-admin` makes a
+  person its admin.
 - **Production starts blocked.** `"productionAllowed": true` allows it from
   the start, and takes `system:tenants:production`.
 - **`imagePrefix`** is the repository every image the tenant deploys must
@@ -606,16 +608,28 @@ kindgi-runtime tenants repair --all
 ```
 
 ```text
-tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
+tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; 0 removals finished and 0 grants taken away; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant repaired.
 ```
 
-It adds only what's missing: the Default project, the authorization store's
+It adds what's missing: the Default project, the authorization store's
 tuples and current model, the access each active person and service account
 has on record (a person's tenant membership, a service account's grants), the
 shipped adapters, and the sign-in providers. It
 finishes a create whose setup didn't finish, if the create named a first
-admin. Run it again at will. `--tenant <id>` repairs one tenant.
+admin.
+
+It also takes away access the tenant's record doesn't back (runtime 0.3.0
+or later): it finishes a person's removal, or a service account's
+unregister, that stopped part way, and revokes a service account's admin,
+membership or project role that its grants don't give. And it takes away
+the access an older runtime gave `00000000-0000-0000-0000-000000000000`, the
+id it named as the creator of what a key with no person behind it made; no
+person has that id. Each removal it finishes and each grant it takes away
+is named under the tenant's line. `--dry-run` shows what it would put back
+and take away, per tenant, and changes nothing.
+
+Run it again at will. `--tenant <id>` repairs one tenant.
 `--providers` redoes only sign-in's providers, after `KINDGI_PUBLIC_URL`
 changes. It exits 0 when every tenant is set up, and 1 when something is left
 for you, named:

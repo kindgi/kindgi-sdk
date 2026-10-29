@@ -150,6 +150,18 @@ own:
       Fix: Unregister openai (pnpm exec kindgi providers unregister openai), then register it again: pnpm exec kindgi providers register --preset=openai.
 ```
 
+A registration with an `adapter_config` key its adapter doesn't read still
+builds, so it's a warning, never a failure. Here, a Gemini registration
+stored with `thinkingLevels`, whose setting is now each model's
+`thinking.default`
+([Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/#a-registration-that-set-thinkinglevels)):
+
+```text
+  ! Provider: A provider is registered: gemini-api. gemini-api builds, but adapter_config.thinkingLevels isn't read.
+      ✗ gemini-api: /adapter_config/thinkingLevels: adapter_config.thinkingLevels isn't read here: its setting is metadata.models[].thinking.default.
+      Fix: Unregister gemini-api (pnpm exec kindgi providers unregister gemini-api), then register it again: pnpm exec kindgi providers register --spec=@<file> (its spec with each key moved to the place its warning names, or removed).
+```
+
 `--json` gives the same checks as JSON, for a script or a coding agent
 ([Set up with a coding agent](../agent/) has an agent read it). A check's
 problems, such as each provider's in the example, are in its `details`.

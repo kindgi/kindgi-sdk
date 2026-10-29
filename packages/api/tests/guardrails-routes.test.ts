@@ -7,7 +7,11 @@ import { describe, expect, test } from 'vitest';
 
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
-import { type Guardrail, guardrailConfigProblems } from '@kindgi/guardrails';
+import {
+  type Guardrail,
+  guardrailCheckPointProblems,
+  guardrailConfigProblems,
+} from '@kindgi/guardrails';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -528,6 +532,86 @@ describe("API — guardrails register: the config against its check's configSche
     const res = await post(app, { kind: '' });
     expect(res.status).toBe(400);
     expect(called).toBe(false);
+  });
+});
+
+describe("API — guardrails register: the point against its check's points", () => {
+  const post = (app: ReturnType<typeof makeApp>['app'], body: Record<string, unknown>) =>
+    app.request('/v1/guardrails', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...guardrailPostBody(), ...body }),
+    });
+  type ErrorBody = { error: { code: string; message: string; details: { issues: unknown[] } } };
+
+  test("a built-in at a point it doesn't run at → 422 guardrail-config-invalid at /at, nothing registered", async () => {
+    // The runtime's check knows nothing of built-ins; the route checks their points itself.
+    const { app, binding } = makeApp({ checkGuardrailConfig: async () => [] });
+    const res = await post(app, {
+      id: 'acme.cites-each-step',
+      check: 'must-cite',
+      at: 'model-step',
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe('guardrail-config-invalid');
+    expect(body.error.message).toBe(
+      'Guardrail "acme.cites-each-step" doesn\'t fit check "must-cite": at "model-step" isn\'t one of the check\'s points (final-answer).',
+    );
+    expect(body.error.details.issues).toEqual([
+      { path: '/at', message: 'at "model-step" isn\'t one of the check\'s points (final-answer).' },
+    ]);
+    expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test('a built-in at a point it runs at → 201, with its point and scope.tools', async () => {
+    const { app, binding } = makeApp();
+    const res = await post(app, {
+      id: 'acme.no-refunds',
+      check: 'never-call-tool',
+      config: { tools: ['acme.woo.refund'] },
+      at: 'before-tool',
+      sees: 'conversation',
+      scope: { tools: ['acme.woo.*'] },
+    });
+    expect(res.status).toBe(201);
+    const [stored] = (await binding.list({ tenantId, limit: 10 })).data;
+    expect(stored).toMatchObject({
+      at: 'before-tool',
+      sees: 'conversation',
+      scope: { tools: ['acme.woo.*'] },
+    });
+  });
+
+  test("a pack check's points are the runtime's to check (the hook)", async () => {
+    const { app } = makeApp({
+      checkGuardrailConfig: async ({ guardrail }) =>
+        guardrailCheckPointProblems(guardrail, ['final-answer']),
+    });
+    const res = await post(app, { check: 'my-pack.checks.args', at: 'before-tool' });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as ErrorBody).error.details.issues).toEqual([
+      {
+        path: '/at',
+        message: 'at "before-tool" isn\'t one of the check\'s points (final-answer).',
+      },
+    ]);
+  });
+
+  test("what a point can't do → 400 validation-failed", async () => {
+    const { app } = makeApp();
+    const res = await post(app, {
+      check: 'never-call-tool',
+      config: { tools: ['acme.woo.refund'] },
+      at: 'before-tool',
+      action: { 'on-violation': 'escalate', escalateTo: 'senior' },
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.message).toBe(
+      'Guardrail "acme.no-fabricated-quotes": "escalate" is recorded at the final answer only, not at "before-tool"',
+    );
   });
 });
 

@@ -1,6 +1,6 @@
 ---
 title: Trace an answer and its cost
-description: See which model calls and tool calls produced an agent's answer, and what each model call cost.
+description: See which model calls and tool calls produced an agent's answer and what each model call cost, and which steps produced a flow run's output.
 sidebar:
   order: 1
 ---
@@ -15,6 +15,8 @@ user's message through each model call and tool call to the answer. It names
 the model of each call and the version of each tool, and, beside the graph,
 each call's tokens and cost.
 Use it to answer "where did this answer come from?" and "what did it cost?".
+A finished flow run has a record too, of its steps and the runs they started:
+[A flow's answers](#a-flows-answers) reads it.
 
 ## Before you start
 
@@ -110,7 +112,7 @@ Read it from the answer backwards:
 | Node | What it is |
 | --- | --- |
 | `input` | The message the turn answered. |
-| `model-call` | One call to a model: `modelVersion` is `provider/model`; `attributes` has its `step`, `model`, `providerId`, why it stopped (`finishReason`) and its `callId`. |
+| `model-call` | One call to a model: `modelVersion` is `provider/model`; `attributes` has its `step`, `model`, `providerId`, why it stopped (`finishReason`), its `callId`, and its `thinking` when it asked for or sent a level: `asked`, the level asked for, and `level`, the level sent ([Temperature and thinking](../../models/#temperature-and-thinking)). |
 | `tool-call`, `tool-result` | A tool the model called, with the exact tool version that ran, and what it returned. |
 | `model-output` | The answer. |
 | `wait`, `resume` | A tool call that waited for an approval: the wait, and the decision that ended it. |
@@ -313,68 +315,146 @@ shows.
 
 ## A flow's answers
 
-A flow run has no record of its own:
-
-```json
-{"error":{"code":"provenance-not-found","message":"No provenance record for run \"41027166-71ec-4bd6-b516-cc47c0787da4\"","details":{"runId":"41027166-71ec-4bd6-b516-cc47c0787da4"},"requestId":"req-997f000a-22f6-470a-b52b-acdd21d6e228"}}
-```
-
-Each agent step is a run of its own, with its own record. The step's output
-in the flow's journal has that run's id. `<flow-run-id>` is the flow run's
-id:
+A finished flow run has a record of its own: each step that ran, why it
+ran, the runs it started, and which steps the run's output came from. It's
+written just after the run ends, and from the run's end until it's
+written, the read says so. `<flow-run-id>` is the flow run's id:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi runs journal <flow-run-id>
+pnpm exec kindgi provenance get <flow-run-id>
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi runs journal <flow-run-id>
+uv run kindgi provenance get <flow-run-id>
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw runs journal <flow-run-id>
+./kindgiw provenance get <flow-run-id>
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw runs journal <flow-run-id>
+./kindgiw provenance get <flow-run-id>
 ```
 
 </TabItem>
 </Tabs>
 
-```json
-  {
-    "sequence": 9,
-    "kind": "step.completed",
-    "nodeId": "respond",
-    "payload": {
-      "output": {
-        "text": "⚠ dev-echo isn't a real model: …\n\nTool responded: …",
-        "runId": "4bdae2f9-ff67-48a3-9549-49028d290cc1",
-        …
+```text
+Error [not-found]: No provenance record for run "27882332-2f09-48fd-a607-e44a673b6a64"
+Record state: being-written
 ```
 
-Fetch the record for that run: `kindgi provenance get 4bdae2f9-…`.
+Over HTTP it's a `404 provenance-not-found` whose `details.recordState` is
+`being-written`: ask again in a moment. If writing the record failed,
+`recordState` is `failed`, and `details.reason` says which part failed. An
+older runtime writes no flow records, and its 404 has no `recordState`.
+
+Once it's written, the same command answers the record. This flow has three
+steps: a tool (`parse`), an agent (`classify`) and another tool (`count`):
+
+```json
+{
+  "id": "8379449c-327e-53d2-8fb9-ce358ff152ee",
+  "runId": "22e085a4-103a-41a1-8667-f68796c5edb1",
+  …
+  "version": "1.1.0",
+  "flowRef": {"id": "acme.typed-agent", "version": "0.1.0"},
+  "dag": {
+    "nodes": [
+      {"id": "input", "kind": "input", "timestamp": "2026-10-28T11:20:21.844Z"},
+      {"id": "step:parse", "kind": "step", "timestamp": "2026-10-28T11:20:21.852Z", "attributes": {"ref": {"id": "acme.parse"}, "nodeId": "parse", "status": "completed", "endedAt": "2026-10-28T11:20:22.947Z", "attempts": 1, "nodeKind": "tool", "reachedBy": ["e0"], "startedAt": "2026-10-28T11:20:21.852Z"}},
+      {"id": "step:classify", "kind": "step", "timestamp": "2026-10-28T11:20:22.947Z", "attributes": {"ref": {"id": "acme.classify"}, "runs": [{"runId": "607f0079-4bba-4773-b2c1-e660ff7e7be6", "flowId": "agent.turn", "status": "completed", "provenanceId": "edbf2702-653f-4b44-b935-5134c8b092a4"}], "nodeId": "classify", "status": "completed", "endedAt": "2026-10-28T11:20:27.479Z", "attempts": 1, "nodeKind": "agent", "reachedBy": ["e1"], "startedAt": "2026-10-28T11:20:22.947Z"}},
+      {"id": "step:count", "kind": "step", "timestamp": "2026-10-28T11:20:27.480Z", "attributes": {"ref": {"id": "acme.count"}, "nodeId": "count", "status": "completed", "endedAt": "2026-10-28T11:20:27.547Z", "attempts": 1, "nodeKind": "tool", "reachedBy": ["e2"], "startedAt": "2026-10-28T11:20:27.480Z"}},
+      {"id": "output", "kind": "artifact", "timestamp": "2026-10-28T11:20:27.593Z"}
+    ],
+    "edges": [
+      {"from": "step:parse", "to": "input", "kind": "caused-by"},
+      {"from": "step:classify", "to": "step:parse", "kind": "caused-by"},
+      {"from": "step:count", "to": "step:classify", "kind": "caused-by"},
+      {"from": "output", "to": "step:count", "kind": "produced"},
+      {"from": "output", "to": "step:classify", "kind": "produced"}
+    ]
+  },
+  "stepUsage": {
+    "step:classify": {"calls": 1, "costUsd": 0, "tokens": {"prompt": 20, "completion": 6, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0}}
+  }
+}
+```
+
+Read it from the output backwards:
+
+- The output was `produced` by `count` and `classify`: the flow's
+  `output.mapping` reads both. With no mapping, it's the step that fed `$end`.
+- `count` was `caused-by` `classify`, `classify` by `parse`, and `parse` by
+  `input`, the run's input. A step's `reachedBy` names the edges it was
+  reached by.
+- `classify` is an agent step. Its turn ran as a run of its own, listed in
+  `runs` with the id of the turn's own record, `provenanceId`. Fetch that
+  record by the turn's `runId` to see its model calls and tool calls.
+
+| Attribute | What it is |
+| --- | --- |
+| `nodeId`, `nodeKind`, `ref` | The step in the flow's definition: its id, its kind (`tool`, `agent`, `loop`, …) and what it runs. |
+| `status`, `attempts`, `startedAt`, `endedAt` | How it ran. |
+| `reachedBy` | The edges it was reached by. |
+| `runs` | The runs it started: an agent step's turn, or a sub-flow's run. |
+| `reusedFrom` | The earlier results it reused, when the runtime records them. |
+
+`stepUsage` holds each step's model usage from the cost ledger, keyed by the
+step's node id in the record (`step:classify`): its calls, their cost in USD
+and their tokens, over every run it started and the runs under them. A step
+that made no model calls has no entry. Here the turn ran on dev-echo, which
+costs nothing.
+
+The record holds ids, kinds, statuses, times and codes, never a value. What
+a step read or returned stays in the run's journal: `kindgi runs journal
+<flow-run-id>`.
+
+A step in a loop has a node for each iteration it ran. A foreach over two
+grievances, with one agent step in its body:
+
+```json excerpt
+      {"id": "step:each", "kind": "step", "timestamp": "2026-10-28T11:20:32.789Z", "attributes": {"nodeId": "each", "status": "completed", "nodeKind": "loop", "iterations": {"count": 2, "stopReason": "array-exhausted"}, …}},
+      {"id": "step:classify-each@each#0", "kind": "step", "timestamp": "2026-10-28T11:20:32.816Z", "attributes": {"ref": {"id": "acme.classify"}, "runs": [{…}], "nodeId": "classify-each", "status": "completed", "nodeKind": "agent", …}},
+      {"id": "step:classify-each@each#1", "kind": "step", "timestamp": "2026-10-28T11:20:34.562Z", "attributes": {"ref": {"id": "acme.classify"}, "runs": [{…}], "nodeId": "classify-each", "status": "completed", "nodeKind": "agent", …}},
+…
+      {"from": "step:classify-each@each#0", "to": "step:each", "kind": "invoked"},
+      {"from": "step:classify-each@each#1", "to": "step:each", "kind": "invoked"},
+```
+
+Each iteration's step is `step:<step>@<loop>#<iteration>`, `invoked` by its
+loop, with its own entry in `stepUsage`. In a nested loop, the inner loop's
+iteration comes first: `step:<step>@<inner>#<j>/<outer>#<i>`. A long loop
+keeps whole iterations from both ends, at most 25 from each. The iterations
+between fold into one node, `step:<loop>#folded`, whose `folded` attribute
+has their range (`from`, `to`), their `count` and `byStatus`, and how many
+runs their steps started (`runs`). Its `stepUsage` entry sums theirs.
+
+A record holds at most 5,000 nodes and 4 MiB. A larger one is cut from the
+middle: a `truncated` node says what was left out, and a step cut with it
+has no `stepUsage` entry. An id over 256 characters takes a digest form,
+`step:~<hex>`, and keeps its start in `idHead`.
 
 ## Find records
 
 `kindgi provenance list` lists records, newest first, without their graphs.
 `--created-after=<time>` keeps the newer ones, `--run=<run-id>` one run's,
-`--agent=<agent-id>` one agent's turns at any version, and `--project=<id>`
-or `--org=<id>` one project's or one org's. `--table` prints a row per
-record:
+`--agent=<agent-id>` one agent's turns at any version, `--flow=<flow-id>` one
+flow's runs at any version, and `--project=<id>` or `--org=<id>` one
+project's or one org's. `--table` prints a row per record, and a flow run's
+row names its flow:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -413,8 +493,48 @@ RUN                                   CREATED                   FLOW  SIGNED
 e4cb91b4-d0b1-499a-a282-c75b83c7693c  2026-10-06T17:12:02.090Z        no
 ```
 
-Over HTTP it's `GET /v1/provenance`, filtered by `runId`, `agentId` or
-`createdAfter`:
+One flow's records:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi provenance list --flow=acme.typed-agent --limit=3 --table
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi provenance list --flow=acme.typed-agent --limit=3 --table
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw provenance list --flow=acme.typed-agent --limit=3 --table
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw provenance list --flow=acme.typed-agent --limit=3 --table
+```
+
+</TabItem>
+</Tabs>
+
+```text
+RUN                                   CREATED                   FLOW                    SIGNED
+────────────────────────────────────  ────────────────────────  ──────────────────────  ──────
+706d9ef4-6b5f-44a0-8dd5-54c6b488071c  2026-10-28T11:20:44.208Z  acme.typed-agent@0.1.0  no
+22e085a4-103a-41a1-8667-f68796c5edb1  2026-10-28T11:20:27.593Z  acme.typed-agent@0.1.0  no
+```
+
+Over HTTP it's `GET /v1/provenance`, filtered by `runId`, `agentId`,
+`flowId` or `createdAfter`:
 
 ```sh
 curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
@@ -424,6 +544,12 @@ curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
 ```json
 {"data":[{"id":"e87e13ae-472f-404b-8dfe-94ec738980cd","runId":"f91ff793-b029-48e8-9ce4-f9fa70bd0c40","tenantId":"9126df1e-094b-496d-9ea8-7daab93c3f4f","version":"1.0.0","createdAt":"2026-10-05T16:26:30.533Z","signed":false,"projectId":"13b7cfca-8b77-4983-858f-149c16afe56d"},…]}
 ```
+
+A flow run's record has its `flowRef`, and a page filtered by `flowId` says
+`flowId` back. A turn's record names no flow, so `flowId=agent.turn` lists
+nothing. A runtime that doesn't filter by flow leaves `flowId` out of its
+page, and `--flow` then stops with an error rather than print every record
+as the flow's.
 
 Each record carries its run's `projectId`. `scopeKind=project&scopeId=<id>`
 lists one project's records, and `scopeKind=org&scopeId=<id>` every

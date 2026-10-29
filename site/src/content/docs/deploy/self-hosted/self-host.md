@@ -56,7 +56,7 @@ license key, and pull it:
 
 ```sh
 docker login registry.kindgi.com --username kindgi
-docker pull quay.io/kindgi/runtime:0.1.10
+docker pull registry.kindgi.com/kindgi/runtime:0.2.0
 ```
 
 `docker login` asks for the password: paste your key. It prints
@@ -128,6 +128,11 @@ uuidgen | tr 'A-Z' 'a-z'
 ```
 
 It prints the id in lower case. Keep it for the config and `kindgi.env`.
+
+Keep the id in lower case. With an upper-case one, manage the tenant's people
+one way only: with the API token as the bearer of your CLI or API calls, or
+through the console and API keys, not both. A runtime that already runs with
+an upper-case id keeps it as it is.
 
 Create a signing key. `acme-selfhost` is the key's id, and `--env selfhost`
 also prints the lines to add to the `selfhost` environment:
@@ -290,7 +295,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.10
+  registry.kindgi.com/kindgi/runtime:0.2.0
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a

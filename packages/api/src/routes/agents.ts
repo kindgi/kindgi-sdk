@@ -144,6 +144,8 @@ export function agentsRouter(
   //   POST /:agentId/promotions, /live/rollback, /live/unpin → promote on the agent
   //   POST /:agentId/promotions/check                → read on the agent (changes nothing)
   //   GET /:agentId/live, /live-versions, /promotions[/…]    → read on the agent
+  //   GET /:agentId/projects                         → read on the agent; names
+  //                                                    the projects the caller reads
   //   GET / (list)                                   → tenant-scoped fetch;
   //                                                    with a project scope
   //                                                    (?scopeKind=project&scopeId=),
@@ -195,6 +197,7 @@ export function agentsRouter(
     });
     // An agent more than one project serves is checked on those projects
     // instead (`item-rights.ts`, `agentCheck`).
+    // '/:agentId/*' matches '/:agentId' too: this one gate decides both, once.
     r.use(
       '/:agentId/*',
       itemMiddleware({
@@ -214,18 +217,6 @@ export function agentsRouter(
                 ? 'publish'
                 : 'admin',
         check: (c, projects) => agentCheck(c, projects),
-        versionNotFound: agentVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:agentId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'agent',
-        id: (c) => c.req.param('agentId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: agentVersionNotFound,
       }),
     );
@@ -405,6 +396,61 @@ export function agentsRouter(
     }
     return c.json(serializeAgent(shown.row));
   });
+
+  // ---------- GET /:agentId/projects (the projects it runs in) ----------
+  // Its own project first, then each other project a version of it can run
+  // in (`ItemProjectsBinding.projectsOf`, unregistered versions included): a
+  // change to the agent reaches each. Only the projects the caller reads are
+  // named, its own included. With no binding, its own project alone.
+  r.get('/:agentId/projects', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const agentId = c.req.param('agentId') as AgentId;
+    const served = itemRights ?? itemServing;
+    const projects =
+      served !== undefined
+        ? await served.projects(c, 'agent', agentId as unknown as string)
+        : await ownProject(tenantId, agentId);
+    if (projects === undefined) {
+      c.status(statusFor('agent-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-not-found',
+            message: `No agent registered with id "${agentId as unknown as string}"`,
+            agentId: agentId as unknown as string,
+          },
+          c.get('requestId'),
+        ),
+      );
+    }
+    const named =
+      authorizer === undefined
+        ? projects
+        : await authorizer.filterByCan(c, 'read', projects, (p) =>
+            ref('project', p as unknown as string),
+          );
+    return c.json({ data: named.map((projectId) => ({ projectId })) });
+  });
+
+  /**
+   * An agent's own project with no item-projects binding: every version
+   * reads the same one (`AgentVersionRecord.projectId`), a retired agent's
+   * too. `undefined`: no such agent; empty: the store records none.
+   */
+  async function ownProject(
+    tenantId: TenantId,
+    agentId: AgentId,
+  ): Promise<readonly ProjectId[] | undefined> {
+    if (!(await binding.headExists({ tenantId, agentId }))) return undefined;
+    const page = await binding.listVersions({
+      tenantId,
+      agentId,
+      limit: 1,
+      includeTombstoned: true,
+    });
+    const projectId = page.data[0]?.projectId;
+    return projectId !== undefined ? [projectId] : [];
+  }
 
   // ---------- GET /:agentId/versions (list versions) ----------
   r.get('/:agentId/versions', async (c) => {
@@ -587,9 +633,7 @@ export function agentsRouter(
 
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
-      principal?.actor.kind === 'user'
-        ? (principal.actor.id as UserId)
-        : ('00000000-0000-0000-0000-000000000000' as UserId);
+      principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
     const outcome = await binding.publish({
       tenantId,
       projectId,
@@ -669,10 +713,7 @@ export function agentsRouter(
       ...(parsed.projectId !== undefined && { projectId: parsed.projectId }),
       ...(environmentOrders !== undefined && { orders: environmentOrders }),
       tuplesFor: (projectId) => (id) =>
-        tuplesForCreate(
-          { kind: 'agent', id: id as AgentId, tenantId, projectId },
-          userId ?? ('00000000-0000-0000-0000-000000000000' as UserId),
-        ),
+        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId }, userId),
     });
     return derived(c, agentId, parsed.from, outcome, authorizer);
   });
@@ -1087,6 +1128,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     ...(a.toolErrors !== undefined && { toolErrors: a.toolErrors }),
     ...(a.preferredProvider !== undefined && { preferredProvider: a.preferredProvider }),
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
+    ...(a.parallelToolCalls !== undefined && { parallelToolCalls: a.parallelToolCalls }),
     ...(a.pins !== undefined && { pins: a.pins }),
     ...(a.pinsDigest !== undefined && { pinsDigest: a.pinsDigest }),
     ...(a.derivedFrom !== undefined && { derivedFrom: a.derivedFrom }),

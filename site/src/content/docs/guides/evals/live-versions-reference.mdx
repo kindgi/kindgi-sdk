@@ -1,16 +1,16 @@
 ---
 title: Live versions reference
-description: How a run gets its agent version, what conversations and flows keep, what rollbacks and unpins refuse, the go-live history, release gate policies, and the console's Live versions page.
+description: How a run gets its agent version, what conversations and flows keep, what rollbacks and unpins refuse, the go-live history, every pin that covers a project, release gate policies, and the console's Live versions page.
 sidebar:
   order: 5.5
 ---
 
 This page lists everything about live agent versions: how a run gets its
 version, what conversations and flows keep, what requests to make a version
-live, rollbacks and unpins refuse, the go-live history, release gate
-policies, and what the console shows. On the CLI, making a version live is
-`kindgi agents promote`. To release a version, follow
-[Release an agent version](../release-an-agent-version/).
+live, rollbacks and unpins refuse, the go-live history, every pin that
+covers a project, release gate policies, and what the console shows. On the
+CLI, making a version live is `kindgi agents promote`. To release a version,
+follow [Release an agent version](../release-an-agent-version/).
 
 ## How a run gets its version
 
@@ -137,6 +137,51 @@ ea4e7c15-7990-41b6-b153-0847a83f2e9d  promote   promoted  tenant                
   gate policy of its own and follows this one.
 - `--eval-run=<eval-run-id>` on `promote` keeps the run on the test cases
   behind the decision on its record.
+
+## Every pin that covers a project
+
+`GET /v1/projects/<project-id>/pinned-versions` lists every agent's pins
+that cover a project: the tenant's, the project's org's, the project's own
+and its segments'. They're ordered by agent, then by scope, and each one is
+as an agent's own list of live versions shows it:
+
+```json
+{
+  "data": [
+    {
+      "agentId": "acme.order-desk",
+      "scope": { "kind": "tenant" },
+      "version": "1.0.0",
+      "promotionId": "5b1d0c4e-2f7a-4c8e-9d36-0a8e4f1b7c21",
+      "setAt": "2026-10-06T18:46:15.125Z"
+    },
+    {
+      "agentId": "acme.order-desk",
+      "scope": {
+        "kind": "segment",
+        "projectId": "367e1657-8067-4a1d-8ec4-bfa3c5fc5865",
+        "path": [{ "key": "company", "value": "acme" }]
+      },
+      "version": "1.1.0",
+      "promotionId": "a3f6e2d9-7c14-4b5a-8e0f-6d2c9b1a4e73",
+      "setAt": "2026-10-06T18:48:23.207Z"
+    }
+  ],
+  "hasMore": false
+}
+```
+
+A run in the project takes the most specific of them that covers it, as
+[How a run gets its version](#how-a-run-gets-its-version) says.
+
+Reading it takes `read` on the project. It lists only the pins of agents
+and versions you can read, as an agent's own list does, so a page can hold
+fewer pins than `limit`, or none, and still have more: page on `nextCursor`,
+not on the count. `limit` is 25 by default and at most 100, and
+`cursor=<nextCursor>` gets the next page. In the TypeScript client it's
+`projects.pinnedVersions.list`, and in the Python client
+`projects.pinned_versions.list`. A runtime that can't list them answers
+`501 pinned-versions-not-supported`.
 
 ## Release gate policies
 

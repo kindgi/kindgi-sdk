@@ -158,6 +158,7 @@ export function flowsRouter(
     }
     // An item more than one project serves is checked on those projects
     // instead (`item-rights.ts`). A pin write is checked above.
+    // '/:flowId/*' matches '/:flowId' too: this one gate decides both, once.
     r.use(
       '/:flowId/*',
       itemMiddleware({
@@ -167,18 +168,6 @@ export function flowsRouter(
         id: (c) => c.req.param('flowId') ?? '',
         today: (c) => (c.req.method === 'GET' ? 'read' : pinWrite(c) ? undefined : 'admin'),
         check: itemPathCheck,
-        versionNotFound: flowVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:flowId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'flow',
-        id: (c) => c.req.param('flowId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: flowVersionNotFound,
       }),
     );

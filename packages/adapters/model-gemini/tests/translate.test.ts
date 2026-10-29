@@ -176,6 +176,40 @@ describe('fromGeminiResponse', () => {
     expect(r.message.toolCalls?.[1]).not.toHaveProperty('signature');
   });
 
+  test('a missing, null or empty id, or one an earlier call of the reply has, is made anew; each goes back with its call and its result', () => {
+    const r = fromGeminiResponse(
+      response({
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [
+                { functionCall: { id: 'f1', name: 'acme.rank', args: {} } },
+                { functionCall: { id: 'f1', name: 'acme.lookup', args: {} } },
+                { functionCall: { id: '', name: 'acme.lookup', args: {} } },
+                { functionCall: { name: 'acme.lookup', args: {} } },
+                { functionCall: { id: null as never, name: 'acme.lookup', args: {} } },
+              ],
+            },
+            finishReason: 'STOP' as never,
+          },
+        ],
+      }),
+    );
+    const ids = r.message.toolCalls?.map((c) => c.id) ?? [];
+    expect(ids[0]).toBe('f1');
+    expect(ids.slice(1).every((id) => id.startsWith('gemini-call-'))).toBe(true);
+    expect(new Set(ids).size).toBe(5);
+    const [, model, results] =
+      toGeminiRequest([
+        { role: 'user', content: 'rank' },
+        r.message,
+        ...ids.map((id) => ({ role: 'tool' as const, toolCallId: id, content: '{}' })),
+      ]).contents ?? [];
+    expect(model?.parts?.flatMap((p) => (p.functionCall ? [p.functionCall.id] : []))).toEqual(ids);
+    expect(results?.parts?.map((p) => p.functionResponse?.id)).toEqual(ids);
+  });
+
   test('a blocked prompt (no candidates) is content-filter; no candidates otherwise is error', () => {
     expect(
       fromGeminiResponse(response({ promptFeedback: { blockReason: 'SAFETY' as never } })),

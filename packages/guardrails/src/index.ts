@@ -4,7 +4,7 @@
 export {
   GUARDRAIL_SCHEMA_URI,
   GUARDRAIL_SPEC_KEYS,
-  defineGuardrail,
+  validateGuardrail,
   validateGuardrailSpec,
 } from './define.js';
 export { defineCheck } from './define-check.js';
@@ -63,6 +63,8 @@ export type {
   EvaluationResult,
   Guardrail,
   GuardrailKind,
+  GuardrailPoint,
+  GuardrailSees,
   GuardrailSeverity,
   JsonSchema,
   ModelCallRecord,
@@ -76,11 +78,30 @@ export type {
   ScopeWhen,
   ToolCallRecord,
   ToolResultRecord,
+  TraceCall,
+  TraceCallResult,
+  TraceStep,
+  TraceTurn,
   TypedNeeds,
 } from './types.js';
-export { BUILT_IN_GUARDRAIL_KINDS, BUILT_IN_ON_VIOLATIONS } from './types.js';
+export {
+  BUILT_IN_GUARDRAIL_KINDS,
+  BUILT_IN_ON_VIOLATIONS,
+  GUARDRAIL_POINTS,
+} from './types.js';
+export {
+  DEFAULT_CHECK_POINTS,
+  checkPoints,
+  guardrailCheckPointProblems,
+  guardrailCoversTool,
+  guardrailPoint,
+  guardrailPointIssues,
+  isGuardrailPoint,
+} from './points.js';
 export type {
   CheckFailedError,
+  CheckPointUnsupportedError,
+  CheckTimedOutError,
   InvalidCheckConfigError,
   InvalidCheckDefinitionError,
   InvalidGuardrailError,

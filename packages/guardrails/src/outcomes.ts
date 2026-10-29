@@ -3,15 +3,19 @@
 
 import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
-import type { GuardrailSeverity, OnViolation } from './types.js';
+import type { GuardrailPoint, GuardrailSeverity, OnViolation } from './types.js';
 
 /**
- * What one guardrail's check came to on one turn:
+ * What one guardrail's check came to on one answer: a turn's final
+ * answer, or each answer the agent loop judged, in a turn with a `retry`
+ * guardrail:
  *
  * - `passed`: the check ran and found nothing;
  * - `violated`: it found something, and its action let the answer through
- *   (`log-only`, `noop`, or an action the turn hands back);
- * - `blocked`: it found something, and its action (`halt`) failed the turn;
+ *   (`log-only`, `noop`, or an action the turn hands back), or a `retry`
+ *   sent it back for a new one;
+ * - `blocked`: it found something, and its action failed the turn: a
+ *   `halt`, or a `retry` whose attempts had run out;
  * - `errored`: the check couldn't run (no such check, a bad configuration,
  *   a judge that couldn't be routed). A `halt` guardrail's error fails the
  *   turn too, and stays `errored`.
@@ -36,7 +40,7 @@ export interface GuardrailCheckOutcome {
 }
 
 /**
- * Every check one guardrail gate ran on a turn, as the gate decided them.
+ * Every check one guardrail gate ran on an answer, as the gate decided them.
  * No content: no answer, no check's reason.
  */
 export interface GuardrailOutcomeRecord {
@@ -44,8 +48,21 @@ export interface GuardrailOutcomeRecord {
   readonly projectId: ProjectId;
   /** The turn's run. */
   readonly runId: RunId;
-  /** The step that ran the gate: a run's outcomes are kept per step. */
+  /**
+   * The step that ran the gate: a run's outcomes are kept per step. It's
+   * `evaluate-guardrails` after the agent loop, `budget-check@<iteration>`
+   * for an answer the loop judged (a turn with a `retry` guardrail),
+   * `dispatch-tools@<iteration>` for a model reply (`'model-step'`), and
+   * `dispatch-tools@<iteration>:before-tool:<callId>` and
+   * `dispatch-tools@<iteration>:after-tool:<callId>` for a tool call,
+   * before and after it ran: a call's two points are two steps, so
+   * neither record replaces the other. It isn't always a flow node's id.
+   */
   readonly nodeId: string;
+  /** Where in the turn the checks ran. Absent: the final answer. */
+  readonly point?: GuardrailPoint;
+  /** At `'before-tool'` and `'after-tool'`: the model's id for the call, unique within its reply. */
+  readonly callId?: string;
   readonly agentId: string;
   readonly agentVersion: string;
   /** When the gate ran. */

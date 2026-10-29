@@ -304,6 +304,61 @@ none.
   must name `none`.
 - `kindgi schedules unregister <schedule-id>` removes it.
 
+## Its versions
+
+Each change to a schedule makes a **version** of it, which never changes
+after (runtime 0.3.0 or later). Creating the schedule makes version 1. An
+`update` that changes something makes the next, and so does a take-over to
+another owner. An `update` that changes nothing makes none, nor do pausing,
+resuming, running it now or removing it. A schedule from before versions
+has none until its next change or its first fire.
+
+A run uses the newest version when it starts, and keeps it whatever later
+changes make: the run's `trigger.version` names it. So a change or a
+take-over reaches the next run that starts, never a run already going.
+
+From your app, newest first:
+
+- `GET /v1/schedules/{triggerId}/versions` pages them (`schedules.versions`
+  in TypeScript, `list_versions` in Python);
+- `GET /v1/schedules/{triggerId}/versions/{version}` reads one
+  (`getVersion`, `get_version`). A version the schedule doesn't have is
+  `404 trigger-version-not-found`.
+
+From the CLI:
+
+```sh
+pnpm exec kindgi schedules versions <schedule-id> --table
+pnpm exec kindgi schedules get <schedule-id> <version>
+```
+
+- `versions` pages them, with `--limit` and `--cursor`. Its table shows
+  each one's number, when it was made, by whom, and why. `Kindgi` stands
+  in the `BY` column for a version the runtime made itself.
+- `get <schedule-id> <version>` reads one. Without a version, `get` is the
+  schedule as it is now, and its `version` is the newest. The `VERSION`
+  column of `list --table` shows it, empty for a schedule that has none
+  yet.
+
+Whoever can read the schedule can read its versions. Each one says when it
+was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
+`register`, `edit` or `owner` for a take-over to another owner). Two causes
+name no one, since the runtime made the version itself: `first-fire`, at
+the first fire of a schedule from before versions, and `unversioned-edit`,
+at its next fire or just before an edit or take-over, after a release from
+before versions changed the schedule during an upgrade. Its `definition` is what it ran, with which input, as whom,
+when, and with which policies, label and tools allowed unattended: never
+its status.
+
+The evidence of a change names the version it made (`version`), on
+`trigger-changed-for-owner`, `trigger-owner-set` and
+`trigger-tools-allowed-unattended-set`, and that version has what the
+entry leaves out, such as an input's value.
+
+The versions keep every input the schedule has had, so a secret pasted
+into its input stays in an earlier version after you edit it out: rotate
+it.
+
 ## In the console
 
 A project's **Schedules** page lists its schedules. Each row says:
@@ -311,9 +366,10 @@ A project's **Schedules** page lists its schedules. Each row says:
 - its label, its cron in words, such as "Every day at 2:00 AM UTC", and the
   cron;
 - whether it's **Active** or **Paused**;
-- what it runs, such as "the agent Dev-Echo Agent (its live version)", "the
-  flow Refunds 1.0.0" or, for a schedule that starts Improve runs, "Improve
-  runs on Acme Rank Scorer, when enough new answers have been marked wrong";
+- what it runs, such as "the agent Dev-Echo Agent (its pinned version, or
+  the latest)", "the flow Refunds 1.0.0" or, for a schedule that starts
+  Improve runs, "Improve runs on Acme Rank Scorer, when enough new answers
+  have been marked wrong";
 - when it next fires, such as "Next in 23h (25 Oct 2026, 10:00 PM EDT)", or
   that it's paused;
 - its last scheduled fire, and **Runs it started →**. A **Run now** fire is

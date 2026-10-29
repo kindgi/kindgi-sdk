@@ -442,6 +442,21 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'run-held-by-parent': {
+    description:
+      "The run is a subflow's child run, left for its parent run's next resume, which resumes it too. Only the parent's resume resumes it, so a resume of the child itself is refused.",
+    details: [
+      {
+        key: 'runId',
+        meaning: 'the run',
+      },
+      {
+        key: 'parentRunId',
+        meaning: 'its parent run, whose resume resumes it',
+      },
+    ],
+    seeAlso: ['concepts/runs'],
+  },
   'idempotency-key-body-mismatch': {
     description:
       'You reused an Idempotency-Key with a different request body. Send the original body to get its answer back, or use a fresh key.',
@@ -465,6 +480,11 @@ export const ERROR_ENTRIES = {
         meaning: 'when it succeeded, as an ISO timestamp',
       },
     ],
+  },
+  'idempotency-store-unavailable': {
+    description:
+      "A write sent with an Idempotency-Key couldn't be checked against its key, because the store that keeps the keys couldn't be read, so the write didn't run and changed nothing. Retry with the same key after the `Retry-After` header.",
+    details: [],
   },
   'hitl-required': {
     description:
@@ -923,7 +943,7 @@ export const ERROR_ENTRIES = {
   },
   'guardrail-violation': {
     description:
-      "A blocking guardrail stopped the agent's turn, or a halting guardrail's check couldn't run. The run fails; the violations say which guardrails fired.",
+      "A blocking guardrail stopped the agent's turn, a halting guardrail's check couldn't run, or a `retry` guardrail's attempts ran out: at the final answer it sends each answer it fails back to the model for a new one, and in the agent loop it refuses a call, withholds a result or sends a reply back, until it has failed `retry.maxAttempts` answers or replies. The run fails; the violations say which guardrails fired, and `point` says where in the turn.",
     details: [
       {
         key: 'violations',
@@ -932,6 +952,20 @@ export const ERROR_ENTRIES = {
       {
         key: 'evaluationErrors',
         meaning: "guardrails whose check couldn't run (missing check, bad config)",
+      },
+      {
+        key: 'attempts',
+        meaning:
+          "the attempts the turn had when a `retry` guardrail's ran out, the first one included: its answers at the final answer, or in the agent loop its replies the guardrail sent back or refused or withheld a call of; absent when a `halt` guardrail stopped it",
+      },
+      {
+        key: 'point',
+        meaning:
+          'where in the turn the guardrails stopped it: `before-tool`, `after-tool` or `model-step`; absent at the final answer',
+      },
+      {
+        key: 'callId',
+        meaning: "at `before-tool` and `after-tool`: the model's id for the call",
       },
       {
         key: 'runId',
@@ -995,7 +1029,7 @@ export const ERROR_ENTRIES = {
   },
   'model-invocation-failed': {
     description:
-      "The model provider call failed, for example it refused the key or was rate limited. The message carries the provider's own words.",
+      "The model provider call failed, for example it refused the key or was rate limited, or the model's reply can't be used (for example, two of its tool calls share an id). When the call failed, the message carries the provider's own words.",
     details: [
       {
         key: 'runId',
@@ -1395,6 +1429,16 @@ export const ERROR_ENTRIES = {
       {
         key: 'runId',
         meaning: 'the run id that was looked up',
+      },
+      {
+        key: 'recordState',
+        meaning:
+          "why the run has no record yet: `being-written` while it's being written, after a flow run ends; `failed` when writing it failed. Absent when the run has no record at all. More states may come",
+      },
+      {
+        key: 'reason',
+        meaning:
+          "with `recordState: failed`, why: `read-failed` (its journal couldn't be read), `build-failed` (the record couldn't be built from it) or `write-failed` (it couldn't be saved). More codes may come",
       },
     ],
     seeAlso: ['GET /v1/provenance/{runId}'],
@@ -2557,6 +2601,10 @@ export const ERROR_ENTRIES = {
     description: "This deployment doesn't record guardrail outcomes.",
     details: [],
   },
+  'pinned-versions-not-supported': {
+    description: "This deployment can't list a project's pinned versions.",
+    details: [],
+  },
   'eval-run-already-terminal': {
     description:
       "The eval run has already finished, failed or been cancelled, so it can't be cancelled.",
@@ -3503,8 +3551,8 @@ export const ERROR_ENTRIES = {
   },
   'reserved-name-prefix': {
     description:
-      "The name starts with the prefix reserved for the runtime's own secrets, so you can't write it.",
-    details: [],
+      "The name starts with `kindgi.`, the prefix reserved for the runtime's own secrets. You can't store, rotate or revoke such a secret, or name one in a registration: a tool, an MCP endpoint, a webhook endpoint, a webhook trigger or a connection app.",
+    details: [{ key: 'secret', meaning: 'on a registration, the reserved name it names' }],
     seeAlso: ['guides/secrets/store-a-secret'],
   },
   'secret-name-invalid': {
@@ -3606,6 +3654,25 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['POST /v1/schedules/{triggerId}/owner'],
+  },
+  'trigger-version-not-found': {
+    description:
+      'The trigger exists, but has no version with the number you asked for. Versions count from 1, one more for each change to the trigger.',
+    details: [
+      {
+        key: 'triggerId',
+        meaning: 'the trigger',
+      },
+      {
+        key: 'version',
+        meaning: 'the version number that was not found',
+      },
+    ],
+    seeAlso: [
+      'GET /v1/schedules/{triggerId}/versions/{version}',
+      'GET /v1/webhooks/{triggerId}/versions/{version}',
+      'GET /v1/mail-triggers/{triggerId}/versions/{version}',
+    ],
   },
   'trigger-invalid-config': {
     description:

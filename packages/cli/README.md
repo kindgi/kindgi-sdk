@@ -862,8 +862,11 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 ## `kindgi skills`
 
 `kindgi skills sync [--force] [--dry-run]` refreshes `.claude/skills/` and
-`.agents/skills/` from the skills bundled with this CLI. Skills you edited are
-kept unless `--force`; a skill you deleted comes back. After an upgrade,
+`.agents/skills/` from the skills bundled with this CLI. A skill is a folder:
+its `SKILL.md` and the files beside it. Skills you edited are kept unless
+`--force`; a skill or a file of one you deleted comes back, and a file you
+added to a skill's folder is left as it is, unless a later release ships a
+file by that name: that counts as an edit. After an upgrade,
 `kindgi dev` refreshes them as it starts, the same way without `--force`,
 except that a skill or a skills folder you deleted stays deleted.
 
@@ -964,9 +967,13 @@ The API URL and token come from, in order:
 
 `kindgi dev` writes `.kindgirc.json` in the pack. For another API, save the
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
-with `kindgi auth whoami`. Login writes `~/.kindgi/config.json` `0600`, in a
-`~/.kindgi` that's `0700`, and tightens ones an older CLI left looser (not on
-Windows).
+with `kindgi auth whoami`. Login keeps a login `~/.kindgi/config.json` holds
+for another address, or a key with no address beside it, and exits 2 naming
+it: to use both, skip the login, and set `KINDGI_API_URL` and
+`KINDGI_API_TOKEN` to the new address and its key in the shell you use it
+from. `--force` replaces it, and warns that its key is no
+longer stored. Login writes `~/.kindgi/config.json` `0600`, in a `~/.kindgi`
+that's `0700`, and tightens ones an older CLI left looser (not on Windows).
 
 **In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
 There, `.kindgirc.json` points every command at the dev runtime, ahead of

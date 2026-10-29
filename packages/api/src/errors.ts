@@ -83,6 +83,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-lease-lost': 409,
   // The wait a token belongs to is over (`details.state`).
   'wait-token-closed': 409,
+  'run-held-by-parent': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
   'idempotency-key-replay-withheld': 409,
@@ -176,6 +177,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    * other method answers 500 (`mapThrownError`).
    */
   'database-busy': 503,
+  // 503 — the Idempotency-Key store, on a write before it runs. With `Retry-After`.
+  /**
+   * A write with an `Idempotency-Key` whose store couldn't be read before
+   * it ran (`idempotencyMiddleware`): nothing ran, so a retry with the
+   * same key is safe.
+   */
+  'idempotency-store-unavailable': 503,
   // Waitpoint domain: "no pending token" or "already resolved" are
   // 409-shaped (a caller conflict with the run's current state).
   'waitpoint-error': 409,
@@ -423,6 +431,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'authz-membership-unsupported': 501,
   // The guardrail registry keeps no outcome ledger.
   'guardrail-outcomes-not-supported': 501,
+  // The live-version binding can't list the pins that cover a project.
+  'pinned-versions-not-supported': 501,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,
@@ -619,6 +629,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'env-store-error': 500,
   // Trigger HTTP surface.
   'trigger-not-found': 404,
+  /** The trigger is there, but has no version with that number. */
+  'trigger-version-not-found': 404,
   'trigger-invalid-config': 400,
   'trigger-webhook-id-conflict': 409,
   'trigger-already-in-state': 409,

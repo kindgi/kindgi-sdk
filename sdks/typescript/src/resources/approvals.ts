@@ -44,8 +44,9 @@ import { verifySignedExport } from '../verify-export.js';
  * ≤ their rank (standard < senior < admin). Out-of-scope reads surface
  * as `404 approval-not-found` to avoid cross-tier existence leaks.
  *
- * `batch`, `assign`, `audit.get`, `audit.list` and
- * `audit.verify` have no API route and throw `not-yet-wired`.
+ * `batch`, `assign`, `audit.get` and `audit.list` have no API route and
+ * throw `not-yet-wired`. `audit.verify` makes no request: it verifies a
+ * bundle where it's read.
  * `reviewers.updateRole` has no dedicated route either — role rotation
  * happens via re-`register` (idempotent per `(tenantId, userId)`).
  */

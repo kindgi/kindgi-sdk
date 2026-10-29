@@ -429,6 +429,7 @@ describe("a schedule's life", () => {
     const event = await registry.register({
       kind: 'event',
       tenantId,
+      by: 'user:test',
       flowId: 'acme.react',
       flowVersion: '1.0.0',
       config: { eventKind: 'run.finished' },

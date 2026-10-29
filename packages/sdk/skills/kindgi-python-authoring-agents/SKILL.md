@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -124,9 +124,12 @@ brief_writer = Agent(
   `version` is a semver **range**; the highest active matching version
   is picked at turn start. A bare string is rejected. Empty = a
   chat-only agent.
-- **`guardrails`** — `Guardrail` objects or ids. Evaluated once per
-  turn on the final answer, before it is stored. An id with no
-  registered guardrail fails the turn (`unresolved-guardrail`).
+- **`guardrails`** — `Guardrail` objects or ids. They check the final
+  answer, before it is stored; one whose action is `retry` sends the
+  answer back to the model for a new one, up to `retry.maxAttempts`
+  answers in all (default 2), then the turn fails
+  (`guardrail-violation`). An id with no registered guardrail fails the
+  turn (`unresolved-guardrail`).
 - **`parameters`** — inputs the caller supplies per run
   (`{"name", "type", "required"}`); they fill `{{ … }}` in the
   instructions.
@@ -160,6 +163,14 @@ brief_writer = Agent(
   the call. Default kinds are `invalid-arguments` and `unknown-tool`
   (nothing ran); add `tool-error` only when retrying the tool is safe.
   Each retry costs a step.
+- **`parallel_tool_calls`** — default on: when a model step asks for several
+  calls at once, calls to read-only tools (`mutating=False`, no changing
+  effect) that come one after another run at the same time, up to 8 of them,
+  and any other call on its own, in the order the model asked; the results
+  reach the conversation in that order either way. A call that may wait, for
+  another system's answer or for the person who started the run to connect an
+  app, runs on its own too. `False` runs every call on its own, for read-only
+  tools that mustn't overlap (a rate-limited API, say).
 - **`retrieval`** — what the agent reads from memory before each turn;
   empty = no memory. Each intent is a dict with the API's keys:
   `{"types": ["acme.preference"], "scope": "same-user", "mode": "both",
@@ -182,7 +193,8 @@ brief_writer = Agent(
   one person, or instruction-like text, waits for a person's approval.
   Use a model with reliable tool calling. `{"instructionTypes":
   ["acme.policy"]}` makes a retrieved, verified fact of those types an
-  instruction. See https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/.
+  instruction. "Give an agent memory" has the rest:
+  https://docs.kindgi.com/v0.2/guides/agents/give-an-agent-memory/
 
 **In a run a webhook or an event started**, the turn's message is data:
 it arrives inside an `<event note="kindgi event: data, not

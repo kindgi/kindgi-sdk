@@ -2,10 +2,10 @@
 
 A sample Kindgi pack — scaffolded by `kindgi init --template=sample`.
 
-Two tools (`echo`, `greet`), one guardrail (`response-not-empty`), one
-agent that uses both tools + the guardrail, and one flow that stitches
-the two tools into a workflow. It is compile-time-valid and ready to
-run with `kindgi dev`.
+Three tools (`echo`, `greet`, `fetch-httpbin`), one guardrail
+(`response-not-empty`), one agent that uses `echo` and `greet` + the
+guardrail, and one flow that runs the `greet` tool, then the agent. It is
+compile-time-valid and ready to run with `kindgi dev`.
 
 ## Layout
 
@@ -16,11 +16,12 @@ run with `kindgi dev`.
 ├── tsconfig.json
 ├── tools/
 │   ├── echo/index.ts                         # defineTool — Zod-authored echo
-│   └── greet/index.ts                        # defineTool — Zod-authored greeting
+│   ├── greet/index.ts                        # defineTool — Zod-authored greeting
+│   └── fetch-httpbin/index.ts                # defineTool — declarative HTTP call
 ├── guardrails/
 │   └── response-not-empty/index.ts           # defineCheck — response has content
 ├── agents/
-│   └── echo-agent/index.ts                   # defineAgent — uses both tools + guardrail
+│   └── echo-agent/index.ts                   # defineAgent — uses echo + greet + guardrail
 └── flows/
     └── echo-flow/index.ts                    # Flow — greet tool → echo agent step → declared output
 ```
@@ -68,7 +69,7 @@ agent, and other providers: the `kindgi-authoring-providers` skill.
 | Tool | `tools/greet/index.ts` | Second Zod-authored tool — takes a name, returns a greeting. |
 | Tool | `tools/fetch-httpbin/index.ts` | `defineTool({spec: {kind: 'http'}})` — declarative HTTP call, no imperative handler code. Hits httpbin.org so it works without credentials. |
 | Guardrail | `guardrails/response-not-empty/index.ts` | `defineCheck` — zero-LLM check that a response payload is non-empty. |
-| Agent | `agents/echo-agent/index.ts` | `defineAgent` — pulls in the local tools + the guardrail; uses `capabilities` for model routing. |
+| Agent | `agents/echo-agent/index.ts` | `defineAgent` — pulls in `echo` and `greet` + the guardrail; uses `capabilities` for model routing. |
 | Flow | `flows/echo-flow/index.ts` | `defineFlow` — a tool step fed from the run input, an agent step, a declared `output`. Run: `kindgi runs start --flow={{PACK_ID}}.echo-flow --input='{"name":"Ada"}'`. |
 
 ## Extend

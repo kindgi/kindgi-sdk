@@ -16,7 +16,7 @@ description: >
   models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.10"
+version: "0.1.13"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -223,10 +223,13 @@ then `run.id`). The app reads the rest through the API, server side, with
   (`GET /v1/runs/{runId}`); status and timing only: `client.runs.progress(run_id)`.
 - **The audit, step by step:** `client.runs.journal(run_id).data`
   (`GET /v1/runs/{runId}/journal`).
-- **Where an agent's answer came from:** `client.provenance.get(run_id)`
-  (`GET /v1/provenance/{runId}`). A flow run has none of its own: each agent
-  step's `step.completed` entry in the flow's journal names its turn's run
-  (`entry.payload["output"]["runId"]`).
+- **Where an answer came from:** `client.provenance.get(run_id)`
+  (`GET /v1/provenance/{runId}`). An agent turn's record has its model and
+  tool calls. A finished flow run has its own record: a `step` node per step
+  (`step:<nodeId>`, a loop's iterations `step:<nodeId>@<loop>#<i>`) with the
+  `runs` it started, and `.step_usage`, its model usage per step. Until it's
+  written, the not-found error's `.details["recordState"]` is `being-written`
+  (or `failed`).
 - **What it cost:** `client.cost.records.list(root_run_id=run_id).data`
   (`GET /v1/cost/records?rootRunId={runId}`): one record per model call,
   with its `model`, `usage` (`prompt_tokens`, `completion_tokens`) and
@@ -258,7 +261,7 @@ month = client.cost.aggregate(
 # month.total_usd; month.groups[i].key ({"month": "2026-10"}), .total_usd, .tokens
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/observability/cost-per-run/
+Docs: https://docs.kindgi.com/v0.2/guides/observability/cost-per-run/
 
 Show it in the app's own UI. **Never:**
 
@@ -270,7 +273,7 @@ Show it in the app's own UI. **Never:**
 - **link users to Kindgi's console** or any Kindgi UI for this data.
 
 To keep a copy (reporting, search), pull it through the API into the app's
-own tables. Docs: https://docs.kindgi.com/v0.1/guides/runs/show-runs-in-your-app/
+own tables. Docs: https://docs.kindgi.com/v0.2/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -312,22 +315,22 @@ doesn't have yet, then serving. Migrations only go forward: an upgrade
 starts with a backup of the database, and going back means restoring it and
 running the older version on it.
 
-- **On Cloud Run, a small dev deployment** (`network_mode = "none"`, on
-  runtime 0.1.8 or later): the Cloud Run module's `./upgrade.sh`, as of the
-  `@kindgi/sdk@<version>` tag of the release you're upgrading to, since it
-  knows the steps up to its own release. Run `./upgrade.sh --dry-run` first:
-  it changes nothing, and lists what a real run would change. Its plan also
-  reads every `*.auto.tfvars.json` in the module's folder (the pack's env),
-  and `yes` applies exactly the saved plan it showed. The module README's
-  Upgrading section has the rest:
+- **On Cloud Run, a deployment of the module** (on runtime 0.1.8 or later,
+  in any `network_mode`; before the `@kindgi/sdk@0.3.0` tag, `"none"` only):
+  the module's `./upgrade.sh`, as of the `@kindgi/sdk@<version>` tag of the
+  release you're upgrading to, since it knows the steps up to its own
+  release. It takes a `--var-file` for each file the deployment's variables
+  are in. Run `./upgrade.sh --dry-run` first: it changes nothing, and lists
+  what a real run would change. A real run's `yes` applies exactly the
+  saved plan it showed. The module README's Upgrading section has the rest:
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/cloud-run/#upgrade-by-hand
-- **On Azure Container Apps:** the "Operate it" section of its page,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it.
-- **Otherwise:** the operate page's upgrade steps,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime.
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/cloud-run/#upgrade-by-hand
+- **On Azure Container Apps:** the "Operate it" section of its page:
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/azure-container-apps/#operate-it
+- **Otherwise:** the operate page's upgrade steps:
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

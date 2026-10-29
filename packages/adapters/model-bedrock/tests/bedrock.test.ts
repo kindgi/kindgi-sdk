@@ -12,6 +12,7 @@ import {
   type AdapterFactoryEntry,
   type AdapterFactoryInput,
   type ProviderMetadata,
+  adapterConfigKeyProblems,
   createAdapterFactoryRegistry,
 } from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
@@ -61,13 +62,6 @@ describe('checkConfig', () => {
     [{}, false, 'unspecified', '/metadata/region', 'Got "unspecified"'],
     [{}, false, 'US-EAST-2', '/metadata/region', 'e.g. us-east-2'],
     [
-      { region: 'us-east-2' },
-      false,
-      'us-east-2',
-      '/adapter_config/region',
-      'the region is metadata.region',
-    ],
-    [
       { baseURL: 'http://bedrock.example' },
       false,
       'us-east-2',
@@ -93,6 +87,27 @@ describe('checkConfig', () => {
     const problems = check(config as Record<string, string>, secret, region);
     expect(problems.map((p) => p.path)).toContain(path);
     expect(problems.find((p) => p.path === path)?.message).toContain(words);
+  });
+
+  test("a key it doesn't take is the registration's to refuse, from the keys its entry declares: region names metadata.region", () => {
+    const stored = { region: 'us-east-2', model: NOVA };
+    expect(check(stored)).toEqual([]);
+    expect(adapterConfigKeyProblems(bedrockAdapterEntry, stored)).toEqual([
+      {
+        path: '/adapter_config/region',
+        message: "adapter_config.region isn't read here: its setting is metadata.region.",
+      },
+      {
+        path: '/adapter_config/model',
+        message: "adapter_config.model isn't a setting of this adapter: it takes auth, baseURL.",
+      },
+    ]);
+    expect(
+      adapterConfigKeyProblems(bedrockAdapterEntry, {
+        auth: 'api-key',
+        baseURL: 'https://bedrock-runtime.us-east-2.amazonaws.com',
+      }),
+    ).toEqual([]);
   });
 
   test("the runtime's identity on a runtime that has none: refused when it registers, naming the setting", () => {
@@ -353,6 +368,20 @@ describe('what the provider sends', () => {
     expect(err).toMatchObject({ kind: 'auth', status: 403 });
     expect((err as Error).message).toContain('bedrock:InvokeModel');
     expect(attemptsOf(err)).toBe(1);
+  });
+});
+
+describe('a key it takes nothing from', () => {
+  test("stored before 0.3.0 (adapter_config.region): it builds, and the region it sends to is metadata.region's", async () => {
+    const sent: Sent[] = [];
+    const provider = build(
+      { region: 'eu-west-1' },
+      { fetch: capturingFetch(sent), identities: { aws: identity() } },
+    );
+    await provider.invoke(ask());
+    expect(sent[0]?.url).toBe(
+      'https://bedrock-runtime.us-east-2.amazonaws.com/model/us.amazon.nova-pro-v1%3A0/converse',
+    );
   });
 });
 
@@ -807,6 +836,142 @@ describe("Nova's chain of thought, written into its answer", () => {
     });
     const r = await provider.invoke({ ...ask(), model: llama });
     expect(r.message.content).toBe('<thinking>x</thinking> Shipped.');
+  });
+});
+
+describe('how much a model thinks: the level goes to the library as its portable reasoning', () => {
+  const CLAUDE = 'us.anthropic.claude-sonnet-5-5';
+  const HAIKU = 'us.anthropic.claude-haiku-5-5';
+  const GPT = 'us.openai.gpt-6-luna';
+  const thinkingMetadata = {
+    id: 'bedrock-acme',
+    region: 'us-east-2',
+    models: [
+      {
+        name: CLAUDE,
+        contextWindow: 1_000_000,
+        features: ['tool-use'],
+        cost: { promptUsdPer1kTokens: 0.003, completionUsdPer1kTokens: 0.015 },
+        thinking: { mode: 'adaptive', lowest: 'between_tools' },
+      },
+      {
+        name: HAIKU,
+        contextWindow: 200_000,
+        features: ['tool-use'],
+        cost: { promptUsdPer1kTokens: 0.001, completionUsdPer1kTokens: 0.005 },
+        thinking: { mode: 'adaptive', lowest: 'disabled' },
+      },
+      {
+        name: GPT,
+        contextWindow: 400_000,
+        features: ['tool-use'],
+        cost: { promptUsdPer1kTokens: 0.0002, completionUsdPer1kTokens: 0.0016 },
+        thinking: { mode: 'adaptive', lowest: 'none' },
+      },
+      ...metadata().models,
+    ],
+  } as unknown as ProviderMetadata;
+  const call = async (level: string, model = CLAUDE) => {
+    const sent: Sent[] = [];
+    const result = await bedrockAdapterFactory({
+      metadata: thinkingMetadata,
+      config: {},
+      fetch: capturingFetch(sent),
+      identities: { aws: identity() },
+    }).invoke({ ...ask(), model, thinking: level as never });
+    return { body: sent[0]?.body, thinking: result.thinking, warnings: result.warnings };
+  };
+
+  /** What the library asks Claude for: adaptive thinking at this effort. */
+  const effort = (value: string) => ({
+    thinking: { type: 'adaptive' },
+    output_config: { effort: value },
+  });
+
+  test.each(['low', 'medium', 'high'])(
+    '%s is sent as the effort of its name, and reported',
+    async (level) => {
+      const { body, ...reported } = await call(level);
+      expect(body?.additionalModelRequestFields).toEqual(effort(level));
+      expect(reported).toEqual({
+        thinking: { level, sent: { reasoning: level } },
+        warnings: undefined,
+      });
+    },
+  );
+
+  test("lowest: the library has no between_tools, so Claude's lowest goes as effort low", async () => {
+    const { body, ...reported } = await call('lowest');
+    expect(body?.additionalModelRequestFields).toEqual(effort('low'));
+    expect(reported).toEqual({
+      thinking: { level: 'lowest', sent: { reasoning: 'low' } },
+      warnings: undefined,
+    });
+  });
+
+  test('max, which the model data has no level for, is rounded to high, with a warning', async () => {
+    const { body, ...reported } = await call('max');
+    expect(body?.additionalModelRequestFields).toEqual(effort('high'));
+    expect(reported).toEqual({
+      thinking: { level: 'high', sent: { reasoning: 'high' } },
+      warnings: [
+        {
+          code: 'thinking-level-adjusted',
+          message: `${CLAUDE} doesn't take thinking level max, so the call sent high.`,
+        },
+      ],
+    });
+  });
+
+  test('lowest on a GPT model whose lowest is none: the library sends nothing for none, so no level is reported sent, with a warning', async () => {
+    const { body, ...reported } = await call('lowest', GPT);
+    expect(body).not.toHaveProperty('additionalModelRequestFields');
+    expect(reported).toEqual({
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message: `${GPT} doesn't take reasoning none through the AI SDK, so the call sent no level (it asked for lowest).`,
+        },
+      ],
+    });
+  });
+
+  test("a GPT model's other levels are sent, and reported", async () => {
+    const { body, ...reported } = await call('low', GPT);
+    expect(body?.additionalModelRequestFields).toBeDefined();
+    expect(reported).toEqual({
+      thinking: { level: 'low', sent: { reasoning: 'low' } },
+      warnings: undefined,
+    });
+  });
+
+  test("lowest on Claude whose lowest is disabled: the library writes no thinking field for none either, so it's the same", async () => {
+    const { body, ...reported } = await call('lowest', HAIKU);
+    expect(body).not.toHaveProperty('additionalModelRequestFields');
+    expect(reported).toEqual({
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message: `${HAIKU} doesn't take reasoning none through the AI SDK, so the call sent no level (it asked for lowest).`,
+        },
+      ],
+    });
+  });
+
+  test('a model with no thinking (Nova) is sent none, with a warning', async () => {
+    const { body, ...reported } = await call('high', NOVA);
+    expect(body).not.toHaveProperty('additionalModelRequestFields');
+    expect(reported).toEqual({
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message: `${NOVA} doesn't think, or how it thinks isn't known, so the call sent no level (it asked for high).`,
+        },
+      ],
+    });
   });
 });
 

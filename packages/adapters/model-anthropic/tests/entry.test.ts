@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { ProviderMetadata } from '@kindgi/capabilities';
+import { type ProviderMetadata, adapterConfigKeyProblems } from '@kindgi/capabilities';
 
 import { ANTHROPIC_ADAPTER_ID, anthropicAdapterEntry, anthropicCheckConfig } from '../src/index.js';
 
@@ -46,6 +46,24 @@ describe('anthropicAdapterEntry', () => {
     expect(() => anthropicAdapterEntry.factory({ metadata })).toThrow(
       `${ANTHROPIC_ADAPTER_ID}: provider "acme-claude": needs secret_ref: its Anthropic API key.`,
     );
+  });
+
+  test("it takes no adapter_config: any key is the registration's to refuse, and a stored one builds unread", () => {
+    expect(
+      adapterConfigKeyProblems(anthropicAdapterEntry, { baseURL: 'https://x.example' }),
+    ).toEqual([
+      {
+        path: '/adapter_config/baseURL',
+        message: "adapter_config.baseURL isn't a setting of this adapter: it takes none.",
+      },
+    ]);
+    expect(adapterConfigKeyProblems(anthropicAdapterEntry, {})).toEqual([]);
+    const provider = anthropicAdapterEntry.factory({
+      metadata,
+      config: { baseURL: 'https://x.example' },
+      resolveApiKey: async () => 'unused',
+    });
+    expect(provider.metadata.id).toBe('acme-claude');
   });
 
   test('the entry carries the check', () => {

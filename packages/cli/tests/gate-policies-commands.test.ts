@@ -175,7 +175,8 @@ describe('kindgi agents: the gate', () => {
       ],
       { agents: { promotions: { check: rec('check', answer), create: rec('create') } } },
     );
-    expect(out.exitCode, out.stderr).toBe(0);
+    // `needs-approval` is a no: the answer is printed, and it exits 3.
+    expect(out.exitCode, out.stderr).toBe(3);
     expect(calls).toEqual([
       [
         'check',

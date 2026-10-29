@@ -71,7 +71,7 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
-import { RUN_STARTED_BY, RUN_TRIGGER_KINDS } from '@kindgi/runtime';
+import { RUN_STARTED_BY, RUN_TRIGGER_KINDS, TRIGGER_VERSION_CAUSES } from '@kindgi/runtime';
 import { CORRECTION_ITEM } from '@kindgi/types';
 
 import {
@@ -217,6 +217,12 @@ export const RunTriggerSchema: JsonSchema = {
       format: 'date-time',
       description: "A schedule's fire: the occurrence the run is for.",
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version the run started with (`GET …/versions/{version}`), which later edits don't change. Absent on a run from before versions.",
+    },
   },
 };
 
@@ -317,6 +323,37 @@ export const LivePinListSchema: JsonSchema = {
   additionalProperties: false,
   required: ['data'],
   properties: { data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } } },
+};
+
+export const ProjectPinnedVersionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const AgentProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId'],
+  properties: { projectId: { type: 'string', format: 'uuid' } },
+};
+
+export const AgentProjectListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description: 'Its first project first, then the others, each once.',
+      items: { $ref: '#/components/schemas/AgentProject' },
+    },
+  },
 };
 
 export const PromotionSchema: JsonSchema = {
@@ -547,7 +584,7 @@ export const GateCheckSchema: JsonSchema = {
     name: {
       type: 'string',
       description:
-        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `classWeights.restrictedOnly`.',
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `classWeights.restrictedOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.',
     },
     passed: { type: 'boolean' },
     message: {
@@ -2950,6 +2987,29 @@ export const ExportSigningKeySchema: JsonSchema = {
   },
 };
 
+export const RuntimeInfoSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'tenancy', 'development'],
+  description: "Which runtime answers: what a client says about the runtime it's connected to.",
+  properties: {
+    version: {
+      type: 'string',
+      description:
+        "The runtime's version: its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none).",
+    },
+    tenancy: {
+      type: 'string',
+      enum: ['single', 'multi'],
+      description: '`single` when the runtime serves one tenant, `multi` when it serves many.',
+    },
+    development: {
+      type: 'boolean',
+      description: 'The runtime runs in development mode, which allows development-only settings.',
+    },
+  },
+};
+
 export const LicenseStatusSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3362,7 +3422,7 @@ export const AgentSchema: JsonSchema = {
     modelSettings: {
       $ref: '#/components/schemas/BlockRef',
       description:
-        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+        "A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.",
     },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
@@ -3386,6 +3446,11 @@ export const AgentSchema: JsonSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     output: { $ref: '#/components/schemas/AgentOutputSpec' },
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
+    parallelToolCalls: {
+      type: 'boolean',
+      description:
+        "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.",
+    },
     pins: { $ref: '#/components/schemas/AgentPins' },
     derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
     unregisteredAt: {
@@ -3533,7 +3598,7 @@ export const PublishAgentBodySchema: JsonSchema = {
     modelSettings: {
       $ref: '#/components/schemas/BlockRef',
       description:
-        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+        "A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.",
     },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
@@ -3557,6 +3622,11 @@ export const PublishAgentBodySchema: JsonSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     output: { $ref: '#/components/schemas/AgentOutputSpec' },
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
+    parallelToolCalls: {
+      type: 'boolean',
+      description:
+        "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.",
+    },
   },
 };
 
@@ -4141,7 +4211,7 @@ export const ToolSchema: JsonSchema = {
     mutating: {
       type: 'boolean',
       description:
-        'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.',
+        'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.',
     },
     needsApprovalWhenUnattended: {
       type: 'boolean',
@@ -4290,14 +4360,14 @@ export const GuardrailActionSchema: JsonSchema = {
       minLength: 1,
       examples: ['halt', 'retry', 'escalate', 'log-only', 'compensate'],
       description:
-        'What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.',
+        "What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. The runtime acts on `halt`: the turn fails with `guardrail-violation` and its response is not stored. It acts on `retry` too: the answer goes back to the model with the check's reason, for a new one, until `retry.maxAttempts` run out, and then the turn fails the same way, with `details.attempts`. Any other value is recorded as a violation, as `log-only` is, and the turn completes: in 0.1 nothing escalates or calls a compensating tool.",
     },
     retry: {
       type: 'object',
       additionalProperties: false,
       required: ['maxAttempts'],
       description:
-        "The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.",
+        "Counts the answers this guardrail fails in a turn, the first one included (with `maxAttempts: 3` it sends a failed answer back up to twice, and the third answer it fails ends the turn). Left out, 2. The turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.",
       properties: {
         maxAttempts: { type: 'integer', minimum: 1, maximum: 10 },
       },
@@ -4313,6 +4383,14 @@ export const GuardrailActionSchema: JsonSchema = {
   },
 };
 
+export const GuardrailToolMatchSchema: JsonSchema = {
+  type: 'string',
+  minLength: 1,
+  pattern: '^[^*]*\\*?$',
+  description:
+    'A tool id, or a prefix of one followed by `*`, which matches every id that starts with it.',
+};
+
 export const GuardrailScopeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4321,6 +4399,13 @@ export const GuardrailScopeSchema: JsonSchema = {
     agents: { type: 'array', items: { type: 'string' } },
     flows: { type: 'array', items: { type: 'string' } },
     tenants: { type: 'array', items: { type: 'string' } },
+    tools: {
+      type: 'array',
+      minItems: 1,
+      items: { $ref: '#/components/schemas/GuardrailToolMatch' },
+      description:
+        'At `before-tool` and `after-tool`: the tools whose calls it checks, by id. A trailing `*` matches every id with that prefix, and a `*` anywhere else is refused. Absent: every tool.',
+    },
   },
 };
 
@@ -4349,6 +4434,19 @@ export const GuardrailSchema: JsonSchema = {
     action: { $ref: '#/components/schemas/GuardrailAction' },
     severity: { type: 'string', enum: ['info', 'warn', 'error', 'critical'] },
     scope: { $ref: '#/components/schemas/GuardrailScope' },
+    at: {
+      type: 'string',
+      enum: ['before-tool', 'after-tool', 'model-step', 'final-answer'],
+      default: 'final-answer',
+      description:
+        "Where in the agent's turn the check runs: before a tool call runs, after it runs, on each model reply, or on the final answer. It must be one of the check's points.",
+    },
+    sees: {
+      type: 'string',
+      enum: ['turn', 'conversation'],
+      default: 'turn',
+      description: "What the check sees: this turn, or the conversation's earlier turns too.",
+    },
     budget: {
       type: 'object',
       additionalProperties: false,
@@ -4397,12 +4495,13 @@ const outcomeCountProperties = {
     type: 'integer',
     minimum: 0,
     description:
-      'The check found something and the answer went through (`log-only`, `noop`, or an action handed back).',
+      'The check found something and the answer went through (`log-only`, `noop`, or an action handed back), or a `retry` sent it back for a new one.',
   },
   blocked: {
     type: 'integer',
     minimum: 0,
-    description: 'The check found something and its `halt` failed the turn.',
+    description:
+      'The check found something and its action failed the turn: a `halt`, or a `retry` whose attempts had run out.',
   },
   errored: {
     type: 'integer',
@@ -4416,7 +4515,8 @@ export const GuardrailOutcomeCountsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['passed', 'violated', 'blocked', 'errored'],
-  description: "How many of a guardrail's checks came to each outcome.",
+  description:
+    "How many of a guardrail's checks came to each outcome: one check per answer it judged. A guardrail judges a turn's final answer. In a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer, so a turn that sent answers back counts a check of those for each.",
   properties: outcomeCountProperties,
 };
 
@@ -5179,6 +5279,12 @@ export const JudgedRunContextSchema: JsonSchema = {
               toolId: { type: 'string' },
               arguments: {},
               result: {},
+              fromEvent: {
+                type: 'boolean',
+                const: true,
+                description:
+                  "An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.",
+              },
             },
           },
         },
@@ -6799,6 +6905,7 @@ export const ProvenanceNodeKindSchema: JsonSchema = {
     'memory-write',
     'wait',
     'resume',
+    'step',
   ],
 };
 
@@ -6933,6 +7040,21 @@ export const ProvenanceRecordSchema: JsonSchema = {
         },
       },
     },
+    stepUsage: {
+      type: 'object',
+      description:
+        "A flow record's model usage per step, by the `step` node's id: the model calls of the runs the step started (an agent step's turn, a sub-flow's run) and of the runs they started, from the cost ledger. A folded loop node sums its iterations'. A tool step's own model calls, made by its pack with its own key, aren't in it. Joined when read: not part of the signed DAG. A signed export includes it, as it stood when signed.",
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['calls', 'costUsd', 'tokens'],
+        properties: {
+          calls: { type: 'integer', minimum: 0 },
+          costUsd: { type: 'number', minimum: 0 },
+          tokens: { $ref: '#/components/schemas/CostTokenTotals' },
+        },
+      },
+    },
   },
 };
 
@@ -6944,6 +7066,11 @@ export const ProvenanceCollectionPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/ProvenanceRecordMetadata' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
+    flowId: {
+      type: 'string',
+      description:
+        "The flow, on every page of a list asked for with `?flowId=`, an empty one too: it holds only that flow's runs' records. Absent from a runtime that doesn't list records by flow, which ignores `flowId` and lists them all.",
+    },
   },
 };
 
@@ -6964,11 +7091,11 @@ export const ExportProvenanceBodySchema: JsonSchema = {
 
 export const ExportProvenanceResultSchema: JsonSchema = signedExportEnvelope({
   description:
-    "A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, as it stood when signed.",
+    "A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, stepUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, and `stepUsage` a flow record's usage per step, as they stood when signed.",
   kind: 'provenance',
   subject: ['runId', { type: 'string', format: 'uuid' }],
   versionDescription:
-    "The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`.",
+    "The body's version, semver. `1.3.0` adds `stepUsage`; `1.2.0` added `exportedAt` to the signed body; `1.1.0` added `callUsage`.",
 });
 
 // ---------------- registry (exported to the generator) ----------------
@@ -7178,13 +7305,13 @@ export const CapabilityCollectionPageSchema: JsonSchema = {
   },
 };
 
-/** `ModelInfo.thinking`: how a model thinks, so a judge can ask for its least. */
+/** `ModelInfo.thinking`: how a model thinks, and the levels a call can ask of it. */
 export const ModelThinkingSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['mode', 'lowest'],
   description:
-    "How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.",
+    "How the model thinks before it answers, and the levels it takes, so a call's level (an agent's model settings, or a judge's `lowest`) is sent as one it takes: any other is rounded to the next one it takes, or its highest, with a `thinking-level-adjusted` warning. Absent: it doesn't think, or nothing is known, and nothing is sent for it.",
   properties: {
     mode: {
       type: 'string',
@@ -7196,6 +7323,19 @@ export const ModelThinkingSchema: JsonSchema = {
       minLength: 1,
       description:
         "The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).",
+    },
+    levels: {
+      type: 'array',
+      uniqueItems: true,
+      items: { type: 'string', enum: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+      description:
+        'The levels the model takes besides `lowest`, least first. Absent: `low`, `medium` and `high`, which every thinking model takes, plus `minimal` when `lowest` is `minimal`, minus those below `lowest` when it is `low`, `medium` or `high` (any case).',
+    },
+    default: {
+      type: 'string',
+      enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      description:
+        "The level a call that asks none is sent. It must be `lowest` or one the model takes (`levels`), or the registration is refused. Absent: the vendor's default.",
     },
   },
 };
@@ -7441,11 +7581,19 @@ export const ProviderCheckResultSchema: JsonSchema = {
     checked: {
       type: 'boolean',
       description:
-        "False when this runtime has no check for the provider's adapter; `issues` is then empty.",
+        "False when this runtime has no check for the provider's adapter and the adapter declares no keys; `issues` is then empty, and `warnings` is left out.",
     },
     issues: {
       type: 'array',
       items: { $ref: '#/components/schemas/AdapterConfigProblem' },
+      description: 'What stops the runtime building the provider from its registration.',
+    },
+    warnings: {
+      type: 'array',
+      minItems: 1,
+      items: { $ref: '#/components/schemas/AdapterConfigProblem' },
+      description:
+        "The `adapter_config` keys the provider's adapter doesn't take: the runtime builds it without reading them, and a new registration with one is refused. Each names the key and what the adapter takes, or where a moved key's setting goes. Present when there's at least one. A runtime before 0.3.0 leaves it out.",
     },
     secretRef: {
       type: 'object',
@@ -7927,6 +8075,33 @@ export const ModelCallErrorSchema: JsonSchema = {
   properties: { message: { type: 'string' } },
 };
 
+/** How much a model call asked its model to think, and what was sent. */
+export const ModelCallThinkingSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "The call's thinking. `asked` without `level`: nothing was sent (the model doesn't think, or its adapter doesn't say). `level` without `asked`: the model's `thinking.default`. `asked` and `level` differ: the level was rounded to one the model takes, and the call warned `thinking-level-adjusted`.",
+  properties: {
+    asked: {
+      type: 'string',
+      enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      description:
+        "The level the call asked for: the agent's model settings, or a judge's `lowest`.",
+    },
+    level: {
+      type: 'string',
+      enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      description: 'The level its adapter sent.',
+    },
+    sent: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description:
+        'The vendor\'s own fields as they went out (`{ "thinkingLevel": "LOW" }`, `{ "reasoning_effort": "low" }`); on the AI SDK path, `{ "reasoning": <the portable value> }`.',
+    },
+  },
+};
+
 /** A model call's tokens, as a cost record and a provenance record carry them. */
 export const ModelCallTokensSchema: JsonSchema = {
   type: 'object',
@@ -8034,6 +8209,7 @@ export const CostRecordSchema: JsonSchema = {
       description: '`ok`: the provider answered. `failed`: the call threw.',
     },
     usage: { $ref: '#/components/schemas/ModelCallTokens' },
+    thinking: { $ref: '#/components/schemas/ModelCallThinking' },
     durationMs: { type: 'integer', minimum: 0 },
     finishReason: { type: 'string' },
     providerRequestId: { type: 'string', description: "The vendor's id for the request." },
@@ -10699,6 +10875,11 @@ export const MyPermissionsSchema: JsonSchema = {
       maxLength: 280,
       description:
         "The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.",
+    },
+    licenseOperatorOnly: {
+      type: 'boolean',
+      description:
+        "Whether `GET /v1/license` refuses this caller whatever its role (`license-operator-only`): the license is the deployment operator's, held back from this caller. It's about this caller, not a setting of the deployment. `true` when the caller isn't the deployment's own token and the deployment doesn't serve the caller's tenant alone, as on a runtime serving many tenants: a console doesn't ask. `false` when it isn't held back and the caller's role decides: the deployment's own token gets `false` and reads it, and so does an admin of the one tenant the deployment serves (`tenant.admin` says whether this caller is one); that tenant's other callers get `false` too, and are still refused. Absent when the deployment has no license to read, or its tenants couldn't be read just then: ask `GET /v1/license` as before.",
     },
   },
 };
@@ -13462,6 +13643,12 @@ export const ScheduleRecordSchema: JsonSchema = {
       description:
         'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.',
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
     ),
@@ -13598,6 +13785,12 @@ export const ScheduleFireSchema: JsonSchema = {
         "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
     passId: {
       type: 'string',
       format: 'uuid',
@@ -13785,6 +13978,12 @@ export const EventTriggerRecordSchema: JsonSchema = {
     },
     label: { type: ['string', 'null'] },
     status: { $ref: '#/components/schemas/TriggerStatus' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -13970,6 +14169,12 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
       description:
         "Why the runtime paused it (repeated refused or failed starts; a sender's failed proofs never count), when it did.",
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     suppressedRefusals: {
       type: 'object',
       additionalProperties: false,
@@ -14007,6 +14212,12 @@ export const WebhookFireSchema: JsonSchema = {
         "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
     detail: {
       type: 'string',
       description:
@@ -14323,6 +14534,12 @@ export const MailTriggerRecordSchema: JsonSchema = {
       description:
         "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     account: {
       type: 'object',
       additionalProperties: false,
@@ -14434,6 +14651,12 @@ export const MailFireSchema: JsonSchema = {
         "`pending` while its run starts, or while an earlier mail of its thread waits or that mail's run hasn't finished (`detail` starts `thread-busy:`). `skipped`: no run started, as `detail` says: the mail is from the mailbox's own address (`own-address`), an automatic reply (`auto-submitted`), received before the trigger began watching (`before-since`), found in a mailbox that changed account before it was read (`mailbox-changed`), gone by the time it was read (`not-found`), or already had by an earlier run of its thread (`mail-already-given:`); or the poll started afresh (`cursor-reset:`). `refused`: over the trigger's `runsPerHour` (`over-limit:`), the mailbox's connection missing, lapsed or lacking a scope (`connection-missing:` and why), or the app gave the mail no thread (`no-thread-id`); a refused mail doesn't run later. `failed`: the run couldn't start.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
     detail: {
       type: 'string',
       description: 'Why it was skipped, refused or failed, or why a `pending` fire waits.',
@@ -14467,6 +14690,219 @@ export const MailTriggerCollectionPageSchema: JsonSchema = {
     hasMore: { type: 'boolean' },
   },
 };
+
+// ---------- trigger versions (every kind) ----------
+
+export const TriggerVersionCauseSchema: JsonSchema = {
+  type: 'string',
+  enum: [...TRIGGER_VERSION_CAUSES],
+  description:
+    "What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).",
+};
+
+/**
+ * A kind's version definition: the fields of its record that make a new
+ * version when they change, as the record names and describes them.
+ */
+function triggerDefinitionSchema(
+  record: JsonSchema,
+  description: string,
+  fields: readonly string[],
+  required: readonly string[],
+): JsonSchema {
+  const properties = record.properties as Record<string, JsonSchema>;
+  return {
+    type: 'object',
+    additionalProperties: false,
+    description,
+    required: [...required],
+    properties: Object.fromEntries(
+      fields.map((f) => {
+        const property = properties[f];
+        if (property === undefined) throw new Error(`trigger record has no "${f}"`);
+        return [f, property];
+      }),
+    ),
+  };
+}
+
+/** A kind's version: its ids as its record names them, then the version's own fields. */
+function triggerVersionSchema(
+  ids: Record<string, JsonSchema>,
+  definition: string,
+  description: string,
+): JsonSchema {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    description,
+    required: [...Object.keys(ids), 'version', 'createdAt', 'cause', 'definition'],
+    properties: {
+      ...ids,
+      version: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Counts from 1, one more for each version.',
+      },
+      createdAt: { type: 'string', format: 'date-time' },
+      createdBy: {
+        type: 'string',
+        description:
+          'Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).',
+      },
+      cause: { $ref: '#/components/schemas/TriggerVersionCause' },
+      definition: { $ref: `#/components/schemas/${definition}` },
+    },
+  };
+}
+
+function triggerVersionPageSchema(version: string): JsonSchema {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    description: 'Newest first.',
+    required: ['data', 'hasMore'],
+    properties: {
+      data: { type: 'array', items: { $ref: `#/components/schemas/${version}` } },
+      hasMore: { type: 'boolean' },
+      nextCursor: { type: 'string' },
+    },
+  };
+}
+
+const VERSION_DEFINITION = 'and never its state (status, next or last fire).';
+const VERSION_KEEPS_INPUT =
+  'The versions keep every input the trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it.';
+
+export const ScheduleDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  ScheduleRecordSchema,
+  `What a schedule's version runs, when and as whom, as its record names them, ${VERSION_DEFINITION} ${VERSION_KEEPS_INPUT}`,
+  [
+    'flowId',
+    'flowVersion',
+    'agentId',
+    'agentVersion',
+    'improve',
+    'projectId',
+    'owner',
+    'cronExpression',
+    'timezone',
+    'input',
+    'catchUp',
+    'overlap',
+    'startingDeadlineSeconds',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  [
+    'projectId',
+    'owner',
+    'cronExpression',
+    'catchUp',
+    'overlap',
+    'startingDeadlineSeconds',
+    'label',
+  ],
+);
+
+export const ScheduleVersionSchema: JsonSchema = triggerVersionSchema(
+  {
+    scheduleId: { type: 'string', description: 'The same id as `triggerId`.' },
+    triggerId: { type: 'string' },
+  },
+  'ScheduleDefinition',
+  "One version of a schedule: what it was from `createdAt` until the next. A fire's run uses the newest when it starts, and keeps it.",
+);
+
+export const ScheduleVersionPageSchema: JsonSchema = triggerVersionPageSchema('ScheduleVersion');
+
+export const EventTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  EventTriggerRecordSchema,
+  `What an event trigger's version runs and on which event, as its record names them, ${VERSION_DEFINITION} ${VERSION_KEEPS_INPUT}`,
+  ['flowId', 'flowVersion', 'eventKind', 'input', 'label'],
+  ['flowId', 'flowVersion', 'eventKind', 'label'],
+);
+
+export const EventTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  {
+    eventTriggerId: { type: 'string', description: 'The same id as `triggerId`.' },
+    triggerId: { type: 'string' },
+  },
+  'EventTriggerDefinition',
+  "One version of an event trigger: what it was from `createdAt` until the next. A fire's run uses the newest when it starts, and keeps it.",
+);
+
+export const EventTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('EventTriggerVersion');
+
+export const WebhookTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  WebhookTriggerRecordSchema,
+  `What a webhook's version runs, as whom, and how it checks and limits a delivery, as its record names them (its secret by name), ${VERSION_DEFINITION} ${VERSION_KEEPS_INPUT}`,
+  [
+    'flowId',
+    'flowVersion',
+    'projectId',
+    'owner',
+    'input',
+    'hmacSecretName',
+    'hmacSecretScope',
+    'signature',
+    'deliveryIdHeader',
+    'bodyLimitBytes',
+    'rateLimitPerMinute',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  [
+    'flowId',
+    'flowVersion',
+    'projectId',
+    'owner',
+    'hmacSecretName',
+    'signature',
+    'bodyLimitBytes',
+    'rateLimitPerMinute',
+    'label',
+  ],
+);
+
+export const WebhookTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  { triggerId: { type: 'string' } },
+  'WebhookTriggerDefinition',
+  "One version of a webhook: what it was from `createdAt` until the next. A delivery's run uses the newest when it starts, and keeps it.",
+);
+
+export const WebhookTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('WebhookTriggerVersion');
+
+export const MailTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  MailTriggerRecordSchema,
+  `What a mail trigger's version runs, as whom, and which mailbox it reads at what pace, as its record names them, ${VERSION_DEFINITION}`,
+  [
+    'flowId',
+    'flowVersion',
+    'agentId',
+    'agentVersion',
+    'projectId',
+    'owner',
+    'mailbox',
+    'folder',
+    'pollSeconds',
+    'runsPerHour',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  ['projectId', 'owner', 'mailbox', 'pollSeconds', 'runsPerHour', 'label'],
+);
+
+export const MailTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  { triggerId: { type: 'string' } },
+  'MailTriggerDefinition',
+  "One version of a mail trigger: what it was from `createdAt` until the next. A new mail's run uses the newest when it starts, and keeps it.",
+);
+
+export const MailTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('MailTriggerVersion');
 
 // ---------- outbound webhook endpoints ----------
 
@@ -15574,6 +16010,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LiveVersionResolution', LiveVersionResolutionSchema],
   ['LivePin', LivePinSchema],
   ['LivePinList', LivePinListSchema],
+  ['ProjectPinnedVersionPage', ProjectPinnedVersionPageSchema],
+  ['AgentProject', AgentProjectSchema],
+  ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
   ['PinScopeTenant', PinScopeTenantSchema],
@@ -15690,6 +16129,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['RuntimeInfo', RuntimeInfoSchema],
   ['UsageGroup', UsageGroupSchema],
   ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],
@@ -15778,6 +16218,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ToolVersionRow', ToolVersionRowSchema],
   ['ToolVersionCollectionPage', ToolVersionCollectionPageSchema],
   ['GuardrailAction', GuardrailActionSchema],
+  ['GuardrailToolMatch', GuardrailToolMatchSchema],
   ['GuardrailScope', GuardrailScopeSchema],
   ['Guardrail', GuardrailSchema],
   ['RegisterGuardrailBody', RegisterGuardrailBodySchema],
@@ -15903,6 +16344,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CostRecord', CostRecordSchema],
   ['ModelCallTokens', ModelCallTokensSchema],
   ['ModelCallError', ModelCallErrorSchema],
+  ['ModelCallThinking', ModelCallThinkingSchema],
   ['CostTokenTotals', CostTokenTotalsSchema],
   ['CostRecordCollectionPage', CostRecordCollectionPageSchema],
   ['CostAggregateGroup', CostAggregateGroupSchema],
@@ -16208,6 +16650,19 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MailFire', MailFireSchema],
   ['MailFirePage', MailFirePageSchema],
   ['MailTriggerCollectionPage', MailTriggerCollectionPageSchema],
+  ['TriggerVersionCause', TriggerVersionCauseSchema],
+  ['ScheduleDefinition', ScheduleDefinitionSchema],
+  ['ScheduleVersion', ScheduleVersionSchema],
+  ['ScheduleVersionPage', ScheduleVersionPageSchema],
+  ['EventTriggerDefinition', EventTriggerDefinitionSchema],
+  ['EventTriggerVersion', EventTriggerVersionSchema],
+  ['EventTriggerVersionPage', EventTriggerVersionPageSchema],
+  ['WebhookTriggerDefinition', WebhookTriggerDefinitionSchema],
+  ['WebhookTriggerVersion', WebhookTriggerVersionSchema],
+  ['WebhookTriggerVersionPage', WebhookTriggerVersionPageSchema],
+  ['MailTriggerDefinition', MailTriggerDefinitionSchema],
+  ['MailTriggerVersion', MailTriggerVersionSchema],
+  ['MailTriggerVersionPage', MailTriggerVersionPageSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],
   ['WebhookEndpointFilter', WebhookEndpointFilterSchema],

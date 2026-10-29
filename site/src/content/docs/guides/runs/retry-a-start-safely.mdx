@@ -269,6 +269,14 @@ refused, and nothing started.
   The clients don't retry it on their own. A request that stops without
   answering, such as when its runtime crashed, frees its key within 30
   seconds.
+- **A request whose key can't be checked doesn't run.** When the store that
+  keeps the keys can't be read, the request is refused as unavailable,
+  `idempotency-store-unavailable`, with `Retry-After: 5`, and nothing starts.
+  Retry with the same key. The Python client retries it on its own, twice by
+  default, waiting as `Retry-After` says; the TypeScript client and the CLI
+  don't. When the first request started the run but its response couldn't
+  be kept, a repeat gets `idempotency-key-in-flight` for up to 30 seconds,
+  and after that it starts another run.
 - **The key must come with the same request.** The same key with a different
   body, such as another input or other options, is refused with a conflict.
   Nothing starts, also while the first request is still running. Bodies are

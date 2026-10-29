@@ -107,6 +107,7 @@ async function step(
     },
     turnAbort: new AbortController(),
     appended: [],
+    initialMessageCount: 1,
     hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent: a }),
   } as unknown as TurnContext;
   const outcome = await buildDispatchToolsHandler(ctx)(
