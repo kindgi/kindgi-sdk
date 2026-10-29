@@ -94,7 +94,7 @@ function turn(options: {
       onEvent: (event: Turn['events'][number]) => {
         events.push(event);
       },
-    } as InvokeAgentBindings,
+    } as unknown as InvokeAgentBindings,
     ...(options.modelSettings !== undefined && {
       blocks: { modelSettings: options.modelSettings },
     }),
@@ -318,7 +318,7 @@ describe("a call's thinking: the level the agent asked for, and the one its adap
     thinking: { level: 'low', sent: { 'output_config.effort': 'low' } },
   };
 
-  test('the call asks for the model settings\' level; the record, the node and the event keep what was asked and sent', async () => {
+  test("the call asks for the model settings' level; the record, the node and the event keep what was asked and sent", async () => {
     let asked: unknown;
     const t = turn({
       invoke: async (input) => {

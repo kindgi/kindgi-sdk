@@ -301,7 +301,7 @@ describe('adapterConfigKeyProblems', () => {
 
   test("a registry's wrapped entries keep the declared keys", () => {
     const entry = fakeEntry({ checkConfig: () => [], ...declared });
-    for (const options of [{ identities: {} }, { serverCredentials: false }]) {
+    for (const options of [{ identities: {} }, { serverCredentials: false as const }]) {
       const bound = createAdapterFactoryRegistry([entry], options).get(entry.adapterId);
       expect(bound?.configKeys).toEqual(declared.configKeys);
       expect(bound?.configKeyPrefixes).toEqual(declared.configKeyPrefixes);

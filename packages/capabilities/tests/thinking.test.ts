@@ -89,7 +89,10 @@ describe('thinkingFor', () => {
   });
 
   test('in a gap rounds up to the next level the model takes', () => {
-    const model = { name: 'acme-gap', thinking: { mode: 'adaptive' as const, lowest: 'low', levels: ['low', 'high'] as const } };
+    const model = {
+      name: 'acme-gap',
+      thinking: { mode: 'adaptive' as const, lowest: 'low', levels: ['low', 'high'] as const },
+    };
     const r = thinkingFor(model, { thinking: 'medium' });
     expect(r.level).toBe('high');
     expect(r.warnings.map((w) => w.code)).toEqual([THINKING_LEVEL_ADJUSTED]);
@@ -97,20 +100,29 @@ describe('thinkingFor', () => {
 
   test('above the ceiling rounds down to it: without levels, xhigh and max go as high', () => {
     for (const thinking of ['xhigh', 'max'] as const) {
-      const r = thinkingFor({ name: 'acme-stored', thinking: { mode: 'adaptive', lowest: 'low' } }, { thinking });
+      const r = thinkingFor(
+        { name: 'acme-stored', thinking: { mode: 'adaptive', lowest: 'low' } },
+        { thinking },
+      );
       expect(r.level, thinking).toBe('high');
       expect(r.warnings.map((w) => w.code)).toEqual([THINKING_LEVEL_ADJUSTED]);
     }
   });
 
   test('a floor of medium without levels: low rounds up to medium', () => {
-    const r = thinkingFor({ name: 'acme-medium', thinking: { mode: 'always', lowest: 'medium' } }, { thinking: 'low' });
+    const r = thinkingFor(
+      { name: 'acme-medium', thinking: { mode: 'always', lowest: 'medium' } },
+      { thinking: 'low' },
+    );
     expect(r.level).toBe('medium');
     expect(r.warnings.map((w) => w.code)).toEqual([THINKING_LEVEL_ADJUSTED]);
   });
 
   test('a model that takes only lowest: any other level goes as lowest', () => {
-    const r = thinkingFor({ name: 'acme-fixed', thinking: { mode: 'always', lowest: 'low', levels: [] } }, { thinking: 'high' });
+    const r = thinkingFor(
+      { name: 'acme-fixed', thinking: { mode: 'always', lowest: 'low', levels: [] } },
+      { thinking: 'high' },
+    );
     expect(r.level).toBe('lowest');
     expect(r.warnings.map((w) => w.code)).toEqual([THINKING_LEVEL_ADJUSTED]);
   });
@@ -143,20 +155,34 @@ describe('modelThinkingProblem', () => {
   });
 
   test('levels outside the scale, lowest, twice or out of order are refused', () => {
-    for (const levels of [['low', 'extreme'], ['lowest', 'low'], ['low', 'low'], ['high', 'low'], 'low']) {
-      expect(modelThinkingProblem({ mode: 'always', lowest: 'low', levels }), JSON.stringify(levels)).toBe(
+    for (const levels of [
+      ['low', 'extreme'],
+      ['lowest', 'low'],
+      ['low', 'low'],
+      ['high', 'low'],
+      'low',
+    ]) {
+      expect(
+        modelThinkingProblem({ mode: 'always', lowest: 'low', levels }),
+        JSON.stringify(levels),
+      ).toBe(
         'levels must be levels besides lowest, each once and least first, from minimal, low, medium, high, xhigh, max',
       );
     }
   });
 
-  test('a default the model doesn\'t take is refused, naming the levels it takes', () => {
+  test("a default the model doesn't take is refused, naming the levels it takes", () => {
     // Without levels, the ones every thinking model takes.
     expect(modelThinkingProblem({ mode: 'adaptive', lowest: 'low', default: 'max' })).toBe(
       'default "max" isn\'t a level this model takes: it takes lowest, low, medium, high',
     );
     expect(
-      modelThinkingProblem({ mode: 'always', lowest: 'low', levels: ['low', 'high'], default: 'medium' }),
+      modelThinkingProblem({
+        mode: 'always',
+        lowest: 'low',
+        levels: ['low', 'high'],
+        default: 'medium',
+      }),
     ).toBe('default "medium" isn\'t a level this model takes: it takes lowest, low, high');
     // Outside the scale.
     expect(modelThinkingProblem({ mode: 'adaptive', lowest: 'low', default: 'none' })).toBe(

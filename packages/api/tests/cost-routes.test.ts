@@ -904,10 +904,9 @@ describe("API — a model call's cost record (T135)", () => {
     // A call that asked nothing and sent nothing has none.
     const plain = call();
     const { app: plainApp } = makeApp([plain]);
-    const none = (await (await plainApp.request(`/v1/cost/records/${plain.id}`, auth)).json()) as Record<
-      string,
-      unknown
-    >;
+    const none = (await (
+      await plainApp.request(`/v1/cost/records/${plain.id}`, auth)
+    ).json()) as Record<string, unknown>;
     expect(none).not.toHaveProperty('thinking');
   });
 

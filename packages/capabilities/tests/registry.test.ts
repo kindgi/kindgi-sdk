@@ -218,7 +218,10 @@ describe('createProviderRegistry', () => {
     for (const [i, [bad, takes]] of [
       // Without levels: the ones every thinking model takes.
       [{ mode: 'adaptive', lowest: 'low', default: 'xhigh' }, 'lowest, low, medium, high'],
-      [{ mode: 'always', lowest: 'low', levels: ['low', 'high'], default: 'medium' }, 'lowest, low, high'],
+      [
+        { mode: 'always', lowest: 'low', levels: ['low', 'high'], default: 'medium' },
+        'lowest, low, high',
+      ],
       // Outside the scale.
       [{ mode: 'adaptive', lowest: 'low', default: 'extreme' }, 'lowest, low, medium, high'],
     ].entries()) {

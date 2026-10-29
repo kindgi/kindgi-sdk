@@ -524,7 +524,12 @@ describe('API — providers register + get', () => {
   test("a model's levels and default round-trip; a default it doesn't take → 400 invalid-thinking, naming the ones it takes", async () => {
     const { app } = makeApp();
     const spec = providerSpec({ id: 'thinks-at' });
-    const thinking = { mode: 'adaptive', lowest: 'low', levels: ['low', 'medium', 'high', 'max'], default: 'max' };
+    const thinking = {
+      mode: 'adaptive',
+      lowest: 'low',
+      levels: ['low', 'medium', 'high', 'max'],
+      default: 'max',
+    };
     const models = spec.models.map((m, i) => (i === 0 ? { ...m, thinking } : m));
     const register = await app.request('/v1/providers', {
       method: 'POST',
@@ -541,7 +546,10 @@ describe('API — providers register + get', () => {
     for (const [i, [bad, takes]] of [
       // Without levels: the ones every thinking model takes.
       [{ mode: 'adaptive', lowest: 'low', default: 'max' }, 'lowest, low, medium, high'],
-      [{ mode: 'adaptive', lowest: 'low', levels: ['low', 'high'], default: 'medium' }, 'lowest, low, high'],
+      [
+        { mode: 'adaptive', lowest: 'low', levels: ['low', 'high'], default: 'medium' },
+        'lowest, low, high',
+      ],
     ].entries()) {
       const refused = await app.request('/v1/providers', {
         method: 'POST',

@@ -188,9 +188,10 @@ describe('model settings set how much the model thinks', () => {
       expect(modelSettingsIssues({ thinking }), thinking).toEqual([]);
     }
     for (const thinking of ['none', 'HIGH', 3]) {
-      expect(modelSettingsIssues({ thinking }).map((i) => i.path), String(thinking)).toEqual([
-        '/content/values/thinking',
-      ]);
+      expect(
+        modelSettingsIssues({ thinking }).map((i) => i.path),
+        String(thinking),
+      ).toEqual(['/content/values/thinking']);
     }
   });
 
