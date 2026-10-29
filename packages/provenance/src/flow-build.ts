@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto';
 
-import { END_NODE, LOOP_START_NODE, START_NODE } from '@kindgi/flow';
+import { END_NODE, LOOP_START_NODE, START_NODE, subflowVersion } from '@kindgi/flow';
 import type { Flow, FlowNode, LoopNode } from '@kindgi/flow';
 import { bodyStepKey } from '@kindgi/runtime';
 import type { JournalEntryPosition, RunStatus } from '@kindgi/runtime';
@@ -339,8 +339,11 @@ export function flowProvenanceBuilder(run: FlowProvenanceRun): FlowProvenanceBui
         const version = pins?.agents[node.ref];
         return { id: node.ref, ...(version !== undefined && { version }) };
       }
-      case 'subgraph':
-        return { id: node.flowRef.flowId, version: node.flowRef.version };
+      case 'subgraph': {
+        // The version the step names, else the one the flow version pins for it.
+        const version = subflowVersion(run.flow, node);
+        return { id: node.flowRef.flowId, ...(version !== undefined && { version }) };
+      }
       default:
         return undefined;
     }

@@ -566,6 +566,40 @@ describe('a flow run', () => {
   });
 });
 
+describe('a sub-flow step', () => {
+  const sub = (id: string, flowId: string, version?: string): FlowNode =>
+    ({
+      id: id as NodeId,
+      kind: 'subgraph',
+      flowRef: { flowId, ...(version !== undefined && { version }) },
+      inputMapping: {},
+      outputSchema: {},
+    }) as unknown as FlowNode;
+
+  test("names the version it runs: its own, else the flow version's pin for it, else none", () => {
+    const f = flowOf(
+      [sub('named', 'acme.a', '2.0.0'), sub('pinned', 'acme.b'), sub('unpinned', 'acme.c')],
+      [
+        edge('e1', '$start', 'named'),
+        edge('e2', 'named', 'pinned'),
+        edge('e3', 'pinned', 'unpinned'),
+      ],
+      { pins: { tools: {}, agents: {}, flows: { 'acme.a': '9.0.0', 'acme.b': '1.4.0' } } },
+    );
+    const j = new Journal();
+    j.edge('e1');
+    j.step('named');
+    j.edge('e2');
+    j.step('pinned');
+    j.edge('e3');
+    j.step('unpinned');
+    const record = build(runOf(f, { hasOutput: false }), j.entries);
+    expect(attrs(record, 'step:named').ref).toEqual({ id: 'acme.a', version: '2.0.0' });
+    expect(attrs(record, 'step:pinned').ref).toEqual({ id: 'acme.b', version: '1.4.0' });
+    expect(attrs(record, 'step:unpinned').ref).toEqual({ id: 'acme.c' });
+  });
+});
+
 describe('loops', () => {
   const body = foreach(
     'L',
