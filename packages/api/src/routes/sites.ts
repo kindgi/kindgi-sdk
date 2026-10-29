@@ -512,14 +512,15 @@ export function siteOrigin(raw: unknown): string | undefined {
  * name needs a joiner.
  */
 export function hasHiddenCharacters(text: string): boolean {
-  return HIDDEN_CHARACTER.test(text);
+  return text.search(HIDDEN_CHARACTERS) !== -1;
 }
 
-const HIDDEN_CHARACTER =
-  /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<![\p{Extended_Pictographic}0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)/u;
-
-/** Every hidden character (`hasHiddenCharacters`), for removing them. */
-const HIDDEN_CHARACTERS = new RegExp(HIDDEN_CHARACTER.source, 'gu');
+/**
+ * Every hidden character (`hasHiddenCharacters`). Global, for removing
+ * them: `search` and `replace` each start it at the beginning.
+ */
+const HIDDEN_CHARACTERS =
+  /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<![\p{Extended_Pictographic}0-9#*])[\uFE0E\uFE0F]|(?<=[0-9#*])[\uFE0E\uFE0F](?!\u20E3)/gu;
 
 const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 

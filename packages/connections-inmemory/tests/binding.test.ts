@@ -1379,6 +1379,15 @@ describe('names', () => {
     expect(fitName(' \u202Ename\u3164 ', 100)).toBe('name');
   });
 
+  test('hasHiddenCharacters sees one each time it is asked, before and after a removal', () => {
+    const hidden = 'Work\u200Bmail';
+    expect(hasHiddenCharacters(hidden)).toBe(true);
+    expect(hasHiddenCharacters(hidden)).toBe(true);
+    expect(fitName(hidden, 100)).toBe('Workmail');
+    expect(hasHiddenCharacters(hidden)).toBe(true);
+    expect(hasHiddenCharacters('Workmail')).toBe(false);
+  });
+
   test("a reconnect keeps the connection's name and ignores the one asked", async () => {
     const made = registrations();
     const [a, b] = made.appIds as [string, string];
