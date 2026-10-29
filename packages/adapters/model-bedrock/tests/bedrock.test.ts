@@ -841,6 +841,8 @@ describe("Nova's chain of thought, written into its answer", () => {
 
 describe('how much a model thinks: the level goes to the library as its portable reasoning', () => {
   const CLAUDE = 'us.anthropic.claude-sonnet-5-5';
+  const HAIKU = 'us.anthropic.claude-haiku-5-5';
+  const GPT = 'us.openai.gpt-6-luna';
   const thinkingMetadata = {
     id: 'bedrock-acme',
     region: 'us-east-2',
@@ -851,6 +853,20 @@ describe('how much a model thinks: the level goes to the library as its portable
         features: ['tool-use'],
         cost: { promptUsdPer1kTokens: 0.003, completionUsdPer1kTokens: 0.015 },
         thinking: { mode: 'adaptive', lowest: 'between_tools' },
+      },
+      {
+        name: HAIKU,
+        contextWindow: 200_000,
+        features: ['tool-use'],
+        cost: { promptUsdPer1kTokens: 0.001, completionUsdPer1kTokens: 0.005 },
+        thinking: { mode: 'adaptive', lowest: 'disabled' },
+      },
+      {
+        name: GPT,
+        contextWindow: 400_000,
+        features: ['tool-use'],
+        cost: { promptUsdPer1kTokens: 0.0002, completionUsdPer1kTokens: 0.0016 },
+        thinking: { mode: 'adaptive', lowest: 'none' },
       },
       ...metadata().models,
     ],
@@ -902,6 +918,43 @@ describe('how much a model thinks: the level goes to the library as its portable
         {
           code: 'thinking-level-adjusted',
           message: `${CLAUDE} doesn't take thinking level max, so the call sent high.`,
+        },
+      ],
+    });
+  });
+
+  test('lowest on a GPT model whose lowest is none: the library sends nothing for none, so no level is reported sent, with a warning', async () => {
+    const { body, ...reported } = await call('lowest', GPT);
+    expect(body).not.toHaveProperty('additionalModelRequestFields');
+    expect(reported).toEqual({
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message: `${GPT} doesn't take reasoning none through the AI SDK, so the call sent no level (it asked for lowest).`,
+        },
+      ],
+    });
+  });
+
+  test("a GPT model's other levels are sent, and reported", async () => {
+    const { body, ...reported } = await call('low', GPT);
+    expect(body?.additionalModelRequestFields).toBeDefined();
+    expect(reported).toEqual({
+      thinking: { level: 'low', sent: { reasoning: 'low' } },
+      warnings: undefined,
+    });
+  });
+
+  test("lowest on Claude whose lowest is disabled: the library writes no thinking field for none either, so it's the same", async () => {
+    const { body, ...reported } = await call('lowest', HAIKU);
+    expect(body).not.toHaveProperty('additionalModelRequestFields');
+    expect(reported).toEqual({
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message: `${HAIKU} doesn't take reasoning none through the AI SDK, so the call sent no level (it asked for lowest).`,
         },
       ],
     });

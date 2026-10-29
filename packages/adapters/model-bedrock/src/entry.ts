@@ -109,6 +109,10 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
           : { apiKey: KEY_SET_PER_REQUEST, fetch: withBearerKey(send) }),
       })(name);
     },
+    // The library sends nothing for `none`, and gives no warning: for Claude it makes it
+    // `reasoningConfig: { type: 'disabled' }` and then writes no `thinking` field for it, and
+    // for any other model it sets nothing (`resolveAmazonBedrockReasoningConfig`).
+    sendsNoReasoning: (_model, reasoning) => reasoning === 'none',
     cost: (model, usage) => tokenCostUsd(model, usage),
     cacheMark: (model) => (cachesPrompts(model) ? BEDROCK_CACHE_POINT : undefined),
     explain: (error) => (error.status === 403 ? accessHint(auth, region) : undefined),

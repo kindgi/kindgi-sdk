@@ -67,6 +67,12 @@ export interface AiSdkModelProviderOptions {
    * undefined. Which messages are marked: `withCacheMarks`.
    */
   readonly cacheMark?: (model: ModelInfo) => SharedV4ProviderOptions | undefined;
+  /**
+   * Whether the vendor's AI SDK provider sends nothing for this `reasoning` and gives no warning
+   * either (Bedrock's `none` on a model that isn't Anthropic's). The call then reports no level
+   * sent, with `thinking-unsupported`, as when the AI SDK warns that it dropped one.
+   */
+  readonly sendsNoReasoning?: (model: ModelInfo, reasoning: PortableReasoning) => boolean;
   /** Our cost formula for this vendor, from its usage. */
   readonly cost: (model: ModelInfo, usage: UsageCounters) => number;
   /** HTTP attempts in all on a retryable failure (408, 409, 429, 5xx, network). Default 3. */
@@ -226,8 +232,12 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       }
       const text = result.content.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
       const usage = toUsage(result.usage);
-      // The AI SDK maps `reasoning` for each vendor, and says so when it drops it.
-      const dropped = reasoning !== undefined && result.warnings.some(dropsReasoning);
+      // The AI SDK maps `reasoning` for each vendor, and says so when it drops it, except where
+      // the adapter knows it drops one without a word.
+      const dropped =
+        reasoning !== undefined &&
+        (result.warnings.some(dropsReasoning) ||
+          options.sendsNoReasoning?.(model, reasoning) === true);
       const warnings: ModelCallWarning[] = [
         ...sampling.warnings,
         ...thinking.warnings,

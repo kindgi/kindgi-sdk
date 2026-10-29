@@ -472,7 +472,9 @@ went out, as [Cost per run](../observability/cost-per-run/) shows.
 | `@kindgi/adapter-model-azure-openai`, `@kindgi/adapter-model-bedrock` | the AI SDK's `reasoning` | the value `lowest` names, with `disabled` as `none` and `between_tools` as `low` |
 
 When the AI SDK doesn't send a level to a model, the call's record says none
-went, and the turn carries a `thinking-unsupported` warning. The in-process
+went, and the turn carries a `thinking-unsupported` warning. On Bedrock, it
+sends nothing for `none`, so `lowest` on a model whose `lowest` is `none` or
+`disabled` goes that way, and the model thinks as its default says. The in-process
 adapter's models don't think.
 
 Thinking counts against the call's output cap, `maxOutputTokens`, and bills

@@ -1025,6 +1025,30 @@ describe('thinking levels: the portable reasoning', () => {
     },
   );
 
+  test('one the adapter says its AI SDK provider sends nothing for, without a warning: no level is reported, and the call says it sent none; another value still goes', async () => {
+    const result = (asked: ThinkingLevel) =>
+      provider([ANSWER], [], {
+        metadata: { ...METADATA, models: [{ ...noThinking, thinking: EVERY } as ModelInfo] },
+        sendsNoReasoning: (model, reasoning) => model.name === 'acme-large' && reasoning === 'none',
+      }).invoke({ ...ask, thinking: asked });
+    const lowest = await result('lowest');
+    expect({ thinking: lowest.thinking, warnings: lowest.warnings }).toEqual({
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message:
+            "acme-large doesn't take reasoning none through the AI SDK, so the call sent no level (it asked for lowest).",
+        },
+      ],
+    });
+    const low = await result('low');
+    expect({ thinking: low.thinking, warnings: low.warnings }).toEqual({
+      thinking: { level: 'low', sent: { reasoning: 'low' } },
+      warnings: undefined,
+    });
+  });
+
   test("a warning on another feature doesn't drop the level", async () => {
     const other: SharedV4Warning = { type: 'unsupported', feature: 'topK' };
     expect(await call(EVERY, 'high', [other])).toEqual({
