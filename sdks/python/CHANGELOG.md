@@ -84,9 +84,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   agent's turn it runs.** `at` is `"before-tool"`, `"after-tool"`,
   `"model-step"` or `"final-answer"` (left out, the final answer); `sees` is
   `"turn"` or `"conversation"`; and the scope's `tools` names the tools a
-  guardrail at a tool point checks. Registering one at a point its check
-  doesn't run at answers `guardrail-config-invalid`. The Python pack's
-  `@guardrail` doesn't take them yet.
+  guardrail at a tool point checks. Registering one with a built-in check
+  that doesn't run at its `at` answers `guardrail-config-invalid`; a pack
+  check's points aren't checked then, and at such a point the guardrail
+  fails as a check that can't run (`check-point-unsupported`). The Python
+  pack's `@guardrail` doesn't take them yet.
 
 ## 0.2.0
 
