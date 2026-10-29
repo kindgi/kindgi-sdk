@@ -807,11 +807,16 @@ EOT
      are empty or have a fixed default, nothing rewritten). Five of them take
      a short lock on the tables they change or point to: kernel_runs (three
      of them do), kernel_journal, kernel_waitpoints, kernel_triggers,
-     kernel_trigger_fires, orgs and projects. A long transaction holding one
-     makes the new revision fail after about a minute, naming the session
-     that holds it (end it with pg_terminate_backend, or let it finish). The
-     old revision keeps serving meanwhile. After them, the server indexes
-     the flow records without holding back writes to them.
+     kernel_trigger_fires, orgs and projects. One of them (trigger versions)
+     keeps kernel_runs and kernel_trigger_fires locked while it reads every
+     trigger fire, to check two new references and index them. Meanwhile
+     runs and trigger fires wait, on the old revision too, so with many fires
+     (SELECT count(*) FROM kernel_trigger_fires;) upgrade at a quiet time.
+     A long transaction holding one of those tables makes the new revision
+     fail after about a minute, naming the session that holds it (end it
+     with pg_terminate_backend, or let it finish). The old revision keeps
+     serving meanwhile. After them, the server indexes the flow records
+     without holding back writes to them.
    - If seed_user_id has an upper-case letter, 0.3.0 reads it in lower case
      and makes a new seed user with that id. The old one keeps its grants
      and the keys minted for it, but it's no longer the seed user. Mint keys
@@ -822,8 +827,14 @@ EOT
      with your id filled in. Until they're done, keep seed_tenant_id as it
      is, and register a new identity provider only once 0.3.0 serves all
      the traffic. With KINDGI_ARTIFACTS in server_env, first move the stored
-     files from tenants/<id as set> to tenants/<id in lower case>. Then run
-     this once, with 0.3.0's kindgi-runtime:
+     files from tenants/<id as set> to tenants/<id in lower case>. In a gcs:
+     bucket:
+       gcloud storage rsync --recursive \
+         gs://<bucket>/tenants/<id as set> \
+         gs://<bucket>/tenants/<id in lower case>
+       gcloud storage rm --recursive --all-versions \
+         gs://<bucket>/tenants/<id as set>
+     Then run this once, with 0.3.0's kindgi-runtime:
        kindgi-runtime tenants repair --tenant <id in lower case> \
          --old-spelling <id as set>
      Then set seed_tenant_id in lower case, and apply.
