@@ -279,6 +279,7 @@ const noopConnections: ConnectionBinding = {
   list: async () => ({ data: [] }),
   get: async () => null,
   disconnect: async () => connectionNoop,
+  update: async () => connectionNoop,
   createRequest: async () => connectionNoop,
   getRequest: async () => null,
   requestsForRun: async () => [],

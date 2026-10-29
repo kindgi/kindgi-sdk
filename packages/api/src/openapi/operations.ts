@@ -11746,14 +11746,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Connect request made.', schema: ref('ConnectRequest') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+        "Malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
       ),
       '403': ErrorResponse(
         "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
       ),
       '404': ErrorResponse('No registration with that `appId` (`connection-app-not-found`).'),
       '409': ErrorResponse(
-        'Idempotency-Key was reused with a different body; or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).',
+        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
       ),
     },
   },
@@ -11857,6 +11857,35 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
       '404': ErrorResponse(
         "No connection with that id, or not the caller's (`connection-not-found`).",
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/connections/:connectionId',
+    openapiPath: '/v1/connections/{connectionId}',
+    operationId: 'connections.update',
+    summary: 'Rename a connection',
+    description:
+      "Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateConnectionBody') },
+    responses: {
+      '200': { description: 'The connection, renamed.', schema: ref('Connection') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "`connectionId` is not a UUID, or a malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`).",
+      ),
+      '404': ErrorResponse(
+        "No connection with that id, it was disconnected, or it's not the caller's (`connection-not-found`).",
+      ),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; or another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded (`connection-label-taken`, `details.field` `label`).",
+      ),
+      '503': ErrorResponse(
+        "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },

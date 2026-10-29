@@ -619,6 +619,7 @@
           "connection-request-used": 409,
           "connection-state-expired": 410,
           "connection-account-mismatch": 409,
+          "connection-label-taken": 409,
           "connection-removing": 409,
           "connection-app-refused": 502,
           "connection-store-failed": 503,
@@ -25989,6 +25990,10 @@
           "account": {
             "$ref": "#/components/schemas/ConnectionAccount"
           },
+          "label": {
+            "type": "string",
+            "description": "The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then."
+          },
           "permissions": {
             "type": "array",
             "items": {
@@ -26059,6 +26064,21 @@
               "not-supported"
             ],
             "description": "What a removal did at the app. `at-app`: access was withdrawn there. `app-failed`: the app refused the revoke; the token is gone here all the same. `kept-for-other-connection`: another live connection uses the same grant. `not-supported`: the app has no revoke that would touch only this connection."
+          }
+        }
+      },
+      "UpdateConnectionBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded."
           }
         }
       },
@@ -26139,6 +26159,10 @@
             "type": "string",
             "format": "uuid",
             "description": "The connection it connects again; the same account is required."
+          },
+          "label": {
+            "type": "string",
+            "description": "The name asked for the connection it makes. A reconnect keeps the connection's."
           },
           "runId": {
             "type": "string",
@@ -26243,6 +26267,12 @@
             ],
             "default": "me",
             "description": "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only."
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others."
           }
         }
       },
@@ -69989,7 +70019,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+            "description": "Malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70029,7 +70059,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body; or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+            "description": "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -70538,6 +70568,133 @@
             "description": "The connection id (a UUID)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "connections.update",
+        "summary": "Rename a connection",
+        "tags": [
+          "connections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection, renamed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`connectionId` is not a UUID, or a malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No connection with that id, it was disconnected, or it's not the caller's (`connection-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body; or another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded (`connection-label-taken`, `details.field` `label`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.",
+        "parameters": [
+          {
+            "name": "connectionId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The connection id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateConnectionBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

@@ -1149,8 +1149,8 @@ export interface CreateAppInput {
    * The deployment's own links (its help desk, status page, data
    * processing terms), which the console shows on every page, the sign-in
    * page too (sign-in options' `links`), in this order. At most 8; each
-   * label 1 to 40 characters once trimmed, with no control or format
-   * character, and no other link's once trimmed; each URL an absolute
+   * label 1 to 40 characters once trimmed, with no control, format or
+   * invisible character, and no other link's once trimmed; each URL an absolute
    * https URL with no username or password. Anything else, and createApp
    * throws. Absent or empty: the answer has no `links`.
    */

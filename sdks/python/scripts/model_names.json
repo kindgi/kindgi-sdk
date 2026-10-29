@@ -950,6 +950,7 @@
   "UnregisterToolResult": ["UnregisterToolResult"],
   "UnregisterUserResult": ["UnregisterUserResult"],
   "UpdateConnectionAppBody": ["UpdateConnectionAppBody"],
+  "UpdateConnectionBody": ["UpdateConnectionBody"],
   "UpdateIdentityProviderBody": ["UpdateIdentityProviderBody"],
   "UpdateIdentityProviderResult": ["UpdateIdentityProviderResult"],
   "UpdateJudgeClassBody": ["UpdateJudgeClassBody"],

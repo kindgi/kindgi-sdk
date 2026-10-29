@@ -1249,6 +1249,9 @@ OPERATIONS: dict[str, Operation] = {
     "connections.get": Operation(
         "connections.get", "GET", "/v1/connections/{connectionId}", "json", False
     ),
+    "connections.update": Operation(
+        "connections.update", "PATCH", "/v1/connections/{connectionId}", "json", True
+    ),
     "connections.disconnect": Operation(
         "connections.disconnect", "DELETE", "/v1/connections/{connectionId}", "json", True
     ),
@@ -11042,6 +11045,30 @@ class ConnectionsResource:
             timeout=timeout,
         )
 
+    def update(
+        self,
+        connection_id: str | UUID,
+        body: _models.UpdateConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Connection:
+        """Rename a connection. `PATCH /v1/connections/{connectionId}`
+
+        Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.update"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateConnectionBody, body, fields),
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
     def disconnect(
         self,
         connection_id: str | UUID,
@@ -20805,6 +20832,30 @@ class AsyncConnectionsResource:
             path={"connectionId": connection_id},
             query={},
             headers={},
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        connection_id: str | UUID,
+        body: _models.UpdateConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Connection:
+        """Rename a connection. `PATCH /v1/connections/{connectionId}`
+
+        Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.update"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateConnectionBody, body, fields),
             response=_models.Connection,
             timeout=timeout,
         )

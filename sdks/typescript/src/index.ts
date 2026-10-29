@@ -385,6 +385,7 @@ export type {
   RemoveConnectionAppResult,
   StartConnectInput,
   UpdateConnectionAppInput,
+  UpdateConnectionInput,
 } from './resources/connections.js';
 export type {
   ApprovalRequestedEvent,
