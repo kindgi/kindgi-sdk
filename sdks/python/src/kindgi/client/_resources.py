@@ -11046,7 +11046,7 @@ class ConnectionsResource:
     ) -> _models.Connection:
         """Fetch a connection. `GET /v1/connections/{connectionId}`
 
-        A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.
+        A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.
         """
         return self._client._request(
             _OPERATIONS["connections.get"],
@@ -20945,7 +20945,7 @@ class AsyncConnectionsResource:
     ) -> _models.Connection:
         """Fetch a connection. `GET /v1/connections/{connectionId}`
 
-        A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.
+        A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.
         """
         return await self._client._request(
             _OPERATIONS["connections.get"],

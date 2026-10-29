@@ -70768,7 +70768,7 @@
             }
           }
         },
-        "description": "A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.",
+        "description": "A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.",
         "parameters": [
           {
             "name": "connectionId",

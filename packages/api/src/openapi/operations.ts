@@ -11854,7 +11854,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.get',
     summary: 'Fetch a connection',
     description:
-      "A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.",
+      "A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionIdPathParam],
