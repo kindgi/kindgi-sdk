@@ -990,18 +990,25 @@ export interface Guardrail {
 
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#GuardrailAction`. What a
- * failed check does to the agent turn: in 0.1 the runtime acts only on `halt`.
+ * failed check does to the agent turn: the runtime acts on `halt` and `retry`.
  */
 export interface GuardrailAction {
   /**
    * Built-in actions: `halt`, `retry`, `escalate`, `log-only`, `compensate`.
-   * Open string: any other non-empty name is accepted. In 0.1 the runtime acts
-   * only on `halt`: the turn fails with `guardrail-violation`. Any other value
-   * is recorded as a violation, as `log-only` is, and the turn completes:
-   * nothing runs the turn again, escalates or calls a compensating tool.
+   * Open string: any other non-empty name is accepted. The runtime acts on
+   * `halt`: the turn fails with `guardrail-violation`. It acts on `retry` too:
+   * the answer goes back to the model with the check's reason, for a new one,
+   * until the attempts run out, and then the turn fails the same way. Any
+   * other value is recorded as a violation, as `log-only` is, and the turn
+   * completes: in 0.1 nothing escalates or calls a compensating tool.
    */
   readonly 'on-violation': string;
-  /** The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt. */
+  /**
+   * Counts the answers this guardrail fails in a turn, the first one
+   * included: with `maxAttempts: 3` it sends a failed answer back up to
+   * twice, and the third answer it fails ends the turn. Left out, 2. The
+   * turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.
+   */
   readonly retry?: {
     readonly maxAttempts: number;
   };
@@ -2610,6 +2617,12 @@ export type McpEndpointConfig =
       readonly transport: 'stdio';
       readonly command: string;
       readonly args?: readonly string[];
+      /**
+       * Plain variables for the server's process, never a credential: a name
+       * such as `GITHUB_TOKEN`, `OPENAI_API_KEY` or `AWS_SECRET_ACCESS_KEY` is
+       * refused (`credential-in-env`); give it with `secretEnv`. Every value
+       * reads back as `[redacted]`, its name kept.
+       */
       readonly env?: Readonly<Record<string, string>>;
     }
   | {
@@ -2716,6 +2729,8 @@ export interface McpEndpoint {
   readonly secretRef?: McpEndpointSecretRef;
   /** How it signs in, when it isn't a plain bearer (see `RegisterMcpEndpointInput`). */
   readonly auth?: McpEndpointAuth;
+  /** A stdio server's secret variables, by reference (see `RegisterMcpEndpointInput`). */
+  readonly secretEnv?: Readonly<Record<string, McpEndpointSecretRef>>;
   /** Whether the run's `traceparent` is sent to the endpoint (see `RegisterMcpEndpointInput`). */
   readonly sendTraceparent?: boolean;
 }
@@ -2731,8 +2746,10 @@ export interface RegisterMcpEndpointInput {
   readonly transport: McpTransport;
   readonly config: McpEndpointConfig;
   /**
-   * The secret to authenticate with. A deployment refuses `stdio` endpoints
-   * (`403 host-access-denied`) unless it runs with `KINDGI_TENANT_HOST_ACCESS=local`.
+   * The secret sent as the endpoint's bearer. HTTP transports only: on
+   * `stdio` it's refused (`secret-ref-on-stdio`); use `secretEnv`. A
+   * deployment refuses `stdio` endpoints (`403 host-access-denied`) unless it
+   * runs with `KINDGI_TENANT_HOST_ACCESS=local`.
    */
   readonly secretRef?: McpEndpointSecretRef;
   /**
@@ -2743,6 +2760,13 @@ export interface RegisterMcpEndpointInput {
    * `auth` sends in `config.headers` too.
    */
   readonly auth?: McpEndpointAuth;
+  /**
+   * A stdio server's secrets, as variables of its process: each name
+   * (`GITHUB_TOKEN`) with the secret its value is read from when the runtime
+   * starts the server. 1 to 16 names, none also in `config.env`. `stdio`
+   * only: on an HTTP transport it's refused (`secret-env-on-http`).
+   */
+  readonly secretEnv?: Readonly<Record<string, McpEndpointSecretRef>>;
   /**
    * Send the W3C `traceparent` of the run calling a tool to the endpoint,
    * as a request header (ids only, never content). Default `false`. HTTP

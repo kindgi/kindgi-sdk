@@ -204,7 +204,9 @@ case class, is the config's schema, and `set("config", …)` gives its values.
   [Python reference](../../../reference/python/authoring/#runtrace) lists
   its fields. Its names are camelCase in TypeScript and snake_case in
   Python:
-  - `output`: the turn's final answer;
+  - `output`: the answer it judges: the turn's final answer. When the turn
+    has a `retry` guardrail, a `halt` or `retry` guardrail judges each
+    answer the model writes;
   - `toolCalls`, or `tool_calls`: its tool calls, each with the tool's name
     and arguments;
   - the tools' results, its model calls, the user's input and its cost;

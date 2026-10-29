@@ -112,7 +112,7 @@ Read it from the answer backwards:
 | Node | What it is |
 | --- | --- |
 | `input` | The message the turn answered. |
-| `model-call` | One call to a model: `modelVersion` is `provider/model`; `attributes` has its `step`, `model`, `providerId`, why it stopped (`finishReason`) and its `callId`. |
+| `model-call` | One call to a model: `modelVersion` is `provider/model`; `attributes` has its `step`, `model`, `providerId`, why it stopped (`finishReason`), its `callId`, and its `thinking` when it asked for or sent a level: `asked`, the level asked for, and `level`, the level sent ([Temperature and thinking](../../models/#temperature-and-thinking)). |
 | `tool-call`, `tool-result` | A tool the model called, with the exact tool version that ran, and what it returned. |
 | `model-output` | The answer. |
 | `wait`, `resume` | A tool call that waited for an approval: the wait, and the decision that ended it. |

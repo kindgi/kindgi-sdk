@@ -26,6 +26,7 @@ import type {
 } from '@kindgi/types';
 
 import { approvalResourceRef } from '../approval-resource.js';
+import { sameUserId } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { RunHandlerBinding } from '../handler-binding.js';
 import type {
@@ -196,6 +197,11 @@ export function approvalsRouter(
     return asked;
   };
   const tenantAdminAsked = new WeakMap<Context<AppEnv>, Promise<boolean>>();
+  /** Whether the caller is the member it's addressed to, the ids in either case. */
+  const isApprover = (c: Context<AppEnv>, approver: { readonly userId: string }): boolean => {
+    const userId = c.get('userId');
+    return userId !== undefined && sameUserId(approver.userId, userId);
+  };
   /**
    * Whether the caller may see an approval addressed to one member
    * (`approver`, a call that acts with that member's own connection): that
@@ -205,11 +211,11 @@ export function approvalsRouter(
    */
   const seesAddressed = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
     approval.approver === undefined ||
-    approval.approver.userId === c.get('userId') ||
+    isApprover(c, approval.approver) ||
     (await readsAsTenantAdmin(c));
   /** Whether the caller may decide it: only its approver, when it has one. */
   const decidesAddressed = (c: Context<AppEnv>, approval: Approval): boolean =>
-    approval.approver === undefined || approval.approver.userId === c.get('userId');
+    approval.approver === undefined || isApprover(c, approval.approver);
 
   // ---------- role gate for the whole resource ----------
   // A reviewer: a token that carries a role, or whose user the roster
@@ -493,12 +499,10 @@ export function approvalsRouter(
     );
     // One addressed to someone else is left out, unless the caller reads as
     // the tenant's admin: asked only when the page holds one.
-    const theirs = inTier.some(
-      (a) => a.approver !== undefined && a.approver.userId !== c.get('userId'),
-    );
+    const theirs = inTier.some((a) => a.approver !== undefined && !isApprover(c, a.approver));
     const addressed = theirs && !(await readsAsTenantAdmin(c));
     let visible = addressed
-      ? inTier.filter((a) => a.approver === undefined || a.approver.userId === c.get('userId'))
+      ? inTier.filter((a) => a.approver === undefined || isApprover(c, a.approver))
       : inTier;
     if (authorizer !== undefined) {
       const mine = visible;

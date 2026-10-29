@@ -123,6 +123,11 @@ export interface GuardrailViolationError {
     readonly guardrailId: string;
     readonly message: string;
   }[];
+  /**
+   * The answers the turn had when a `retry` guardrail's attempts ran out,
+   * the first one included. Absent when a `halt` guardrail stopped it.
+   */
+  readonly attempts?: number;
 }
 
 /** One guardrail that blocked a run. */
@@ -373,13 +378,16 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'scope-invalid':
     case 'artifact-too-large':
       return invalidRequest(message, obj, details);
-    case 'guardrail-violation':
+    case 'guardrail-violation': {
+      const attempts = details?.attempts;
       return {
         code: 'guardrail-violation',
         message,
         violations: readGuardrailViolations(details?.violations),
         evaluationErrors: readEvaluationErrors(details?.evaluationErrors),
+        ...(typeof attempts === 'number' && Number.isInteger(attempts) ? { attempts } : {}),
       };
+    }
     default:
       return byStatus(status, code, message, obj, details);
   }

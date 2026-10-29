@@ -446,6 +446,7 @@ OPERATIONS: dict[str, Operation] = {
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
     "license.get": Operation("license.get", "GET", "/v1/license", "json", False),
+    "runtime.get": Operation("runtime.get", "GET", "/v1/runtime", "json", False),
     "license.usage": Operation("license.usage", "GET", "/v1/license/usage", "json", False),
     "exportSigningKeys.list": Operation(
         "exportSigningKeys.list", "GET", "/v1/export-signing-keys", "json", False
@@ -943,6 +944,13 @@ OPERATIONS: dict[str, Operation] = {
     "projects.access.list": Operation(
         "projects.access.list", "GET", "/v1/projects/{projectId}/access", "json", False
     ),
+    "projects.pinnedVersions.list": Operation(
+        "projects.pinnedVersions.list",
+        "GET",
+        "/v1/projects/{projectId}/pinned-versions",
+        "json",
+        False,
+    ),
     "projects.production.set": Operation(
         "projects.production.set", "PUT", "/v1/projects/{projectId}/production", "json", True
     ),
@@ -1188,6 +1196,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "connections.get": Operation(
         "connections.get", "GET", "/v1/connections/{connectionId}", "json", False
+    ),
+    "connections.update": Operation(
+        "connections.update", "PATCH", "/v1/connections/{connectionId}", "json", True
     ),
     "connections.disconnect": Operation(
         "connections.disconnect", "DELETE", "/v1/connections/{connectionId}", "json", True
@@ -3800,7 +3811,7 @@ class GuardrailsResource:
     ) -> _models.GuardrailOutcomes:
         """What a guardrail's checks came to in a project. `GET /v1/guardrails/{guardrailId}/outcomes`
 
-        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
+        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back; or a `retry` sent it back for a new one), `blocked` (a `halt` failed the turn, or a `retry` whose attempts had run out) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. A check is counted per answer it judged: a guardrail judges a turn's final answer, and, in a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
         """
         return self._client._request(
             _OPERATIONS["guardrails.outcomes"],
@@ -4731,7 +4742,7 @@ class LicenseResource:
     def get(self, /, *, timeout: float | None = None) -> _models.LicenseStatus:
         """Where the deployment's license key stands. `GET /v1/license`
 
-        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.
+        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.
         """
         return self._client._request(
             _OPERATIONS["license.get"],
@@ -4753,6 +4764,27 @@ class LicenseResource:
             query={"since": since},
             headers={},
             response=_models.LicenseUsage,
+            timeout=timeout,
+        )
+
+
+class RuntimeResource:
+    """`client.runtime` — the `runtime` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
+        """Which runtime answers. `GET /v1/runtime`
+
+        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["runtime.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.RuntimeInfo,
             timeout=timeout,
         )
 
@@ -4841,7 +4873,7 @@ class ArtifactsResource:
     def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
-        Streams raw bytes. Response headers: `Content-Type` (as declared at upload), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
+        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
         """
         return self._client._request(
             _OPERATIONS["artifacts.download"],
@@ -5058,7 +5090,7 @@ class ProvidersResource:
     ) -> _models.ProviderCheckResult:
         """Check a provider's registration. `GET /v1/providers/{providerId}/check`
 
-        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `warnings` lists the `adapter_config` keys its adapter doesn't take: the runtime builds it without reading them. `checked` is false when this runtime has no check for the provider's adapter and the adapter declares no keys.
         """
         return self._client._request(
             _OPERATIONS["providers.check"],
@@ -5455,7 +5487,7 @@ class McpEndpointsResource:
     ) -> _models.RegisterMCPEndpointResult:
         """Register an MCP endpoint. `POST /v1/mcp/endpoints`
 
-        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
+        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
         """
         return self._client._request(
             _OPERATIONS["mcp.endpoints.register"],
@@ -5472,7 +5504,7 @@ class McpEndpointsResource:
     ) -> _models.MCPEndpoint:
         """Fetch an MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}`
 
-        Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).
+        Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef`, `auth` and `secretEnv` name secrets the runtime resolves inside the deployment). A stdio endpoint's `config.env` values read back as `[redacted]`, their names kept.
         """
         return self._client._request(
             _OPERATIONS["mcp.endpoints.get"],
@@ -7248,7 +7280,7 @@ class IdentityMeResource:
     def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
         """What I may do. `GET /v1/identity/me/permissions`
 
-        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Whether the deployment's license is held back from the caller whatever its role (`licenseOperatorOnly`), so a console doesn't ask `GET /v1/license`. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
         """
         return self._client._request(
             _OPERATIONS["identity.me.permissions"],
@@ -8422,6 +8454,35 @@ class ProjectsAccessResource:
         )
 
 
+class ProjectsPinnedVersionsResource:
+    """`client.projects.pinned_versions` — the `projects.pinnedVersions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectPinnedVersionPage:
+        """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
+
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.pinnedVersions.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectPinnedVersionPage,
+            timeout=timeout,
+        )
+
+
 class ProjectsProductionResource:
     """`client.projects.production` — the `projects.production` operations."""
 
@@ -8783,6 +8844,7 @@ class ProjectsResource:
         self.judging_queue = ProjectsJudgingQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
         self.access = ProjectsAccessResource(client)
+        self.pinned_versions = ProjectsPinnedVersionsResource(client)
         self.production = ProjectsProductionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
         self.sites = ProjectsSitesResource(client)
@@ -10590,6 +10652,30 @@ class ConnectionsResource:
             path={"connectionId": connection_id},
             query={},
             headers={},
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        connection_id: str | UUID,
+        body: _models.UpdateConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Connection:
+        """Rename a connection. `PATCH /v1/connections/{connectionId}`
+
+        Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return self._client._request(
+            _OPERATIONS["connections.update"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateConnectionBody, body, fields),
             response=_models.Connection,
             timeout=timeout,
         )
@@ -13161,7 +13247,7 @@ class AsyncGuardrailsResource:
     ) -> _models.GuardrailOutcomes:
         """What a guardrail's checks came to in a project. `GET /v1/guardrails/{guardrailId}/outcomes`
 
-        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
+        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back; or a `retry` sent it back for a new one), `blocked` (a `halt` failed the turn, or a `retry` whose attempts had run out) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. A check is counted per answer it judged: a guardrail judges a turn's final answer, and, in a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
         """
         return await self._client._request(
             _OPERATIONS["guardrails.outcomes"],
@@ -14094,7 +14180,7 @@ class AsyncLicenseResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.LicenseStatus:
         """Where the deployment's license key stands. `GET /v1/license`
 
-        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.
+        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.
         """
         return await self._client._request(
             _OPERATIONS["license.get"],
@@ -14116,6 +14202,27 @@ class AsyncLicenseResource:
             query={"since": since},
             headers={},
             response=_models.LicenseUsage,
+            timeout=timeout,
+        )
+
+
+class AsyncRuntimeResource:
+    """`client.runtime` — the `runtime` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
+        """Which runtime answers. `GET /v1/runtime`
+
+        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["runtime.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.RuntimeInfo,
             timeout=timeout,
         )
 
@@ -14204,7 +14311,7 @@ class AsyncArtifactsResource:
     async def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
-        Streams raw bytes. Response headers: `Content-Type` (as declared at upload), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
+        Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).
         """
         return await self._client._request(
             _OPERATIONS["artifacts.download"],
@@ -14421,7 +14528,7 @@ class AsyncProvidersResource:
     ) -> _models.ProviderCheckResult:
         """Check a provider's registration. `GET /v1/providers/{providerId}/check`
 
-        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `warnings` lists the `adapter_config` keys its adapter doesn't take: the runtime builds it without reading them. `checked` is false when this runtime has no check for the provider's adapter and the adapter declares no keys.
         """
         return await self._client._request(
             _OPERATIONS["providers.check"],
@@ -14818,7 +14925,7 @@ class AsyncMcpEndpointsResource:
     ) -> _models.RegisterMCPEndpointResult:
         """Register an MCP endpoint. `POST /v1/mcp/endpoints`
 
-        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
+        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
         """
         return await self._client._request(
             _OPERATIONS["mcp.endpoints.register"],
@@ -14835,7 +14942,7 @@ class AsyncMcpEndpointsResource:
     ) -> _models.MCPEndpoint:
         """Fetch an MCP endpoint. `GET /v1/mcp/endpoints/{endpointId}`
 
-        Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).
+        Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef`, `auth` and `secretEnv` name secrets the runtime resolves inside the deployment). A stdio endpoint's `config.env` values read back as `[redacted]`, their names kept.
         """
         return await self._client._request(
             _OPERATIONS["mcp.endpoints.get"],
@@ -16621,7 +16728,7 @@ class AsyncIdentityMeResource:
     async def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
         """What I may do. `GET /v1/identity/me/permissions`
 
-        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Whether the deployment's license is held back from the caller whatever its role (`licenseOperatorOnly`), so a console doesn't ask `GET /v1/license`. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
         """
         return await self._client._request(
             _OPERATIONS["identity.me.permissions"],
@@ -17795,6 +17902,35 @@ class AsyncProjectsAccessResource:
         )
 
 
+class AsyncProjectsPinnedVersionsResource:
+    """`client.projects.pinned_versions` — the `projects.pinnedVersions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectPinnedVersionPage:
+        """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
+
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.pinnedVersions.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectPinnedVersionPage,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsProductionResource:
     """`client.projects.production` — the `projects.production` operations."""
 
@@ -18156,6 +18292,7 @@ class AsyncProjectsResource:
         self.judging_queue = AsyncProjectsJudgingQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
         self.access = AsyncProjectsAccessResource(client)
+        self.pinned_versions = AsyncProjectsPinnedVersionsResource(client)
         self.production = AsyncProjectsProductionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
         self.sites = AsyncProjectsSitesResource(client)
@@ -19973,6 +20110,30 @@ class AsyncConnectionsResource:
             timeout=timeout,
         )
 
+    async def update(
+        self,
+        connection_id: str | UUID,
+        body: _models.UpdateConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Connection:
+        """Rename a connection. `PATCH /v1/connections/{connectionId}`
+
+        Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.
+        """
+        return await self._client._request(
+            _OPERATIONS["connections.update"],
+            path={"connectionId": connection_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateConnectionBody, body, fields),
+            response=_models.Connection,
+            timeout=timeout,
+        )
+
     async def disconnect(
         self,
         connection_id: str | UUID,
@@ -20020,6 +20181,7 @@ class Resources:
     improvement_passes: ImprovementPassesResource
     provenance: ProvenanceResource
     license: LicenseResource
+    runtime: RuntimeResource
     export_signing_keys: ExportSigningKeysResource
     artifacts: ArtifactsResource
     observations: ObservationsResource
@@ -20080,6 +20242,7 @@ class Resources:
         self.improvement_passes = ImprovementPassesResource(client)
         self.provenance = ProvenanceResource(client)
         self.license = LicenseResource(client)
+        self.runtime = RuntimeResource(client)
         self.export_signing_keys = ExportSigningKeysResource(client)
         self.artifacts = ArtifactsResource(client)
         self.observations = ObservationsResource(client)
@@ -20142,6 +20305,7 @@ class AsyncResources:
     improvement_passes: AsyncImprovementPassesResource
     provenance: AsyncProvenanceResource
     license: AsyncLicenseResource
+    runtime: AsyncRuntimeResource
     export_signing_keys: AsyncExportSigningKeysResource
     artifacts: AsyncArtifactsResource
     observations: AsyncObservationsResource
@@ -20202,6 +20366,7 @@ class AsyncResources:
         self.improvement_passes = AsyncImprovementPassesResource(client)
         self.provenance = AsyncProvenanceResource(client)
         self.license = AsyncLicenseResource(client)
+        self.runtime = AsyncRuntimeResource(client)
         self.export_signing_keys = AsyncExportSigningKeysResource(client)
         self.artifacts = AsyncArtifactsResource(client)
         self.observations = AsyncObservationsResource(client)

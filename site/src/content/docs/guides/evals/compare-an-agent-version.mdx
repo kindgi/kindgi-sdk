@@ -455,9 +455,11 @@ replay. The flow's whole output is rated: the output itself, the `output`
 item, and each element of a list in it.
 
 To try some of its tools or agents at another version, without publishing a
-new flow version, add `--with=<id>@<version>` once for each. Here the flow
-`acme-ops.suggest-articles` 0.1.0 runs its `acme-ops.find-articles` tool at
-0.2.0, which matches only the articles a question asks about:
+new flow version, add `--with=<id>@<version>` once for each. Like the
+clients' `versions`, it reaches the tools and agents of the flows it runs as
+sub-flows too, at any depth. Here the flow `acme-ops.suggest-articles` 0.1.0
+runs its `acme-ops.find-articles` tool at 0.2.0, which matches only the
+articles a question asks about:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -519,8 +521,8 @@ tool:
 - **Under `kindgi dev`,** a pack serves two versions of a tool side by side,
   so a tool swap works there. An agent has one version there, its file's, so
   swapping an agent needs a runtime you deploy to.
-- **A `--with` the flow doesn't use is refused:**
-  `flow acme-ops.suggest-articles 0.1.0 doesn't use acme-ops.article-picker`.
+- **A `--with` that neither the flow nor its sub-flows use is refused:**
+  `flow acme-ops.suggest-articles 0.1.0 doesn't use acme-ops.article-picker, nor do its sub-flows you can read`.
 
 **A flow stops at a tool call the replay refuses.** `acme-ops.suggest-and-log`
 also records the articles it suggested. With 0.2.0 of the tool, it would have

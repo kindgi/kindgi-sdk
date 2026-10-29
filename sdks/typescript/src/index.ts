@@ -226,10 +226,13 @@ export type {
   ListProjectsFilter,
   ProjectMembershipPage,
   ListProjectAccessFilter,
+  ListProjectPinnedVersionsFilter,
   ListTeamGrantsFilter,
   ProjectAccessClient,
   ProjectAccessPage,
   ProjectAccessShape,
+  ProjectPinnedVersionPage,
+  ProjectPinnedVersionsClient,
   ProjectMembershipsClient,
   ProjectTeamGrantsClient,
   ProjectPage,
@@ -364,6 +367,7 @@ export type {
   RemoveConnectionAppResult,
   StartConnectInput,
   UpdateConnectionAppInput,
+  UpdateConnectionInput,
 } from './resources/connections.js';
 export type {
   ApprovalRequestedEvent,
@@ -426,6 +430,7 @@ export type {
   ExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
 export type { LicenseClient, LicenseStatus, LicenseUsage } from './resources/license.js';
+export type { RuntimeClient, RuntimeInfo } from './resources/runtime.js';
 export type {
   MintedSystemKey,
   RevokedSystemKey,

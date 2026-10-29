@@ -397,8 +397,9 @@ def test_every_response_enum_in_the_api_is_read_open() -> None:
     # `const` (it never does), which both generate as `Literal['x']`.
     gen = gen_client()
     doc, ops = gen.operations(json.loads(gen.DEFAULT_OPENAPI.read_text("utf-8")))
+    pinned = json.loads(gen.MODEL_NAMES.read_text("utf-8"))
     gen.name_variants(doc)
-    gen.name_owned(doc)
+    gen.name_owned(doc, frozenset(name for name, at in pinned.items() if not at))
     components = doc["components"]["schemas"]
     reached = gen.response_components(doc, ops)
     used: dict[str, list[tuple[str, tuple[Any, ...]]]] = {}

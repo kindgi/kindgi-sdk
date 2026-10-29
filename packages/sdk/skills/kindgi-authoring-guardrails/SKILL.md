@@ -3,21 +3,21 @@ name: kindgi-authoring-guardrails
 description: >
   Covers writing guardrails (safety checks) for a Kindgi pack: the check
   implementation via defineCheck from @kindgi/sdk/define, the guardrail
-  declaration a pack file default-exports (the indexer's shape), the
-  three kinds (zero-llm / llm-judge / external), actions, severity
-  levels, scope selectors, config schemas via Zod or JSON Schema,
-  validating a declaration with validateGuardrail from @kindgi/guardrails,
-  and how guardrails reach agents. In 0.1 only the halt action acts
-  (retry / escalate / compensate are only recorded: nothing runs the
-  turn again), and a check sees only the current turn: its user message
-  and tool results, not earlier turns'. Load this whenever you are authoring or
-  editing code inside a pack's guardrails/ directory, defining a check,
-  or wiring a guardrail onto an agent. Authoring tools is covered by
+  declaration a pack file default-exports (the indexer's shape), the three
+  kinds (zero-llm / llm-judge / external), actions, severity levels, scope
+  selectors, config schemas via Zod or JSON Schema, validating a declaration
+  with validateGuardrail from @kindgi/guardrails, and how guardrails reach
+  agents. halt fails the turn and retry sends the answer back to the model
+  for a new one (escalate / compensate are only recorded in 0.1), and a
+  check sees only the current turn: its user message and tool results, not
+  earlier turns'. Load this whenever you are authoring or editing code
+  inside a pack's guardrails/ directory, defining a check, or wiring a
+  guardrail onto an agent. Authoring tools is covered by
   kindgi-authoring-tools; authoring agents is covered by
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.11"
+version: "0.3.12"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -49,14 +49,20 @@ before the response is stored.
 Read this before you plan a guardrail. Three limits decide what can be
 built:
 
-- **Only `halt` acts.** A failed `halt` guardrail fails the turn with
-  `guardrail-violation`, and the response is not stored. `retry`,
-  `escalate` and `compensate` are recorded on the turn's violations, as
-  `log-only` is, and the turn completes: nothing runs the turn again,
-  escalates or calls a compensating tool. So "block the reply and make the
-  agent try again" can't be a guardrail. Use `halt`: the error names the
-  guardrail and the check's reason, and the message is sent again (by the
-  person, or by your app when it gets `guardrail-violation`).
+- **`halt` and `retry` act.** A failed `halt` guardrail fails the turn with
+  `guardrail-violation`, and the response is not stored. A failed `retry`
+  guardrail sends the answer back to the model, with the check's reason in a
+  user message, for a new one; the failed answer isn't stored. When it has
+  failed `retry.maxAttempts` answers (the first one included; 2 when left
+  out), the turn fails with `guardrail-violation` and
+  `details.attempts`. Each new answer is a model call that the agent's
+  `budget.maxSteps` counts. The `halt` and `retry` guardrails judge each
+  answer, a judge's calls included, which `budget.maxCostUsd` doesn't count;
+  the others judge only the answer that's sent. A new answer can call tools
+  again, side-effecting ones included, with approvals as usual. `escalate`
+  and `compensate` are recorded on the turn's violations, as `log-only` is,
+  and the turn completes: nothing escalates or calls a compensating tool. So
+  "block the reply and make the agent try again" is a `retry` guardrail.
 - **A check sees one turn.** The trace holds the current turn only: its
   user message (`trace.userInput`), its tool calls and their results
   (`trace.toolCalls`, `trace.toolResults`) and its response
@@ -260,17 +266,17 @@ available to the runtime that evaluates it.
   check's `evaluate` receives the config its schema resolves, with the
   schema's defaults applied; a check written without `defineCheck` gets
   the config as declared.
-- **`action.on-violation`** — `'halt'`, `'retry'` (with
-  `retry.maxAttempts`, 1–10), `'escalate'` (with `escalateTo`),
-  `'log-only'`, `'compensate'` (with `compensateWith`, a tool id). In an
-  agent turn, a failed `halt` guardrail fails the turn with
-  `guardrail-violation` and the response is not stored; failures with
-  any other action are reported in `AgentTurnResult.violations` and the
-  turn completes. The action handlers in `@kindgi/guardrails`
-  (`retryHandler`, `escalateHandler`, `compensateHandler`, …) record the
-  intent for callers that act on it. In 0.1 the runtime acts only on
-  `halt`: `retry`, `escalate` and `compensate` are recorded on the
-  violation, with no second attempt, escalation or compensating call.
+- **`action.on-violation`** — `'halt'`, `'retry'` (with `retry.maxAttempts`,
+  1–10), `'escalate'` (with `escalateTo`), `'log-only'`, `'compensate'`
+  (with `compensateWith`, a tool id). In an agent turn, a failed `halt`
+  guardrail fails the turn with `guardrail-violation` and the response is
+  not stored; a failed `retry` guardrail sends the answer back for a new one
+  (above); failures with any other action are reported in
+  `AgentTurnResult.violations` and the turn completes. The action handlers
+  in `@kindgi/guardrails` (`retryHandler`, `escalateHandler`,
+  `compensateHandler`, …) record the intent for callers that act on it.
+  `escalate` and `compensate` are recorded on the violation, with no
+  escalation or compensating call in 0.1.
 - **`severity`** — `'info'` / `'warn'` / `'error'` (the default) /
   `'critical'`. Orthogonal to `action`: logs and dashboards group by
   severity; execution follows the action. A `log-only` guardrail can

@@ -290,8 +290,16 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 Deploying the same pack into a second project is refused, because its ids
 already belong to the first project: `409 tool-project-mismatch` (or
 `agent-…`, `flow-…`, `guardrail-…`), and nothing is deployed. The message
-names the fix: make a copy of the pack for the new client with `kindgi init`,
-which gives every id the new pack's id.
+names the fix your runtime has. Where each deployment runs as a service of
+its own, make a copy of the pack for the new client with `kindgi init`,
+which gives every id the new pack's id. Where one pack service runs every
+deployment, the default on any runtime, a copy's code wouldn't run. There,
+when both projects are in the same org, or neither is in an org, put them
+in one environment order (`kindgi environments set`), the second right
+after the first, and `kindgi promote` the build to the second instead of
+deploying it. Projects in two orgs can't share an order, so a client in an
+org of its own, as this guide sets one up, needs a runtime that runs each
+deployment as a service of its own.
 
 ## What a project's runs can use
 

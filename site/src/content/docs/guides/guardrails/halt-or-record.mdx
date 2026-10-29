@@ -8,7 +8,8 @@ sidebar:
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This guide chooses what a failed guardrail does to an agent's turn: stop
-it, or let it finish and record the failure.
+it, send the answer back for a new one, or let it finish and record the
+failure.
 
 ## Before you start
 
@@ -24,6 +25,9 @@ A guardrail's action decides what a failed check does to the turn:
 
 - **`halt`** stops it. The turn fails with `guardrail-violation`, and the run
   has no answer.
+- **`retry`** sends the answer back. The model gets the check's reason and
+  writes a new answer, up to a number of answers you set: see
+  [Send the answer back](#send-the-answer-back).
 - **`log-only`** lets it finish. The answer goes out, and the failure is
   recorded on the turn as a violation.
 
@@ -204,10 +208,100 @@ Use `log-only` while you find out how often a new rule fails, or for a rule
 your app acts on itself: read `violations` from the turn's result.
 
 :::note[Other actions]
-The guardrail schema also accepts `retry`, `escalate` and `compensate`. In
-0.1 a turn records them as violations, like `log-only`, and doesn't act on
-them: there's no second attempt, escalation or compensating tool call.
+The guardrail schema also accepts `escalate` and `compensate`. In 0.1 a turn
+records them as violations, like `log-only`, and doesn't act on them: there's
+no escalation or compensating tool call.
 :::
+
+## Send the answer back
+
+With `retry`, a failed check neither stops the turn nor lets the answer out.
+The answer goes back to the model with the check's reason, and the model
+writes a new one. `retry.maxAttempts` counts the answers the guardrail fails,
+the first one included:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+// in guardrails/answer-length/index.ts
+action: { 'on-violation': 'retry', retry: { maxAttempts: 3 } },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+# in guardrails/answer_length.py
+@guardrail(
+    id="my-pack.answer-length",
+    name="Answer is short",
+    action={"on-violation": "retry", "retry": {"maxAttempts": 3}},
+    severity="error",
+    config={"maxChars": 60},
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/guardrails/AnswerLength.java
+      .action(Map.of("on-violation", "retry", "retry", Map.of("maxAttempts", 3)))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/guardrails/AnswerLength.scala
+    .action(Map("on-violation" -> "retry", "retry" -> Map("maxAttempts" -> 3)))
+```
+
+</TabItem>
+</Tabs>
+
+- **`maxAttempts`** is 1 to 10. With 3, the guardrail sends a failed answer
+  back up to twice, and the third answer it fails ends the turn. Left out,
+  it's 2: one answer is sent back. With 1, nothing is sent back, and the
+  first failure fails the turn. Each `retry` guardrail counts its own, so a
+  turn with two of them can have more answers than either allows.
+- **The model reads why.** After the failed answer, the turn adds a user
+  message that names the guardrail and the check's reason:
+
+  ```text
+  [kindgi:guardrail-retry] ["my-pack.answer-length"]
+  Your answer wasn't sent: it didn't pass this guardrail.
+  - my-pack.answer-length: The answer is 243 characters; the limit is 60.
+  Write a new answer that meets it.
+  ```
+
+  Neither the failed answer nor the note is stored in the conversation:
+  only the answer that's sent is. Each answer's tool calls are stored, as
+  always.
+- **Out of answers,** the turn fails as a halted one does, with
+  `guardrail-violation`. `details.attempts` says how many answers it had,
+  and so does the message: "Turn blocked by guardrail
+  'my-pack.answer-length' after 3 answers: The answer is 243 characters;
+  the limit is 60." Each answer is a model call, so the agent's
+  `budget.maxSteps` bounds them too, and so does the turn's own limit of 32
+  model calls: when either runs out first, the turn fails the same way.
+- **`halt` comes first.** With a `retry` guardrail on the turn, the agent's
+  `halt` and `retry` guardrails judge each answer, and a failed `halt` fails
+  the turn at once. The other guardrails (`log-only` and the rest) judge only
+  the answer that's sent.
+- **A new answer can do what the first one could.** The model still has the
+  turn's tools, and can call them again, side-effecting ones included. A
+  call that needs an approval needs one again.
+- **Each answer costs its checks.** A `halt` or `retry` judge guardrail's
+  calls run once for each answer, so as often as the turn has answers. They
+  don't count toward the agent's `budget.maxCostUsd`.
+- **A restart costs one more check.** If the runtime restarts while a turn
+  is finishing, the turn it picks up judges its last answer on its `halt`
+  and `retry` guardrails again, and those checks are counted again. If a
+  `retry` check fails this time, the turn fails as out of answers.
+- **A dry run** records a `retry` guardrail's failure, as `log-only` does,
+  and sends nothing back.
 
 ## When the check can't run
 
@@ -231,6 +325,8 @@ What happens next depends on the action:
   ```text
   Error [guardrail-violation]: Turn blocked: guardrail 'acme.pack-only' couldn't run its check (unknown-check: Guardrail "acme.pack-only" references unregistered check "acme.checks.not-deployed")
   ```
+- With `retry`, the error doesn't send the answer back: the turn goes on as
+  if the check had passed.
 - With any other action, the turn completes.
 
 Where each deployment has its own pack service, as on Kindgi Cloud
@@ -244,6 +340,13 @@ and the message ends:
 Either way, the error is recorded in two places. The run's provenance has
 the guardrail's node, with `evaluated: false`. The run journal's
 `evaluate-guardrails` step has it under `errors`.
+
+In a turn with a `retry` guardrail, its `halt` and `retry` guardrails check
+each answer in the agent loop's `budget-check` step. A `halt` error there
+fails that step: provenance has the guardrail's node, as above, and the
+journal has the error on that step. An error on an answer that's sent back
+is in the guardrail's [outcomes](#how-a-guardrail-is-doing), as `errored`,
+but not in provenance or under `errors`: those show the answer that's sent.
 
 ## Severity
 
@@ -309,8 +412,11 @@ A turn the scope leaves out isn't counted in the guardrail's
 
 ## How a guardrail is doing
 
-Every check a guardrail runs on an agent's turn is recorded with its
-outcome. One request counts them over a window, for a project. The console
+Every check a guardrail runs on an agent's answer is recorded with its
+outcome: once a turn, or, for a `halt` or `retry` guardrail, once an answer
+when the turn has a `retry` guardrail
+([Send the answer back](#send-the-answer-back)). One request
+counts them over a window, for a project. The console
 shows the same counts.
 
 ### From the API
@@ -385,13 +491,21 @@ it `guardrails.outcomes`. It answers:
 - **`passed`:** the check ran and found nothing.
 - **`violated`:** the check found something, and the answer went through:
   `log-only`, `noop`, or an action handed back. See
-  [A recorded violation](#a-recorded-violation).
-- **`blocked`:** the check found something, and its `halt` failed the turn.
-  See [A halted turn](#a-halted-turn).
+  [A recorded violation](#a-recorded-violation). A `retry` guardrail that
+  sent the answer back counts here too.
+- **`blocked`:** the check found something, and its `halt` failed the turn,
+  or a `retry` guardrail's last answer did. See
+  [A halted turn](#a-halted-turn).
 - **`errored`:** the check couldn't run, as
   [When the check can't run](#when-the-check-cant-run) lists. A `halt`
   guardrail's error fails the turn too, and is counted here, not as
   `blocked`.
+
+The counts are of answers judged, not of turns. Take a turn whose first
+answer a `retry` guardrail sent back and whose second passed: it counts one
+`violated` and one `passed` for that guardrail, and two checks for each of
+the agent's `halt` guardrails. A blocked turn is named once in
+`recentBlocked`.
 
 A turn the guardrail's [scope](#which-agents-it-covers) didn't cover wasn't
 checked, so it isn't counted. Neither are replays and dry runs.

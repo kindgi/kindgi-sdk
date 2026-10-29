@@ -135,8 +135,8 @@ object, whose `ok` is `false` when a check fails; it also exits `1` then
 
 The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
 `maven`, `sbt`, `docker`, `registry`, `dev-sandbox`, `api-key`,
-`console-sign-in`, `license`, `mcp-headers`, `project`, `dependencies`,
-`model-key`, `runtime`, `provider`, `erasures`.
+`console-sign-in`, `license`, `mcp-headers`, `mcp-env`, `project`,
+`dependencies`, `model-key`, `runtime`, `provider`, `erasures`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
@@ -146,7 +146,7 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
   checks that would send it skip.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
-  In this release six checks warn. `dev-sandbox`: when `kindgi dev` can't
+  In this release seven checks warn. `dev-sandbox`: when `kindgi dev` can't
   run the pack's code sandboxed on this machine (Linux without bubblewrap,
   a container, Windows, or inside another sandbox); the code would then run
   with the person's own access. `console-sign-in`: when nobody can sign in
@@ -155,6 +155,9 @@ The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
   with it, or is signed with a key this CLI doesn't know yet. `mcp-headers`:
   when an MCP endpoint on that runtime keeps a credential in plaintext
   `config.headers`, from before that was refused; it still works.
+  `mcp-env`: when a stdio MCP endpoint on that runtime keeps a credential in
+  plaintext `config.env`, or a `secretRef`, from before that was refused; it
+  still works.
   `model-key`: when the key is in a file the app loads too, where the app's
   routes can read it; the fix gives Kindgi its own copy. `provider`: when an
   agent that names no model would get a model the preset no longer lists, or

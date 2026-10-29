@@ -486,8 +486,12 @@ export interface Agent {
    * against the guardrail definitions bound for the run
    * (`GuardrailsBindings.guardrails`, evaluated through its `checks`
    * registry from `@kindgi/guardrails`); an unknown id fails the turn
-   * with `unresolved-guardrail`. Evaluated once per turn, on the final
-   * response before it is stored.
+   * with `unresolved-guardrail`. They check the final response before
+   * it is stored; with a `retry` guardrail, each answer the model
+   * finishes is judged on the turn's `halt` and `retry` guardrails: a
+   * `halt` failure fails the turn at once, and a `retry` failure sends
+   * the answer back for a new one, up to `retry.maxAttempts`; past it,
+   * the turn fails with `guardrail-violation`.
    */
   readonly guardrails: readonly string[];
   /**
@@ -555,6 +559,18 @@ export interface Agent {
    */
   readonly toolErrors?: ToolErrorsSpec;
   /**
+   * Whether calls to read-only tools (`mutating: false`, no changing
+   * effect) that a model step asks for one after another run at the same
+   * time, up to 8 at once. A call to a read-only tool that pauses or
+   * declares connections runs on its own, since it may wait. Default: on.
+   * `false`: every call runs on its own, in the order the model asked for
+   * them. Either way, a step's results reach the conversation and the
+   * model in that order, and once a call needs a review, the step's calls
+   * that haven't started run one at a time. It doesn't change what the
+   * model may ask for.
+   */
+  readonly parallelToolCalls?: boolean;
+  /**
    * The exact block versions this agent version runs, resolved by the
    * runtime when the version was published (see `AgentPins`). Never
    * authored: `defineAgent` doesn't take it. Absent on an agent defined
@@ -571,9 +587,9 @@ export interface Agent {
   readonly settings?: readonly BlockRef[];
   /**
    * A settings block of model settings (`MODEL_SETTINGS_SCHEMA`:
-   * `temperature`, `maxOutputTokens`, and the model it prefers,
-   * `providerId` and `model`) the turn's model calls use. Pinned at
-   * publish with the other settings.
+   * `temperature`, `maxOutputTokens`, `thinking`, and the model it
+   * prefers, `providerId` and `model`) the turn's model calls use.
+   * Pinned at publish with the other settings.
    */
   readonly modelSettings?: BlockRef;
   /** `pinsDigest(pins)`, recorded when the version was published. */

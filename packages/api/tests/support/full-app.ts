@@ -278,6 +278,7 @@ const noopConnections: ConnectionBinding = {
   list: async () => ({ data: [] }),
   get: async () => null,
   disconnect: async () => connectionNoop,
+  update: async () => connectionNoop,
   createRequest: async () => connectionNoop,
   getRequest: async () => null,
   requestsForRun: async () => [],
@@ -735,6 +736,7 @@ export function fullAppInput(): CreateAppInput {
         people: 0,
       }),
     },
+    runtime: { version: '0.0.0', development: false },
     systemKeys: {
       mint: async () => {
         throw new Error('not used: no system principal in the sweeps');

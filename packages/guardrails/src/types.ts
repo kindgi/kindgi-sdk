@@ -50,8 +50,8 @@ export type GuardrailSeverity = 'info' | 'warn' | 'error' | 'critical';
  * `'redact-then-continue'`. Any non-empty name is accepted when the
  * guardrail is defined; with `EvaluationBindings.actions` set, a name
  * with no registered handler fails with `unknown-action` when the
- * guardrail fires. The agent runtime in 0.1 binds no action handlers
- * and acts only on `'halt'` (see `Action`).
+ * guardrail fires. The agent runtime binds no action handlers, and acts
+ * on `'halt'` and `'retry'` (see `Action`).
  */
 export type OnViolation = string;
 
@@ -66,17 +66,50 @@ export type BuiltInOnViolation = (typeof BUILT_IN_ON_VIOLATIONS)[number];
 
 export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
 
+/**
+ * Where in an agent's turn a guardrail's check runs:
+ * - `'before-tool'`: a call the model asked for, before it runs and
+ *   before any approval is asked (`RunTrace.call`).
+ * - `'after-tool'`: a call that ran, before the model sees its result
+ *   (`RunTrace.call` and `RunTrace.result`).
+ * - `'model-step'`: each model reply, before any of its calls runs
+ *   (`RunTrace.step`).
+ * - `'final-answer'`: the answer that would be stored (`RunTrace.output`).
+ */
+export const GUARDRAIL_POINTS = [
+  'before-tool',
+  'after-tool',
+  'model-step',
+  'final-answer',
+] as const;
+/** One of `GUARDRAIL_POINTS`. */
+export type GuardrailPoint = (typeof GUARDRAIL_POINTS)[number];
+
+/**
+ * What a guardrail's check sees of the conversation: `'turn'`, this
+ * turn only, or `'conversation'`, with the earlier turns the model was
+ * given for this turn too (`RunTrace.earlier`).
+ */
+export type GuardrailSees = 'turn' | 'conversation';
+
 export interface Action {
   /**
-   * What a failed check does to the agent turn. In 0.1 the runtime acts
-   * only on `'halt'`: the turn fails with `guardrail-violation` and its
-   * response is not stored. Any other action, `'retry'`, `'escalate'` and
-   * `'compensate'` included, is recorded on the turn's `violations`, as
-   * `'log-only'` is, and the turn completes: nothing runs the turn again,
-   * escalates or calls a compensating tool.
+   * What a failed check does to the agent turn. The runtime acts on
+   * `'halt'`: the turn fails with `guardrail-violation` and its response
+   * is not stored. It acts on `'retry'` too: the answer goes back to the
+   * model with the check's reason, for a new one, until the guardrail's
+   * attempts (`retry`) run out, and then the turn fails the same way. Any
+   * other action, `'escalate'` and `'compensate'` included, is recorded on
+   * the turn's `violations`, as `'log-only'` is, and the turn completes:
+   * in 0.1 nothing escalates or calls a compensating tool.
    */
   readonly 'on-violation': OnViolation;
-  /** The attempts a `'retry'` asks for. In 0.1 nothing acts on it: there's no second attempt. */
+  /**
+   * Counts the answers this guardrail fails in a turn, the first one
+   * included: with `maxAttempts: 3` it sends a failed answer back up to
+   * twice, and the third answer it fails ends the turn. Left out, 2. The
+   * turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.
+   */
   readonly retry?: { readonly maxAttempts: number };
   /** Where an `'escalate'` goes. In 0.1 nothing escalates. */
   readonly escalateTo?: string;
@@ -89,6 +122,13 @@ export interface Scope {
   readonly agents?: readonly AgentId[];
   readonly flows?: readonly FlowId[];
   readonly tenants?: readonly TenantId[];
+  /**
+   * At `'before-tool'` and `'after-tool'`: the tools whose calls it
+   * checks, by id. A trailing `*` matches every id with that prefix
+   * (`'acme.woo.*'`), and a `*` anywhere else is refused, as an empty
+   * list is. Absent: every tool.
+   */
+  readonly tools?: readonly string[];
 }
 
 export interface Budget {
@@ -224,10 +264,12 @@ export interface Guardrail {
    */
   readonly config?: Readonly<Record<string, unknown>>;
   /**
-   * What a failed check does to the agent turn. In 0.1 the runtime
-   * acts only on `halt`: the turn fails with `guardrail-violation`.
-   * `retry`, `escalate`, `compensate` and any other name are recorded
-   * like `log-only` and the turn completes (see `Action`).
+   * What a failed check does to the agent turn. The runtime acts on
+   * `halt` (the turn fails with `guardrail-violation`) and on `retry`
+   * (the answer goes back to the model for a new one while the attempts
+   * last, and then the turn fails the same way). `escalate`, `compensate`
+   * and any other name are recorded like `log-only` and the turn
+   * completes (see `Action`).
    * `BUILT_IN_ON_VIOLATIONS` lists the built-in values; `OnViolation`
    * itself is an open string.
    */
@@ -246,6 +288,13 @@ export interface Guardrail {
    * narrow further (e.g. `{agents: ['acme.support-agent']}`).
    */
   readonly scope?: Scope;
+  /**
+   * Where in the turn its check runs (`GuardrailPoint`). Absent: the
+   * final answer. Its check must support the point (`RegisteredCheck.points`).
+   */
+  readonly at?: GuardrailPoint;
+  /** What its check sees of the conversation (`GuardrailSees`). Absent: `'turn'`. */
+  readonly sees?: GuardrailSees;
   /**
    * Cost + latency ceiling per guardrail invocation (relevant for
    * `kind: 'llm-judge'` — zero-llm checks are free): `maxCostUsd` +
@@ -308,6 +357,40 @@ export interface ToolResultRecord {
   readonly toolCallId: string;
   readonly output: unknown;
   readonly at: Timestamp;
+}
+
+/**
+ * A tool call at `'before-tool'` and `'after-tool'`: the one the check
+ * judges, as the model asked for it.
+ */
+export interface TraceCall {
+  /** The model's id for the call, unique within its reply. */
+  readonly callId: string;
+  readonly toolId: ToolId;
+  readonly toolName: string;
+  /** The version the turn runs it at; absent for a tool registered without one. */
+  readonly toolVersion?: string;
+  readonly arguments: Readonly<Record<string, unknown>>;
+}
+
+/** What a call came to, at `'after-tool'`: what it returned, or what it threw. */
+export type TraceCallResult =
+  | { readonly output: unknown }
+  | { readonly error: { readonly code?: string; readonly message: string } };
+
+/** A model reply, at `'model-step'`: its text and the calls it asks for. */
+export interface TraceStep {
+  /** The reply's text; empty when it only asks for calls. */
+  readonly text: string;
+  readonly toolCalls: readonly TraceCall[];
+}
+
+/** An earlier turn, with `sees: 'conversation'`, in `RunTrace`'s own field names. */
+export interface TraceTurn {
+  readonly userInput?: string;
+  readonly output?: string;
+  readonly toolCalls: readonly ToolCallRecord[];
+  readonly toolResults: readonly ToolResultRecord[];
 }
 
 export interface ModelCallRecord {
@@ -388,6 +471,19 @@ export interface RunTrace {
   readonly mode: 'ci' | 'runtime';
   /** Free-form attributes checks may consult. Use for niche data not typed above. */
   readonly attributes?: Readonly<Record<string, unknown>>;
+  /** The point the check runs at. Absent: the final answer. */
+  readonly at?: GuardrailPoint;
+  /** At `'before-tool'` and `'after-tool'`: the call it judges, which `toolCalls` doesn't hold yet. */
+  readonly call?: TraceCall;
+  /** At `'after-tool'`: what the call came to. */
+  readonly result?: TraceCallResult;
+  /** At `'model-step'`: the reply it judges. */
+  readonly step?: TraceStep;
+  /**
+   * With `sees: 'conversation'`: the earlier turns the model was given
+   * for this turn, oldest first, bounded by the agent's history limit.
+   */
+  readonly earlier?: readonly TraceTurn[];
 }
 
 /**
@@ -496,6 +592,11 @@ export interface RegisteredCheck {
    * under `/config`): what registration refuses up front. `validateConfig` words the first.
    */
   readonly configProblems?: (config: unknown) => readonly GuardrailConfigProblem[];
+  /**
+   * The points it can run at (`GuardrailPoint`). Absent: the final answer
+   * only, so a check written for `trace.output` never runs where there's none.
+   */
+  readonly points?: readonly GuardrailPoint[];
 }
 
 /**

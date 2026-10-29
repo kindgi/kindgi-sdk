@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/guardrail.schema.json",
-  "$comment": "schema-version: 1.1.0",
+  "$comment": "schema-version: 1.2.0",
   "title": "Guardrail",
-  "description": "An assertion about agent behavior. Checked at runtime, where in 0.1 only `halt` stops the turn and every other action is recorded, AND in CI (blocks builds). Same definition, two enforcement paths — no drift between what tests check and what prod enforces. Zero-LLM checks are default (fast, deterministic); LLM-judge scorers are an opt-in class with explicit cost declaration. Schema-version 1.1.0 matches the `Guardrail` type: `check` is required, a `retry` object, when given, needs `maxAttempts`, `kind` and `on-violation` accept any non-empty string (the built-ins are listed as `examples`), and `sandbox` / `limits` / `network` / `needsSpec` are allowed.",
+  "description": "An assertion about agent behavior. Checked at runtime, where `halt` stops the turn, `retry` asks the model for a new answer, and every other action is recorded, AND in CI (blocks builds). Same definition, two enforcement paths — no drift between what tests check and what prod enforces. Zero-LLM checks are default (fast, deterministic); LLM-judge scorers are an opt-in class with explicit cost declaration. Schema-version 1.1.0 matches the `Guardrail` type: `check` is required, a `retry` object, when given, needs `maxAttempts`, `kind` and `on-violation` accept any non-empty string (the built-ins are listed as `examples`), and `sandbox` / `limits` / `network` / `needsSpec` are allowed.",
   "type": "object",
   "required": ["id", "kind", "check", "action"],
   "additionalProperties": false,
@@ -52,6 +52,18 @@
     "scope": {
       "$ref": "#/$defs/Scope",
       "description": "When this guardrail applies: 'always' (every run), 'ci-only' (blocks CI, not runtime), 'runtime-only' (runtime enforcement, not CI), or a per-agent/per-flow selector."
+    },
+    "at": {
+      "type": "string",
+      "enum": ["before-tool", "after-tool", "model-step", "final-answer"],
+      "default": "final-answer",
+      "description": "Where in the agent's turn the check runs. 'before-tool': a call the model asked for, before it runs and before any approval is asked (the trace's `call`). 'after-tool': a call that ran, before the model sees its result (`call` and `result`). 'model-step': each model reply, before any of its calls runs (`step`). 'final-answer': the answer that would be stored (`output`). The check must support the point (its `points`). 'escalate' and 'compensate' are recorded at the final answer only."
+    },
+    "sees": {
+      "type": "string",
+      "enum": ["turn", "conversation"],
+      "default": "turn",
+      "description": "What the check sees of the conversation: 'turn', this turn only, or 'conversation', with the earlier turns the model was given for this turn too (the trace's `earlier`)."
     },
     "budget": {
       "type": "object",
@@ -209,12 +221,12 @@
           "type": "string",
           "minLength": 1,
           "examples": ["halt", "retry", "escalate", "log-only", "compensate"],
-          "description": "What a failed check does to the agent turn. Open string: any non-empty name is accepted here. In 0.1 the runtime acts only on 'halt': the turn fails with `guardrail-violation` and its response is not stored. Any other name is recorded as a violation, as 'log-only' is, and the turn completes. Built-in actions: 'halt' = fail the turn. 'log-only' = record, don't block. 'retry', 'escalate' and 'compensate' are recorded like 'log-only' in 0.1: nothing runs the turn again, escalates or calls a compensating tool."
+          "description": "What a failed check does to the agent turn. Open string: any non-empty name is accepted here. The runtime acts on 'halt': the turn fails with `guardrail-violation` and its response is not stored. It acts on 'retry' too: the answer goes back to the model with the check's reason, for a new one, until `retry.maxAttempts` run out, and then the turn fails the same way. Any other name is recorded as a violation, as 'log-only' is, and the turn completes. Built-in actions: 'halt' = fail the turn. 'retry' = ask for a new answer. 'log-only' = record, don't block. 'escalate' and 'compensate' are recorded like 'log-only' in 0.1: nothing escalates or calls a compensating tool."
         },
         "retry": {
           "type": "object",
           "additionalProperties": false,
-          "description": "For on-violation = 'retry': the attempts it asks for. In 0.1 nothing acts on it: there's no second attempt.",
+          "description": "For on-violation = 'retry': counts the answers this guardrail fails in a turn, the first one included (with maxAttempts 3 it sends a failed answer back up to twice, and the third answer it fails ends the turn). Left out, 2. The turn's maxSteps, and the agent loop's 32 model calls, bound it too.",
           "required": ["maxAttempts"],
           "properties": {
             "maxAttempts": {
@@ -263,6 +275,16 @@
             "type": "string"
           },
           "description": "Tenant ids this guardrail applies to. Empty = all tenants."
+        },
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^*]*\\*?$"
+          },
+          "description": "At 'before-tool' and 'after-tool': the tools whose calls it checks, by id. A trailing '*' matches every id with that prefix ('acme.woo.*'); a '*' anywhere else matches nothing, so it's refused, as an empty list is. Absent = every tool."
         }
       }
     }

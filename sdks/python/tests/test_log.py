@@ -9,6 +9,7 @@ import datetime as dt
 import io
 import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -204,3 +205,186 @@ def test_traceparent_parsing_and_child_spans() -> None:
         "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-extra",
     ):
         assert parse_traceparent(bad) is None
+
+
+def test_an_error_in_a_field_is_logged_like_err_without_stack_or_other_fields() -> None:
+    # A database error's own attributes carry the values the query was bound to.
+    class DbError(Exception):
+        pass
+
+    unique = DbError("duplicate key value violates unique constraint")
+    unique.code = "23505"  # type: ignore[attr-defined]
+    unique.detail = "Key (email)=(owner@acme.test) already exists."  # type: ignore[attr-defined]
+    outer = TypeError("outer")
+    outer.__cause__ = unique
+
+    lines: list[str] = []
+    create_logger(write=lines.append, level="debug", now=lambda: NOW).error(
+        "import failed", {"batch": {"failures": [unique], "last": outer}}
+    )
+    record = json.loads(lines[0])
+    serialized = {
+        "name": "DbError",
+        "message": "duplicate key value violates unique constraint",
+        "code": "23505",
+    }
+    assert record["batch"] == {
+        "failures": [serialized],
+        "last": {"name": "TypeError", "message": "outer", "cause": serialized},
+    }
+    assert "owner@acme.test" not in lines[0]
+
+
+def test_an_error_that_resists_being_read_never_makes_a_log_call_throw() -> None:
+    class Unstringable(Exception):
+        def __str__(self) -> str:
+            raise RuntimeError("nope")
+
+    class CodeRaises(Exception):
+        @property
+        def code(self) -> str:
+            raise RuntimeError("nope")
+
+    lines: list[str] = []
+    log = create_logger(write=lines.append, now=lambda: NOW)
+    log.error("as err", err=Unstringable("x"))
+    log.error("as a top-level field", {"failure": CodeRaises("boom")})
+    log.error("nested", {"batch": {"failure": Unstringable("x")}})
+    assert len(lines) == 3
+    # A message that can't be read is empty; the name is still the class's. (The stack,
+    # which format_exception keeps with a placeholder for the message, carries no secret.)
+    as_err = json.loads(lines[0])["err"]
+    assert as_err["name"] == "Unstringable"
+    assert as_err["message"] == ""
+    # The attribute that raises is left out; the rest of the error is written.
+    as_field = json.loads(lines[1])["failure"]
+    assert as_field["name"] == "CodeRaises"
+    assert "code" not in as_field
+    # Deeper in a field there's no stack at any level, so the shape is exact.
+    assert json.loads(lines[2])["batch"] == {"failure": {"name": "Unstringable", "message": ""}}
+
+
+def test_a_value_that_raises_when_read_is_unreadable_and_siblings_are_kept() -> None:
+    class Unreadable:
+        def __str__(self) -> str:
+            raise RuntimeError("nope")
+
+        __repr__ = __str__
+
+    lines: list[str] = []
+    create_logger(write=lines.append, now=lambda: NOW).info(
+        "values", {"ok": 1, "bad": Unreadable(), "nested": [Unreadable(), 2]}
+    )
+    record = json.loads(lines[0])
+    assert record["ok"] == 1
+    assert record["bad"] == "[unreadable]"
+    assert record["nested"] == ["[unreadable]", 2]
+
+
+def test_a_field_mapping_that_cannot_be_read_is_unreadable() -> None:
+    class HostileMapping(Mapping[str, Any]):
+        def __getitem__(self, key: str) -> Any:
+            raise RuntimeError("nope")
+
+        def __iter__(self) -> Any:
+            raise RuntimeError("nope")
+
+        def __len__(self) -> int:
+            return 1
+
+    lines: list[str] = []
+    create_logger(write=lines.append, now=lambda: NOW).info(
+        "values", {"ok": 1, "broken": HostileMapping()}
+    )
+    record = json.loads(lines[0])
+    assert record["ok"] == 1
+    assert record["broken"] == "[unreadable]"
+
+
+class _Unlistable(Mapping[str, Any]):
+    """A mapping whose keys can't be listed."""
+
+    def __getitem__(self, key: str) -> Any:
+        raise RuntimeError("nope")
+
+    def __iter__(self) -> Any:
+        raise RuntimeError("nope")
+
+    def __len__(self) -> int:
+        raise RuntimeError("nope")
+
+
+def test_fields_whose_keys_cannot_be_listed_still_write_a_record() -> None:
+    lines: list[str] = []
+    create_logger(write=lines.append, now=lambda: NOW).child(runId="r-1").info(
+        "fields", _Unlistable()
+    )
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["message"] == "fields"
+    assert record["runId"] == "r-1"
+
+
+def test_child_bindings_whose_keys_cannot_be_listed_still_write_a_record() -> None:
+    lines: list[str] = []
+    create_logger(write=lines.append, now=lambda: NOW).child(_Unlistable()).info("bindings")
+    assert len(lines) == 1
+    assert json.loads(lines[0])["message"] == "bindings"
+
+
+def test_a_field_whose_value_cannot_be_read_is_unreadable() -> None:
+    class ValueRaises(Mapping[str, Any]):
+        def __iter__(self) -> Any:
+            return iter(["bad"])
+
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, key: str) -> Any:
+            raise RuntimeError("nope")
+
+    lines: list[str] = []
+    create_logger(write=lines.append, now=lambda: NOW).info("x", ValueRaises(), ok=1)
+    record = json.loads(lines[0])
+    assert record["bad"] == "[unreadable]"
+    assert record["ok"] == 1
+
+
+def test_a_nested_mapping_keeps_its_readable_keys_when_one_value_raises() -> None:
+    class PartlyReadable(Mapping[str, Any]):
+        def __iter__(self) -> Any:
+            return iter(["ok", "bad"])
+
+        def __len__(self) -> int:
+            return 2
+
+        def __getitem__(self, key: str) -> Any:
+            if key == "bad":
+                raise RuntimeError("nope")
+            return 1
+
+    lines: list[str] = []
+    create_logger(write=lines.append, now=lambda: NOW).info("values", {"outer": PartlyReadable()})
+    record = json.loads(lines[0])
+    # One value that raises is `[unreadable]`; the whole mapping isn't lost.
+    assert record["outer"] == {"ok": 1, "bad": "[unreadable]"}
+
+
+def test_the_formatter_writes_a_record_even_when_its_fields_cannot_be_read() -> None:
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(JsonFormatter())
+    std = logging.getLogger("acme.hostile")
+    std.addHandler(handler)
+    std.setLevel(logging.INFO)
+    std.propagate = False
+    try:
+        std.info("looked up %s", "o-1", extra={"fields": _Unlistable()})
+    finally:
+        std.removeHandler(handler)
+    # A hostile `fields` doesn't make `format` raise, so logging doesn't drop the record.
+    out = stream.getvalue()
+    assert out != ""
+    record = json.loads(out)
+    assert record["subsystem"] == "acme.hostile"
+    assert record["message"] == "looked up o-1"

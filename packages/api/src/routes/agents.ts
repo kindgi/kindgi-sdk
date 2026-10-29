@@ -192,6 +192,7 @@ export function agentsRouter(
     });
     // An agent more than one project serves is checked on those projects
     // instead (`item-rights.ts`, `agentCheck`).
+    // '/:agentId/*' matches '/:agentId' too: this one gate decides both, once.
     r.use(
       '/:agentId/*',
       itemMiddleware({
@@ -211,18 +212,6 @@ export function agentsRouter(
                 ? 'publish'
                 : 'admin',
         check: (c, projects) => agentCheck(c, projects),
-        versionNotFound: agentVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:agentId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'agent',
-        id: (c) => c.req.param('agentId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: agentVersionNotFound,
       }),
     );
@@ -632,9 +621,7 @@ export function agentsRouter(
 
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
-      principal?.actor.kind === 'user'
-        ? (principal.actor.id as UserId)
-        : ('00000000-0000-0000-0000-000000000000' as UserId);
+      principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
     const outcome = await binding.publish({
       tenantId,
       projectId,
@@ -714,10 +701,7 @@ export function agentsRouter(
       ...(parsed.projectId !== undefined && { projectId: parsed.projectId }),
       ...(environmentOrders !== undefined && { orders: environmentOrders }),
       tuplesFor: (projectId) => (id) =>
-        tuplesForCreate(
-          { kind: 'agent', id: id as AgentId, tenantId, projectId },
-          userId ?? ('00000000-0000-0000-0000-000000000000' as UserId),
-        ),
+        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId }, userId),
     });
     return derived(c, agentId, parsed.from, outcome, authorizer);
   });
@@ -1132,6 +1116,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     ...(a.toolErrors !== undefined && { toolErrors: a.toolErrors }),
     ...(a.preferredProvider !== undefined && { preferredProvider: a.preferredProvider }),
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
+    ...(a.parallelToolCalls !== undefined && { parallelToolCalls: a.parallelToolCalls }),
     ...(a.pins !== undefined && { pins: a.pins }),
     ...(a.pinsDigest !== undefined && { pinsDigest: a.pinsDigest }),
     ...(a.derivedFrom !== undefined && { derivedFrom: a.derivedFrom }),

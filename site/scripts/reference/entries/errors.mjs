@@ -442,6 +442,21 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'run-held-by-parent': {
+    description:
+      "The run is a subflow's child run, left for its parent run's next resume, which resumes it too. Only the parent's resume resumes it, so a resume of the child itself is refused.",
+    details: [
+      {
+        key: 'runId',
+        meaning: 'the run',
+      },
+      {
+        key: 'parentRunId',
+        meaning: 'its parent run, whose resume resumes it',
+      },
+    ],
+    seeAlso: ['concepts/runs'],
+  },
   'idempotency-key-body-mismatch': {
     description:
       'You reused an Idempotency-Key with a different request body. Send the original body to get its answer back, or use a fresh key.',
@@ -465,6 +480,11 @@ export const ERROR_ENTRIES = {
         meaning: 'when it succeeded, as an ISO timestamp',
       },
     ],
+  },
+  'idempotency-store-unavailable': {
+    description:
+      "A write sent with an Idempotency-Key couldn't be checked against its key, because the store that keeps the keys couldn't be read, so the write didn't run and changed nothing. Retry with the same key after the `Retry-After` header.",
+    details: [],
   },
   'hitl-required': {
     description:
@@ -908,7 +928,7 @@ export const ERROR_ENTRIES = {
   },
   'guardrail-violation': {
     description:
-      "A blocking guardrail stopped the agent's turn, or a halting guardrail's check couldn't run. The run fails; the violations say which guardrails fired.",
+      "A blocking guardrail stopped the agent's turn, a halting guardrail's check couldn't run, or a `retry` guardrail's attempts ran out (it sent each answer it failed back to the model for a new one, until it had failed `retry.maxAttempts`). The run fails; the violations say which guardrails fired.",
     details: [
       {
         key: 'violations',
@@ -917,6 +937,11 @@ export const ERROR_ENTRIES = {
       {
         key: 'evaluationErrors',
         meaning: "guardrails whose check couldn't run (missing check, bad config)",
+      },
+      {
+        key: 'attempts',
+        meaning:
+          "the answers the turn had when a `retry` guardrail's attempts ran out, the first one included; absent when a `halt` guardrail stopped it",
       },
       {
         key: 'runId',
@@ -2516,6 +2541,10 @@ export const ERROR_ENTRIES = {
     description: "This deployment doesn't record guardrail outcomes.",
     details: [],
   },
+  'pinned-versions-not-supported': {
+    description: "This deployment can't list a project's pinned versions.",
+    details: [],
+  },
   'eval-run-already-terminal': {
     description:
       "The eval run has already finished, failed or been cancelled, so it can't be cancelled.",
@@ -3791,6 +3820,16 @@ export const ERROR_ENTRIES = {
     description:
       "A reconnect signed in to an account other than the connection's. Sign in with the same account; to connect another account instead, disconnect, then connect again.",
     details: [],
+  },
+  'connection-label-taken': {
+    description:
+      "A connect that isn't a reconnect, or a rename, gives a `label` another live connection of the same app, owner and environment already has, ignoring case, an emoji's variation selector and how accented letters are encoded. Pick another name, or rename the other connection first.",
+    details: [
+      {
+        key: 'field',
+        meaning: 'the input field at fault (`label`)',
+      },
+    ],
   },
   'connection-removing': {
     description:

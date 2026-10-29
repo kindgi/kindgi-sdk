@@ -1106,6 +1106,51 @@ def test_a_model_is_its_schemas_and_its_old_names_stay_gone() -> None:
         assert not hasattr(models, name), name
 
 
+def test_a_unions_members_are_named_by_their_value_and_their_numbered_names_stay_gone() -> None:
+    # An inline union's members were numbered in the order codegen met them (`Config` an MCP
+    # endpoint's stdio config, `Config3` a registration's), and other fields' objects took the
+    # numbers after them (`Config6` a schedule's config).
+    stdio = models.MCPEndpointConfigStdio(transport="stdio", command="npx")
+    assert stdio.command == "npx"
+    failed = models.CompleteApprovalResultResumeFailed(kind="failed", code="c", message="m")
+    assert failed.code == "c"
+    for name in (
+        "Baseline",
+        "Baseline1",
+        "Baseline2",
+        "Config",
+        "Config1",
+        "Config2",
+        "Config3",
+        "Config4",
+        "Config5",
+        "Config6",
+        "Config7",
+        "Config8",
+        "Content2",
+        "Content3",
+        "Differences",
+        "Differences1",
+        "Differences2",
+        "Differences3",
+        "Resume",
+        "Resume1",
+    ):
+        assert not hasattr(models, name), name
+
+
+def test_a_mapping_is_either_webhook_trigger_bodys_config() -> None:
+    # Each body has its own config class, alike; a mapping is taken by either.
+    config = {"input": {"source": "webhook"}}
+    register = models.RegisterWebhookTriggerBody(
+        flow_id="acme.triage", flow_version="1.2.0", hmac_secret_name="hook", config=config
+    )
+    patch = models.PatchWebhookTriggerBody(config=config)
+    assert isinstance(register.config, models.RegisterWebhookTriggerBodyConfig)
+    assert isinstance(patch.config, models.PatchWebhookTriggerBodyConfig)
+    assert register.config.input == patch.config.input == {"source": "webhook"}
+
+
 FLOW = {
     "id": "acme.triage",
     "version": "1.2.0",

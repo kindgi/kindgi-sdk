@@ -19,8 +19,24 @@ Each person or company has one live connection per registration and
 environment. A person's connection serves every project the registration
 allows.
 
-Only a connection's owner and your workspace's admins can see it or remove
-it. Registering an app is for workspace admins only.
+Each connection has a name, its `label`, that people know it by. It's the
+name given at the connect, or else the account's, such as an email address.
+Its owner or a workspace admin can change it
+(`PATCH /v1/connections/{connectionId}`). A name is 1 to 100 characters
+once spaces at either end are trimmed, with no control, format or invisible
+character, such as a bidi override, a zero-width joiner or a line
+separator, and no variation selector except in an emoji. So a typed name
+with a joined emoji such as 👩‍💻 is refused, while ✉️ and 1️⃣ are fine. A
+name taken from the account loses those characters and is cut to 100. One
+owner's live connections to an app in an environment each have their own
+name, whatever the case, an emoji's variation selector or how accented
+letters are encoded. A new connection whose name was taken in the meantime
+gets the first free number after it, such as `ana@acme.com 2`. A reconnect
+keeps the name. A connection made before connections had names has none,
+and shows its account.
+
+Only a connection's owner and your workspace's admins can see, rename or
+remove it. Registering an app is for workspace admins only.
 
 ## Where the token is kept
 

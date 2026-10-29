@@ -194,21 +194,30 @@ describe("a model provider's key, named where it's not the provider", () => {
 
   test('an MCP or a webhook endpoint naming it: 400', async () => {
     const h = makeApp();
-    const mcp = await h.call('POST', '/v1/mcp/endpoints', {
-      endpointId: 'acme-docs',
-      name: 'Docs MCP',
-      transport: 'stdio',
-      config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
-      secretRef: { envName: 'local', name: MODEL_KEY },
-    });
-    expect([mcp.status, mcp.body.error?.message]).toEqual([400, REFUSED('an MCP endpoint')]);
-    // As an endpoint's auth secret too: a Basic password, an OAuth client secret.
     const http = {
       endpointId: 'acme-shop',
       name: 'Shop MCP',
       transport: 'streamable-http',
       config: { transport: 'streamable-http', url: 'https://shop.acme.example/mcp' },
     };
+    const mcp = await h.call('POST', '/v1/mcp/endpoints', {
+      ...http,
+      secretRef: { envName: 'local', name: MODEL_KEY },
+    });
+    expect([mcp.status, mcp.body.error?.message]).toEqual([400, REFUSED('an MCP endpoint')]);
+    // As a stdio server's variable, among others.
+    const stdio = await h.call('POST', '/v1/mcp/endpoints', {
+      endpointId: 'acme-docs',
+      name: 'Docs MCP',
+      transport: 'stdio',
+      config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
+      secretEnv: {
+        DOCS_TOKEN: { envName: 'local', name: 'DOCS_TOKEN' },
+        OPENAI_API_KEY: { envName: 'local', name: MODEL_KEY },
+      },
+    });
+    expect([stdio.status, stdio.body.error?.message]).toEqual([400, REFUSED('an MCP endpoint')]);
+    // As an endpoint's auth secret too: a Basic password, an OAuth client secret.
     for (const auth of [
       { scheme: 'basic', username: 'agent', secretRef: { envName: 'local', name: MODEL_KEY } },
       {
@@ -322,7 +331,7 @@ describe('a reserved `kindgi.` name, named where a registration names a secret',
       name: 'Docs MCP',
       transport: 'stdio',
       config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
-      secretRef: { envName: 'local', name: HELD },
+      secretEnv: { DOCS_TOKEN: { envName: 'local', name: HELD } },
     });
     expect([mcp.status, mcp.body.error?.code, mcp.body.error?.message]).toEqual([
       400,

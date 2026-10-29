@@ -319,6 +319,17 @@ export const LivePinListSchema: JsonSchema = {
   properties: { data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } } },
 };
 
+export const ProjectPinnedVersionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
 export const AgentProjectSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -2816,6 +2827,29 @@ export const ExportSigningKeySchema: JsonSchema = {
   },
 };
 
+export const RuntimeInfoSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'tenancy', 'development'],
+  description: "Which runtime answers: what a client says about the runtime it's connected to.",
+  properties: {
+    version: {
+      type: 'string',
+      description:
+        "The runtime's version: its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none).",
+    },
+    tenancy: {
+      type: 'string',
+      enum: ['single', 'multi'],
+      description: '`single` when the runtime serves one tenant, `multi` when it serves many.',
+    },
+    development: {
+      type: 'boolean',
+      description: 'The runtime runs in development mode, which allows development-only settings.',
+    },
+  },
+};
+
 export const LicenseStatusSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3228,7 +3262,7 @@ export const AgentSchema: JsonSchema = {
     modelSettings: {
       $ref: '#/components/schemas/BlockRef',
       description:
-        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+        "A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.",
     },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
@@ -3252,6 +3286,11 @@ export const AgentSchema: JsonSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     output: { $ref: '#/components/schemas/AgentOutputSpec' },
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
+    parallelToolCalls: {
+      type: 'boolean',
+      description:
+        "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.",
+    },
     pins: { $ref: '#/components/schemas/AgentPins' },
     derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
     unregisteredAt: {
@@ -3399,7 +3438,7 @@ export const PublishAgentBodySchema: JsonSchema = {
     modelSettings: {
       $ref: '#/components/schemas/BlockRef',
       description:
-        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+        "A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.",
     },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
@@ -3423,6 +3462,11 @@ export const PublishAgentBodySchema: JsonSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     output: { $ref: '#/components/schemas/AgentOutputSpec' },
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
+    parallelToolCalls: {
+      type: 'boolean',
+      description:
+        "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.",
+    },
   },
 };
 
@@ -3571,7 +3615,7 @@ export const FlowSchema: JsonSchema = {
 
 export const FlowPinsSchema: JsonSchema = {
   description:
-    'The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).',
+    'The exact tool, agent and sub-flow versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, each agent it runs at no named version, and each sub-flow it runs at no named version, resolves once then, and every run of that flow version uses those versions. Absent on a version published before pins existed (it binds the latest versions per run).',
   type: 'object',
   additionalProperties: false,
   required: ['tools', 'agents'],
@@ -3581,12 +3625,17 @@ export const FlowPinsSchema: JsonSchema = {
       ...PinMapSchema,
       description: 'Agent id → exact version, for agent nodes that name no version.',
     },
+    flows: {
+      ...PinMapSchema,
+      description:
+        'Flow id → exact version, for sub-flow steps that name no version. Absent when there are none, and from older servers.',
+    },
   },
 };
 
 export const FlowVersionOverridesSchema: JsonSchema = {
   description:
-    "Agents and tools a flow runs at other exact versions than the flow version's pins (\"this flow, with `acme.scorer` at 0.4.0\"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.",
+    "Agents and tools a flow runs at other exact versions than the flow version's pins (\"this flow, with `acme.scorer` at 0.4.0\"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow or one of its sub-flows uses.",
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -4007,7 +4056,7 @@ export const ToolSchema: JsonSchema = {
     mutating: {
       type: 'boolean',
       description:
-        'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.',
+        'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.',
     },
     needsApprovalWhenUnattended: {
       type: 'boolean',
@@ -4156,14 +4205,14 @@ export const GuardrailActionSchema: JsonSchema = {
       minLength: 1,
       examples: ['halt', 'retry', 'escalate', 'log-only', 'compensate'],
       description:
-        'What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. In 0.1 the runtime acts only on `halt`: the turn fails with `guardrail-violation` and its response is not stored. Any other value is recorded as a violation, as `log-only` is, and the turn completes: nothing runs the turn again, escalates or calls a compensating tool.',
+        "What a failed check does to the agent turn. Open string: the built-in actions are listed in `examples`, and any other non-empty name is accepted. The runtime acts on `halt`: the turn fails with `guardrail-violation` and its response is not stored. It acts on `retry` too: the answer goes back to the model with the check's reason, for a new one, until `retry.maxAttempts` run out, and then the turn fails the same way, with `details.attempts`. Any other value is recorded as a violation, as `log-only` is, and the turn completes: in 0.1 nothing escalates or calls a compensating tool.",
     },
     retry: {
       type: 'object',
       additionalProperties: false,
       required: ['maxAttempts'],
       description:
-        "The attempts a `retry` asks for. In 0.1 nothing acts on it: there's no second attempt.",
+        "Counts the answers this guardrail fails in a turn, the first one included (with `maxAttempts: 3` it sends a failed answer back up to twice, and the third answer it fails ends the turn). Left out, 2. The turn's `maxSteps`, and the agent loop's 32 model calls, bound it too.",
       properties: {
         maxAttempts: { type: 'integer', minimum: 1, maximum: 10 },
       },
@@ -4179,6 +4228,14 @@ export const GuardrailActionSchema: JsonSchema = {
   },
 };
 
+export const GuardrailToolMatchSchema: JsonSchema = {
+  type: 'string',
+  minLength: 1,
+  pattern: '^[^*]*\\*?$',
+  description:
+    'A tool id, or a prefix of one followed by `*`, which matches every id that starts with it.',
+};
+
 export const GuardrailScopeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4187,6 +4244,13 @@ export const GuardrailScopeSchema: JsonSchema = {
     agents: { type: 'array', items: { type: 'string' } },
     flows: { type: 'array', items: { type: 'string' } },
     tenants: { type: 'array', items: { type: 'string' } },
+    tools: {
+      type: 'array',
+      minItems: 1,
+      items: { $ref: '#/components/schemas/GuardrailToolMatch' },
+      description:
+        'At `before-tool` and `after-tool`: the tools whose calls it checks, by id. A trailing `*` matches every id with that prefix, and a `*` anywhere else is refused. Absent: every tool.',
+    },
   },
 };
 
@@ -4215,6 +4279,19 @@ export const GuardrailSchema: JsonSchema = {
     action: { $ref: '#/components/schemas/GuardrailAction' },
     severity: { type: 'string', enum: ['info', 'warn', 'error', 'critical'] },
     scope: { $ref: '#/components/schemas/GuardrailScope' },
+    at: {
+      type: 'string',
+      enum: ['before-tool', 'after-tool', 'model-step', 'final-answer'],
+      default: 'final-answer',
+      description:
+        "Where in the agent's turn the check runs: before a tool call runs, after it runs, on each model reply, or on the final answer. It must be one of the check's points.",
+    },
+    sees: {
+      type: 'string',
+      enum: ['turn', 'conversation'],
+      default: 'turn',
+      description: "What the check sees: this turn, or the conversation's earlier turns too.",
+    },
     budget: {
       type: 'object',
       additionalProperties: false,
@@ -4263,12 +4340,13 @@ const outcomeCountProperties = {
     type: 'integer',
     minimum: 0,
     description:
-      'The check found something and the answer went through (`log-only`, `noop`, or an action handed back).',
+      'The check found something and the answer went through (`log-only`, `noop`, or an action handed back), or a `retry` sent it back for a new one.',
   },
   blocked: {
     type: 'integer',
     minimum: 0,
-    description: 'The check found something and its `halt` failed the turn.',
+    description:
+      'The check found something and its action failed the turn: a `halt`, or a `retry` whose attempts had run out.',
   },
   errored: {
     type: 'integer',
@@ -4282,7 +4360,8 @@ export const GuardrailOutcomeCountsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['passed', 'violated', 'blocked', 'errored'],
-  description: "How many of a guardrail's checks came to each outcome.",
+  description:
+    "How many of a guardrail's checks came to each outcome: one check per answer it judged. A guardrail judges a turn's final answer. In a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer, so a turn that sent answers back counts a check of those for each.",
   properties: outcomeCountProperties,
 };
 
@@ -7071,13 +7150,13 @@ export const CapabilityCollectionPageSchema: JsonSchema = {
   },
 };
 
-/** `ModelInfo.thinking`: how a model thinks, so a judge can ask for its least. */
+/** `ModelInfo.thinking`: how a model thinks, and the levels a call can ask of it. */
 export const ModelThinkingSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['mode', 'lowest'],
   description:
-    "How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.",
+    "How the model thinks before it answers, and the levels it takes, so a call's level (an agent's model settings, or a judge's `lowest`) is sent as one it takes: any other is rounded to the next one it takes, or its highest, with a `thinking-level-adjusted` warning. Absent: it doesn't think, or nothing is known, and nothing is sent for it.",
   properties: {
     mode: {
       type: 'string',
@@ -7089,6 +7168,19 @@ export const ModelThinkingSchema: JsonSchema = {
       minLength: 1,
       description:
         "The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).",
+    },
+    levels: {
+      type: 'array',
+      uniqueItems: true,
+      items: { type: 'string', enum: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+      description:
+        'The levels the model takes besides `lowest`, least first. Absent: `low`, `medium` and `high`, which every thinking model takes, plus `minimal` when `lowest` is `minimal`, minus those below `lowest` when it is `low`, `medium` or `high` (any case).',
+    },
+    default: {
+      type: 'string',
+      enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      description:
+        "The level a call that asks none is sent. It must be `lowest` or one the model takes (`levels`), or the registration is refused. Absent: the vendor's default.",
     },
   },
 };
@@ -7334,11 +7426,19 @@ export const ProviderCheckResultSchema: JsonSchema = {
     checked: {
       type: 'boolean',
       description:
-        "False when this runtime has no check for the provider's adapter; `issues` is then empty.",
+        "False when this runtime has no check for the provider's adapter and the adapter declares no keys; `issues` is then empty, and `warnings` is left out.",
     },
     issues: {
       type: 'array',
       items: { $ref: '#/components/schemas/AdapterConfigProblem' },
+      description: 'What stops the runtime building the provider from its registration.',
+    },
+    warnings: {
+      type: 'array',
+      minItems: 1,
+      items: { $ref: '#/components/schemas/AdapterConfigProblem' },
+      description:
+        "The `adapter_config` keys the provider's adapter doesn't take: the runtime builds it without reading them, and a new registration with one is refused. Each names the key and what the adapter takes, or where a moved key's setting goes. Present when there's at least one. A runtime before 0.3.0 leaves it out.",
     },
     secretRef: {
       type: 'object',
@@ -7381,7 +7481,7 @@ export const MCPEndpointSecretRefSchema: JsonSchema = {
   additionalProperties: false,
   required: ['envName', 'name'],
   description:
-    "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.",
+    "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value; in `secretEnv`, a variable's value for a stdio server. The endpoint keeps only this reference.",
   properties: {
     envName: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,62}$' },
     name: { type: 'string', minLength: 1, maxLength: 256 },
@@ -7507,9 +7607,17 @@ const MCP_CONFIG_HEADERS: JsonSchema = {
     'Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.',
 };
 
+/** A stdio endpoint's `config.env`: plain variables, never a credential. */
+const MCP_STDIO_ENV: JsonSchema = {
+  type: 'object',
+  additionalProperties: { type: 'string' },
+  description:
+    "Variables for the server's process, stored as given. Not for a credential: a name `config.headers` would refuse, its parts split on `_` as well as `-` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`), is refused (`invalid-mcp-endpoint`, reason `credential-in-env`). Give it by reference through `secretEnv`. An empty name, a name with `=` or a NUL, a value with a NUL, or a value of `[redacted]` is refused too (reason `invalid-stdio-env`). Every value reads back as `[redacted]`, its name kept, on endpoints registered before as well, so an export holds the names, not the values.",
+};
+
 /**
  * Wire shape for a registered MCP endpoint. Secrets never appear —
- * `secretRef` names a secret in the deployment's store.
+ * `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store.
  */
 export const MCPEndpointSchema: JsonSchema = {
   type: 'object',
@@ -7535,10 +7643,7 @@ export const MCPEndpointSchema: JsonSchema = {
             transport: { const: 'stdio' },
             command: { type: 'string', minLength: 1 },
             args: { type: 'array', items: { type: 'string' } },
-            env: {
-              type: 'object',
-              additionalProperties: { type: 'string' },
-            },
+            env: MCP_STDIO_ENV,
           },
         },
         {
@@ -7568,11 +7673,24 @@ export const MCPEndpointSchema: JsonSchema = {
         },
       ],
     },
-    secretRef: { $ref: '#/components/schemas/MCPEndpointSecretRef' },
+    secretRef: {
+      $ref: '#/components/schemas/MCPEndpointSecretRef',
+      description:
+        "The secret sent as the endpoint's bearer. HTTP transports only: on a `stdio` endpoint it's refused (`invalid-mcp-endpoint`, reason `secret-ref-on-stdio`), since a stdio server gets no headers; give it its secret through `secretEnv`. An endpoint registered with one before keeps it, and the runtime reads it for no one.",
+    },
     auth: {
       $ref: '#/components/schemas/MCPEndpointAuth',
       description:
         "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.",
+    },
+    secretEnv: {
+      type: 'object',
+      minProperties: 1,
+      maxProperties: 16,
+      propertyNames: { minLength: 1, pattern: '^[^=\\u0000]+$' },
+      additionalProperties: { $ref: '#/components/schemas/MCPEndpointSecretRef' },
+      description:
+        "A stdio server's secrets, as variables of its process: each variable's name (`GITHUB_TOKEN`) with the secret its value is read from, at the endpoint's recorded scope, when the runtime starts the server. The value is never stored or answered. 1 to 16 variables, each name without `=`, and none also in `config.env` (`invalid-mcp-endpoint`, reason `secret-env-twice`); otherwise reason `invalid-secret-env`. Each secret counts for the provider-key guard and the env a runtime serves, as `secretRef`'s does. `stdio` only: on an HTTP endpoint it's refused (reason `secret-env-on-http`). An older runtime refuses the field as unknown. A runtime rolled back to one without it starts the server without these variables, so the server fails its own calls; no value is exposed.",
     },
     instructions: {
       type: 'string',
@@ -7820,6 +7938,33 @@ export const ModelCallErrorSchema: JsonSchema = {
   properties: { message: { type: 'string' } },
 };
 
+/** How much a model call asked its model to think, and what was sent. */
+export const ModelCallThinkingSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "The call's thinking. `asked` without `level`: nothing was sent (the model doesn't think, or its adapter doesn't say). `level` without `asked`: the model's `thinking.default`. `asked` and `level` differ: the level was rounded to one the model takes, and the call warned `thinking-level-adjusted`.",
+  properties: {
+    asked: {
+      type: 'string',
+      enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      description:
+        "The level the call asked for: the agent's model settings, or a judge's `lowest`.",
+    },
+    level: {
+      type: 'string',
+      enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      description: 'The level its adapter sent.',
+    },
+    sent: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description:
+        'The vendor\'s own fields as they went out (`{ "thinkingLevel": "LOW" }`, `{ "reasoning_effort": "low" }`); on the AI SDK path, `{ "reasoning": <the portable value> }`.',
+    },
+  },
+};
+
 /** A model call's tokens, as a cost record and a provenance record carry them. */
 export const ModelCallTokensSchema: JsonSchema = {
   type: 'object',
@@ -7927,6 +8072,7 @@ export const CostRecordSchema: JsonSchema = {
       description: '`ok`: the provider answered. `failed`: the call threw.',
     },
     usage: { $ref: '#/components/schemas/ModelCallTokens' },
+    thinking: { $ref: '#/components/schemas/ModelCallThinking' },
     durationMs: { type: 'integer', minimum: 0 },
     finishReason: { type: 'string' },
     providerRequestId: { type: 'string', description: "The vendor's id for the request." },
@@ -9467,7 +9613,7 @@ export const StartEvalRunBodySchema: JsonSchema = {
     sample: { $ref: '#/components/schemas/EvalSample' },
   },
   description:
-    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
+    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id that neither the flow nor one of its sub-flows uses, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
 };
 
 export const StartEvalRunResultSchema: JsonSchema = {
@@ -10593,6 +10739,11 @@ export const MyPermissionsSchema: JsonSchema = {
       description:
         "The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.",
     },
+    licenseOperatorOnly: {
+      type: 'boolean',
+      description:
+        "Whether `GET /v1/license` refuses this caller whatever its role (`license-operator-only`): the license is the deployment operator's, held back from this caller. It's about this caller, not a setting of the deployment. `true` when the caller isn't the deployment's own token and the deployment doesn't serve the caller's tenant alone, as on a runtime serving many tenants: a console doesn't ask. `false` when it isn't held back and the caller's role decides: the deployment's own token gets `false` and reads it, and so does an admin of the one tenant the deployment serves (`tenant.admin` says whether this caller is one); that tenant's other callers get `false` too, and are still refused. Absent when the deployment has no license to read, or its tenants couldn't be read just then: ask `GET /v1/license` as before.",
+    },
   },
 };
 
@@ -11131,7 +11282,11 @@ export const PinChangeSchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind', 'id'],
   properties: {
-    kind: { type: 'string', enum: ['tool', 'prompt', 'setting', 'agent'] },
+    kind: {
+      type: 'string',
+      enum: ['tool', 'prompt', 'setting', 'agent', 'flow'],
+      description: "`flow`: a flow's sub-flow (`FlowPins.flows`). Not sent by older servers.",
+    },
     id: { type: 'string' },
     from: { type: 'string', description: "The earlier version's pin; absent when it had none." },
     to: { type: 'string', description: "The later version's pin; absent when it has none." },
@@ -14777,6 +14932,11 @@ export const ConnectionSchema: JsonSchema = {
     app: { type: 'string', description: "The app's entry id." },
     owner: { $ref: '#/components/schemas/ConnectionOwner' },
     account: { $ref: '#/components/schemas/ConnectionAccount' },
+    label: {
+      type: 'string',
+      description:
+        "The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.",
+    },
     permissions: {
       type: 'array',
       items: { type: 'string' },
@@ -14874,6 +15034,11 @@ export const ConnectRequestSchema: JsonSchema = {
       format: 'uuid',
       description: 'The connection it connects again; the same account is required.',
     },
+    label: {
+      type: 'string',
+      description:
+        "The name asked for the connection it makes. A reconnect keeps the connection's.",
+    },
     runId: { type: 'string', description: 'The run that waits for it.' },
     name: { type: 'string', description: "The tool's name for the connection, when a run waits." },
     startedBy: {
@@ -14936,6 +15101,28 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       default: 'me',
       description:
         "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.",
+    },
+    label: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 100,
+      description:
+        "The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.",
+    },
+  },
+};
+
+export const UpdateConnectionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['label'],
+  properties: {
+    label: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 100,
+      description:
+        "The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded.",
     },
   },
 };
@@ -15450,6 +15637,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LiveVersionResolution', LiveVersionResolutionSchema],
   ['LivePin', LivePinSchema],
   ['LivePinList', LivePinListSchema],
+  ['ProjectPinnedVersionPage', ProjectPinnedVersionPageSchema],
   ['AgentProject', AgentProjectSchema],
   ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
@@ -15556,6 +15744,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['RuntimeInfo', RuntimeInfoSchema],
   ['UsageGroup', UsageGroupSchema],
   ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],
@@ -15644,6 +15833,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ToolVersionRow', ToolVersionRowSchema],
   ['ToolVersionCollectionPage', ToolVersionCollectionPageSchema],
   ['GuardrailAction', GuardrailActionSchema],
+  ['GuardrailToolMatch', GuardrailToolMatchSchema],
   ['GuardrailScope', GuardrailScopeSchema],
   ['Guardrail', GuardrailSchema],
   ['RegisterGuardrailBody', RegisterGuardrailBodySchema],
@@ -15769,6 +15959,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CostRecord', CostRecordSchema],
   ['ModelCallTokens', ModelCallTokensSchema],
   ['ModelCallError', ModelCallErrorSchema],
+  ['ModelCallThinking', ModelCallThinkingSchema],
   ['CostTokenTotals', CostTokenTotalsSchema],
   ['CostRecordCollectionPage', CostRecordCollectionPageSchema],
   ['CostAggregateGroup', CostAggregateGroupSchema],
@@ -16099,6 +16290,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateConnectionAppBody', UpdateConnectionAppBodySchema],
   ['ConnectionAppRemoved', ConnectionAppRemovedSchema],
   ['Connection', ConnectionSchema],
+  ['UpdateConnectionBody', UpdateConnectionBodySchema],
   ['ConnectionPage', ConnectionPageSchema],
   ['ConnectRequest', ConnectRequestSchema],
   ['CreateConnectRequestBody', CreateConnectRequestBodySchema],

@@ -380,6 +380,16 @@ a role.
 - **`capabilities`:** what each project role allows on the project and on
   each kind of object in it, read from the runtime's authorization model.
   Your project role's entry is what you may do there.
+- **`licenseOperatorOnly`:** `true` when `GET /v1/license` refuses you
+  whatever your role, because the license is the deployment operator's, as
+  on a runtime serving many tenants; the console doesn't ask it then.
+  `false` when your role decides: the deployment's own token reads it, and
+  where the deployment is set up to serve one tenant (without
+  `KINDGI_TENANCY=multi`) and its database holds only yours, its admins
+  (`tenant.admin`) read the license's countdown and its other people are
+  still refused. It's absent when the deployment has no license to read, or
+  couldn't read its tenants just then, and on an older runtime: ask
+  `GET /v1/license` as before.
 - **`readOnlyNotice`:** the line the console shows someone who may only
   view a project, when a tenant admin set one. It's in the tenant config,
   `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at
@@ -500,10 +510,11 @@ so a tool that needs a person's yes when no one is watching waits for one
 - **On a runtime serving one tenant, the runtime's API token acts as the
   seed user,** a person, so the runs it starts count as a person's.
 
-Make one:
+Make one. A deploy into a project takes `admin` on it, so this one, which
+deploys from CI, is an admin of one project:
 
 ```sh
-npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor
+npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
 ```
 
 - `acme-ci` is the account's name.
@@ -520,7 +531,7 @@ npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys
     {
       "kind": "project",
       "projectId": "211244ea-cdac-45e5-be8c-30a3e0bc42f7",
-      "role": "editor"
+      "role": "admin"
     }
   ],
   "createdBy": "user:11111111-3333-4333-8444-000000000402",
@@ -528,17 +539,29 @@ npx --yes @kindgi/cli@0.2 service-accounts create acme-ci --description="Deploys
 }
 ```
 
-Then make it a key:
+Then make it a key, limited to that same project:
 
 ```sh
-npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --label=ci --expires=90d
+npx --yes @kindgi/cli@0.2 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
 ```
 
-`<service-account-id>` is the `serviceAccountId` that `create` printed.
+`<service-account-id>` is the `serviceAccountId` that `create` printed, and
+`--project=<project-id>` limits the key to that one project.
 Its grants are written before `create` answers, so its first key works at
 once. You can grant `--tenant-admin`, `--tenant-member` and
 `--project=<id>:<role>`, now or later with `kindgi service-accounts grant`
 and `ungrant`.
+
+CI's deploys name that project, with `kindgi deploy --project <id or slug>`.
+A deploy that names no project is tenant-wide, which needs `admin` on the
+tenant, so this key is refused.
+
+On Kindgi Cloud, CI needs a tenant admin's key instead, because Kindgi
+Cloud builds a pack only with one: an account made with `--tenant-admin`,
+and a key made with `--role=admin` and no `--project`. The key needs no
+capability: add `--capability=secrets:write` only when CI runs
+`kindgi deploy --sync-secrets`. That key reaches the whole tenant, so keep
+it in CI's deploy step only.
 
 Give `--tenant-member` only to an account whose job reads the tenant's
 settings. Without it, such a read is refused, and the refusal says how to
@@ -698,7 +721,7 @@ It's refused for yourself and for the seed user, with
 - **Service accounts,** for tenant admins: create one with its grants,
   change them, make it a key, or unregister it.
 
-  ![The Service accounts page: acme-ci, "Deploys from CI", editor on the Default project, with no active keys yet.](../../../assets/people/service-accounts.png)
+  ![The Service accounts page: acme-ci, "Deploys from CI", admin on the Default project, with no active keys yet.](../../../assets/people/service-accounts.png)
 
 A project you have no role on shows **No access**, with the projects you can
 open.

@@ -37,7 +37,7 @@ import {
 } from '@kindgi/secrets-dotenv';
 
 import type { KindgiClient, McpEndpoint } from '@kindgi/client';
-import type { Cursor } from '@kindgi/types';
+import { type Cursor, isCredentialName } from '@kindgi/types';
 
 import { ownAddressKeyElsewhere } from '../api-address.js';
 import type { ResolvedConfig } from '../config.js';
@@ -124,6 +124,7 @@ export type DoctorCheckId =
   | 'console-sign-in'
   | 'license'
   | 'mcp-headers'
+  | 'mcp-env'
   | 'erasures';
 
 export interface DoctorCheck {
@@ -136,8 +137,9 @@ export interface DoctorCheck {
   readonly fix?: string;
   /**
    * One line per problem the message sums up (each registered provider's
-   * configuration problem: `<provider>: <path>: <message>`). The text output
-   * prints each under the check, marked ✗.
+   * configuration problem, or key its adapter doesn't read:
+   * `<provider>: <path>: <message>`). The text output prints each under the
+   * check, marked ✗.
    */
   readonly details?: readonly string[];
 }
@@ -199,6 +201,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   'console-sign-in': 'Console sign-in',
   license: 'License key',
   'mcp-headers': 'MCP endpoint headers',
+  'mcp-env': 'MCP endpoint env',
   erasures: 'Erasures',
 };
 
@@ -266,7 +269,9 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   const keyElsewhere = apiKey.status === 'fail';
   checks.push(await consoleSignInCheck(ctx, keyElsewhere));
   checks.push(await licenseKeyCheck(ctx.env, dir, ctx.cwd, seam));
-  checks.push(await mcpHeadersCheck(ctx, keyElsewhere));
+  const mcpEndpoints = await listedMcpEndpoints(ctx, keyElsewhere);
+  checks.push(mcpHeadersCheck(mcpEndpoints));
+  checks.push(mcpEnvCheck(mcpEndpoints));
 
   if (config === undefined || language === undefined) {
     checks.push({
@@ -1260,6 +1265,40 @@ async function consoleSignInCheck(
  */
 const REDACTED_HEADER_VALUE = '[redacted]';
 
+/** The MCP endpoints on the runtime the CLI points at, or why they weren't listed. */
+type ListedMcpEndpoints =
+  | { readonly kind: 'listed'; readonly endpoints: readonly McpEndpoint[] }
+  | { readonly kind: 'skip'; readonly message: string };
+
+async function listedMcpEndpoints(
+  ctx: CommandContext,
+  keyElsewhere: boolean,
+): Promise<ListedMcpEndpoints> {
+  const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
+  const token = ctx.config.token;
+  if (keyElsewhere && apiUrl !== undefined) {
+    return {
+      kind: 'skip',
+      message: `Not checked: the API key isn't for ${apiUrl} (API key, above).`,
+    };
+  }
+  if (apiUrl === undefined || token === undefined) {
+    return {
+      kind: 'skip',
+      message:
+        'Not checked: no runtime to ask (set KINDGI_API_URL and KINDGI_API_TOKEN, or run kindgi auth login).',
+    };
+  }
+  try {
+    return { kind: 'listed', endpoints: await allMcpEndpoints(ctx.clientFor(apiUrl, token)) };
+  } catch (err) {
+    return {
+      kind: 'skip',
+      message: `Not checked: the MCP endpoints at ${apiUrl} couldn't be listed (${firstLine((err as Error).message)}).`,
+    };
+  }
+}
+
 /**
  * MCP endpoints, on the runtime the CLI points at, that keep a credential in
  * plaintext `config.headers`. They were registered before the API refused
@@ -1267,27 +1306,9 @@ const REDACTED_HEADER_VALUE = '[redacted]';
  * secret. The API answers each such value as `[redacted]`, so its name is
  * all this reads (and a runtime that redacts never sends them on a redirect).
  */
-async function mcpHeadersCheck(ctx: CommandContext, keyElsewhere: boolean): Promise<DoctorCheck> {
-  const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
-  const token = ctx.config.token;
-  if (keyElsewhere && apiUrl !== undefined) {
-    return skip('mcp-headers', `Not checked: the API key isn't for ${apiUrl} (API key, above).`);
-  }
-  if (apiUrl === undefined || token === undefined) {
-    return skip(
-      'mcp-headers',
-      'Not checked: no runtime to ask (set KINDGI_API_URL and KINDGI_API_TOKEN, or run kindgi auth login).',
-    );
-  }
-  let endpoints: readonly McpEndpoint[];
-  try {
-    endpoints = await allMcpEndpoints(ctx.clientFor(apiUrl, token));
-  } catch (err) {
-    return skip(
-      'mcp-headers',
-      `Not checked: the MCP endpoints at ${apiUrl} couldn't be listed (${firstLine((err as Error).message)}).`,
-    );
-  }
+function mcpHeadersCheck(listed: ListedMcpEndpoints): DoctorCheck {
+  if (listed.kind === 'skip') return skip('mcp-headers', listed.message);
+  const { endpoints } = listed;
   const found = endpoints.flatMap((e) => {
     const headers = e.config.transport === 'stdio' ? undefined : e.config.headers;
     const names = Object.entries(headers ?? {})
@@ -1310,6 +1331,46 @@ async function mcpHeadersCheck(ctx: CommandContext, keyElsewhere: boolean): Prom
         ? 'An MCP endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, but the value is stored as given, not as a secret.'
         : `${found.length} MCP endpoints keep a credential in plaintext config.headers, from before that was refused. They still work, but each value is stored as given, not as a secret.`,
       'Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the header in auth: { scheme: "header", headers: [{ name: "<header>", secretRef: { envName, name } }] }.',
+    ),
+    details: found,
+  };
+}
+
+/**
+ * Stdio MCP endpoints, on the runtime the CLI points at, that keep a
+ * credential in plaintext `config.env` (a name `isCredentialName` matches,
+ * the rule the API refuses by), or a `secretRef`, which a stdio server is
+ * never sent. They were registered before the API refused those, and they
+ * keep working. The API answers every env value as `[redacted]`, so names
+ * are all this reads.
+ */
+function mcpEnvCheck(listed: ListedMcpEndpoints): DoctorCheck {
+  if (listed.kind === 'skip') return skip('mcp-env', listed.message);
+  const { endpoints } = listed;
+  const stdio = endpoints.filter((e) => e.config.transport === 'stdio');
+  const found = stdio.flatMap((e) => {
+    const env = e.config.transport === 'stdio' ? e.config.env : undefined;
+    const kept = [
+      ...Object.keys(env ?? {}).filter(isCredentialName),
+      ...(e.secretRef !== undefined ? ['secretRef (never sent)'] : []),
+    ];
+    return kept.length === 0 ? [] : [`${e.endpointId}: ${kept.join(', ')}`];
+  });
+  if (found.length === 0) {
+    return pass(
+      'mcp-env',
+      stdio.length === 0
+        ? 'No stdio MCP endpoint is registered.'
+        : `No stdio MCP endpoint keeps a credential in config.env (${stdio.length} checked).`,
+    );
+  }
+  return {
+    ...warn(
+      'mcp-env',
+      found.length === 1
+        ? "A stdio MCP endpoint keeps a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused. It still works, but a value in config.env is stored as given, not as a secret."
+        : `${found.length} stdio MCP endpoints keep a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused. They still work, but a value in config.env is stored as given, not as a secret.`,
+      'Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the variable in secretEnv: { <NAME>: { envName, name } }, and without secretRef.',
     ),
     details: found,
   };
@@ -1358,12 +1419,18 @@ async function providerCheck(
       const allPresets = await (seam.presets ?? (() => loadProviderPresets()))();
       const stale = staleDefaults(listed, allPresets, kindgi);
       const google = await vertexCredentials(ids, dir, ctx.env);
-      const notes = [...stale, ...(google === undefined ? [] : [google])];
-      const broken = await configIssues(ctx.clientFor(apiUrl, token), models);
-      if (broken !== undefined && broken.size > 0) {
-        const details = [...broken].flatMap(([id, issues]) =>
-          issues.map((i) => `${id}: ${i.path}: ${i.message}`),
-        );
+      const checks = [...((await configIssues(ctx.clientFor(apiUrl, token), models)) ?? [])];
+      // `issues` stop a build; `warnings` are keys a provider builds without
+      // reading, so they never make it unusable.
+      const broken = new Map(checks.filter(([, c]) => c.issues.length > 0));
+      const unread = checks
+        .filter(([, c]) => c.issues.length === 0)
+        .map(([id, c]) => unreadKeys(id, c.warnings, kindgi));
+      const notes = [...stale, ...(google === undefined ? [] : [google]), ...unread];
+      const details = checks.flatMap(([id, c]) =>
+        [...c.issues, ...c.warnings].map((i) => `${id}: ${i.path}: ${i.message}`),
+      );
+      if (broken.size > 0) {
         const fix = [...broken.keys()]
           .map((id) => reRegister(id, presetFor(id, allPresets), kindgi))
           .join(' ');
@@ -1392,11 +1459,14 @@ async function providerCheck(
       }
       return notes.length === 0
         ? pass('provider', registered)
-        : warn(
-            'provider',
-            [registered, ...notes.map((s) => s.message)].join(' '),
-            notes.map((s) => s.fix).join(' '),
-          );
+        : {
+            ...warn(
+              'provider',
+              [registered, ...notes.map((s) => s.message)].join(' '),
+              notes.map((s) => s.fix).join(' '),
+            ),
+            ...(details.length > 0 && { details }),
+          };
     }
     return ids.length > 0
       ? fail(
@@ -1507,19 +1577,33 @@ interface ConfigIssue {
 /**
  * Each provider's configuration problems by its adapter's own static check
  * (`GET /v1/providers/{id}/check`, T362): only the providers with any.
- * `undefined` when the runtime has no such route (older than 0.1.5): the
- * check is skipped. A provider the check can't read (gone meanwhile) is
- * left out.
+ * `issues` stop the runtime building it; `warnings` are `adapter_config`
+ * keys it builds without reading (a runtime before 0.3.0 leaves them out:
+ * it has none). `undefined` when the runtime has no such route (older than
+ * 0.1.5): the check is skipped. A provider the check can't read (gone
+ * meanwhile) is left out.
  */
 async function configIssues(
   client: ReturnType<CommandContext['clientFor']>,
   ids: readonly string[],
-): Promise<ReadonlyMap<string, readonly ConfigIssue[]> | undefined> {
-  const out = new Map<string, readonly ConfigIssue[]>();
+): Promise<
+  | ReadonlyMap<
+      string,
+      { readonly issues: readonly ConfigIssue[]; readonly warnings: readonly ConfigIssue[] }
+    >
+  | undefined
+> {
+  const out = new Map<
+    string,
+    { readonly issues: readonly ConfigIssue[]; readonly warnings: readonly ConfigIssue[] }
+  >();
   for (const id of ids) {
     try {
       const result = await client.providers.check(id);
-      if (result.issues.length > 0) out.set(id, result.issues);
+      const warnings = result.warnings ?? [];
+      if (result.issues.length > 0 || warnings.length > 0) {
+        out.set(id, { issues: result.issues, warnings });
+      }
     } catch (err) {
       const wire = extractKindgiError(err);
       if (wire?.code === 'not-found' && wire.serverCode === 'route-not-found') return undefined;
@@ -1542,12 +1626,50 @@ function reRegister(id: string, preset: ProviderPreset | undefined, kindgi: Kind
     preset !== undefined
       ? kindgi('providers', 'register', `--preset=${preset.name}`, ...presetSettingFlags(preset))
       : kindgi('providers', 'register', '--spec=@<file>');
-  return `${reRegisterSteps(id, register, kindgi)}${preset === undefined ? ' (its spec with the setting fixed)' : ''}`;
+  return reRegisterSteps(
+    id,
+    register,
+    kindgi,
+    preset === undefined ? 'its spec with the setting fixed' : undefined,
+  );
 }
 
-/** A provider's id is taken while it's registered: unregister it first. */
-function reRegisterSteps(id: string, register: string, kindgi: Kindgi): string {
-  return `Unregister ${id} (${kindgi('providers', 'unregister', id)}), then register it again: ${register}.`;
+/**
+ * A provider that builds with `adapter_config` keys its adapter doesn't
+ * read: the fix registers it again from its spec with each key moved to
+ * the place its warning names, or removed. A preset can't set where a moved
+ * key goes (a model's `thinking.default`), so the fix is a spec.
+ */
+function unreadKeys(
+  id: string,
+  warnings: readonly ConfigIssue[],
+  kindgi: Kindgi,
+): { readonly message: string; readonly fix: string } {
+  const keys = warnings.map(
+    (w) =>
+      `adapter_config.${w.path
+        .replace(/^\/adapter_config\//, '')
+        .replaceAll('~1', '/')
+        .replaceAll('~0', '~')}`,
+  );
+  const spec = kindgi('providers', 'register', '--spec=@<file>');
+  return {
+    message: `${id} builds, but ${keys.length <= 1 ? `${keys[0] ?? 'a setting'} isn't` : `${keys.slice(0, -1).join(', ')} and ${keys[keys.length - 1]} aren't`} read.`,
+    fix: reRegisterSteps(
+      id,
+      spec,
+      kindgi,
+      'its spec with each key moved to the place its warning names, or removed',
+    ),
+  };
+}
+
+/**
+ * A provider's id is taken while it's registered: unregister it first.
+ * `file` says what the spec file `register` reads holds.
+ */
+function reRegisterSteps(id: string, register: string, kindgi: Kindgi, file?: string): string {
+  return `Unregister ${id} (${kindgi('providers', 'unregister', id)}), then register it again: ${register}${file === undefined ? '' : ` (${file})`}.`;
 }
 
 // ---------- helpers ----------

@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.9"
+version: "0.4.10"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -111,10 +111,12 @@ export default defined.value;
 - **`guardrails`** — array of guardrail `id` strings. Resolved at turn
   start against the guardrails bound for the run (the tenant's
   registered guardrails). If a guardrail id isn't registered, the turn
-  fails with `unresolved-guardrail`. Guardrails are evaluated once per
-  turn, on the final response before it is stored — a blocking
-  (`halt`) violation fails the turn and the response is never written
-  to the conversation.
+  fails with `unresolved-guardrail`. Guardrails check the final
+  response before it is stored — a blocking (`halt`) violation fails
+  the turn and the response is never written to the conversation; a
+  `retry` one sends the response back to the model for a new one, up
+  to `retry.maxAttempts` answers in all (default 2); then the turn
+  fails with `guardrail-violation`.
 - **`parameters`** — typed inputs the caller supplies at invoke time.
   UI builds a "configure agent" form from these; runtime validates
   each required parameter is provided.
@@ -162,6 +164,16 @@ export default defined.value;
   retries the turn fails as before, with `toolRetries` on the error. A
   tenant's `tool-errors` policy can lower these (fewer retries, fewer
   kinds), never raise them.
+- **`parallelToolCalls`** — optional, default on. When a model step asks for
+  several calls at once, calls to read-only tools (`mutating: false`, no
+  changing effect) that come one after another run at the same time, up to 8
+  of them, and a call to any other tool runs on its own, in the order the
+  model asked. A call that may wait, for another system's answer or for the
+  person who started the run to connect an app, runs on its own too. Once a
+  call needs an approval, the step's calls that haven't started run one at a
+  time. The results reach the conversation and the model in the model's order
+  either way. `false` runs every call on its own, for read-only tools that
+  mustn't overlap (a rate-limited API, say).
 - **`retrieval`** — what the agent reads from memory before each turn.
   Empty = no memory. Each intent is
   `{ types: ['acme.preference'], scope, mode?, limit? }`, with `scope`

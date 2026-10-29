@@ -92,12 +92,14 @@ export interface FlowRegistryBinding {
    * NO active versions, the flow has no latest version — it enters the
    * derived "retired" state (GET returns 410 gone).
    * Publish of a new version reactivates.
+   * Rejects when its store fails; the route answers 500.
    */
   unregister(input: FlowUnregisterInput): Promise<FlowUnregisterOutcome>;
   /**
    * Un-tombstone a specific `(flowId, version)`. Recomputes the flow's
    * latest version. Restores manifest bytes verbatim (semver
    * hygiene). Idempotent.
+   * Rejects when its store fails; the route answers 500.
    */
   reinstateVersion(input: FlowReinstateVersionInput): Promise<FlowReinstateVersionOutcome>;
 }

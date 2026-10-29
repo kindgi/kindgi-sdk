@@ -166,6 +166,7 @@ import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
 import { policiesRouter } from './routes/policies.js';
 import { projectAccessRouter } from './routes/project-access.js';
+import { projectPinnedVersionsRouter } from './routes/project-pinned-versions.js';
 import {
   type ProductionGateOptions,
   projectProductionRouter,
@@ -178,6 +179,7 @@ import { publicRunTokensRouter } from './routes/public-run-tokens.js';
 import { retentionRouter } from './routes/retention.js';
 import { reviewersRouter } from './routes/reviewers.js';
 import { type RunsRouterOptions, runsRouter } from './routes/runs.js';
+import { type RuntimeInfoInput, runtimeRouter } from './routes/runtime.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
 import { authSettingsRouter, secondFactorIdentityRouter } from './routes/second-factor.js';
@@ -623,6 +625,13 @@ export interface CreateAppInput {
    */
   readonly license?: LicenseStatusBinding;
   /**
+   * Optional. Which runtime this is: its release and whether it runs in
+   * development mode, as `GET /v1/runtime` answers any caller of a tenant,
+   * with `tenancy` (`single` when unset). Without it the route isn't
+   * mounted (404), as on a runtime that doesn't report it.
+   */
+  readonly runtime?: RuntimeInfoInput;
+  /**
    * Optional. How many tenants the runtime serves (default `single`). With
    * `multi`, a tenant's key is never minted holding `kindgi:system`: the
    * operator acts through system keys, which act in no tenant.
@@ -970,8 +979,9 @@ export interface CreateAppInput {
   /**
    * Optional. Live versions of agents per scope, and their promotions
    * (`/v1/agents/{id}/live`, `/live-versions`, `/promotions`,
-   * `/live/rollback`, `/live/unpin`). Absent → a run takes the latest
-   * version, as before.
+   * `/live/rollback`, `/live/unpin`), and with `projectBinding`, a
+   * project's pinned versions (`/v1/projects/{id}/pinned-versions`).
+   * Absent → a run takes the latest version, as before.
    */
   readonly agentReleases?: AgentReleaseBindings;
   /**
@@ -1128,8 +1138,8 @@ export interface CreateAppInput {
    * The deployment's own links (its help desk, status page, data
    * processing terms), which the console shows on every page, the sign-in
    * page too (sign-in options' `links`), in this order. At most 8; each
-   * label 1 to 40 characters once trimmed, with no control or format
-   * character, and no other link's once trimmed; each URL an absolute
+   * label 1 to 40 characters once trimmed, with no control, format or
+   * invisible character, and no other link's once trimmed; each URL an absolute
    * https URL with no username or password. Anything else, and createApp
    * throws. Absent or empty: the answer has no `links`.
    */
@@ -1757,6 +1767,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.agentReleases?.gatePolicies !== undefined) {
     v1.route('/gate-policies', gatePoliciesRouter(input.agentReleases.gatePolicies, authorizer));
   }
+  // A project's pinned versions need its project (the 404, and the org the
+  // binding reads), so the route mounts only with the project binding too.
+  if (input.agentReleases !== undefined && input.projectBinding !== undefined) {
+    v1.route(
+      '/projects',
+      projectPinnedVersionsRouter({
+        live: input.agentReleases.live,
+        projects: input.projectBinding,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(itemRights !== undefined && { itemRights }),
+      }),
+    );
+  }
   if (input.flowRegistry !== undefined) {
     v1.route(
       '/flows',
@@ -1912,6 +1935,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   if (input.license !== undefined) {
     v1.route('/license', licenseRouter(input.license, authorizer));
+  }
+  if (input.runtime !== undefined) {
+    v1.route('/runtime', runtimeRouter(input.runtime, input.tenancy));
   }
   if (input.systemKeys !== undefined) {
     v1.route(
@@ -2073,6 +2099,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
       ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
       ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
+      ...(input.license !== undefined && { license: input.license }),
       ...(servedEnv !== undefined && {
         servedEnv: { envName: servedEnv, refusesOtherEnvs: servedEnvRule !== undefined },
       }),
@@ -2453,7 +2480,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           imageRegistry: input.imageRegistry,
           // A runtime routing pack calls per deployment sends each check call
           // by its id: a pack check must carry its pack's id.
-          ...(input.systemDeployments !== undefined && { requirePrefixedPackChecks: true }),
+          ...(input.systemDeployments !== undefined && {
+            requirePrefixedPackChecks: true,
+            perDeploymentPacks: true,
+          }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
           ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
           ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),

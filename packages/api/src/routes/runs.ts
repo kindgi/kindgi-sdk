@@ -5,6 +5,7 @@ import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type {
+  JournalPage,
   KernelRunRecord,
   ListRunsInput,
   RunBinding,
@@ -593,6 +594,10 @@ export function runsRouter(
 
     const encoder = new TextEncoder();
     let lastEmittedSeq = since ?? -1;
+    // Each read asks only for what this stream hasn't sent: a poll every
+    // 200 ms no longer reads the whole journal. `emitEntry` still skips
+    // what was sent, for a binding that gives every entry.
+    const sinceEmitted = (): JournalPage => (lastEmittedSeq < 0 ? {} : { after: lastEmittedSeq });
     const POLL_MS = 200;
     const MAX_WAIT_MS = 5 * 60_000;
     // Aborted when the client goes away: the reader cancels the stream, or
@@ -672,7 +677,7 @@ export function runsRouter(
             // reconnect with `Last-Event-Id` doesn't miss events that
             // landed while the client was disconnected. Then subscribe
             // for the tail push-side.
-            const backfill = await runBinding.readJournal(tenantId, runId);
+            const backfill = await runBinding.readJournal(tenantId, runId, sinceEmitted());
             if (backfill.kind === 'err') {
               controller.enqueue(
                 encoder.encode(
@@ -771,7 +776,7 @@ export function runsRouter(
         // journal every 200 ms until a terminal entry or the max-wait
         // window elapses.
         const pollEmit = async (): Promise<{ terminal: boolean }> => {
-          const journal = await runBinding.readJournal(tenantId, runId);
+          const journal = await runBinding.readJournal(tenantId, runId, sinceEmitted());
           if (journal.kind === 'err') {
             const frame = formatSseFrame({
               id: `${runId}:error`,
@@ -841,7 +846,14 @@ export function runsRouter(
     }
     const { limit, after } = paging;
 
-    const journal = await runBinding.readJournal(tenantId, runId);
+    // Only the page is read (`journalPageToRead`). A binding that gives the
+    // whole journal anyway gets the same page: the filter and the slice below
+    // make it.
+    const journal = await runBinding.readJournal(
+      tenantId,
+      runId,
+      journalPageToRead(since, after, limit),
+    );
     if (journal.kind === 'err') {
       const err = journal.error;
       const busy = databaseBusyAnswer(err, c);
@@ -1708,6 +1720,25 @@ function parseJournalPaging(
     after = decoded;
   }
   return { kind: 'ok', limit, after };
+}
+
+/**
+ * What a journal answer reads: the entries after the later of `since` (when
+ * it's a number) and the cursor's sequence, and one more than `limit`, to
+ * tell whether more remain after the page.
+ */
+function journalPageToRead(
+  since: number | undefined,
+  after: number | undefined,
+  limit: number | undefined,
+): JournalPage {
+  const sinceSeq = since !== undefined && Number.isFinite(since) ? since : undefined;
+  const from =
+    sinceSeq === undefined ? after : after === undefined ? sinceSeq : Math.max(sinceSeq, after);
+  return {
+    ...(from !== undefined && { after: from }),
+    ...(limit !== undefined && { limit: limit + 1 }),
+  };
 }
 
 /**

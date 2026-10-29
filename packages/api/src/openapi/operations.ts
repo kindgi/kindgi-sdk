@@ -100,7 +100,7 @@ const IdempotencyKeyParam: ParameterSpec = {
   in: 'header',
   required: false,
   description:
-    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5).",
+    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0).",
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -1528,7 +1528,11 @@ const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
   '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
 };
 
-/** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
+/**
+ * A secrets store's external provider (the router's), answering a read or a
+ * write: each at its own status. Each operation that spreads it is a write
+ * that takes an `Idempotency-Key`, so its 503 names that store's too.
+ */
 const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
   '429': ErrorResponse(
     "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
@@ -1537,7 +1541,7 @@ const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
     "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
   ),
   '503': ErrorResponse(
-    "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+    "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
   ),
 };
 
@@ -1571,6 +1575,46 @@ function conflictOrEnvNotServed(text: string): ResponseSpec {
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Or this deployment's operator manages sign-in (\`identity-providers-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only the deployment's own token can change its providers.`,
 );
+
+/**
+ * Reads that never reach the storage backend, so they can't answer
+ * `503 database-busy`: the liveness probe (`GET /health`) and the spec
+ * document (`GET /v1/openapi.json`). Every other served `GET`/`HEAD`
+ * declares the shared 503 — see `buildOperation` in `generate.ts`.
+ */
+export const READS_WITHOUT_STORAGE: ReadonlySet<string> = new Set([
+  'system.health',
+  'system.openapi',
+]);
+
+/**
+ * Whether a served operation can answer `503 database-busy`: a `GET` or
+ * `HEAD` that isn't one of the storage-free reads. The spec generator
+ * injects the 503 for these (unless the operation declares a 503 of its
+ * own), and a test holds every one of them to it, so a new read can't miss
+ * it.
+ */
+export function answersDatabaseBusy(op: OperationSpec): boolean {
+  return (
+    (op.method === 'get' || op.method === 'head') && !READS_WITHOUT_STORAGE.has(op.operationId)
+  );
+}
+
+/**
+ * Whether a served operation can answer `503 idempotency-store-unavailable`:
+ * a write that takes an `Idempotency-Key`, which `idempotencyMiddleware`
+ * answers so when the key's store fails before the write runs. The spec
+ * generator injects the 503 for these (unless the operation declares a 503
+ * of its own, which then names it too), and a test holds every one of them
+ * to it.
+ */
+export function answersIdempotencyStoreUnavailable(op: OperationSpec): boolean {
+  return (
+    op.method !== 'get' &&
+    op.method !== 'head' &&
+    (op.parameters ?? []).some((p) => p.in === 'header' && p.name === IdempotencyKeyParam.name)
+  );
+}
 
 /** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
 function providerChangeConflict(text: string): ResponseSpec {
@@ -2197,7 +2241,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts.",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts. Or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`), so nothing was changed.",
       ),
     },
   },
@@ -2251,7 +2295,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2284,7 +2328,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Another tenant has the slug, or a create whose setup is pending holds it with another request (`tenant-slug-taken`); or its image prefix overlaps another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body; or that key's replay, when the first answer held the admin key (`idempotency-key-replay-withheld`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2370,7 +2414,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2402,7 +2446,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2438,7 +2482,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2475,7 +2519,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The tenant is closing (`tenant-closing`); the prefix equals, holds or sits inside another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2521,7 +2565,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2597,7 +2641,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2848,7 +2892,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The host isn't allowed (`endpoint-host-not-allowed`) or doesn't name the deployment's service (`endpoint-name-mismatch`, with `details.expected`); the pack service didn't answer (`endpoint-unreachable`) or answered as another pack or version (`endpoint-info-mismatch`, with `details.differs`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2906,7 +2950,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`). Or, with `secrets=values`, it has nowhere to audit a secret given out, so it gives none (`pack-env-secrets-unaudited`).",
       ),
       '503': ErrorResponse(
-        "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`).",
+        "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`). Or the database was too busy to answer in time (`database-busy`, with `Retry-After`).",
       ),
     },
   },
@@ -2942,7 +2986,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2970,7 +3014,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -3003,7 +3047,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not `waiting` (`endpoint-not-pending`, with `details.status`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -3033,7 +3077,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -4238,7 +4282,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'guardrails.outcomes',
     summary: "What a guardrail's checks came to in a project",
     description:
-      "Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.",
+      "Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back; or a `retry` sent it back for a new one), `blocked` (a `halt` failed the turn, or a `retry` whose attempts had run out) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. A check is counted per answer it judged: a guardrail judges a turn's final answer, and, in a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.",
     tags: ['guardrails'],
     security: 'bearer',
     parameters: [
@@ -5137,7 +5181,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'license.get',
     summary: "Where the deployment's license key stands",
     description:
-      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
+      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.",
     tags: ['system'],
     security: 'bearer',
     responses: {
@@ -5146,6 +5190,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
       ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/runtime',
+    openapiPath: '/v1/runtime',
+    operationId: 'runtime.get',
+    summary: 'Which runtime answers',
+    description:
+      "Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.",
+    tags: ['system'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'Which runtime answers.', schema: ref('RuntimeInfo') },
+      ...CommonAuthErrors,
     },
   },
   {
@@ -5290,7 +5349,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'artifacts.download',
     summary: 'Download an artifact (stream)',
     description:
-      'Streams raw bytes. Response headers: `Content-Type` (as declared at upload), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).',
+      "Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name).",
     tags: ['artifacts'],
     security: 'bearer',
     parameters: [
@@ -5505,7 +5564,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'providers.check',
     summary: "Check a provider's registration",
     description:
-      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.",
+      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `warnings` lists the `adapter_config` keys its adapter doesn't take: the runtime builds it without reading them. `checked` is false when this runtime has no check for the provider's adapter and the adapter declares no keys.",
     tags: ['providers'],
     security: 'bearer',
     parameters: [ProviderIdPathParam],
@@ -5777,7 +5836,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.get',
     summary: 'Fetch an MCP endpoint',
     description:
-      'Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef` names a secret the runtime resolves inside the deployment).',
+      "Returns the wire-safe `MCPEndpoint` (secrets never cross the wire — `secretRef`, `auth` and `secretEnv` name secrets the runtime resolves inside the deployment). A stdio endpoint's `config.env` values read back as `[redacted]`, their names kept.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [MCPEndpointIdPathParam],
@@ -5794,7 +5853,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.register',
     summary: 'Register an MCP endpoint',
     description:
-      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -7426,7 +7485,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.permissions',
     summary: 'What I may do',
     description:
-      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
+      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Whether the deployment's license is held back from the caller whatever its role (`licenseOperatorOnly`), so a console doesn't ask `GET /v1/license`. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
     tags: ['identity'],
     security: 'bearer',
     responses: {
@@ -7436,7 +7495,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The runtime has no authorization store (`permissions-unsupported`): read whoami instead.',
       ),
       '503': ErrorResponse(
-        "The authorization store couldn't be read (`authz-backend-unavailable`): try again.",
+        "The authorization store couldn't be read (`authz-backend-unavailable`), or the database was too busy to answer in time (`database-busy`, with `Retry-After`): try again.",
       ),
     },
   },
@@ -9252,6 +9311,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No project with that id under this tenant.'),
       '501': ErrorResponse(
         'The runtime has no authorization store (`project-access-unsupported`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/pinned-versions',
+    openapiPath: '/v1/projects/{projectId}/pinned-versions',
+    operationId: 'projects.pinnedVersions.list',
+    summary: 'List the pinned versions that cover a project',
+    description:
+      "Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of pinned versions.',
+        schema: ref('ProjectPinnedVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('A malformed project id or cursor.'),
+      '404': ErrorResponse('No project with that id under this tenant.'),
+      '501': ErrorResponse(
+        "The runtime can't list a project's pinned versions (`pinned-versions-not-supported`).",
       ),
     },
   },
@@ -11327,14 +11410,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Connect request made.', schema: ref('ConnectRequest') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body or unknown field (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+        "Malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
       ),
       '403': ErrorResponse(
         "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
       ),
       '404': ErrorResponse('No registration with that `appId` (`connection-app-not-found`).'),
       '409': ErrorResponse(
-        'Idempotency-Key was reused with a different body; or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).',
+        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
       ),
     },
   },
@@ -11370,7 +11453,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The app wouldn't give a token for the code: its client id, secret or redirect URL (`connection-app-refused`).",
       ),
       '503': ErrorResponse(
-        "The connection couldn't be stored just now (`connection-store-failed`).",
+        "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -11442,6 +11525,35 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'patch',
+    honoPath: '/v1/connections/:connectionId',
+    openapiPath: '/v1/connections/{connectionId}',
+    operationId: 'connections.update',
+    summary: 'Rename a connection',
+    description:
+      "Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateConnectionBody') },
+    responses: {
+      '200': { description: 'The connection, renamed.', schema: ref('Connection') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "`connectionId` is not a UUID, or a malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`).",
+      ),
+      '404': ErrorResponse(
+        "No connection with that id, it was disconnected, or it's not the caller's (`connection-not-found`).",
+      ),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; or another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded (`connection-label-taken`, `details.field` `label`).",
+      ),
+      '503': ErrorResponse(
+        "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
     method: 'delete',
     honoPath: '/v1/connections/:connectionId',
     openapiPath: '/v1/connections/{connectionId}',
@@ -11459,7 +11571,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "No connection with that id, or not the caller's (`connection-not-found`).",
       ),
-      '503': ErrorResponse("The removal couldn't be stored just now (`connection-store-failed`)."),
+      '503': ErrorResponse(
+        "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
     },
   },
   {

@@ -56,6 +56,10 @@ export interface SessionStoreBinding {
    * The middleware passes the session's own tenant. A store without
    * `resolveToken` must also honor the sentinel `MULTI_TENANT_LOOKUP`,
    * as `get` does.
+   *
+   * Rejects when the store can't write the marker. The request doesn't wait on
+   * it: the middleware logs a warning, and the session's next request
+   * touches again.
    */
   readonly touch?: (input: SessionTouchInput) => Promise<SessionTouchOutcome>;
   /**
@@ -223,7 +227,7 @@ export interface SessionTouchOutcome {
    * `false` when the session was already revoked or the row is
    * unknown — the middleware treats either case as a soft-fail (no
    * fatal error, but the caller's next request will 401 via the
-   * standard checks).
+   * standard checks). Never a write that failed: `touch` rejects.
    */
   readonly touched: boolean;
 }

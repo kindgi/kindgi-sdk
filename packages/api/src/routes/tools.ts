@@ -132,6 +132,7 @@ export function toolsRouter(
     });
     // An item more than one project serves is checked on those projects
     // instead (`item-rights.ts`).
+    // '/:toolId/*' matches '/:toolId' too: this one gate decides both, once.
     r.use(
       '/:toolId/*',
       itemMiddleware({
@@ -141,18 +142,6 @@ export function toolsRouter(
         id: (c) => c.req.param('toolId') ?? '',
         today: (c) => (c.req.method === 'GET' ? 'read' : 'admin'),
         check: itemPathCheck,
-        versionNotFound: toolVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:toolId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'tool',
-        id: (c) => c.req.param('toolId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: toolVersionNotFound,
       }),
     );

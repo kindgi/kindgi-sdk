@@ -13,6 +13,7 @@ import type { ProvenanceBuilder } from '@kindgi/provenance';
 import type { Timestamp } from '@kindgi/types';
 
 import { REMEMBER_TOOL_ID } from '../remember.js';
+import type { CallThinking } from '../streaming.js';
 import type {
   ConversationMessage,
   RecalledMemory,
@@ -147,6 +148,7 @@ export interface ModelCallFacts {
   readonly callId: string;
   readonly provider: { readonly id: string; readonly model: string };
   readonly finishReason: string;
+  readonly thinking?: CallThinking;
   readonly at: Timestamp;
 }
 
@@ -173,6 +175,7 @@ export function addModelCallNode(
       providerId: call.provider.id,
       model: call.provider.model,
       finishReason: call.finishReason,
+      ...(call.thinking !== undefined && { thinking: { ...call.thinking } }),
     },
   });
   provenance.addEdge({ from: id, to: `input:${inputSequence}`, kind: 'caused-by' });

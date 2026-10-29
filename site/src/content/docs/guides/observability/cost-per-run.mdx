@@ -171,6 +171,23 @@ Each record is one model call:
 | `projectId`, `agentId`, `agentVersion`, `conversationId` | Where the call belongs. |
 | `providerRequestId` | The provider's id for the request, to quote to its support. Not every provider sends one. |
 | `callId` | The call's id. The model call's node in the turn's [provenance](../trace-an-answer/) has the same `callId`. |
+| `thinking` | How much the call asked its model to think. `asked` is the level it asked for: the agent's model settings, or a guardrail judge's `lowest`. `level` is the level sent, and `sent` the vendor's own fields as they went out. Absent when the call neither asked nor sent one. |
+
+A call to a model that thinks carries what it sent. Here, an agent asked for
+`max` of Gemini 3.8 Flash, whose highest level is `high`:
+
+```json excerpt
+"thinking": { "asked": "max", "level": "high", "sent": { "thinkingLevel": "HIGH" } }
+```
+
+- **`asked` and `level` differ:** the level was rounded to one the model
+  takes, and the turn carried a `thinking-level-adjusted` warning, as
+  [Temperature and thinking](../../models/#temperature-and-thinking)
+  describes.
+- **`asked` without `level`:** nothing was sent, since the model doesn't
+  think or its adapter didn't send the level.
+- **`level` without `asked`:** the call asked none, and got the model's
+  registered `thinking.default`.
 
 To see the usage exactly as the provider sent it, add `includeRawUsage: true`,
 or `include="rawUsage"` in Python. Each record then has `rawUsage`:
