@@ -268,7 +268,9 @@ KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 
 - **`<DB_PASSWORD>`** is the password from step 2: `echo "$DB_PASSWORD"`
   prints it.
-- **`<your tenant id>`** is the id `uuidgen` printed.
+- **`<your tenant id>`** is the id `uuidgen` printed. The runtime takes it
+  in lower case. If an earlier runtime ran with it in upper case, the start
+  says what to do: [A tenant id given in upper case](../serve-many-tenants/#a-tenant-id-given-in-upper-case).
 - **`<the token>`** is the API token `printf` printed.
 - **`<the same token as in pack.env>`** is `pack.env`'s
   `KINDGI_PACK_SERVICE_TOKEN`.
