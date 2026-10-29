@@ -35,10 +35,12 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 
 `checkConfig` reports each problem with a registration at the setting at fault, without the network or the secret:
 - a `metadata.region` that isn't an AWS region (`global`, `unspecified`);
-- an unknown `auth` or `adapter_config` key;
+- an unknown `auth`;
 - a `baseURL` that isn't https, holds credentials, a query or a fragment, or has a path on Bedrock's own host;
 - `aws-identity` with a `baseURL` that isn't Bedrock's runtime in the region, naming the host;
 - `api-key` without `secret_ref`, or `aws-identity` with one.
+
+Its entry declares the keys it takes (`configKeys`: `auth`, `baseURL`), with `region` moved to `metadata.region` (`movedConfigKeys`), so a registration with any other `adapter_config` key is refused, naming it (`region` names `metadata.region`). A stored one builds without it being read.
 
 ## How it signs in
 
@@ -76,7 +78,7 @@ That's two cache points at most, under Bedrock's four per request, each with the
 
 ## Exports
 
-- **`bedrockAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, with `bedrockAdapterFactory` and `bedrockCheckConfig`.
+- **`bedrockAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, with `bedrockAdapterFactory`, `bedrockCheckConfig`, its `configKeys` and `movedConfigKeys`.
 - `readBedrockConfig(input)`: a registration read and checked, or every problem with it.
 - `bedrockRuntimeEndpoint(region)`: a region's own `bedrock-runtime` endpoint; `partitionDnsSuffix(region)`; `isBedrockRuntimeHost(hostname, region)`: whether a host may get the runtime's credentials.
 - `IDENTITY_TIMEOUT_MS`: how long the runtime's AWS identity may take.

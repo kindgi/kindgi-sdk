@@ -7326,11 +7326,19 @@ export const ProviderCheckResultSchema: JsonSchema = {
     checked: {
       type: 'boolean',
       description:
-        "False when this runtime has no check for the provider's adapter; `issues` is then empty.",
+        "False when this runtime has no check for the provider's adapter and the adapter declares no keys; `issues` is then empty, and `warnings` is left out.",
     },
     issues: {
       type: 'array',
       items: { $ref: '#/components/schemas/AdapterConfigProblem' },
+      description: 'What stops the runtime building the provider from its registration.',
+    },
+    warnings: {
+      type: 'array',
+      minItems: 1,
+      items: { $ref: '#/components/schemas/AdapterConfigProblem' },
+      description:
+        "The `adapter_config` keys the provider's adapter doesn't take: the runtime builds it without reading them, and a new registration with one is refused. Each names the key and what the adapter takes, or where a moved key's setting goes. Present when there's at least one. A runtime before 0.3.0 leaves it out.",
     },
     secretRef: {
       type: 'object',
@@ -7822,7 +7830,8 @@ export const ModelCallThinkingSchema: JsonSchema = {
     asked: {
       type: 'string',
       enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-      description: "The level the call asked for: the agent's model settings, or a judge's `lowest`.",
+      description:
+        "The level the call asked for: the agent's model settings, or a judge's `lowest`.",
     },
     level: {
       type: 'string',
@@ -7833,7 +7842,7 @@ export const ModelCallThinkingSchema: JsonSchema = {
       type: 'object',
       additionalProperties: { type: 'string' },
       description:
-        "The vendor's own fields as they went out (`{ \"thinkingLevel\": \"LOW\" }`, `{ \"reasoning_effort\": \"low\" }`); on the AI SDK path, `{ \"reasoning\": <the portable value> }`.",
+        'The vendor\'s own fields as they went out (`{ "thinkingLevel": "LOW" }`, `{ "reasoning_effort": "low" }`); on the AI SDK path, `{ "reasoning": <the portable value> }`.',
     },
   },
 };

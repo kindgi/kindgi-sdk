@@ -75,7 +75,17 @@ const AZURE_HOSTS = AZURE_OPENAI_CLOUDS.flatMap((c) => c.hostSuffixes.map((s) =>
   ', ',
 );
 
-const KEYS = ['resourceName', 'baseURL', 'deployments', 'api', 'auth'] as const;
+/**
+ * The `adapter_config` keys it takes (`AdapterFactoryEntry.configKeys`): any other is refused
+ * at registration, and a stored one builds without being read.
+ */
+export const AZURE_OPENAI_CONFIG_KEYS: readonly string[] = [
+  'resourceName',
+  'baseURL',
+  'deployments',
+  'api',
+  'auth',
+];
 /** A single DNS label, as Azure's resource names are. */
 const RESOURCE_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 /**
@@ -96,15 +106,6 @@ export function readAzureOpenAIConfig(
   | { readonly kind: 'err'; readonly problems: readonly AdapterConfigProblem[] } {
   const config = input.config ?? {};
   const problems: AdapterConfigProblem[] = [];
-
-  for (const key of Object.keys(config)) {
-    if (!(KEYS as readonly string[]).includes(key)) {
-      problems.push({
-        path: at(key),
-        message: `adapter_config.${key} isn't an Azure OpenAI setting: it takes resourceName or baseURL, deployments, api and auth.`,
-      });
-    }
-  }
 
   const auth = config.auth ?? 'api-key';
   const resourceName = config.resourceName;

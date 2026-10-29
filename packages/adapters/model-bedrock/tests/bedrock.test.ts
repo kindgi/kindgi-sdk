@@ -12,6 +12,7 @@ import {
   type AdapterFactoryEntry,
   type AdapterFactoryInput,
   type ProviderMetadata,
+  adapterConfigKeyProblems,
   createAdapterFactoryRegistry,
 } from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
@@ -61,13 +62,6 @@ describe('checkConfig', () => {
     [{}, false, 'unspecified', '/metadata/region', 'Got "unspecified"'],
     [{}, false, 'US-EAST-2', '/metadata/region', 'e.g. us-east-2'],
     [
-      { region: 'us-east-2' },
-      false,
-      'us-east-2',
-      '/adapter_config/region',
-      'the region is metadata.region',
-    ],
-    [
       { baseURL: 'http://bedrock.example' },
       false,
       'us-east-2',
@@ -93,6 +87,27 @@ describe('checkConfig', () => {
     const problems = check(config as Record<string, string>, secret, region);
     expect(problems.map((p) => p.path)).toContain(path);
     expect(problems.find((p) => p.path === path)?.message).toContain(words);
+  });
+
+  test("a key it doesn't take is the registration's to refuse, from the keys its entry declares: region names metadata.region", () => {
+    const stored = { region: 'us-east-2', model: NOVA };
+    expect(check(stored)).toEqual([]);
+    expect(adapterConfigKeyProblems(bedrockAdapterEntry, stored)).toEqual([
+      {
+        path: '/adapter_config/region',
+        message: "adapter_config.region isn't read here: its setting is metadata.region.",
+      },
+      {
+        path: '/adapter_config/model',
+        message: "adapter_config.model isn't a setting of this adapter: it takes auth, baseURL.",
+      },
+    ]);
+    expect(
+      adapterConfigKeyProblems(bedrockAdapterEntry, {
+        auth: 'api-key',
+        baseURL: 'https://bedrock-runtime.us-east-2.amazonaws.com',
+      }),
+    ).toEqual([]);
   });
 
   test("the runtime's identity on a runtime that has none: refused when it registers, naming the setting", () => {
@@ -353,6 +368,20 @@ describe('what the provider sends', () => {
     expect(err).toMatchObject({ kind: 'auth', status: 403 });
     expect((err as Error).message).toContain('bedrock:InvokeModel');
     expect(attemptsOf(err)).toBe(1);
+  });
+});
+
+describe('a key it takes nothing from', () => {
+  test("stored before 0.3.0 (adapter_config.region): it builds, and the region it sends to is metadata.region's", async () => {
+    const sent: Sent[] = [];
+    const provider = build(
+      { region: 'eu-west-1' },
+      { fetch: capturingFetch(sent), identities: { aws: identity() } },
+    );
+    await provider.invoke(ask());
+    expect(sent[0]?.url).toBe(
+      'https://bedrock-runtime.us-east-2.amazonaws.com/model/us.amazon.nova-pro-v1%3A0/converse',
+    );
   });
 });
 

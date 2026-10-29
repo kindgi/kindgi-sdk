@@ -45,7 +45,7 @@ import {
 } from '@kindgi/capabilities';
 import { bearerValueProblem } from '@kindgi/types';
 
-import { BEDROCK_ADAPTER_ID, readBedrockConfig } from './config.js';
+import { BEDROCK_ADAPTER_ID, BEDROCK_CONFIG_KEYS, readBedrockConfig } from './config.js';
 import { isNovaModel, withoutLeadingThinking } from './nova-thinking.js';
 
 /**
@@ -145,12 +145,14 @@ export function cachesPrompts(model: ModelInfo): boolean {
   return typeof read === 'number' && read > 0 && CACHING_FAMILY.test(model.name);
 }
 
-/** The entry a runtime registers: the factory, and its static check. */
+/** The entry a runtime registers: the factory, its static check, and the keys it takes. */
 export const bedrockAdapterEntry: AdapterFactoryEntry = {
   adapterId: BEDROCK_ADAPTER_ID,
   capabilityKind: 'llm-inference',
   factory: bedrockAdapterFactory,
   checkConfig: bedrockCheckConfig,
+  configKeys: BEDROCK_CONFIG_KEYS,
+  movedConfigKeys: { region: 'metadata.region' },
 };
 
 /** What a 403 from Bedrock can mean, beyond its own words, for how the adapter signed in. */

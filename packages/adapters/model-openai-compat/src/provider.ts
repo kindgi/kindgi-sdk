@@ -460,12 +460,15 @@ export function openAICompatCheckConfig(
   );
 }
 
-/** The entry a runtime registers: the factory, and its static check. */
+/** The entry a runtime registers: the factory, its static check, and the keys it takes. */
 export const openAICompatAdapterEntry: AdapterFactoryEntry = {
   adapterId: OPENAI_COMPAT_ADAPTER_ID,
   capabilityKind: 'llm-inference',
   factory: openAICompatAdapterFactory,
   checkConfig: openAICompatCheckConfig,
+  configKeys: ['baseURL', 'api'],
+  // Each request field rides as `extraBody.<field>`.
+  configKeyPrefixes: ['extraBody.'],
 };
 
 /** What the checks read of a registration. */

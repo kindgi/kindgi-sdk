@@ -8,6 +8,7 @@ import {
   type AdapterFactoryEntry,
   type ModelProvider,
   type ProviderMetadata,
+  adapterConfigKeyProblems,
   createAdapterFactoryRegistry,
 } from '../src/index.js';
 
@@ -211,5 +212,100 @@ describe("a registry that refuses the server's own credentials", () => {
   test('without it, an entry is as registered and its inputs pass through', () => {
     const entry = fakeEntry();
     expect(createAdapterFactoryRegistry([entry], {}).get(entry.adapterId)).toBe(entry);
+  });
+});
+
+describe('adapterConfigKeyProblems', () => {
+  const declared = {
+    configKeys: ['api', 'baseURL'],
+    configKeyPrefixes: ['extraBody.'],
+    movedConfigKeys: { region: 'metadata.region' },
+  };
+
+  test('a key the adapter takes, or a prefix and its field, is no problem', () => {
+    expect(
+      adapterConfigKeyProblems(declared, {
+        api: 'responses',
+        baseURL: 'https://llm.acme.test/v1',
+        'extraBody.top_k': 40,
+      }),
+    ).toEqual([]);
+    expect(adapterConfigKeyProblems(declared, undefined)).toEqual([]);
+  });
+
+  test('an unknown key is one problem at its path, naming it and the keys the adapter takes', () => {
+    expect(adapterConfigKeyProblems(declared, { api: 'responses', aip: 'responses' })).toEqual([
+      {
+        path: '/adapter_config/aip',
+        message:
+          "adapter_config.aip isn't a setting of this adapter: it takes api, baseURL, extraBody.<field>.",
+      },
+    ]);
+    // A prefix alone has no field.
+    expect(adapterConfigKeyProblems(declared, { 'extraBody.': 1 }).map((p) => p.path)).toEqual([
+      '/adapter_config/extraBody.',
+    ]);
+  });
+
+  test('a moved key names where its setting goes', () => {
+    expect(adapterConfigKeyProblems(declared, { region: 'eu-west-1' })).toEqual([
+      {
+        path: '/adapter_config/region',
+        message: "adapter_config.region isn't read here: its setting is metadata.region.",
+      },
+    ]);
+  });
+
+  test('an adapter that takes none says so', () => {
+    expect(adapterConfigKeyProblems({ configKeys: [] }, { baseURL: 'x' })).toEqual([
+      {
+        path: '/adapter_config/baseURL',
+        message: "adapter_config.baseURL isn't a setting of this adapter: it takes none.",
+      },
+    ]);
+  });
+
+  test('without configKeys any key is taken; prefixes alone change nothing; moved keys are still reported', () => {
+    expect(adapterConfigKeyProblems({}, { anything: 1 })).toEqual([]);
+    expect(
+      adapterConfigKeyProblems({ configKeyPrefixes: ['extraBody.'] }, { anything: 1 }),
+    ).toEqual([]);
+    expect(
+      adapterConfigKeyProblems(
+        { movedConfigKeys: { thinkingLevels: 'metadata.models[].thinking.default' } },
+        { thinkingLevels: '{"acme-flash":"low"}', anything: 1 },
+      ),
+    ).toEqual([
+      {
+        path: '/adapter_config/thinkingLevels',
+        message:
+          "adapter_config.thinkingLevels isn't read here: its setting is metadata.models[].thinking.default.",
+      },
+    ]);
+  });
+
+  test('the messages carry keys and places, never values; the path escapes the key', () => {
+    const problems = adapterConfigKeyProblems(declared, {
+      'a/b~c': 'sk-acme-value',
+      region: 'acme-secret-region',
+    });
+    expect(problems.map((p) => p.path)).toEqual([
+      '/adapter_config/a~1b~0c',
+      '/adapter_config/region',
+    ]);
+    for (const p of problems) {
+      expect(p.message).not.toContain('sk-acme-value');
+      expect(p.message).not.toContain('acme-secret-region');
+    }
+  });
+
+  test("a registry's wrapped entries keep the declared keys", () => {
+    const entry = fakeEntry({ checkConfig: () => [], ...declared });
+    for (const options of [{ identities: {} }, { serverCredentials: false }]) {
+      const bound = createAdapterFactoryRegistry([entry], options).get(entry.adapterId);
+      expect(bound?.configKeys).toEqual(declared.configKeys);
+      expect(bound?.configKeyPrefixes).toEqual(declared.configKeyPrefixes);
+      expect(bound?.movedConfigKeys).toEqual(declared.movedConfigKeys);
+    }
   });
 });

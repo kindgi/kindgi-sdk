@@ -136,8 +136,9 @@ export interface DoctorCheck {
   readonly fix?: string;
   /**
    * One line per problem the message sums up (each registered provider's
-   * configuration problem: `<provider>: <path>: <message>`). The text output
-   * prints each under the check, marked ✗.
+   * configuration problem, or key its adapter doesn't read:
+   * `<provider>: <path>: <message>`). The text output prints each under the
+   * check, marked ✗.
    */
   readonly details?: readonly string[];
 }
@@ -1358,12 +1359,18 @@ async function providerCheck(
       const allPresets = await (seam.presets ?? (() => loadProviderPresets()))();
       const stale = staleDefaults(listed, allPresets, kindgi);
       const google = await vertexCredentials(ids, dir, ctx.env);
-      const notes = [...stale, ...(google === undefined ? [] : [google])];
-      const broken = await configIssues(ctx.clientFor(apiUrl, token), models);
-      if (broken !== undefined && broken.size > 0) {
-        const details = [...broken].flatMap(([id, issues]) =>
-          issues.map((i) => `${id}: ${i.path}: ${i.message}`),
-        );
+      const checks = [...((await configIssues(ctx.clientFor(apiUrl, token), models)) ?? [])];
+      // `issues` stop a build; `warnings` are keys a provider builds without
+      // reading, so they never make it unusable.
+      const broken = new Map(checks.filter(([, c]) => c.issues.length > 0));
+      const unread = checks
+        .filter(([, c]) => c.issues.length === 0)
+        .map(([id, c]) => unreadKeys(id, c.warnings, kindgi));
+      const notes = [...stale, ...(google === undefined ? [] : [google]), ...unread];
+      const details = checks.flatMap(([id, c]) =>
+        [...c.issues, ...c.warnings].map((i) => `${id}: ${i.path}: ${i.message}`),
+      );
+      if (broken.size > 0) {
         const fix = [...broken.keys()]
           .map((id) => reRegister(id, presetFor(id, allPresets), kindgi))
           .join(' ');
@@ -1392,11 +1399,14 @@ async function providerCheck(
       }
       return notes.length === 0
         ? pass('provider', registered)
-        : warn(
-            'provider',
-            [registered, ...notes.map((s) => s.message)].join(' '),
-            notes.map((s) => s.fix).join(' '),
-          );
+        : {
+            ...warn(
+              'provider',
+              [registered, ...notes.map((s) => s.message)].join(' '),
+              notes.map((s) => s.fix).join(' '),
+            ),
+            ...(details.length > 0 && { details }),
+          };
     }
     return ids.length > 0
       ? fail(
@@ -1507,19 +1517,33 @@ interface ConfigIssue {
 /**
  * Each provider's configuration problems by its adapter's own static check
  * (`GET /v1/providers/{id}/check`, T362): only the providers with any.
- * `undefined` when the runtime has no such route (older than 0.1.5): the
- * check is skipped. A provider the check can't read (gone meanwhile) is
- * left out.
+ * `issues` stop the runtime building it; `warnings` are `adapter_config`
+ * keys it builds without reading (a runtime before 0.3.0 leaves them out:
+ * it has none). `undefined` when the runtime has no such route (older than
+ * 0.1.5): the check is skipped. A provider the check can't read (gone
+ * meanwhile) is left out.
  */
 async function configIssues(
   client: ReturnType<CommandContext['clientFor']>,
   ids: readonly string[],
-): Promise<ReadonlyMap<string, readonly ConfigIssue[]> | undefined> {
-  const out = new Map<string, readonly ConfigIssue[]>();
+): Promise<
+  | ReadonlyMap<
+      string,
+      { readonly issues: readonly ConfigIssue[]; readonly warnings: readonly ConfigIssue[] }
+    >
+  | undefined
+> {
+  const out = new Map<
+    string,
+    { readonly issues: readonly ConfigIssue[]; readonly warnings: readonly ConfigIssue[] }
+  >();
   for (const id of ids) {
     try {
       const result = await client.providers.check(id);
-      if (result.issues.length > 0) out.set(id, result.issues);
+      const warnings = result.warnings ?? [];
+      if (result.issues.length > 0 || warnings.length > 0) {
+        out.set(id, { issues: result.issues, warnings });
+      }
     } catch (err) {
       const wire = extractKindgiError(err);
       if (wire?.code === 'not-found' && wire.serverCode === 'route-not-found') return undefined;
@@ -1543,6 +1567,31 @@ function reRegister(id: string, preset: ProviderPreset | undefined, kindgi: Kind
       ? kindgi('providers', 'register', `--preset=${preset.name}`, ...presetSettingFlags(preset))
       : kindgi('providers', 'register', '--spec=@<file>');
   return `${reRegisterSteps(id, register, kindgi)}${preset === undefined ? ' (its spec with the setting fixed)' : ''}`;
+}
+
+/**
+ * A provider that builds with `adapter_config` keys its adapter doesn't
+ * read: the fix registers it again from its spec with each key moved to
+ * the place its warning names, or removed. A preset can't set where a moved
+ * key goes (a model's `thinking.default`), so the fix is a spec.
+ */
+function unreadKeys(
+  id: string,
+  warnings: readonly ConfigIssue[],
+  kindgi: Kindgi,
+): { readonly message: string; readonly fix: string } {
+  const keys = warnings.map(
+    (w) =>
+      `adapter_config.${w.path
+        .replace(/^\/adapter_config\//, '')
+        .replaceAll('~1', '/')
+        .replaceAll('~0', '~')}`,
+  );
+  const spec = kindgi('providers', 'register', '--spec=@<file>');
+  return {
+    message: `${id} builds, but ${keys.length <= 1 ? `${keys[0] ?? 'a setting'} isn't` : `${keys.slice(0, -1).join(', ')} and ${keys[keys.length - 1]} aren't`} read.`,
+    fix: `${reRegisterSteps(id, spec, kindgi)} (its spec with each key moved to the place its warning names, or removed)`,
+  };
 }
 
 /** A provider's id is taken while it's registered: unregister it first. */

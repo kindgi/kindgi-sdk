@@ -71,7 +71,7 @@ Gemini 3 models can think before they answer, as much as Google sets by default.
   - an optional `secret_ref` holding a service-account key;
   - an optional `adapter_config.thinkingLevels`, `"model=level,…"`.
 - **`vertexTarget(input)`**: the project and location a registration names, as the factory reads them.
-- **`geminiAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, `geminiAdapterFactory` plus **`geminiCheckConfig(input)`**. The check reports what the factory would throw on (`adapter_config.api`, `secret_ref` on the Developer API, `adapter_config.project`, `metadata.region`, `adapter_config.thinkingLevels`) with the factory's own messages, without building anything.
+- **`geminiAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, `geminiAdapterFactory` plus **`geminiCheckConfig(input)`**. The check reports what the factory would throw on (`adapter_config.api`, `secret_ref` on the Developer API, `adapter_config.project`, `metadata.region`, `adapter_config.thinkingLevels`) with the factory's own messages, without building anything. The entry declares the keys it takes (`configKeys`: `api`, `project`, `thinkingLevels`), so a registration with any other is refused, naming it; a stored one builds without it being read.
 - **`GeminiThinkingLevel`**: `'minimal' | 'low' | 'medium' | 'high'`.
 - **Cost helpers**: `computeCostUsd(usage, rates)`, `toFrameworkUsage(usageMetadata)`, `GeminiCostRates`, `GeminiModelInfo`, `DEFAULT_CACHED_PROMPT_MULTIPLIER`.
 - **Translation helpers**: `toGeminiRequest(messages)`, `toGeminiFunctions(tools)`, `fromGeminiResponse(response)`, `mapFinishReason(reason)`, `checkFunctionName(name)`.

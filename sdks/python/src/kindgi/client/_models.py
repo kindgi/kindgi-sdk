@@ -5554,9 +5554,16 @@ class ProviderCheckResult(BaseModel):
     adapter_id: Annotated[str, Field(alias="adapterId")]
     checked: bool
     """
-    False when this runtime has no check for the provider's adapter; `issues` is then empty.
+    False when this runtime has no check for the provider's adapter and the adapter declares no keys; `issues` is then empty, and `warnings` is left out.
     """
     issues: list[AdapterConfigProblem]
+    """
+    What stops the runtime building the provider from its registration.
+    """
+    warnings: Annotated[list[AdapterConfigProblem] | None, Field(min_length=1)] = None
+    """
+    The `adapter_config` keys the provider's adapter doesn't take: the runtime builds it without reading them, and a new registration with one is refused. Each names the key and what the adapter takes, or where a moved key's setting goes. Present when there's at least one. A runtime before 0.3.0 leaves it out.
+    """
     secret_ref: Annotated[SecretRef1 | None, Field(alias="secretRef")] = None
     """
     The secret the provider's key resolves from, by name only, never its value. Present when the registration has one. Only a caller allowed to check the provider sees it. `kindgi dev` uses it to keep a provider's key out of the pack service's environment. A runtime before 0.1.6 leaves it out.

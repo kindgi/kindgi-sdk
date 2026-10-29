@@ -12,6 +12,7 @@ import {
   type AdapterFactoryEntry,
   type AdapterFactoryInput,
   type ProviderMetadata,
+  adapterConfigKeyProblems,
   createAdapterFactoryRegistry,
 } from '@kindgi/capabilities';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -90,7 +91,6 @@ describe('checkConfig', () => {
       'must be one of responses, chat-completions',
     ],
     [{ ...GOOD, auth: 'oauth' }, '/adapter_config/auth', 'must be one of api-key, entra'],
-    [{ ...GOOD, deployment: 'x' }, '/adapter_config/deployment', "isn't an Azure OpenAI setting"],
     [
       { resourceName: 'acme-res' },
       '/adapter_config/deployments',
@@ -162,6 +162,25 @@ describe('checkConfig', () => {
     const problems = check(config as Record<string, string>);
     expect(problems.map((p) => p.path)).toContain(path);
     expect(problems.find((p) => p.path === path)?.message).toContain(words);
+  });
+
+  test("a key it doesn't take is the registration's to refuse, from the keys its entry declares; its check leaves it be", () => {
+    const stored = { ...GOOD, deployment: 'x' };
+    expect(check(stored)).toEqual([]);
+    expect(adapterConfigKeyProblems(azureOpenAIAdapterEntry, stored)).toEqual([
+      {
+        path: '/adapter_config/deployment',
+        message:
+          "adapter_config.deployment isn't a setting of this adapter: it takes resourceName, baseURL, deployments, api, auth.",
+      },
+    ]);
+    expect(
+      adapterConfigKeyProblems(azureOpenAIAdapterEntry, {
+        ...GOOD,
+        api: 'responses',
+        auth: 'api-key',
+      }),
+    ).toEqual([]);
   });
 
   test('Entra on a runtime that has no Azure identity: refused when it registers, naming the setting', () => {
@@ -367,6 +386,19 @@ describe('what the provider sends', () => {
       attempts: 1,
     });
     expect(r.costUsd).toBeCloseTo((40 * 0.002 + 5 * 0.01) / 1000, 12);
+  });
+
+  test("a key it doesn't take, stored before 0.3.0: it builds, and sends what it sends without it", async () => {
+    const sent: Sent[] = [];
+    const provider = build(
+      { ...GOOD, deployment: 'x' },
+      { fetch: capturingFetch(sent), resolveApiKey: async () => 'key-one' },
+    );
+    await provider.invoke(ask());
+    expect(sent[0]?.url).toBe(
+      'https://acme-res.openai.azure.com/openai/v1/responses?api-version=v1',
+    );
+    expect(sent[0]?.body).toMatchObject({ model: 'gpt-6-1-sol', store: false });
   });
 
   test("Entra: a bearer from the runtime's identity for every request, for the Azure OpenAI scope; no api-key", async () => {

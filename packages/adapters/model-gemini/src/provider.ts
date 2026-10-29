@@ -399,12 +399,13 @@ export function geminiCheckConfig(input: AdapterConfigCheckInput): readonly Adap
   return [...vertexTargetProblems(input), ...(server !== undefined ? [server] : []), ...thinking];
 }
 
-/** The entry a runtime registers: the factory, and its static check. */
+/** The entry a runtime registers: the factory, its static check, and the keys it takes. */
 export const geminiAdapterEntry: AdapterFactoryEntry = {
   adapterId: GEMINI_ADAPTER_ID,
   capabilityKind: 'llm-inference',
   factory: geminiAdapterFactory,
   checkConfig: geminiCheckConfig,
+  configKeys: ['api', 'project', 'thinkingLevels'],
 };
 
 /** What the checks read of a registration. */

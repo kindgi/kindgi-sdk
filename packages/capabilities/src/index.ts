@@ -3,6 +3,7 @@
 
 export {
   adapterConfigError,
+  adapterConfigKeyProblems,
   createAdapterFactoryRegistry,
   identitiesPresent,
 } from './adapter-factory.js';

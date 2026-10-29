@@ -14,6 +14,7 @@ import {
   type AdapterConfig,
   type ProviderMetadata,
   adapterConfigError,
+  adapterConfigKeyProblems,
 } from '@kindgi/capabilities';
 
 import { GEMINI_ADAPTER_ID, geminiAdapterEntry, geminiCheckConfig } from '../src/index.js';
@@ -171,5 +172,40 @@ describe("a deployment that refuses the server's own credentials (serverCredenti
   test('a bad project is reported with the missing key', () => {
     const { problems } = both('global', { project: 'x' }, false, false);
     expect(problems.map((p) => p.path)).toEqual(['/adapter_config/project', '/secret_ref']);
+  });
+});
+
+describe('the keys it takes', () => {
+  test("api, project and thinkingLevels; any other is the registration's to refuse, naming them", () => {
+    expect(
+      adapterConfigKeyProblems(geminiAdapterEntry, {
+        api: 'vertex',
+        project: 'acme-project',
+        thinkingLevels: 'gemini-3-pro=high',
+      }),
+    ).toEqual([]);
+    expect(
+      adapterConfigKeyProblems(geminiAdapterEntry, {
+        project: 'acme-project',
+        location: 'us-central1',
+      }),
+    ).toEqual([
+      {
+        path: '/adapter_config/location',
+        message:
+          "adapter_config.location isn't a setting of this adapter: it takes api, project, thinkingLevels.",
+      },
+    ]);
+  });
+
+  test("a stored key it doesn't take: its check leaves it be, and it builds", () => {
+    const { problems, thrown } = both(
+      'global',
+      { project: 'acme-project', location: 'us-central1' },
+      true,
+      false,
+    );
+    expect(problems).toEqual([]);
+    expect(thrown).toBeUndefined();
   });
 });
