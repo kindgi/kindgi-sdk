@@ -521,6 +521,48 @@ describe('API — providers register + get', () => {
     expect(body.error.details?.reason).toBe('invalid-thinking');
   });
 
+  test("a model's levels and default round-trip; a default it doesn't take → 400 invalid-thinking, naming the ones it takes", async () => {
+    const { app } = makeApp();
+    const spec = providerSpec({ id: 'thinks-at' });
+    const thinking = { mode: 'adaptive', lowest: 'low', levels: ['low', 'medium', 'high', 'max'], default: 'max' };
+    const models = spec.models.map((m, i) => (i === 0 ? { ...m, thinking } : m));
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ metadata: { ...spec, models }, adapter_id: TEST_ADAPTER_ID }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/thinks-at', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(
+      ((await get.json()) as { models: { thinking?: unknown }[] }).models[0]?.thinking,
+    ).toEqual(thinking);
+    for (const [i, [bad, takes]] of [
+      // Without levels: the ones every thinking model takes.
+      [{ mode: 'adaptive', lowest: 'low', default: 'max' }, 'lowest, low, medium, high'],
+      [{ mode: 'adaptive', lowest: 'low', levels: ['low', 'high'], default: 'medium' }, 'lowest, low, high'],
+    ].entries()) {
+      const refused = await app.request('/v1/providers', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          metadata: {
+            ...providerSpec({ id: `bad-default-${i}` }),
+            models: spec.models.map((m) => ({ ...m, thinking: bad })),
+          },
+          adapter_id: TEST_ADAPTER_ID,
+        }),
+      });
+      expect(refused.status, JSON.stringify(bad)).toBe(400);
+      const body = (await refused.json()) as {
+        error: { message: string; details?: { reason?: string } };
+      };
+      expect(body.error.details?.reason).toBe('invalid-thinking');
+      expect(body.error.message).toContain(`isn't a level this model takes: it takes ${takes}`);
+    }
+  });
+
   test("a model's cost keeps its adapter's rates through register + get; a bad one → 400 invalid-cost", async () => {
     const { app } = makeApp();
     const spec = providerSpec({ id: 'rated' });

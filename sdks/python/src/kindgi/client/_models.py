@@ -2991,7 +2991,7 @@ class PublishAgentBody(BaseModel):
     """
     model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
     """
-    A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.
+    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
     """
     capabilities: list[Capability4]
     tools: list[ToolRef]
@@ -5299,7 +5299,7 @@ class CapabilityProvider(BaseModel):
 
 class ModelThinking(BaseModel):
     """
-    How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.
+    How the model thinks before it answers, and the levels it takes, so a call's level (an agent's model settings, or a judge's `lowest`) is sent as one it takes: any other is rounded to the next one it takes, or its highest, with a `thinking-level-adjusted` warning. Absent: it doesn't think, or nothing is known, and nothing is sent for it.
     """
 
     model_config = ConfigDict(
@@ -5313,6 +5313,24 @@ class ModelThinking(BaseModel):
     lowest: Annotated[str, Field(min_length=1)]
     """
     The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).
+    """
+    levels: (
+        list[
+            Annotated[Literal["minimal", "low", "medium", "high", "xhigh", "max"] | str, _open.OPEN]
+        ]
+        | None
+    ) = None
+    """
+    The levels the model takes besides `lowest`, least first. Absent: `low`, `medium` and `high`, which every thinking model takes, plus `minimal` when `lowest` is `minimal`, minus those below `lowest` when it is `low`, `medium` or `high` (any case).
+    """
+    default: (
+        Annotated[
+            Literal["lowest", "minimal", "low", "medium", "high", "xhigh", "max"] | str, _open.OPEN
+        ]
+        | None
+    ) = None
+    """
+    The level a call that asks none is sent. It must be `lowest` or one the model takes (`levels`), or the registration is refused. Absent: the vendor's default.
     """
 
 
@@ -5887,6 +5905,39 @@ class ModelCallError(BaseModel):
         populate_by_name=True,
     )
     message: str
+
+
+class ModelCallThinking(BaseModel):
+    """
+    The call's thinking. `asked` without `level`: nothing was sent (the model doesn't think, or its adapter doesn't say). `level` without `asked`: the model's `thinking.default`. `asked` and `level` differ: the level was rounded to one the model takes, and the call warned `thinking-level-adjusted`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    asked: (
+        Annotated[
+            Literal["lowest", "minimal", "low", "medium", "high", "xhigh", "max"] | str, _open.OPEN
+        ]
+        | None
+    ) = None
+    """
+    The level the call asked for: the agent's model settings, or a judge's `lowest`.
+    """
+    level: (
+        Annotated[
+            Literal["lowest", "minimal", "low", "medium", "high", "xhigh", "max"] | str, _open.OPEN
+        ]
+        | None
+    ) = None
+    """
+    The level its adapter sent.
+    """
+    sent: dict[str, str] | None = None
+    """
+    The vendor's own fields as they went out (`{ "thinkingLevel": "LOW" }`, `{ "reasoning_effort": "low" }`); on the AI SDK path, `{ "reasoning": <the portable value> }`.
+    """
 
 
 class CostTokenTotals(BaseModel):
@@ -13990,7 +14041,7 @@ class Agent(BaseModel):
     """
     model_settings: Annotated[BlockRef | None, Field(alias="modelSettings")] = None
     """
-    A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.
+    A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.
     """
     capabilities: list[Capability4]
     tools: list[ToolRef]
@@ -14741,6 +14792,7 @@ class CostRecord(BaseModel):
     `ok`: the provider answered. `failed`: the call threw.
     """
     usage: ModelCallTokens | None = None
+    thinking: ModelCallThinking | None = None
     duration_ms: Annotated[int | None, Field(alias="durationMs", ge=0)] = None
     finish_reason: Annotated[str | None, Field(alias="finishReason")] = None
     provider_request_id: Annotated[str | None, Field(alias="providerRequestId")] = None

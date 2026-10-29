@@ -11,7 +11,7 @@ import {
   type Feature,
   type ModelInfo,
   type ProviderMetadata,
-  isModelThinking,
+  modelThinkingProblem,
   validateProviderLabels,
 } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
@@ -708,11 +708,12 @@ function validateModelInfo(
       },
     };
   }
-  if (m.thinking !== undefined && !isModelThinking(m.thinking)) {
+  const thinking = m.thinking === undefined ? undefined : modelThinkingProblem(m.thinking);
+  if (thinking !== undefined) {
     return {
       kind: 'err',
       error: {
-        message: `provider "${providerId}" model "${m.name}" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+        message: `provider "${providerId}" model "${m.name}" thinking ${thinking}`,
         reason: 'invalid-thinking',
       },
     };

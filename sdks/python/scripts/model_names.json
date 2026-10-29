@@ -466,6 +466,7 @@
   "Model3": ["JudgedComparisonSummary.sampling.models"],
   "Model4": ["ImproveScheduleInput.model"],
   "ModelCallError": ["ModelCallError"],
+  "ModelCallThinking": ["ModelCallThinking"],
   "ModelCallTokens": ["ModelCallTokens"],
   "ModelInfo": ["ModelInfo"],
   "ModelThinking": ["ModelThinking"],

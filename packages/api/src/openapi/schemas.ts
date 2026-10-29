@@ -3228,7 +3228,7 @@ export const AgentSchema: JsonSchema = {
     modelSettings: {
       $ref: '#/components/schemas/BlockRef',
       description:
-        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+        "A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.",
     },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
@@ -3399,7 +3399,7 @@ export const PublishAgentBodySchema: JsonSchema = {
     modelSettings: {
       $ref: '#/components/schemas/BlockRef',
       description:
-        "A model-settings block by range: its `temperature` and `maxOutputTokens` go into the turn's model calls. Pinned at publish.",
+        "A model-settings block by range: its `temperature`, `maxOutputTokens` and `thinking` go into the turn's model calls. Pinned at publish.",
     },
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
@@ -7050,13 +7050,13 @@ export const CapabilityCollectionPageSchema: JsonSchema = {
   },
 };
 
-/** `ModelInfo.thinking`: how a model thinks, so a judge can ask for its least. */
+/** `ModelInfo.thinking`: how a model thinks, and the levels a call can ask of it. */
 export const ModelThinkingSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['mode', 'lowest'],
   description:
-    "How the model thinks before it answers, so a call that wants as little as it allows (a judge's) gets it. Absent: it doesn't think, or nothing is known.",
+    "How the model thinks before it answers, and the levels it takes, so a call's level (an agent's model settings, or a judge's `lowest`) is sent as one it takes: any other is rounded to the next one it takes, or its highest, with a `thinking-level-adjusted` warning. Absent: it doesn't think, or nothing is known, and nothing is sent for it.",
   properties: {
     mode: {
       type: 'string',
@@ -7068,6 +7068,19 @@ export const ModelThinkingSchema: JsonSchema = {
       minLength: 1,
       description:
         "The vendor's own setting for the least thinking: for Anthropic `disabled`, `between_tools` or an effort (`low`); for Gemini a thinking level (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).",
+    },
+    levels: {
+      type: 'array',
+      uniqueItems: true,
+      items: { type: 'string', enum: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+      description:
+        'The levels the model takes besides `lowest`, least first. Absent: `low`, `medium` and `high`, which every thinking model takes, plus `minimal` when `lowest` is `minimal`, minus those below `lowest` when it is `low`, `medium` or `high` (any case).',
+    },
+    default: {
+      type: 'string',
+      enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      description:
+        "The level a call that asks none is sent. It must be `lowest` or one the model takes (`levels`), or the registration is refused. Absent: the vendor's default.",
     },
   },
 };
@@ -7799,6 +7812,32 @@ export const ModelCallErrorSchema: JsonSchema = {
   properties: { message: { type: 'string' } },
 };
 
+/** How much a model call asked its model to think, and what was sent. */
+export const ModelCallThinkingSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "The call's thinking. `asked` without `level`: nothing was sent (the model doesn't think, or its adapter doesn't say). `level` without `asked`: the model's `thinking.default`. `asked` and `level` differ: the level was rounded to one the model takes, and the call warned `thinking-level-adjusted`.",
+  properties: {
+    asked: {
+      type: 'string',
+      enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      description: "The level the call asked for: the agent's model settings, or a judge's `lowest`.",
+    },
+    level: {
+      type: 'string',
+      enum: ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      description: 'The level its adapter sent.',
+    },
+    sent: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description:
+        "The vendor's own fields as they went out (`{ \"thinkingLevel\": \"LOW\" }`, `{ \"reasoning_effort\": \"low\" }`); on the AI SDK path, `{ \"reasoning\": <the portable value> }`.",
+    },
+  },
+};
+
 /** A model call's tokens, as a cost record and a provenance record carry them. */
 export const ModelCallTokensSchema: JsonSchema = {
   type: 'object',
@@ -7906,6 +7945,7 @@ export const CostRecordSchema: JsonSchema = {
       description: '`ok`: the provider answered. `failed`: the call threw.',
     },
     usage: { $ref: '#/components/schemas/ModelCallTokens' },
+    thinking: { $ref: '#/components/schemas/ModelCallThinking' },
     durationMs: { type: 'integer', minimum: 0 },
     finishReason: { type: 'string' },
     providerRequestId: { type: 'string', description: "The vendor's id for the request." },
@@ -15748,6 +15788,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CostRecord', CostRecordSchema],
   ['ModelCallTokens', ModelCallTokensSchema],
   ['ModelCallError', ModelCallErrorSchema],
+  ['ModelCallThinking', ModelCallThinkingSchema],
   ['CostTokenTotals', CostTokenTotalsSchema],
   ['CostRecordCollectionPage', CostRecordCollectionPageSchema],
   ['CostAggregateGroup', CostAggregateGroupSchema],

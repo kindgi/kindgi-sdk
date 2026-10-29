@@ -9,6 +9,8 @@ import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
+import { validateAgainst } from './support/openapi-schema.js';
+
 import { createApp } from '../src/index.js';
 import type {
   CostAggregateGroup,
@@ -879,6 +881,34 @@ describe("API — a model call's cost record (T135)", () => {
       providerRequestId: 'req_1',
       attempts: 2,
     });
+  });
+
+  test('a record carries what the call asked of thinking and what was sent, and the wire takes it', async () => {
+    const thinking = {
+      asked: 'minimal' as const,
+      level: 'low' as const,
+      sent: { 'thinking.type': 'between_tools', 'output_config.effort': 'low' },
+    };
+    const rec = call({ thinking });
+    const { app } = makeApp([rec]);
+    const one = (await (await app.request(`/v1/cost/records/${rec.id}`, auth)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(one.thinking).toEqual(thinking);
+    expect(validateAgainst('ModelCallThinking', one.thinking)).toEqual([]);
+    const page = (await (await app.request('/v1/cost/records', auth)).json()) as {
+      data: Record<string, unknown>[];
+    };
+    expect(page.data[0]?.thinking).toEqual(thinking);
+    // A call that asked nothing and sent nothing has none.
+    const plain = call();
+    const { app: plainApp } = makeApp([plain]);
+    const none = (await (await plainApp.request(`/v1/cost/records/${plain.id}`, auth)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(none).not.toHaveProperty('thinking');
   });
 
   test('`include=rawUsage` asks the binding for the vendor’s own counts; an unknown include is refused', async () => {

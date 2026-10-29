@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { runOutsideTenant } from '@kindgi/bounds';
+import { THINKING_LEVELS, type ThinkingLevel } from '@kindgi/capabilities';
 import { type CompiledInlineSchema, compileInlineSchema, compileJsonSchema } from '@kindgi/schema';
 import type { ProjectId, Result, TenantId } from '@kindgi/types';
 
@@ -228,6 +229,7 @@ export const MODEL_SETTINGS_SCHEMA: Readonly<Record<string, unknown>> = {
   properties: {
     temperature: { type: 'number', minimum: 0, maximum: 2 },
     maxOutputTokens: { type: 'integer', minimum: 1 },
+    thinking: { type: 'string', enum: [...THINKING_LEVELS] },
     providerId: { type: 'string', minLength: 1 },
     model: { type: 'string', minLength: 1 },
   },
@@ -237,6 +239,13 @@ export const MODEL_SETTINGS_SCHEMA: Readonly<Record<string, unknown>> = {
 export interface ModelSettings {
   readonly temperature?: number;
   readonly maxOutputTokens?: number;
+  /**
+   * How much the turn's model thinks before it answers: `lowest` (as
+   * little as it allows) up to `max`. A level the model doesn't take is
+   * rounded to one it does, and the call says so. Absent: the model's
+   * own default. Each call records the level it sent.
+   */
+  readonly thinking?: ThinkingLevel;
   /**
    * The provider the turn prefers, as `Agent.preferredProvider` (a soft
    * hint: the policy and the capability still choose). Set here, the
