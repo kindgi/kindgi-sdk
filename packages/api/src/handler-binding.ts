@@ -211,7 +211,8 @@ export interface RunHandlerFailure {
    * The domain error's structured fields — sent as the wire error's
    * `details`, which clients hydrate into typed errors. A binding
    * forwards them as-is: for `guardrail-violation`, `violations` and
-   * `evaluationErrors` from `@kindgi/agents`' `GuardrailViolationError`.
+   * `evaluationErrors` from `@kindgi/agents`' `GuardrailViolationError`,
+   * and `attempts` when a `retry` guardrail's attempts ran out.
    * For `rate-limit-exceeded` (`RateLimitExceededError`), `retryAfterMs`
    * is answered as `Retry-After`, not in the body.
    */

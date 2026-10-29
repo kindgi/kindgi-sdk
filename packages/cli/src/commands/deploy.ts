@@ -988,8 +988,10 @@ async function waitForPackService(
 
 /**
  * Where the deployment's pack declares names that stand in the way, said
- * as what to do: nothing when none does, when the server doesn't give pack
- * services their env (or is older), or when it can't be read.
+ * as what to do: nothing when none does, or when the server doesn't give
+ * pack services their env (or is older). A read that fails is said, with
+ * why, so no lines never stand for a read that didn't happen. A read the
+ * stop cut short says nothing: the wait says it stopped.
  */
 async function packEnvLines(
   ctx: CommandContext,
@@ -1006,7 +1008,8 @@ async function packEnvLines(
     fetchImpl: ctx.fetch,
     ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
   });
-  if (got.kind !== 'ok') return [];
+  if (got.kind === 'not-served' || ctx.stopSignal?.aborted === true) return [];
+  if (got.kind === 'error') return [`Couldn't read where each value is set: ${got.message}`];
   return packEnvProblemLines(got.packEnv.data, {
     envName: got.packEnv.envName,
     ...(projectId !== undefined && { projectId }),

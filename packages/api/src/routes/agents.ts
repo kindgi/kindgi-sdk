@@ -14,7 +14,7 @@ import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { Cursor, LiveScope, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
-import { resolveAgentPins } from '../agent-pins.js';
+import { resolveAgentPins, toolPinLookup } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import {
   type DeriveAgentVersionOutcome,
@@ -43,6 +43,7 @@ import {
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import {
   type ReferenceScopeBinding,
   agentReferences,
@@ -82,7 +83,9 @@ import { parseScopeParams } from './scope-params.js';
  * resolves once, at publish, to the exact version every run of that
  * version uses (`pins`, see `resolveAgentPins`), and a range that
  * matches no published version refuses the publish. Without it,
- * versions carry no pins and resolve their ranges per run.
+ * versions carry no pins and resolve their ranges per run. With
+ * `pinnedVersions` too, a tool pinned for the agent's project pins its
+ * pinned version when that one is in the range.
  */
 export function agentsRouter(
   binding: AgentRegistryBinding,
@@ -107,6 +110,8 @@ export function agentsRouter(
   itemRights?: ItemRights,
   /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
   itemServing?: ItemServing,
+  /** The tools' pinned versions, read when a version is pinned; absent → each range's newest. */
+  pinnedVersions?: PinnedVersionBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -192,6 +197,7 @@ export function agentsRouter(
     });
     // An agent more than one project serves is checked on those projects
     // instead (`item-rights.ts`, `agentCheck`).
+    // '/:agentId/*' matches '/:agentId' too: this one gate decides both, once.
     r.use(
       '/:agentId/*',
       itemMiddleware({
@@ -211,18 +217,6 @@ export function agentsRouter(
                 ? 'publish'
                 : 'admin',
         check: (c, projects) => agentCheck(c, projects),
-        versionNotFound: agentVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:agentId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'agent',
-        id: (c) => c.req.param('agentId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: agentVersionNotFound,
       }),
     );
@@ -613,7 +607,14 @@ export function agentsRouter(
     // publish rather than store a partly pinned version.
     let agent: Agent = defined.value;
     if (toolRegistry !== undefined) {
-      const resolved = await resolveAgentPins(toolRegistry, tenantId, defined.value, blockRegistry);
+      const resolved = await resolveAgentPins(
+        toolRegistry,
+        tenantId,
+        defined.value,
+        blockRegistry,
+        undefined,
+        toolPinLookup(pinnedVersions, projectId),
+      );
       if (resolved.kind === 'unpinnable') {
         c.status(statusFor('invalid-agent') as never);
         return c.json(
@@ -632,9 +633,7 @@ export function agentsRouter(
 
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
-      principal?.actor.kind === 'user'
-        ? (principal.actor.id as UserId)
-        : ('00000000-0000-0000-0000-000000000000' as UserId);
+      principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
     const outcome = await binding.publish({
       tenantId,
       projectId,
@@ -714,10 +713,7 @@ export function agentsRouter(
       ...(parsed.projectId !== undefined && { projectId: parsed.projectId }),
       ...(environmentOrders !== undefined && { orders: environmentOrders }),
       tuplesFor: (projectId) => (id) =>
-        tuplesForCreate(
-          { kind: 'agent', id: id as AgentId, tenantId, projectId },
-          userId ?? ('00000000-0000-0000-0000-000000000000' as UserId),
-        ),
+        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId }, userId),
     });
     return derived(c, agentId, parsed.from, outcome, authorizer);
   });
@@ -1132,6 +1128,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     ...(a.toolErrors !== undefined && { toolErrors: a.toolErrors }),
     ...(a.preferredProvider !== undefined && { preferredProvider: a.preferredProvider }),
     ...(a.preferredModel !== undefined && { preferredModel: a.preferredModel }),
+    ...(a.parallelToolCalls !== undefined && { parallelToolCalls: a.parallelToolCalls }),
     ...(a.pins !== undefined && { pins: a.pins }),
     ...(a.pinsDigest !== undefined && { pinsDigest: a.pinsDigest }),
     ...(a.derivedFrom !== undefined && { derivedFrom: a.derivedFrom }),

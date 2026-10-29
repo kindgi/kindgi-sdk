@@ -71,6 +71,12 @@ export interface NotFoundError {
   readonly serverCode?: string;
   readonly message: string;
   readonly resource: { readonly kind: string; readonly id: string };
+  /**
+   * The server's details (a run's `recordState` and `reason` for a
+   * `provenance-not-found` whose record isn't written yet, …), when it
+   * sent any.
+   */
+  readonly fields?: Readonly<Record<string, unknown>>;
 }
 
 export interface ConflictError {
@@ -117,6 +123,11 @@ export interface GuardrailViolationError {
     readonly guardrailId: string;
     readonly message: string;
   }[];
+  /**
+   * The answers the turn had when a `retry` guardrail's attempts ran out,
+   * the first one included. Absent when a `halt` guardrail stopped it.
+   */
+  readonly attempts?: number;
 }
 
 /** One guardrail that blocked a run. */
@@ -367,13 +378,16 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'scope-invalid':
     case 'artifact-too-large':
       return invalidRequest(message, obj, details);
-    case 'guardrail-violation':
+    case 'guardrail-violation': {
+      const attempts = details?.attempts;
       return {
         code: 'guardrail-violation',
         message,
         violations: readGuardrailViolations(details?.violations),
         evaluationErrors: readEvaluationErrors(details?.evaluationErrors),
+        ...(typeof attempts === 'number' && Number.isInteger(attempts) ? { attempts } : {}),
       };
+    }
     default:
       return byStatus(status, code, message, obj, details);
   }
@@ -445,6 +459,7 @@ function notFound(code: string, message: string, details: WireFields | undefined
           'id',
         ) ?? 'unknown',
     },
+    ...(details !== undefined && { fields: details }),
   };
 }
 

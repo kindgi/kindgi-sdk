@@ -66,22 +66,27 @@ change, and the Improve run is refused, saying so: `validation-failed`, with
 
 Improve changes the agent's model-settings block (the one it names as
 `modelSettings`) the same way: mark its keys. It takes `temperature` (0 to 2),
-`maxOutputTokens`, and the model the turn prefers, `model` (with
-`providerId` for its provider). List the models an Improve run may try as the
-`model` key's `enum`:
+`maxOutputTokens`, how much the model thinks, `thinking`, and the model the
+turn prefers, `model` (with `providerId` for its provider). List the models
+an Improve run may try as the `model` key's `enum`, and the thinking levels
+as `thinking`'s:
 
 ```json
 {
   "type": "object",
   "properties": {
     "temperature": { "type": "number", "minimum": 0, "maximum": 1, "x-kindgi-tunable": true },
+    "thinking": { "enum": ["lowest", "low", "medium"], "x-kindgi-tunable": true },
     "model": { "enum": ["claude-sonnet-5-5", "claude-haiku-4-5"], "x-kindgi-tunable": true }
   }
 }
 ```
 
 An Improve run tries each marked key within these bounds, kept inside what model
-settings allow. It compares what the replays cost at the models' registered
+settings allow. A level the model doesn't take is rounded, or not sent to a
+model that doesn't think, as
+[Temperature and thinking](../../models/#temperature-and-thinking) describes.
+It compares what the replays cost at the models' registered
 prices, as a [budget](../../agents/budgets/) counts them, so list models
 registered with their prices. List ones your registered providers serve,
 too: a preference never excludes, so a model none of them serves replays on

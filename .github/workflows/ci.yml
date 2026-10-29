@@ -107,6 +107,13 @@ jobs:
         if: github.event_name == 'pull_request'
         run: pnpm run check:docs-ship
 
+      # A skill is its folder (SKILL.md and the files beside it), and a change to
+      # any of its files bumps the version in its SKILL.md, so `kindgi skills
+      # sync` says which version each copy is at. scripts/check-skill-versions.mjs.
+      - name: A changed skill bumps its version
+        if: github.event_name == 'pull_request'
+        run: pnpm run check:skill-versions
+
       # The SDKs read a pattern's syntax as the runtime's JavaScript does, so
       # these two run on the Node of the runtime's image, not the newest 22.x:
       # this version follows the image's. Last, so no other step runs on it.

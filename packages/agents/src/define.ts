@@ -65,6 +65,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateBudget(spec.budget),
     ...validateConversationPolicy(spec.conversationPolicy, toolIdsOf(spec.tools)),
     ...validateToolErrors(spec.toolErrors),
+    ...validateParallelToolCalls(spec.parallelToolCalls),
   ];
   const output = resolveOutput(spec.output);
   if (output.kind === 'err') issues.push(...output.issues);
@@ -237,6 +238,18 @@ export interface DefineAgentSpec {
    * A tenant's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
    */
   readonly toolErrors?: ToolErrorsSpec;
+  /**
+   * Whether calls to read-only tools (`mutating: false`, no changing
+   * effect) that a model step asks for one after another run at the same
+   * time, up to 8 at once. A call to a read-only tool that pauses or
+   * declares connections runs on its own, since it may wait. Default: on.
+   * `false`: every call runs on its own, in the order the model asked for
+   * them. Either way, a step's results reach the conversation and the
+   * model in that order, and once a call needs a review, the step's calls
+   * that haven't started run one at a time. It doesn't change what the
+   * model may ask for.
+   */
+  readonly parallelToolCalls?: boolean;
   /**
    * Per-conversation behavior — how much history to load, when to
    * gate on HITL, when to auto-close. Every field optional; defaults
@@ -613,6 +626,11 @@ function validateToolErrors(toolErrors: DefineAgentSpec['toolErrors']): Issue[] 
     : checked.issues.map((i) => ({ path: `/toolErrors${i.path}`, message: i.message }));
 }
 
+function validateParallelToolCalls(value: unknown): Issue[] {
+  if (value === undefined || typeof value === 'boolean') return [];
+  return [{ path: '/parallelToolCalls', message: 'parallelToolCalls must be true or false' }];
+}
+
 /** The agent's tool ids, when its `tools` is a list of refs (else nothing to check keys against). */
 function toolIdsOf(tools: unknown): ReadonlySet<string> | undefined {
   if (!Array.isArray(tools)) return undefined;
@@ -904,5 +922,6 @@ function buildAgent(spec: DefineAgentSpec, output: AgentOutputSpec | undefined):
         ...(spec.toolErrors.retryOn !== undefined && { retryOn: [...spec.toolErrors.retryOn] }),
       },
     }),
+    ...(spec.parallelToolCalls !== undefined && { parallelToolCalls: spec.parallelToolCalls }),
   };
 }

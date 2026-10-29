@@ -515,11 +515,13 @@ naming each. So do model settings with values a model can't take:
 `Agent "acme-ops.reply-drafter" uses tool or data-block versions it can't pin (1 issue)`.
 
 **Model settings** are a settings block the agent names as `modelSettings`,
-such as `{ "temperature": 0.2, "maxOutputTokens": 400 }`. A temperature goes
-from 0 to 2. Its model calls use them, and the version pins the block with
-its other settings. The block can also name the model the turn prefers,
-`model` and `providerId`, in place of the agent's `preferredModel` and
-`preferredProvider` ([never both](../../agents/choose-a-model/#prefer-a-provider-or-a-model)).
+such as `{ "temperature": 0.2, "maxOutputTokens": 400, "thinking": "low" }`.
+A temperature goes from 0 to 2. `thinking` is how much the model thinks:
+`lowest`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Its model
+calls use them, and the version pins the block with its other settings. The
+block can also name the model the turn prefers, `model` and `providerId`, in
+place of the agent's `preferredModel` and `preferredProvider`
+([never both](../../agents/choose-a-model/#prefer-a-provider-or-a-model)).
 
 - **A reply that reaches `maxOutputTokens` stops there,** mid-sentence if
   need be, and the run still completes.
@@ -528,7 +530,12 @@ its other settings. The block can also name the model the turn prefers,
   `sampling-unsupported` warning, as
   [Temperature and thinking](../../models/#temperature-and-thinking)
   describes.
-- **A model that thinks** spends part of `maxOutputTokens` on thinking.
+- **A model that thinks** spends part of `maxOutputTokens` on thinking. A
+  level it doesn't take goes as the next one up that it takes, or its
+  highest, with a `thinking-level-adjusted` warning. Without `thinking`, its
+  calls get the model's registered `default`, or else the vendor's, as
+  [Temperature and thinking](../../models/#temperature-and-thinking)
+  describes.
 
 ## Change a block
 

@@ -48,6 +48,8 @@ import type {
   DeploymentContents,
   DeploymentEndpoint,
   GatePolicy,
+  PinVersionInput,
+  PinnedVersionBinding,
   PromoteInput,
   PromotedToolSecretScopes,
   Promotion,
@@ -258,6 +260,48 @@ const notUsed = async (): Promise<never> => {
 };
 
 /**
+ * A flow and tool pin binding that records every pin a make-live asks for
+ * and answers it pinned; a flow in `errorOn` fails its write (the error
+ * only the write can give). `bindings` wires it into the app; with no
+ * `how`, there's no binding and `asked` stays empty.
+ */
+function flowPinBinding(how: { readonly errorOn?: readonly string[] } | undefined) {
+  const asked: PinVersionInput[] = [];
+  if (how === undefined) return { asked, bindings: {} };
+  const errorOn = how.errorOn ?? [];
+  const binding: PinnedVersionBinding = {
+    resolve: async () => null,
+    list: async () => [],
+    pin: async (input) => {
+      if (errorOn.includes(input.itemId)) {
+        return { kind: 'err', error: { code: 'persistence-error', message: 'write failed' } };
+      }
+      asked.push(input);
+      return {
+        kind: 'ok',
+        value: {
+          change: {
+            id: randomUUID(),
+            kind: input.kind,
+            itemId: input.itemId,
+            scope: input.scope,
+            action: 'pin',
+            fromVersion: null,
+            toVersion: input.version,
+            requestedBy: input.requestedBy,
+            createdAt: '2026-10-27T07:00:00.000Z' as Timestamp,
+          },
+          unchanged: false,
+        },
+      };
+    },
+    unpin: notUsed,
+    history: notUsed,
+  };
+  return { asked, bindings: { pinnedVersions: binding } };
+}
+
+/**
  * A live-release binding that records every pin a make-live asks for and
  * answers it live at once, with no gate. `pinned` is each `promote` input,
  * in order, so a test can read the scope the pin was set at.
@@ -357,6 +401,8 @@ function harness(
     readonly errorOn?: readonly string[];
     /** Items an order carries, so an agent spans more than one project. */
     readonly itemRows?: readonly ItemRow[];
+    /** Wire a flow pin binding (`flowPinBinding`), so `makeLive` pins the carried flows; the flows named fail their write. */
+    readonly flowPins?: { readonly errorOn?: readonly string[] };
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -416,6 +462,7 @@ function harness(
   const live =
     opts.live === true ? livePins({ gated: opts.gated, errorOn: opts.errorOn }) : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
+  const flowPins = flowPinBinding(opts.flowPins);
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -450,6 +497,7 @@ function harness(
     secretsBinding: secretsBinding as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
     ...(live !== undefined && { agentReleases: live.releases }),
+    ...flowPins.bindings,
     ...(items !== undefined && { itemProjects: items }),
     ...(opts.suspended !== undefined && {
       projectSuspended: async (_t: TenantId, p: ProjectId) => opts.suspended?.includes(p) === true,
@@ -481,6 +529,8 @@ function harness(
     versions,
     /** The pins the make-live asked for, in order (empty without `live`). */
     pinned: live?.pinned ?? [],
+    /** The flow pins the make-live asked for, in order (empty without `flowPins`). */
+    flowPinned: flowPins.asked,
     promote: (id: string, toProjectId: ProjectId, reason?: string) =>
       call(`/v1/deployments/${id}/promotions`, {
         toProjectId,
@@ -1217,5 +1267,116 @@ describe('making the carried agents live in the target (makeLive)', () => {
     expect(res.body.error.details?.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]).toMatchObject({ agentId: AGENT });
+  });
+});
+
+describe('making the carried flows the ones in use in the target (makeLive)', () => {
+  const AGENT = 'acme.matcher';
+  const FLOW = 'acme.refunds';
+  const LATER = 'acme.returns';
+  const shipsFlows = (...flows: string[]) =>
+    built({
+      id: 'dep-s1',
+      projectId: S1,
+      contents: { ...SHIPS, flows: flows.map((id) => ({ id, version: '1.0.0' })) },
+    });
+  const grants = (...extra: string[]) => [
+    `read project:${S1}`,
+    `admin project:${S2}`,
+    `promote agent:${AGENT}`,
+    ...extra,
+  ];
+
+  test('pins each carried flow version in the target project, after the agents, and reports it in pinnedFlows; a flow one project serves is asked the pin right', async () => {
+    const h = harness({
+      live: true,
+      flowPins: {},
+      rows: [shipsFlows(FLOW)],
+      grants: grants(`pin flow:${FLOW}`),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.pinnedFlows).toEqual([{ id: FLOW, version: '1.0.0' }]);
+    // The target project's own pin: never the org's or the tenant's.
+    expect(h.flowPinned).toHaveLength(1);
+    expect(h.flowPinned[0]).toMatchObject({
+      kind: 'flow',
+      itemId: FLOW,
+      version: '1.0.0',
+      scope: { kind: 'project', projectId: S2 },
+    });
+  });
+
+  test("refused when the caller can't pin a flow one project serves: 403 before any pin, an agent's included", async () => {
+    const h = harness({
+      live: true,
+      flowPins: {},
+      rows: [shipsFlows(FLOW)],
+      grants: grants(),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(403);
+    expect(res.body.error.details).toMatchObject({ action: 'pin', resource: `flow:${FLOW}` });
+    expect(h.pinned).toEqual([]);
+    expect(h.flowPinned).toEqual([]);
+    // The build still moved.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+  });
+
+  test('a flow an order carries is asked admin on the target project, which the promotion needs anyway', async () => {
+    const h = harness({
+      live: true,
+      flowPins: {},
+      rows: [shipsFlows(FLOW)],
+      itemRows: [{ kind: 'flow', id: FLOW, projects: [S1, S2] }],
+      grants: grants(),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.pinnedFlows).toEqual([{ id: FLOW, version: '1.0.0' }]);
+  });
+
+  test('a later carried flow’s pin write fails: the error carries the agents made live and the flows pinned so far', async () => {
+    const h = harness({
+      live: true,
+      flowPins: { errorOn: [LATER] },
+      rows: [shipsFlows(FLOW, LATER)],
+      grants: grants(`pin flow:${FLOW}`, `pin flow:${LATER}`),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('persistence-error');
+    expect(res.body.error.details?.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.error.details?.pinnedFlows).toEqual([{ id: FLOW, version: '1.0.0' }]);
+    expect(h.flowPinned.map((p) => p.itemId)).toEqual([FLOW]);
+  });
+
+  test('without a pin binding nothing pins a flow, so the answer has no pinnedFlows; a promotion without makeLive pins none either', async () => {
+    const without = harness({
+      live: true,
+      rows: [shipsFlows(FLOW)],
+      grants: grants(),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await without.makeLive('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.pinnedFlows).toBeUndefined();
+
+    const plain = harness({
+      live: true,
+      flowPins: {},
+      rows: [shipsFlows(FLOW)],
+      grants: grants(`pin flow:${FLOW}`),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const moved = await plain.promote('dep-s1', S2);
+    expect(moved.status).toBe(201);
+    expect(moved.body.pinnedFlows).toBeUndefined();
+    expect(plain.flowPinned).toEqual([]);
   });
 });

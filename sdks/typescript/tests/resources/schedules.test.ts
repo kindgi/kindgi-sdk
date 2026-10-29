@@ -151,4 +151,41 @@ describe('schedules — agents, history, run-now, ownership', () => {
       `POST /v1/schedules/${ID}/owner`,
     ]);
   });
+
+  it('versions / getVersion: GET /v1/schedules/:triggerId/versions, paged, and one by number', async () => {
+    const v2 = {
+      scheduleId: ID,
+      triggerId: ID,
+      version: 2,
+      createdAt: '2026-10-10T10:00:00Z',
+      createdBy: 'user:u-1',
+      cause: 'edit',
+      definition: {
+        flowId: 'acme.nightly',
+        flowVersion: '1.0.0',
+        projectId: '33333333-3333-4333-8333-333333333333',
+        owner: { kind: 'user', id: 'u-1' },
+        cronExpression: '0 3 * * *',
+        catchUp: 'latest',
+        overlap: 'skip',
+        startingDeadlineSeconds: 600,
+        label: null,
+      },
+    };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [v2], hasMore: true, nextCursor: 'c2' }) },
+      { status: 200, body: JSON.stringify(v2) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const page = await client.schedules.versions(ID, { limit: 1, cursor: 'c1' });
+    expect(page.data[0]?.cause).toBe('edit');
+    expect(page.nextCursor).toBe('c2');
+    expect((await client.schedules.getVersion(ID, 2)).version).toBe(2);
+    expect(
+      stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}${new URL(c.url).search}`),
+    ).toEqual([
+      `GET /v1/schedules/${ID}/versions?limit=1&cursor=c1`,
+      `GET /v1/schedules/${ID}/versions/2`,
+    ]);
+  });
 });

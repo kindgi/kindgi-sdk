@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -260,10 +260,16 @@ Docs: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
 **`mutating(false)`** declares a tool read-only: it changes nothing outside
 itself (a lookup, a search, a calculation). A dry run
 (`./kindgiw runs start --dry-run`) runs it. Leave it unset for anything that
-writes, sends, charges or deletes: such a tool stops a dry run. It's also
-the tool's approval default: an agent that turns approval gates on
+writes, sends, charges or deletes: such a tool stops a dry run. It's also the
+tool's approval default: an agent that turns approval gates on
 (`conversationPolicy.hitl`) asks before any tool that isn't read-only on its
-first use.
+first use. And it decides what runs together: when a model step asks for
+several calls at once, an agent runs calls to read-only tools (no changing
+effect either) that come one after another at the same time, up to 8 of them,
+and any other call on its own, in the order the model asked (an agent with
+`set("parallelToolCalls", false)` runs every call on its own). A call that may
+wait, for another system's answer or for the person who started the run to
+connect an app, runs on its own too.
 
 In a run a new mail started, a call of a tool that isn't read-only waits
 for a person's yes, unless the mail trigger's `toolsAllowedUnattended`
@@ -446,10 +452,11 @@ removed field, a narrower type), not on every save.
 7. **A class the tool uses with `test` or `provided` scope.** It works under
    `kindgi dev` and fails in the image, which copies the runtime classpath
    only. Use `compile` or `runtime` scope.
-8. **A read-only tool without `mutating(false)`.** A dry run stops at it, and
-   an approval gate asks before it on first use.
+8. **A read-only tool without `mutating(false)`.** A dry run stops at it, an
+   approval gate asks before it on first use, and an agent runs each call to
+   it on its own.
 9. **`mutating(false)` on a tool that writes.** A dry run then runs it for
-   real.
+   real, and an agent may run it at the same time as other calls.
 10. **A Jackson module registered only in code, on your own `ObjectMapper`.**
     kindgi-pack finds modules as `findAndRegisterModules()` does, through
     `META-INF/services`. Declare it there, or the tool's input and schema

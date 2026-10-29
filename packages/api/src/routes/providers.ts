@@ -11,7 +11,8 @@ import {
   type Feature,
   type ModelInfo,
   type ProviderMetadata,
-  isModelThinking,
+  adapterConfigKeyProblems,
+  modelThinkingProblem,
   validateProviderLabels,
 } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
@@ -260,7 +261,13 @@ export function providersRouter(
       ...(secretRefResult.value !== undefined && { secretRef: secretRefResult.value }),
       ...(adapterConfigResult.value !== undefined && { adapterConfig: adapterConfigResult.value }),
     });
-    const problems = [...registrationProblems(bodyObj), ...(adapterProblems ?? [])];
+    // A key the adapter doesn't take is refused here too: a stored one
+    // builds, with a warning, but a new registration needn't carry one.
+    const problems = [
+      ...registrationProblems(bodyObj),
+      ...(adapterProblems?.issues ?? []),
+      ...(adapterProblems?.warnings ?? []),
+    ];
     if (problems.length > 0) {
       c.status(statusFor('provider-config-invalid') as never);
       return c.json(
@@ -377,7 +384,10 @@ export function providersRouter(
       providerId,
       adapterId: entry.adapterId,
       checked: problems !== undefined,
-      issues: problems ?? [],
+      issues: problems?.issues ?? [],
+      // Keys it builds without reading: apart from `issues`, which stop a build.
+      ...(problems !== undefined &&
+        problems.warnings.length > 0 && { warnings: problems.warnings }),
       // Where its key resolves from, by name only (never a value), so
       // `kindgi dev` can keep a provider's key out of the pack's environment.
       ...(entry.secretRef !== undefined && {
@@ -708,11 +718,12 @@ function validateModelInfo(
       },
     };
   }
-  if (m.thinking !== undefined && !isModelThinking(m.thinking)) {
+  const thinking = m.thinking === undefined ? undefined : modelThinkingProblem(m.thinking);
+  if (thinking !== undefined) {
     return {
       kind: 'err',
       error: {
-        message: `provider "${providerId}" model "${m.name}" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+        message: `provider "${providerId}" model "${m.name}" thinking ${thinking}`,
         reason: 'invalid-thinking',
       },
     };
@@ -739,7 +750,12 @@ function validateModelInfo(
     ...(m.maxOutputTokens !== undefined && { maxOutputTokens: m.maxOutputTokens }),
     ...(m.sampling !== undefined && { sampling: m.sampling }),
     ...(m.thinking !== undefined && {
-      thinking: { mode: m.thinking.mode, lowest: m.thinking.lowest },
+      thinking: {
+        mode: m.thinking.mode,
+        lowest: m.thinking.lowest,
+        ...(m.thinking.levels !== undefined && { levels: m.thinking.levels }),
+        ...(m.thinking.default !== undefined && { default: m.thinking.default }),
+      },
     }),
     ...(m.description !== undefined && { description: m.description }),
   };
@@ -778,31 +794,55 @@ function costExtraRates(
 }
 
 /**
- * What's wrong with a registration, by its adapter's own static check
- * (`AdapterFactoryEntry.checkConfig`): no network, no secret read.
+ * What's wrong with a registration, read statically: no network, no secret
+ * read. `issues` stop the runtime building it: its adapter's own check
+ * (`AdapterFactoryEntry.checkConfig`), or an adapter the deployment doesn't
+ * have. `warnings` are the `adapter_config` keys its adapter doesn't take
+ * (`adapterConfigKeyProblems`): it builds without reading them.
  * `undefined` when there's nothing to check it with (no factories wired, or
- * an adapter without a check). An adapter the deployment doesn't have is a
- * problem: the runtime could never build the provider.
+ * an adapter with no check and no declared keys).
  */
 function configProblems(
   factories: AdapterFactoryRegistry | undefined,
   registration: ProviderRuntimeEntry,
-): readonly AdapterConfigProblem[] | undefined {
+):
+  | {
+      readonly issues: readonly AdapterConfigProblem[];
+      readonly warnings: readonly AdapterConfigProblem[];
+    }
+  | undefined {
   if (factories === undefined) return undefined;
   const entry = factories.get(registration.adapterId);
   if (entry === undefined) {
-    return [
-      {
-        path: '/adapter_id',
-        message: `This runtime has no adapter "${registration.adapterId}", so it can't build provider "${registration.metadata.id}".`,
-      },
-    ];
+    return {
+      issues: [
+        {
+          path: '/adapter_id',
+          message: `This runtime has no adapter "${registration.adapterId}", so it can't build provider "${registration.metadata.id}".`,
+        },
+      ],
+      warnings: [],
+    };
   }
-  return entry.checkConfig?.({
-    metadata: registration.metadata,
-    ...(registration.adapterConfig !== undefined && { config: registration.adapterConfig }),
-    hasSecretRef: registration.secretRef !== undefined,
-  });
+  if (
+    entry.checkConfig === undefined &&
+    entry.configKeys === undefined &&
+    entry.movedConfigKeys === undefined
+  ) {
+    return undefined;
+  }
+  const issues =
+    entry.checkConfig?.({
+      metadata: registration.metadata,
+      ...(registration.adapterConfig !== undefined && { config: registration.adapterConfig }),
+      hasSecretRef: registration.secretRef !== undefined,
+    }) ?? [];
+  // A key the adapter's own check refuses (openai-compat's bare `extraBody`)
+  // stops the build: it's an issue, not also a key built without reading.
+  const warnings = adapterConfigKeyProblems(entry, registration.adapterConfig).filter(
+    (w) => !issues.some((i) => i.path === w.path),
+  );
+  return { issues, warnings };
 }
 
 /**

@@ -34,6 +34,7 @@ import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockPublishIssue, continuityIssues, withCarriedSchema } from './block-publish.js';
 import { canonical } from './judged-items.js';
 import { PublishRefused } from './publish-refused.js';
+import type { RollbackAction } from './routes/deployments.js';
 
 /** A pack's block as the deploy publishes it, and whether the registry holds it already. */
 export interface PlannedBlock {
@@ -131,14 +132,19 @@ export async function publishPackBlocks(input: {
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly planned: readonly PlannedBlock[];
-  readonly rolled: (() => Promise<void>)[];
+  readonly rolled: RollbackAction[];
 }): Promise<void> {
   const { blocks, tenantId, projectId } = input;
   for (const { block, isNew } of input.planned) {
     const outcome = await blocks.publish({ tenantId, projectId, block });
     if (outcome.kind === 'ok') {
-      input.rolled.push(async () => {
-        await blocks.unregister({ tenantId, blockId: block.id, version: block.version });
+      input.rolled.push({
+        primitive: 'block',
+        id: `${block.id}@${block.version}`,
+        undo: 'unregister',
+        run: async () => {
+          await blocks.unregister({ tenantId, blockId: block.id, version: block.version });
+        },
       });
     } else if (outcome.kind === 'already-registered') {
       if (!isNew) continue;

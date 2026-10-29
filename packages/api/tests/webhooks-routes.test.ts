@@ -303,6 +303,7 @@ describe('reading webhook triggers', () => {
       tenantId: TENANT,
       triggerId: t.triggerId,
       owner: { kind: 'user', id: 'user-left' },
+      by: 'user:test',
     });
     // Without an authorization store, a take-over takes a tenant-admin key.
     expect((await call('POST', `/${t.triggerId}/owner`)).status).toBe(403);

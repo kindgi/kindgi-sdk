@@ -2638,22 +2638,65 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       );
     });
 
-    test("a server that doesn't give pack services their env, or can't be read: nothing more is said", async () => {
-      for (const answer of [
-        { kind: 'not-served' } as const,
-        { kind: 'error', message: 'GET … answered HTTP 503' } as const,
-      ]) {
-        await writeAutoEnvelope();
-        const run = withPackEnv(hostedFixtures(pending(), [ready]), [answer]);
-        const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
-        expect(out.exitCode, out.stderr).toBe(0);
-        const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
-        expect(waited.split('\n').slice(0, 3)).toEqual([
-          'Waiting for the pack service',
-          '    … pending',
-          '    ✓ ready',
-        ]);
-      }
+    test("a server that doesn't give pack services their env: nothing more is said", async () => {
+      await writeAutoEnvelope();
+      const run = withPackEnv(hostedFixtures(pending(), [ready]), [{ kind: 'not-served' }]);
+      const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+      expect(waited.split('\n').slice(0, 3)).toEqual([
+        'Waiting for the pack service',
+        '    … pending',
+        '    ✓ ready',
+      ]);
+    });
+
+    test('a read of where each value is set that fails is said, with why, and not again while the reason is the same; the deploy goes on', async () => {
+      await writeAutoEnvelope();
+      const message =
+        'GET https://api.acme.example/v1/deployments/dep-01H8XM/pack-env answered HTTP 403 (forbidden)';
+      const run = withPackEnv(hostedFixtures(pending(), [pending('pack-env-missing'), ready]), [
+        { kind: 'error', message },
+      ]);
+      const out = await hostedWith(run.fixtures, declared(), `--project=${PROJECT}`);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(run.packEnvReads).toEqual(['dep-01H8XM', 'dep-01H8XM']);
+      const waited = out.stderr.slice(out.stderr.indexOf('Waiting for the pack service'));
+      expect(waited.split('\n').slice(0, 5)).toEqual([
+        'Waiting for the pack service',
+        '    … pending',
+        `      Couldn't read where each value is set: ${message}`,
+        "    … pending (pack-env-missing): a name the pack needs in its env isn't set",
+        '    ✓ ready',
+      ]);
+    });
+
+    test('a read the stop cuts short says nothing more: the wait says it stopped', async () => {
+      await writeAutoEnvelope();
+      const controller = new AbortController();
+      const run = hostedFixtures(pending(), [ready]);
+      const runners: DeployRunners = {
+        ...run.fixtures.runners,
+        getPackEnv: async (): Promise<GetPackEnvResult> => {
+          controller.abort();
+          return {
+            kind: 'error',
+            message:
+              'GET https://api.acme.example/v1/deployments/dep-01H8XM/pack-env failed: This operation was aborted',
+          };
+        },
+      };
+      const out = await runCli({
+        ...baseInputs(
+          { ...run.fixtures, runners },
+          { env: signedIn, stopSignal: controller.signal },
+          declared(),
+        ),
+        argv: ['deploy', '--env=staging', `--path=${packDir}`, '--hosted', `--project=${PROJECT}`],
+      });
+      expect(out.exitCode, out.stderr).toBe(1);
+      expect(out.stderr).not.toContain("Couldn't read where each value is set");
+      expect(out.stderr).toContain('Stopped waiting for the pack service: pending.');
     });
   });
 });

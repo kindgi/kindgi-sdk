@@ -29,10 +29,13 @@ import type {
   AgentReleaseBindings,
   FlowRegistryBinding,
   LiveResolveInput,
+  PinnedResolveInput,
+  PinnedVersionBinding,
   RunHandlerBinding,
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
+import { toolPinsBinding } from './support/tool-pins.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'flows-pins-token';
@@ -112,7 +115,11 @@ function liveReleases(
   } as unknown as AgentReleaseBindings;
 }
 
-function makeApp(pinning?: ReturnType<typeof registries>, agentReleases?: AgentReleaseBindings) {
+function makeApp(
+  pinning?: ReturnType<typeof registries>,
+  agentReleases?: AgentReleaseBindings,
+  pinnedVersions?: PinnedVersionBinding,
+) {
   const flows = flowBinding();
   const app = createApp({
     ...createStubAppBindings(),
@@ -121,6 +128,7 @@ function makeApp(pinning?: ReturnType<typeof registries>, agentReleases?: AgentR
     flowRegistry: flows,
     ...pinning,
     ...(agentReleases !== undefined && { agentReleases }),
+    ...(pinnedVersions !== undefined && { pinnedVersions }),
   });
   return { app, flows };
 }
@@ -246,5 +254,26 @@ describe('POST /v1/flows pins the version', () => {
     const res = await publish(app);
     expect(res.status).toBe(201);
     expect(flows.stored()[0]?.pins).toBeUndefined();
+  });
+});
+
+describe('POST /v1/flows pins a tool at its pinned version', () => {
+  test('a tool pinned for the flow’s project locks there; one with no pin takes its latest', async () => {
+    const asked: PinnedResolveInput[] = [];
+    const { app } = makeApp(
+      registries(
+        { 'acme.score': ['1.0.0', '1.1.0'], 'acme.lookup': ['0.2.0'] },
+        { 'acme.matcher': '1.4.1', 'acme.auditor': '1.0.0' },
+      ),
+      undefined,
+      toolPinsBinding({ 'acme.score': '1.0.0', 'acme.lookup': '0.1.0' }, asked),
+    );
+    const projectId = randomUUID();
+    expect((await publish(app, projectId)).status).toBe(201);
+    // acme.lookup's pin names a version that isn't active: it counts as none.
+    expect((await pinsOf(app))?.tools).toEqual({ 'acme.lookup': '0.2.0', 'acme.score': '1.0.0' });
+    expect(new Set(asked.map((a) => `${a.kind} ${a.itemId} ${a.projectId}`))).toEqual(
+      new Set([`tool acme.score ${projectId}`, `tool acme.lookup ${projectId}`]),
+    );
   });
 });

@@ -120,8 +120,9 @@ require the model, as
 offer only some models, register only those, with `--models`.
 
 The Claude 5.5 models take no `temperature`, and they think before they
-answer. [Temperature and thinking](../#temperature-and-thinking) says what
-that means for an agent.
+answer. Each takes the thinking levels `low`, `medium`, `high`, `xhigh` and
+`max`, sent as Anthropic's effort. [Temperature and thinking](../#temperature-and-thinking)
+says what that means for an agent.
 
 Anthropic lists each model's status, and any retirement date, on its
 [model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)

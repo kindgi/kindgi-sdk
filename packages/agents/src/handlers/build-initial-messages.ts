@@ -103,6 +103,8 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
         content: isEvent ? formatEventForPrompt(ctx.input.userMessage) : ctx.input.userMessage,
       },
     ];
+    // Where the loop's own messages start: what's before is the person's.
+    ctx.initialMessageCount = modelMessages.length;
 
     return { nextMessages: modelMessages };
   };

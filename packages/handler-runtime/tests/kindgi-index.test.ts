@@ -19,9 +19,21 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 
-import { BUILT_IN_CHECK_IDS } from '@kindgi/guardrails';
+import {
+  BUILT_IN_CHECK_IDS,
+  GUARDRAIL_POINTS as POINTS,
+  guardrailPointIssues as pointIssues,
+} from '@kindgi/guardrails';
 
-import { RESERVED_CHECK_IDS, main, readBundleMap, runIndexer } from '../src/kindgi-index.js';
+import {
+  GUARDRAIL_POINTS,
+  RESERVED_CHECK_IDS,
+  SCOPE_TOOL,
+  guardrailPointIssues,
+  main,
+  readBundleMap,
+  runIndexer,
+} from '../src/kindgi-index.js';
 
 // Every index this suite writes must satisfy the spec (`@kindgi/specs/pack-index.schema.json`).
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
@@ -376,6 +388,191 @@ describe('built-in check ids', () => {
     expect(report.fileErrors).toEqual([]);
     const parsed = await readValidIndex(report.outputPath);
     expect(parsed.guardrails[0].checkBuiltIn).toBeUndefined();
+  });
+});
+
+describe("a guardrail's point", () => {
+  const index = async (guardrailFile: FixtureFile) => {
+    const fixture = await makeFixture({
+      files: { 'kindgi.config.mjs': config(), 'guardrails/calls.mjs': guardrailFile },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      artifactVersion: '20261027.1',
+      importModule: fixture.importModule,
+    });
+    if (outcome.kind !== 'ok') throw new Error('indexer failed');
+    return outcome.value;
+  };
+  const evaluate = async () => ({ passed: true });
+
+  test("GUARDRAIL_POINTS is @kindgi/guardrails' GUARDRAIL_POINTS", () => {
+    expect(GUARDRAIL_POINTS).toEqual(POINTS);
+  });
+
+  test("SCOPE_TOOL is the guardrail schema's scope.tools pattern", async () => {
+    const schema = JSON.parse(
+      await fs.readFile(
+        createRequire(import.meta.url).resolve('@kindgi/specs/guardrail.schema.json'),
+        'utf8',
+      ),
+    ) as { $defs: { Scope: { properties: { tools: { items: { pattern: string } } } } } };
+    expect(SCOPE_TOOL.source).toBe(schema.$defs.Scope.properties.tools.items.pattern);
+  });
+
+  test("guardrailPointIssues is @kindgi/guardrails' guardrailPointIssues", () => {
+    const guardrails = [
+      { at: 'before-tool', action: { 'on-violation': 'escalate' } },
+      { at: 'after-tool', action: { 'on-violation': 'compensate' }, scope: { tools: ['acme.*'] } },
+      { at: 'model-step', action: { 'on-violation': 'compensate' }, scope: { tools: ['acme.*'] } },
+      { action: { 'on-violation': 'escalate' }, scope: { tools: ['acme.woo.refund'] } },
+      { at: 'before-tool', action: { 'on-violation': 'retry' }, scope: { tools: ['acme.*'] } },
+    ];
+    for (const guardrail of guardrails) {
+      expect(guardrailPointIssues(guardrail)).toEqual(
+        pointIssues(guardrail as Parameters<typeof pointIssues>[0]),
+      );
+    }
+  });
+
+  test('at, sees and budget are carried, with the points of the check the guardrail ships', async () => {
+    const report = await index(
+      guardrailModule({
+        check: { id: 'acme.checks.args', evaluate, points: ['before-tool', 'final-answer'] },
+        at: 'before-tool',
+        sees: 'conversation',
+        scope: { tools: ['acme.woo.*'] },
+        // The loop's time limit for the check: dropped here, it'd run with its kind's.
+        budget: { maxLatencyMs: 2_000 },
+      }),
+    );
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0]).toMatchObject({
+      at: 'before-tool',
+      sees: 'conversation',
+      scope: { tools: ['acme.woo.*'] },
+      checkId: 'acme.checks.args',
+      checkPoints: ['before-tool', 'final-answer'],
+      budget: { maxLatencyMs: 2_000 },
+    });
+  });
+
+  test("a check the module exports under the guardrail's check id gives its points", async () => {
+    const report = await index({
+      module: {
+        default: (
+          guardrailModule({ check: 'acme.checks.args', at: 'model-step' }).module as {
+            default: unknown;
+          }
+        ).default,
+        check: { id: 'acme.checks.args', evaluate, points: ['model-step'] },
+      },
+    });
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0]).toMatchObject({ at: 'model-step', checkPoints: ['model-step'] });
+  });
+
+  test('a check that names no points runs at the final answer, and nothing is added for none', async () => {
+    const report = await index(guardrailModule({ check: { id: 'acme.checks.plain', evaluate } }));
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0].checkPoints).toEqual(['final-answer']);
+    expect(parsed.guardrails[0].at).toBeUndefined();
+    expect(parsed.guardrails[0].sees).toBeUndefined();
+    expect(parsed.guardrails[0].budget).toBeUndefined();
+  });
+
+  test("a built-in's points are the runtime's: none are listed", async () => {
+    const report = await index(guardrailModule({ check: 'never-call-tool', at: 'before-tool' }));
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0]).toMatchObject({ at: 'before-tool', checkBuiltIn: true });
+    expect(parsed.guardrails[0].checkPoints).toBeUndefined();
+  });
+
+  test.each([
+    [
+      "a point its check doesn't run at",
+      { check: { id: 'acme.checks.plain', evaluate }, at: 'before-tool' },
+      "guardrail acme.grounded runs at 'before-tool', which isn't one of its check's points (final-answer)",
+    ],
+    [
+      'a point there is none of',
+      { at: 'before-handoff' },
+      "'at' must be one of before-tool, after-tool, model-step, final-answer",
+    ],
+    ['a view there is none of', { sees: 'everything' }, "'sees' must be 'turn' or 'conversation'"],
+    [
+      "a check's points that aren't points",
+      { check: { id: 'acme.checks.odd', evaluate, points: ['before-handoff'] } },
+      'check "acme.checks.odd" \'points\' must name one or more of before-tool, after-tool, model-step, final-answer, each once',
+    ],
+    [
+      "a check's points that name one twice",
+      { check: { id: 'acme.checks.odd', evaluate, points: ['model-step', 'model-step'] } },
+      'check "acme.checks.odd" \'points\' must name one or more of before-tool, after-tool, model-step, final-answer, each once',
+    ],
+    // What a deploy refuses, in its words and paths.
+    [
+      "'escalate' before a tool call",
+      { at: 'before-tool', action: { 'on-violation': 'escalate' } },
+      'guardrail acme.grounded: /action/on-violation: "escalate" is recorded at the final answer only, not at "before-tool"',
+    ],
+    [
+      "'compensate' after a tool call",
+      { at: 'after-tool', action: { 'on-violation': 'compensate' } },
+      'guardrail acme.grounded: /action/on-violation: "compensate" is recorded at the final answer only, not at "after-tool"',
+    ],
+    [
+      "'escalate' on a model reply",
+      { at: 'model-step', action: { 'on-violation': 'escalate' } },
+      'guardrail acme.grounded: /action/on-violation: "escalate" is recorded at the final answer only, not at "model-step"',
+    ],
+    [
+      'scope.tools on a model reply',
+      { at: 'model-step', scope: { tools: ['acme.woo.*'] } },
+      'guardrail acme.grounded: /scope/tools: scope.tools is for "before-tool" and "after-tool", not "model-step"',
+    ],
+    [
+      'scope.tools at the final answer',
+      { scope: { tools: ['acme.woo.*'] } },
+      'guardrail acme.grounded: /scope/tools: scope.tools is for "before-tool" and "after-tool", not "final-answer"',
+    ],
+    [
+      'both at once',
+      {
+        at: 'model-step',
+        action: { 'on-violation': 'compensate' },
+        scope: { tools: ['acme.woo.*'] },
+      },
+      'guardrail acme.grounded: /action/on-violation: "compensate" is recorded at the final answer only, not at "model-step"; /scope/tools: scope.tools is for "before-tool" and "after-tool", not "model-step"',
+    ],
+    ...(
+      [
+        ['no tools', []],
+        ["a '*' not at the end", ['acme.*.refund']],
+        ['an empty id', ['']],
+      ] as const
+    ).map(
+      ([how, tools]) =>
+        [
+          `scope.tools with ${how}`,
+          { at: 'before-tool', scope: { tools } },
+          "'scope.tools' must name one or more tool ids, each with at most a trailing '*'",
+        ] as const,
+    ),
+  ] as const)('%s: refused', async (_what, overrides, message) => {
+    const report = await index(guardrailModule(overrides));
+    expect(report.fileErrors).toEqual([
+      expect.objectContaining({
+        code: 'manifest-validation-failed',
+        filePath: 'guardrails/calls.mjs',
+        message: `guardrails/calls.mjs: ${message}`,
+      }),
+    ]);
   });
 });
 
@@ -1666,7 +1863,7 @@ describe('runIndexer — artifactVersion behavior', () => {
 });
 
 describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
-  test('an agent keeps every field it declares: output, toolErrors, memory, preferred provider/model, policy, description, tags', async () => {
+  test('an agent keeps every field it declares: output, toolErrors, parallelToolCalls, memory, preferred provider/model, policy, description, tags', async () => {
     const output = {
       name: 'axes',
       schema: { type: 'object', properties: { remedy: { type: 'array' } }, required: ['remedy'] },
@@ -1680,6 +1877,7 @@ describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
         'agents/support.mjs': agentModule({
           output,
           toolErrors,
+          parallelToolCalls: false,
           memory: { instructionTypes: ['acme.policy'] },
           conversationPolicy,
           preferredProvider: 'anthropic',
@@ -1700,6 +1898,7 @@ describe('runIndexer — agents (agent schema-version 1.3.0)', () => {
     expect(parsed.agents[0]).toMatchObject({
       output,
       toolErrors,
+      parallelToolCalls: false,
       memory: { instructionTypes: ['acme.policy'] },
       conversationPolicy,
       preferredProvider: 'anthropic',

@@ -116,7 +116,9 @@ The prices are the presets' own, checked against the providers on
 A turn's `totalCostUsd` uses them. A prompt over a model's long-context
 threshold prices the whole call at the higher rates.
 [Temperature and thinking](../#temperature-and-thinking) says which of these
-models take a temperature, and which think.
+models take a temperature, which think, and the thinking levels each takes.
+The presets register those levels, so an agent's level goes to the model as
+asked or rounded to one it takes.
 
 A provider registered from a preset that had no default model has none, so
 an agent that names no model gets the first by name, and it keeps only the

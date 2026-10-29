@@ -12,8 +12,10 @@ repository). Two files are written, both generated — never edit them:
   schema (datamodel-code-generator). Inline request and response schemas are
   first hoisted into components named after their operation. So are an
   inline object whose own name would be a component's (`JudgedRunContext`'s
-  `flow` is `JudgedRunContextFlow`), and each member of a union component
-  with a discriminator (`Scope`'s `ScopeTenant`, `ScopeOrg`, `ScopeProject`).
+  `flow` is `JudgedRunContextFlow`), and each member of a union with a
+  discriminator: a union component's after it (`Scope`'s `ScopeTenant`,
+  `ScopeOrg`, `ScopeProject`), an inline union's after its owner and field
+  (`MCPEndpoint`'s `config`: `MCPEndpointConfigStdio`).
 - `src/kindgi/client/_resources.py`: the resource tree, sync and async. An
   operation id `approvals.reviewers.list` becomes
   `client.approvals.reviewers.list(...)`: path parameters positional, query
@@ -24,7 +26,9 @@ repository). Two files are written, both generated — never edit them:
 a component's own model at the component, any other at the fields that lead
 to it from one. Generation fails when a model named after a component isn't
 generated from it, or when a name listed there would move wholly to another
-place or vanish, so no model name changes meaning without an edit to it.
+place or vanish, so no model name changes meaning without an edit to it. A
+name listed at no place was dropped: generation fails when a model would take
+it again, and an inline object it would name takes its owner's name instead.
 
 `--check` regenerates in a temporary directory and fails when the committed
 files differ (the drift test runs it).
@@ -573,10 +577,11 @@ def render_models(doc: dict[str, Any], out: Path) -> None:
 # numbers the later ones. So an inline object could take a component's name
 # (an inline `flow` took `Flow`, and the flow graph became `Flow1`), and an
 # inline object added ahead of others of its name renumbers them. Before
-# codegen, the inline objects that would take a component's name, and the
-# members of a union component with a discriminator, become components of
-# their own. After it, each component's model must be generated from that
-# component, and each model must still sit where MODEL_NAMES says it did.
+# codegen, the inline objects that would take a component's name or a dropped
+# one, and the members of each union with a discriminator, become components
+# of their own, and no such union may keep an inline member. After it, each
+# component's model must be generated from that component, and each model
+# must still sit where MODEL_NAMES says it did.
 
 _inflect = inflect.engine()
 
@@ -616,30 +621,64 @@ def discriminator(members: list[Any]) -> str | None:
     return None
 
 
-def name_variants(doc: dict[str, Any]) -> None:
-    """A union component's inline members, named by their discriminator (`ScopeTenant`)."""
-    components = doc["components"]["schemas"]
-    for name, schema in list(components.items()):
-        key = "oneOf" if "oneOf" in schema else "anyOf" if "anyOf" in schema else None
-        prop = discriminator(schema[key]) if key else None
-        if key is None or prop is None:
+def name_members(doc: dict[str, Any], schema: dict[str, Any], name: str) -> list[str]:
+    """A union's inline members, named `name` and their discriminator's value; their names."""
+    key = "oneOf" if "oneOf" in schema else "anyOf" if "anyOf" in schema else None
+    prop = discriminator(schema[key]) if key else None
+    if key is None or prop is None:
+        return []
+    named = []
+    for i, member in enumerate(schema[key]):
+        if not inline_object(member):
             continue
-        for i, member in enumerate(schema[key]):
-            if not inline_object(member):
+        value = single_value(member["properties"][prop])
+        assert value is not None
+        variant = name + pascal(value)
+        if not variant.isidentifier():
+            raise SystemExit(f"gen_client: {name}'s member {variant!r} is no Python name")
+        # Inline, a member took the union's description as its docstring.
+        if "description" not in member and "description" in schema:
+            member = {**member, "description": schema["description"]}
+        named.append(hoist(doc, member, variant))
+        schema[key][i] = {"$ref": f"#/components/schemas/{named[-1]}"}
+    return named
+
+
+def name_variants(doc: dict[str, Any]) -> None:
+    """Each union's inline members, named by their discriminator: a union component's
+    after it (`ScopeTenant`), an inline union's after its owner and field
+    (`MCPEndpointConfigStdio`), as `name_owned` names an inline object."""
+    components = doc["components"]["schemas"]
+
+    def walk(owner: str, schema: dict[str, Any]) -> None:
+        for key in ("allOf", "oneOf", "anyOf"):
+            for member in schema.get(key) or []:
+                if inline_object(member):
+                    walk(owner, member)
+        for prop, value in (schema.get("properties") or {}).items():
+            item = (
+                isinstance(value, dict)
+                and value.get("type") == "array"
+                and isinstance(value.get("items"), dict)
+            )
+            target = value["items"] if item else value
+            if not isinstance(target, dict) or "$ref" in target:
                 continue
-            value = single_value(member["properties"][prop])
-            assert value is not None
-            variant = name + pascal(value)
-            if not variant.isidentifier():
-                raise SystemExit(f"gen_client: {name}'s member {variant!r} is no Python name")
-            # Inline, a member took the union's description as its docstring.
-            if "description" not in member and "description" in schema:
-                member = {**member, "description": schema["description"]}
-            schema[key][i] = {"$ref": f"#/components/schemas/{hoist(doc, member, variant)}"}
+            name = owner + natural_name(prop, item)
+            for member in name_members(doc, target, name):
+                walk(member, components[member])
+            if inline_object(target):
+                walk(name, target)
+
+    for name, schema in list(components.items()):
+        for member in name_members(doc, schema, name):
+            walk(member, components[member])
+        walk(name, schema)
 
 
-def name_owned(doc: dict[str, Any]) -> None:
-    """An inline object whose natural name is a component's, named after its owner too."""
+def name_owned(doc: dict[str, Any], dropped: frozenset[str]) -> None:
+    """An inline object whose natural name is a component's, or one the client dropped,
+    named after its owner too."""
     components = doc["components"]["schemas"]
 
     def walk(owner: str, schema: dict[str, Any]) -> None:
@@ -657,7 +696,7 @@ def name_owned(doc: dict[str, Any]) -> None:
             if not inline_object(target):
                 continue
             natural = natural_name(prop, item)
-            if natural not in components:
+            if natural not in components and natural not in dropped:
                 walk(owner + natural, target)
                 continue
             name = hoist(doc, target, owner + natural)
@@ -672,6 +711,33 @@ def name_owned(doc: dict[str, Any]) -> None:
 
     for name in list(components):
         walk(name, components[name])
+
+
+def check_members_named(doc: dict[str, Any]) -> None:
+    """No union with a discriminator keeps an inline member, which codegen would number. A
+    scan of every node, not `name_variants`' walk, so a union the walk misses fails here."""
+    left: list[str] = []
+
+    def scan(where: str, node: Any) -> None:
+        if isinstance(node, dict):
+            for key in ("oneOf", "anyOf"):
+                members = node.get(key)
+                if isinstance(members, list) and discriminator(members) is not None:
+                    left.append(f"{where}/{key}")
+            for key, value in node.items():
+                scan(f"{where}/{key}", value)
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                scan(f"{where}/{i}", value)
+
+    for name, schema in doc["components"]["schemas"].items():
+        scan(name, schema)
+    if left:
+        raise SystemExit(
+            f"gen_client: codegen would number these unions' members: {', '.join(left)}."
+            " name_variants names each union's members by their discriminator: make its walk"
+            " reach these."
+        )
 
 
 def wire_name(stmt: ast.AnnAssign) -> str:
@@ -834,8 +900,9 @@ def model_locations(
 
 
 def check_model_names(locations: dict[str, list[str]], pinned: dict[str, list[str]]) -> None:
-    """A pinned model name may gain or lose places, but never move wholly or vanish."""
-    gone = sorted(set(pinned) - set(locations))
+    """A pinned model name may gain or lose places, but never move wholly or vanish, and a
+    dropped one (pinned to no place) never names a model again."""
+    gone = sorted(name for name in set(pinned) - set(locations) if pinned[name])
     moved = sorted(
         name
         for name in pinned
@@ -845,8 +912,14 @@ def check_model_names(locations: dict[str, list[str]], pinned: dict[str, list[st
         return
     lines = [f"  {name}: gone, was at {', '.join(pinned[name])}" for name in gone]
     lines += [
+        f"  {name}: dropped, now at {', '.join(locations[name])}"
+        for name in moved
+        if not pinned[name]
+    ]
+    lines += [
         f"  {name}: was at {', '.join(pinned[name])}, now at {', '.join(locations[name])}"
         for name in moved
+        if pinned[name]
     ]
     raise SystemExit(
         "gen_client: these model names would change meaning:\n"
@@ -856,14 +929,19 @@ def check_model_names(locations: dict[str, list[str]], pinned: dict[str, list[st
         " or loses a property. Check what each name names now. Where it's still the same model,"
         f" edit its line in {MODEL_NAMES.relative_to(ROOT)}. Where it's another, name the new"
         " object in the API, or, when the rename is meant, list it in CHANGELOG.md and edit the"
-        " line."
+        " line: a name that goes keeps its line with no places (`[]`), so it stays dropped. A"
+        " dropped name can't name a model again: name the object in the API. Where a component"
+        " takes it, rename the component or, when the name is meant, delete its `[]` line and"
+        " list it in CHANGELOG.md."
     )
 
 
-def render_model_names(locations: dict[str, list[str]]) -> str:
-    """As the repository's JSON formatter lays it out: a list on one line when it fits in 100."""
+def render_model_names(locations: dict[str, list[str]], dropped: frozenset[str]) -> str:
+    """As the repository's JSON formatter lays it out: a list on one line when it fits in 100;
+    a dropped name at no place."""
     rows = []
-    for name, at in sorted(locations.items()):
+    places: dict[str, list[str]] = {name: [] for name in dropped}
+    for name, at in sorted({**places, **locations}.items()):
         row = f"  {json.dumps(name)}: {json.dumps(at)}"
         if len(row) + 1 > 100:
             items = ",\n".join(f"    {json.dumps(a)}" for a in at)
@@ -1387,9 +1465,11 @@ def generate_into(openapi: Path, out_dir: Path, names: Path = MODEL_NAMES) -> di
         if op.id in seen:
             raise SystemExit(f"gen_client: duplicate operationId {op.id}")
         seen.add(op.id)
-    name_variants(doc)
-    name_owned(doc)
     pinned = json.loads(names.read_text("utf-8")) if names.is_file() else {}
+    dropped = frozenset(name for name, at in pinned.items() if not at)
+    name_variants(doc)
+    name_owned(doc, dropped)
+    check_members_named(doc)
     tags = union_tags(doc, ops)
     fallbacks = open_responses(doc, ops, pinned, tags)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1401,7 +1481,7 @@ def generate_into(openapi: Path, out_dir: Path, names: Path = MODEL_NAMES) -> di
     locations = model_locations(doc, module, frozenset(fallbacks))
     check_model_names(locations, pinned)
     pins = out_dir / names.name
-    pins.write_text(render_model_names(locations), "utf-8")
+    pins.write_text(render_model_names(locations, dropped), "utf-8")
     resources = out_dir / RESOURCES
     resources.write_text(render_resources(tree(ops), ops), "utf-8")
     files = [models, resources]
