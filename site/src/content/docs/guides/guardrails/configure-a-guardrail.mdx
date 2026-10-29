@@ -333,7 +333,10 @@ says where in the turn it runs:
 
 - **`'final-answer'`**, the default: the answer the turn would store.
 - **`'before-tool'`**: a tool call the model asked for, before it runs. It
-  runs after the call's access check, and before any approval is asked.
+  runs after the call's access check, and before any approval is asked. A
+  call it judges doesn't start until the step's calls before it have
+  finished, so its check sees them as calls that ran
+  ([Calls that run together](../../tools/read-only-tools/#calls-that-run-together)).
 - **`'after-tool'`**: what a call returned, or the error it threw, before the
   model sees it.
 - **`'model-step'`**: a model reply that asks for tool calls, before any of
@@ -395,8 +398,8 @@ or `/scope/tools`. Registering the guardrail through the API answers
 `at`, and `400 validation-failed` for what a point can't do. A pack check's
 points aren't checked when it's registered: at a point its check doesn't
 run at, the guardrail is a check that can't run
-([`check-point-unsupported`](../halt-or-record/#when-the-check-cant-run)),
-every turn.
+([`check-point-unsupported`](../halt-or-record/#when-the-check-cant-run))
+each time a turn reaches that point.
 
 </TabItem>
 <TabItem label="Python">
