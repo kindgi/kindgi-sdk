@@ -158,6 +158,34 @@ describe('kindgi env list', () => {
     expect(out.stdout + out.stderr).not.toContain('sk-typo-secret');
   });
 
+  test('--quiet: the list goes, its warnings stay', async () => {
+    const envPath = join(packDir, '.env.staging');
+    const warned = await runCli(
+      baseInputs(makeFixtures({ [envPath]: 'GOOD_KEY=value\nAPI KEY=sk-typo-secret\n' }), [
+        'env',
+        'list',
+        `--path=${packDir}`,
+        '--quiet',
+      ]),
+    );
+    expect(warned.exitCode, warned.stderr).toBe(0);
+    expect(warned.stdout).toBe('');
+    expect(warned.stderr).toBe(
+      '  ⚠ 1 warning(s):\n      .env.staging:2: ignored — not a `KEY=value` line\n',
+    );
+
+    const clean = await runCli(
+      baseInputs(makeFixtures({ [envPath]: 'GOOD_KEY=value\n' }), [
+        'env',
+        'list',
+        `--path=${packDir}`,
+        '--quiet',
+      ]),
+    );
+    expect(clean.exitCode, clean.stderr).toBe(0);
+    expect([clean.stdout, clean.stderr]).toEqual(['', '']);
+  });
+
   test('missing env file does not error — reports 0 keys', async () => {
     const fixtures = makeFixtures();
     const out = await runCli(baseInputs(fixtures, ['env', 'list', `--path=${packDir}`]));
@@ -583,7 +611,37 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(api.calls.map((c) => c.method)).toEqual(['get']);
-    expect(out.stderr).toContain('no change');
+    expect(out.stderr).toContain('no change. Re-run with --force to set it again');
+  });
+
+  test('--force sets the value already there again, as a new revision, at the revision it read', async () => {
+    const api = fakeEnvApi([
+      {
+        scope: { kind: 'tenant' },
+        envName: 'local',
+        name: 'ACME_REGION',
+        value: 'eu',
+        revision: 4,
+      },
+    ]);
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), [
+        'env',
+        'set',
+        'ACME_REGION',
+        'eu',
+        '--scope=tenant',
+        '--env=local',
+        '--force',
+        ...API,
+      ]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(api.calls.map((c) => c.method)).toEqual(['get', 'set']);
+    expect(api.calls[1]?.input).toMatchObject({ value: 'eu', ifRevision: 4 });
+    expect(api.rows.get('tenant:|local|ACME_REGION')?.revision).toBe(5);
+    expect(out.stderr).toContain('Set ACME_REGION again at tenant in env local, to the same value');
   });
 
   test('a name that looks like a credential is set, with a warning pointing at kindgi secrets', async () => {
@@ -606,6 +664,35 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
     expect(out.stderr).toContain('kindgi secrets set ACME_API_KEY --env=local --scope=project:p-1');
     const summary = JSON.parse(out.stdout) as { warnings?: string[] };
     expect(summary.warnings).toHaveLength(1);
+  });
+
+  test('--quiet: a set says nothing; a name that looks like a credential is still warned about', async () => {
+    const set = (key: string) => {
+      const api = fakeEnvApi();
+      return runCli({
+        ...baseInputs(makeFixtures(), [
+          'env',
+          'set',
+          key,
+          'abc',
+          '--scope=project:p-1',
+          '--env=local',
+          '--quiet',
+          ...API,
+        ]),
+        clientFactory: api.clientFactory,
+      });
+    };
+    const plain = await set('ACME_REGION');
+    expect(plain.exitCode, plain.stderr).toBe(0);
+    expect([plain.stdout, plain.stderr]).toEqual(['', '']);
+
+    const credential = await set('ACME_API_KEY');
+    expect(credential.exitCode, credential.stderr).toBe(0);
+    expect(credential.stdout).toBe('');
+    expect(credential.stderr).toBe(
+      "  ⚠ ACME_API_KEY looks like a credential. Env values aren't secret: they're recorded with each run that uses them, and shown in its journal. Store a credential as a secret: kindgi secrets set ACME_API_KEY --env=local --scope=project:p-1\n",
+    );
   });
 
   test('the KINDGI_ prefix stays refused with --scope', async () => {
@@ -654,7 +741,7 @@ describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.en
       ['ACME_REGION', 'eu'],
       ['ZED', 'z'],
     ]);
-    expect(out.stderr).toContain('Scope:       tenant');
+    expect(out.stderr).toContain('Scope:     tenant');
   });
 
   test('unset removes the value at the scope and says what a call gets now', async () => {
@@ -738,6 +825,31 @@ describe('kindgi env init', () => {
     expect(written).toContain('KINDGI_SECRETS_GCP_LOCATION_ID=us-central1');
     // Optional core vars commented out.
     expect(written).toContain('# KINDGI_API_PORT=4000');
+  });
+
+  test('--quiet: writes the same file, and says nothing', async () => {
+    const outPath = join(packDir, '.env.example');
+    const written = async (quiet: readonly string[]) => {
+      const fixtures = makeFixtures();
+      const out = await runCli(
+        baseInputs(fixtures, [
+          'env',
+          'init',
+          '--secrets-backend=postgres',
+          '--kms=gcp',
+          `--out=${outPath}`,
+          '--non-interactive',
+          ...quiet,
+        ]),
+      );
+      return { out, file: fixtures.state.files.get(outPath) };
+    };
+    const loud = await written([]);
+    const quiet = await written(['--quiet']);
+    expect(loud.out.stderr).toContain(`env-var entries → ${outPath}`);
+    expect([quiet.out.exitCode, quiet.out.stdout, quiet.out.stderr]).toEqual([0, '', '']);
+    expect(quiet.file).toBeDefined();
+    expect(quiet.file).toBe(loud.file);
   });
 
   test('non-interactive: --kms=azure writes the Key Vault key (required) and no GCP vars', async () => {
@@ -1051,6 +1163,23 @@ describe('kindgi env --env=local — the project env files', () => {
     expect(out.stderr).toContain('still set in .env');
   });
 
+  test('unset --quiet: only that the key is still set in .env', async () => {
+    const fixtures = makeFixtures({ [dotEnv()]: 'KEY=base\n', [dotEnvLocal()]: 'KEY=local\n' });
+    const out = await runCli(
+      baseInputs(fixtures, ['env', 'unset', 'KEY', '--env=local', `--path=${packDir}`, '--quiet']),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe('  ! KEY is still set in .env — kindgi env only edits .env.local.\n');
+
+    const only = makeFixtures({ [dotEnvLocal()]: 'KEY=local\n' });
+    const gone = await runCli(
+      baseInputs(only, ['env', 'unset', 'KEY', '--env=local', `--path=${packDir}`, '--quiet']),
+    );
+    expect(gone.exitCode, gone.stderr).toBe(0);
+    expect([gone.stdout, gone.stderr]).toEqual(['', '']);
+  });
+
   test('dev.envFiles in kindgi.config.ts picks the files', async () => {
     const fixtures = makeFixtures({ [join(packDir, '.env.dev')]: 'X=dev\n' });
     const out = await runCli(
@@ -1148,5 +1277,33 @@ describe('kindgi env plan', () => {
     );
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('--format is terraform or gcloud, not "yaml"');
+  });
+
+  test('--quiet: the plan goes, its warnings stay', async () => {
+    const plan = (production: unknown) =>
+      runCli(
+        baseInputs(
+          makeFixtures(),
+          ['env', 'plan', '--env=production', '--format=gcloud', `--path=${packDir}`, '--quiet'],
+          { buildConfigLoader: declaring(production) },
+        ),
+      );
+    const clean = await plan({ DATABASE_URL: { secret: 'acme-db-url', version: '3' } });
+    expect(clean.exitCode, clean.stderr).toBe(0);
+    expect(clean.stdout).toBe('--update-secrets=DATABASE_URL=acme-db-url:3\n');
+    expect(clean.stderr).toBe('');
+
+    const warned = await plan({
+      DATABASE_URL: { secret: 'acme-db-url', version: 'latest' },
+      LOG_FORMAT: 'json',
+    });
+    expect(warned.exitCode, warned.stderr).toBe(0);
+    expect(warned.stderr).toBe(
+      [
+        "  ⚠ DATABASE_URL uses the latest version of acme-db-url: it's read when an instance starts, so a new version needs a new revision",
+        "  ⚠ environments.production.env.LOG_FORMAT isn't declared in env.required or env.optional, so it isn't injected",
+        '',
+      ].join('\n'),
+    );
   });
 });

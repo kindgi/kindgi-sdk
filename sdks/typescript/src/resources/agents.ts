@@ -7,6 +7,7 @@ import type { AgentId, Semver } from '@kindgi/types';
 import type {
   Agent,
   AgentCollectionPage,
+  AgentProjectList,
   DeriveAgentVersionBody,
   GatePolicyResolution,
   LivePinList,
@@ -19,6 +20,7 @@ import type {
   UnregisterAgentResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
+import type { GetLatestOptions } from '../types.js';
 
 /**
  * Agents resource — versioned catalog + lifecycle.
@@ -49,8 +51,17 @@ export interface AgentsClient {
   /** @wire GET /v1/agents */
   list(filter?: ListAgentsFilter): Promise<AgentCollectionPage>;
 
-  /** @wire GET /v1/agents/:agentId — latest active version */
-  get(agentId: AgentId): Promise<Agent>;
+  /** @wire GET /v1/agents/:agentId — latest active version (`GetLatestOptions`) */
+  get(agentId: AgentId, options?: GetLatestOptions): Promise<Agent>;
+
+  /**
+   * The projects the agent runs in: its first project first, then each
+   * project a deployment that isn't retired shipped a version of it into,
+   * among those the caller can read. A retired agent still answers.
+   *
+   * @wire GET /v1/agents/:agentId/projects
+   */
+  projects(agentId: AgentId | string): Promise<AgentProjectList>;
 
   readonly versions: AgentVersionsClient;
 
@@ -365,10 +376,17 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         },
       });
     },
-    async get(agentId) {
+    async get(agentId, options) {
       return transport.request<Agent>({
         method: 'GET',
         path: `/v1/agents/${seg(agentId as unknown as string)}`,
+        query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
+      });
+    },
+    async projects(agentId) {
+      return transport.request<AgentProjectList>({
+        method: 'GET',
+        path: `/v1/agents/${seg(agentId as string)}/projects`,
       });
     },
     versions,

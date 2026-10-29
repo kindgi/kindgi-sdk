@@ -23,7 +23,10 @@ for your tenant. You can prefer a provider or a model, or require one.
 
 ## What the model must support
 
-Add `capabilities` to the agent's definition. This one needs a model that
+Ask your coding agent: "My agent needs a model that can call tools."
+Kindgi's skills in your pack tell it how
+([How it knows Kindgi](../../../start/coding-agents/)). For reference, it
+adds `capabilities` to the agent's definition. This one needs a model that
 calls tools:
 
 <Tabs syncKey="lang">
@@ -113,6 +116,8 @@ shows.
 ## Prefer a provider or a model
 
 A preference ranks a provider or a model first, without excluding the others.
+Ask your coding agent: "Prefer Claude Sonnet 5.5 for my agent." For reference,
+it adds the preference to the agent's definition:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -159,9 +164,36 @@ A preference ranks a provider or a model first, without excluding the others.
 
 A dry run shows the pick without calling the model:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+pnpm exec kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=acme.order-desk --input='{"userMessage":"Where is my order A-1001?"}' --dry-run
+```
+
+</TabItem>
+</Tabs>
 
 `--dry-run` runs the turn without its model call. Its output names the
 provider and model the turn would use:
@@ -191,9 +223,18 @@ provider and model the turn would use:
 the provider isn't registered, or its models don't meet the needs, the turn
 takes the next model in line.
 
+The preference can live in the agent's model-settings block instead, as its
+`model` and `providerId`, with the same rules. Then an expert can change it
+without a code deploy, and
+[Improve can try cheaper models](../../evals/improve-an-agent/#let-it-try-a-cheaper-model-or-another-temperature)
+from the list you give it. Name the model in one place: a version whose
+definition and model-settings block both name a model or a provider is
+refused when it's published.
+
 ## Require a model
 
-To make sure a turn runs on one model, put it in the needs:
+To make sure a turn runs on one model, ask your coding agent: "My agent must
+only run on Claude Sonnet 5.5." For reference, it puts the model in the needs:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -278,7 +319,8 @@ be checked at any time with
 provider's `attributes`, and ranks the higher total first. A weight can be
 negative. Here a local model is registered with `"attributes": ["local"]`, as
 [Connect an OpenAI-compatible endpoint](../../models/openai-compatible/)
-shows:
+shows. Ask your coding agent: "Rank my local models above the others for my
+agent." For reference, it adds a weight for `local`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">

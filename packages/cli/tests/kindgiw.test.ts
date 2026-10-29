@@ -174,6 +174,35 @@ describe('kindgi upgrade', () => {
     );
   });
 
+  test('--quiet: what moved goes; a version left to set by hand stays', async () => {
+    await config('0.1.6');
+    await writeFile(
+      join(pack, 'pom.xml'),
+      '<project><properties>\n    <kindgi.version>0.1.6</kindgi.version>\n  </properties></project>\n',
+    );
+    const moved = await runCli({
+      argv: ['upgrade', '--to=0.1.7', '--quiet'],
+      env: {},
+      cwd: pack,
+      home: pack,
+    });
+    expect(moved.exitCode, moved.stderr).toBe(0);
+    expect([moved.stdout, moved.stderr]).toEqual(['', '']);
+
+    await writeFile(join(pack, 'pom.xml'), '<project/>\n');
+    const byHand = await runCli({
+      argv: ['upgrade', '--to=0.1.8', '--quiet'],
+      env: {},
+      cwd: pack,
+      home: pack,
+    });
+    expect(byHand.exitCode, byHand.stderr).toBe(0);
+    expect(byHand.stderr).toMatch(
+      /^ {2}Set the com\.kindgi:kindgi-pack version in pom\.xml to 0\.1\.8/,
+    );
+    expect(byHand.stderr.trimEnd().split('\n')).toHaveLength(1);
+  });
+
   test("a Scala pack: moves the pin and build.sbt's kindgi-pack-scala version", async () => {
     await writeFile(
       join(pack, 'kindgi.config.json'),

@@ -1,5 +1,306 @@
 # @kindgi/compliance
 
+## 0.2.0
+
+### Patch Changes
+
+- 08dedca: **Connections: tools can act with accounts at other apps,** a member's own Google account or the company's GitHub App. This is the contract; a runtime implements it.
+  - **New package: `@kindgi/connections`.** An app entry says how a person signs in at the app (OAuth 2.0 with PKCE, or a GitHub App's installation), who may own a connection (a member, the company), what each permission allows in plain words, whose account it is, how access is withdrawn, and the app's rate limit. An OAuth 2.0 sign-in's `refreshToken` says whether a connect needs a refresh token: `'required'` (the default) refuses one without, and `'optional'` is for an app that may give none, whose connections then work until one minute before their access token ends and then need reconnecting (a grant that gives neither a refresh token nor the token's `expires_in` is refused). `defineApp(entry)` checks one and returns it frozen; a wrong field throws a `TypeError` naming it. A permission's `grants` and each account scope is one scope, with no space or comma, since the scopes an app grants are read split on both. The Google entry is `@kindgi/connections/google` and the GitHub one `@kindgi/connections/github`.
+  - **`@kindgi/tools`:** a tool declares the connections it needs in `needsSpec.connections`, by its own name for each: `{ app, permissions, as: 'person' | 'company' }`. The runtime hands it each one's access token and account in `ctx.connections`. A declarative HTTP tool sends one with `authorization: { kind: 'connection', connection }`, as `Authorization: Bearer`, and a `401` answer fails the call with `ConnectionRejectedError` (a tool's own code throws it too, alone or as another error's `cause`), so the runtime renews the token once and runs the call again. `connectionRejectionOf(error)` finds it, up to three causes deep, for a runtime's dispatch and a pack service alike. When the app can't give a token just now, the call fails with `ConnectionRenewError` (`connection-renew-failed`) and the connection stays as it is; one it can't renew at all (no refresh token, or the grant withdrawn) needs reconnecting, and the call waits or is refused as for any such connection. A `connection` authorization must name a declared connection. `ConnectionResolver` is what a runtime's tool dispatch asks for a call's connections: ready, a connect to wait for, or refused.
+  - **`@kindgi/specs`:** `tool.schema.json` 1.3.0 has `needsSpec.connections` and the `connection` authorization.
+  - **`@kindgi/agents`:** `computeConnectWaitToken({ runId, callId, name })`, the waitpoint token of a call's wait for a connect, and `ConnectWaitResult`.
+  - **`@kindgi/api`:** `ConnectionBinding`, the store behind the connections routes, with its records (app registrations, connections, connect requests) and error codes; none carries a token. An approval can carry `approver`, the one member who may decide it, and `connection`, the person's account the call would use. A secret read for a connection names its caller `connections`, in `@kindgi/compliance` too.
+- b6e20ca: **Mail triggers on the wire: each new mail in a Gmail or Outlook mailbox starts a run.** With a trigger registry, a server answers `/v1/mail-triggers` when its `triggerKinds` include `mail` (left out, all four kinds mount).
+  - **`POST /v1/mail-triggers`** registers one:
+    - the agent (`agentId`, with `agentVersion` optional) or the flow (`flowId` and `flowVersion`) to run;
+    - `config.mailbox`, `{ app: 'google' | 'microsoft', as: 'person' | 'company' }`;
+    - `config.folder`, the Gmail label id or the Outlook folder id or well-known name to watch (the inbox when left out, and `INBOX` or `inbox` to watch it again);
+    - `config.pollSeconds`, how often to look, 30 to 3600 (default 60), and `config.runsPerHour`, the most runs its mail starts in an hour, 1 to 600 (default 60).
+    - `projectId`, the trigger's project (the tenant's Default project when left out). One that isn't a project id is a `400`, and one that names no project of the tenant's is a `404 project-not-found`, as for schedules and webhooks.
+    - Each run's input is the mail that started it, so `config.input` is refused.
+  - **Whose it is.** A trigger is shared or personal, by its owner, and its runs act as that owner, with the owner's connections.
+    - A trigger on a person's mailbox reads its owner's own mail, so a person owns it. A project writer registers one for their own mailbox. `runAsServiceAccountId`, or a service account calling, is a `400`.
+    - A trigger on the company's mailbox is a project admin's to register. With `runAsServiceAccountId`, a service account owns it, and it's shared.
+    - No edit moves the owner. Only `POST /v1/mail-triggers/{triggerId}/owner` does, and on a person's mailbox the mailbox becomes the new owner's own.
+  - **Who may change it.**
+    - A person's trigger is changed, paused, resumed or unregistered by its owner or a project admin, and anyone else gets a `403`.
+    - Only the owner chooses what a person's trigger reads from their mailbox: another of their mailboxes, or another folder. Anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. An admin may still move it to the company's mailbox.
+    - A shared trigger's `PATCH` is an admin's, and its pause, resume and unregister need `write`.
+    - A change to a trigger on the company's mailbox, before or after the change, takes an admin.
+    - When an admin changes, pauses, resumes or unregisters a person's trigger, it's recorded as `trigger-changed-for-owner` evidence: the owner, who did it and what, and on a change the fields that changed, with the target, mailbox and folder before and after. Where the app tells owners (`triggerOwnerNotices`), the owner is told too, as for schedules and webhooks, and a take-over tells the former owner. Its runs go on acting as that person.
+  - **`toolsAllowedUnattended`.** In a run a mail started, every call that changes something, or that uses the run's own mailbox, waits for a person's yes. The list names the tools whose calls needn't wait: only tools its agent or flow calls, and a project admin's to set. While it lists any, a new target (another agent or flow, not just a version) or another mailbox must name it again: `[]` to clear it, which a person's trigger's owner may give with their own change, or a list, which a project admin sets.
+  - **Reads and the rest.**
+    - `GET /v1/mail-triggers` lists them (`projectId`, `status`, paged), and `GET /v1/mail-triggers/{triggerId}` reads one. Each gives `account`, the mailbox's account at its last poll, `lastPolledAt`, and `statusReason` (`connection-missing` while the mailbox's connection is gone or lapsed, `owner-refused` while its owner was removed or may no longer run the target).
+    - `POST …/pause`, `POST …/resume` and `POST …/unregister` work as for the other trigger kinds. A resume starts afresh: mail that came while it was paused doesn't start runs.
+    - `GET /v1/mail-triggers/{triggerId}/fires` lists its mail, newest first: the run each started, `pending` while an earlier mail of its thread runs first (`detail` starts `thread-busy:`), or why it was skipped, refused or failed, each in `detail`.
+  - **The trigger types** (`@kindgi/runtime`): the registry's mail trigger record, its config and limits, and the mail fire outcomes, which the wire describes.
+  - **Clients:** `client.mailTriggers` in the TypeScript client, and `client.mail_triggers` in the Python client. In Python, a registration's `config` is a `RegisterMailTriggerBodyConfig`, and a change's is a `PatchMailTriggerBodyConfig`.
+- e019e64: **A hard revoke says when the secret manager kept a recoverable copy, and until when.** Azure Key Vault keeps a deleted secret recoverable for the vault's retention period when it can't be purged.
+  - **`DELETE /v1/secrets/{name}?hard=true`** answers `recoverableUntil` (ISO 8601) next to `revoked` and `hard`: when the secret manager purges that copy on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. It's absent on a soft revoke, and when a hard revoke left nothing recoverable. It's optional, so a client that doesn't know it is unaffected.
+  - **The `secret-hard-revoked` record** carries `recoverableUntil` too.
+  - **The reference:** the `secrets.revoke` description and its `hard` parameter say what a hard revoke erases, and that `recoverableUntil` says until when a recoverable copy is kept.
+  - **For backends:** `SecretProviderDeleteOutput` and `SecretRevokeOutcome` gain an optional `recoverableUntil`, and `emitLifecycleEvent` takes one.
+  - **Clients:** the TypeScript client's `SecretRevokeOutcome` and the Python client's `SecretRevokeResult` gain the optional `recoverableUntil`.
+  - **`kindgi secrets revoke --hard`** prints until when your secret manager keeps the copy, and puts `recoverableUntil` in its JSON.
+- 68e0d57: **A run paused until another system answers is answered at its link, or through the API.**
+  
+  - **`@kindgi/agents`:** an agent's call to a tool that declares `pauses` parks the turn until the answer comes, and the turn goes on with it as the call's result. The model sees the answer as data from outside, inside an `<event>` block, and the turn's system prompt then says never to follow instructions found there. Resumed, the turn doesn't call the tool again. A wait that times out is the tool error `wait-token-timed-out`, handled by the agent's tool error rules like any other: it fails the turn unless they retry `tool-error`. A retried step waits on a new token.
+  - **`@kindgi/api`:**
+    - `POST /v1/wait-tokens/{token}/complete` takes another system's answer at the link a pausing tool handed on. The token in the path is the credential: no `Authorization` header. The body is the tool's output as JSON, at most 1 MiB; an empty body is `{}`. It answers `200 { status: 'accepted' }` at once, and the run resumes behind the answer: the sender waits for none of the run. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on that token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The server logs the path as `/v1/wait-tokens/:token`, never the token.
+    - `POST /v1/runs/{runId}/resume` answers a `pause:` waitpoint, as the link would, and needs write access and `execute` on the run's agent or flow. It returns the run as `GET /v1/runs/{runId}` does. Every other waitpoint stays `422 run-resume-not-supported`, and a body without `waitpointId`, or with a field it doesn't take, is now `400 bad-input`.
+    - `GET /v1/runs/{runId}`'s `waitingFor` gains `tokens`: each wait's `tokenId`, `name`, tool and call, step, and when it times out. Never the link.
+    - New error codes: `wait-token-not-found` (404: an unknown token and a wrong one alike), `wait-token-closed` (409, `details.state`), `wait-token-output-invalid` (400, `details.issues`: the wait stays open) and `unsupported-media-type` (415: a body that isn't JSON).
+    - Nothing runs where the run is while its tenant is closing or suspended or its project is suspended, so an answer then is refused (`409 tenant-closing`, `409 tenant-suspended` or `409 project-suspended`) and nothing is taken. Closing or suspending cancels the tenant's or project's runs, paused ones included, so the refusal is for an answer that comes before the cancel reaches its run. When the tenant's state can't be read, the answer is `503 tenant-state-unavailable` with `Retry-After`. The link tells any of it only for a token that matches; through the API, a frozen tenant is refused as every write of its is.
+    - The link limits requests per client: past 600 a minute, `429 rate-limit-exceeded` with `Retry-After`, counted before the body is read or the token looked up, so nothing was taken and the same answer can be sent again then.
+    - For a runtime: `createApp` takes `waitTokens`, a `WaitTokenBinding` (`complete` and `waiting`). Without one, the link answers `404` and resume `422`, as before. The link tells clients apart and counts them where `webhookReceiver` says (`clientAddress`, `rateLimitStore`), with its defaults when that's absent.
+  - **`@kindgi/compliance` and `@kindgi/specs`:** two built-in evidence kinds, `wait-token-completed` (an answer landed, held for the run or taken) and `wait-token-discarded` (a held early answer the run never took). Their payloads carry the answer's size and SHA-256, never the answer.
+  - **`@kindgi/client`:** `runs.resume` answers a run's wait for another system, and `Run` carries `waitingFor` (`RunWaitingFor`, `RunWaitingApproval` and `RunWaitingToken` are exported). `approvals.completeToken`, which had no route and always threw `not-yet-wired`, and its `CompleteTokenInput` (re-exported by `@kindgi/sdk` too) are removed, so code that imports `CompleteTokenInput` stops compiling: an approval's run resumes through `approvals.decide`.
+- 119ac78: **A webhook trigger or a schedule can name tools its runs call without waiting for a person's yes (`toolsAllowedUnattended`).** A tool that declares `needsApprovalWhenUnattended` waits for a person's yes in a run no person started. A trigger's list lifts that wait for the tools it names, and only that: the tenant's approval rules, the agent's own, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+  - **Where:** `POST` and `PATCH` on `/v1/webhooks` and `/v1/schedules` take it, and their records show it (absent: none). `POST /v1/runs` never takes it. A take-over (`/owner`) keeps it and refuses a body that names it (`400 bad-input`).
+  - **Who:** naming it, `[]` included, takes `admin` on the trigger's project, at register too.
+  - **What:** each tool by its id: at most 100, no wildcard or pattern, each once. Each must be a tool the target calls, else `400 bad-input` naming it. For a flow, that's its tool steps, loop bodies, fan-out branches, its subflows' tools, and its agents' tools at the node's version, the flow's pin or the latest. An improvement schedule calls no tools, so its list can only be `[]`.
+  - **A new target:** a schedule `PATCH` to another flow or agent while its list isn't empty must name the list again, as it is or `[]`, else `400 bad-input` naming the kept ids. A new version alone keeps it. A webhook trigger's new `flowVersion` keeps it, and naming it checks it against that version.
+  - **Audit:** every change is recorded as `trigger-tools-allowed-unattended-set` (the trigger, its target, `from`, `to`, `by`), and `trigger-owner-set` names the list a take-over keeps.
+  - **Runs:** a run's `toolsAllowedUnattended` is its trigger's list as it was when the run started. A child run has its parent's, and a resumed agent turn keeps its run's, never the resumer's.
+  - **For runtimes:** `@kindgi/runtime` exports `needsPersonsYesUnattended(tool, startedBy, toolsAllowedUnattended)`, the one rule the agent's tool gate and a flow's tool steps share. The field is on `RunFlowInput`, `StartRunParams`, the run record, and the trigger registry's register and update inputs and its records. It's also on `InvokeAgentInput`, the run snapshot, and the API's `InvokeAgentBindingInput` and `InvokeFlowBindingInput`, which a webhook's or a schedule's fire sets from its trigger.
+- Updated dependencies [b6e20ca]
+  - @kindgi/log@0.2.0
+  - @kindgi/audit-events@0.2.0
+  - @kindgi/platform@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **Mail triggers on the wire: each new mail in a Gmail or Outlook mailbox starts a run.** With a trigger registry, a server answers `/v1/mail-triggers` when its `triggerKinds` include `mail` (left out, all four kinds mount).
+  - **`POST /v1/mail-triggers`** registers one:
+    - the agent (`agentId`, with `agentVersion` optional) or the flow (`flowId` and `flowVersion`) to run;
+    - `config.mailbox`, `{ app: 'google' | 'microsoft', as: 'person' | 'company' }`;
+    - `config.folder`, the Gmail label id or the Outlook folder id or well-known name to watch (the inbox when left out, and `INBOX` or `inbox` to watch it again);
+    - `config.pollSeconds`, how often to look, 30 to 3600 (default 60), and `config.runsPerHour`, the most runs its mail starts in an hour, 1 to 600 (default 60).
+    - `projectId`, the trigger's project (the tenant's Default project when left out). One that isn't a project id is a `400`, and one that names no project of the tenant's is a `404 project-not-found`, as for schedules and webhooks.
+    - Each run's input is the mail that started it, so `config.input` is refused.
+  - **Whose it is.** A trigger is shared or personal, by its owner, and its runs act as that owner, with the owner's connections.
+    - A trigger on a person's mailbox reads its owner's own mail, so a person owns it. A project writer registers one for their own mailbox. `runAsServiceAccountId`, or a service account calling, is a `400`.
+    - A trigger on the company's mailbox is a project admin's to register. With `runAsServiceAccountId`, a service account owns it, and it's shared.
+    - No edit moves the owner. Only `POST /v1/mail-triggers/{triggerId}/owner` does, and on a person's mailbox the mailbox becomes the new owner's own.
+  - **Who may change it.**
+    - A person's trigger is changed, paused, resumed or unregistered by its owner or a project admin, and anyone else gets a `403`.
+    - Only the owner chooses what a person's trigger reads from their mailbox: another of their mailboxes, or another folder. Anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. An admin may still move it to the company's mailbox.
+    - A shared trigger's `PATCH` is an admin's, and its pause, resume and unregister need `write`.
+    - A change to a trigger on the company's mailbox, before or after the change, takes an admin.
+    - When an admin changes, pauses, resumes or unregisters a person's trigger, it's recorded as `trigger-changed-for-owner` evidence: the owner, who did it and what, and on a change the fields that changed, with the target, mailbox and folder before and after. Where the app tells owners (`triggerOwnerNotices`), the owner is told too, as for schedules and webhooks, and a take-over tells the former owner. Its runs go on acting as that person.
+  - **`toolsAllowedUnattended`.** In a run a mail started, every call that changes something, or that uses the run's own mailbox, waits for a person's yes. The list names the tools whose calls needn't wait: only tools its agent or flow calls, and a project admin's to set. While it lists any, a new target (another agent or flow, not just a version) or another mailbox must name it again: `[]` to clear it, which a person's trigger's owner may give with their own change, or a list, which a project admin sets.
+  - **Reads and the rest.**
+    - `GET /v1/mail-triggers` lists them (`projectId`, `status`, paged), and `GET /v1/mail-triggers/{triggerId}` reads one. Each gives `account`, the mailbox's account at its last poll, `lastPolledAt`, and `statusReason` (`connection-missing` while the mailbox's connection is gone or lapsed, `owner-refused` while its owner was removed or may no longer run the target).
+    - `POST …/pause`, `POST …/resume` and `POST …/unregister` work as for the other trigger kinds. A resume starts afresh: mail that came while it was paused doesn't start runs.
+    - `GET /v1/mail-triggers/{triggerId}/fires` lists its mail, newest first: the run each started, `pending` while an earlier mail of its thread runs first (`detail` starts `thread-busy:`), or why it was skipped, refused or failed, each in `detail`.
+  - **The trigger types** (`@kindgi/runtime`): the registry's mail trigger record, its config and limits, and the mail fire outcomes, which the wire describes.
+  - **Clients:** `client.mailTriggers` in the TypeScript client, and `client.mail_triggers` in the Python client. In Python, a registration's `config` is a `RegisterMailTriggerBodyConfig`, and a change's is a `PatchMailTriggerBodyConfig`.
+- Updated dependencies [b6e20ca]
+  - @kindgi/log@0.2.0-rc.1
+  - @kindgi/audit-events@0.2.0-rc.1
+  - @kindgi/platform@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- 08dedca: **Connections: tools can act with accounts at other apps,** a member's own Google account or the company's GitHub App. This is the contract; a runtime implements it.
+  - **New package: `@kindgi/connections`.** An app entry says how a person signs in at the app (OAuth 2.0 with PKCE, or a GitHub App's installation), who may own a connection (a member, the company), what each permission allows in plain words, whose account it is, how access is withdrawn, and the app's rate limit. An OAuth 2.0 sign-in's `refreshToken` says whether a connect needs a refresh token: `'required'` (the default) refuses one without, and `'optional'` is for an app that may give none, whose connections then work until one minute before their access token ends and then need reconnecting (a grant that gives neither a refresh token nor the token's `expires_in` is refused). `defineApp(entry)` checks one and returns it frozen; a wrong field throws a `TypeError` naming it. A permission's `grants` and each account scope is one scope, with no space or comma, since the scopes an app grants are read split on both. The Google entry is `@kindgi/connections/google` and the GitHub one `@kindgi/connections/github`.
+  - **`@kindgi/tools`:** a tool declares the connections it needs in `needsSpec.connections`, by its own name for each: `{ app, permissions, as: 'person' | 'company' }`. The runtime hands it each one's access token and account in `ctx.connections`. A declarative HTTP tool sends one with `authorization: { kind: 'connection', connection }`, as `Authorization: Bearer`, and a `401` answer fails the call with `ConnectionRejectedError` (a tool's own code throws it too, alone or as another error's `cause`), so the runtime renews the token once and runs the call again. `connectionRejectionOf(error)` finds it, up to three causes deep, for a runtime's dispatch and a pack service alike. When the app can't give a token just now, the call fails with `ConnectionRenewError` (`connection-renew-failed`) and the connection stays as it is; one it can't renew at all (no refresh token, or the grant withdrawn) needs reconnecting, and the call waits or is refused as for any such connection. A `connection` authorization must name a declared connection. `ConnectionResolver` is what a runtime's tool dispatch asks for a call's connections: ready, a connect to wait for, or refused.
+  - **`@kindgi/specs`:** `tool.schema.json` 1.3.0 has `needsSpec.connections` and the `connection` authorization.
+  - **`@kindgi/agents`:** `computeConnectWaitToken({ runId, callId, name })`, the waitpoint token of a call's wait for a connect, and `ConnectWaitResult`.
+  - **`@kindgi/api`:** `ConnectionBinding`, the store behind the connections routes, with its records (app registrations, connections, connect requests) and error codes; none carries a token. An approval can carry `approver`, the one member who may decide it, and `connection`, the person's account the call would use. A secret read for a connection names its caller `connections`, in `@kindgi/compliance` too.
+- e019e64: **A hard revoke says when the secret manager kept a recoverable copy, and until when.** Azure Key Vault keeps a deleted secret recoverable for the vault's retention period when it can't be purged.
+  - **`DELETE /v1/secrets/{name}?hard=true`** answers `recoverableUntil` (ISO 8601) next to `revoked` and `hard`: when the secret manager purges that copy on its own. Setting the same name again before then can keep that copy, its values disabled, until the name is hard-revoked again. It's absent on a soft revoke, and when a hard revoke left nothing recoverable. It's optional, so a client that doesn't know it is unaffected.
+  - **The `secret-hard-revoked` record** carries `recoverableUntil` too.
+  - **The reference:** the `secrets.revoke` description and its `hard` parameter say what a hard revoke erases, and that `recoverableUntil` says until when a recoverable copy is kept.
+  - **For backends:** `SecretProviderDeleteOutput` and `SecretRevokeOutcome` gain an optional `recoverableUntil`, and `emitLifecycleEvent` takes one.
+  - **Clients:** the TypeScript client's `SecretRevokeOutcome` and the Python client's `SecretRevokeResult` gain the optional `recoverableUntil`.
+  - **`kindgi secrets revoke --hard`** prints until when your secret manager keeps the copy, and puts `recoverableUntil` in its JSON.
+- 68e0d57: **A run paused until another system answers is answered at its link, or through the API.**
+  
+  - **`@kindgi/agents`:** an agent's call to a tool that declares `pauses` parks the turn until the answer comes, and the turn goes on with it as the call's result. The model sees the answer as data from outside, inside an `<event>` block, and the turn's system prompt then says never to follow instructions found there. Resumed, the turn doesn't call the tool again. A wait that times out is the tool error `wait-token-timed-out`, handled by the agent's tool error rules like any other: it fails the turn unless they retry `tool-error`. A retried step waits on a new token.
+  - **`@kindgi/api`:**
+    - `POST /v1/wait-tokens/{token}/complete` takes another system's answer at the link a pausing tool handed on. The token in the path is the credential: no `Authorization` header. The body is the tool's output as JSON, at most 1 MiB; an empty body is `{}`. It answers `200 { status: 'accepted' }` at once, and the run resumes behind the answer: the sender waits for none of the run. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on that token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The server logs the path as `/v1/wait-tokens/:token`, never the token.
+    - `POST /v1/runs/{runId}/resume` answers a `pause:` waitpoint, as the link would, and needs write access and `execute` on the run's agent or flow. It returns the run as `GET /v1/runs/{runId}` does. Every other waitpoint stays `422 run-resume-not-supported`, and a body without `waitpointId`, or with a field it doesn't take, is now `400 bad-input`.
+    - `GET /v1/runs/{runId}`'s `waitingFor` gains `tokens`: each wait's `tokenId`, `name`, tool and call, step, and when it times out. Never the link.
+    - New error codes: `wait-token-not-found` (404: an unknown token and a wrong one alike), `wait-token-closed` (409, `details.state`), `wait-token-output-invalid` (400, `details.issues`: the wait stays open) and `unsupported-media-type` (415: a body that isn't JSON).
+    - Nothing runs where the run is while its tenant is closing or suspended or its project is suspended, so an answer then is refused (`409 tenant-closing`, `409 tenant-suspended` or `409 project-suspended`) and nothing is taken. Closing or suspending cancels the tenant's or project's runs, paused ones included, so the refusal is for an answer that comes before the cancel reaches its run. When the tenant's state can't be read, the answer is `503 tenant-state-unavailable` with `Retry-After`. The link tells any of it only for a token that matches; through the API, a frozen tenant is refused as every write of its is.
+    - The link limits requests per client: past 600 a minute, `429 rate-limit-exceeded` with `Retry-After`, counted before the body is read or the token looked up, so nothing was taken and the same answer can be sent again then.
+    - For a runtime: `createApp` takes `waitTokens`, a `WaitTokenBinding` (`complete` and `waiting`). Without one, the link answers `404` and resume `422`, as before. The link tells clients apart and counts them where `webhookReceiver` says (`clientAddress`, `rateLimitStore`), with its defaults when that's absent.
+  - **`@kindgi/compliance` and `@kindgi/specs`:** two built-in evidence kinds, `wait-token-completed` (an answer landed, held for the run or taken) and `wait-token-discarded` (a held early answer the run never took). Their payloads carry the answer's size and SHA-256, never the answer.
+  - **`@kindgi/client`:** `runs.resume` answers a run's wait for another system, and `Run` carries `waitingFor` (`RunWaitingFor`, `RunWaitingApproval` and `RunWaitingToken` are exported). `approvals.completeToken`, which had no route and always threw `not-yet-wired`, and its `CompleteTokenInput` (re-exported by `@kindgi/sdk` too) are removed, so code that imports `CompleteTokenInput` stops compiling: an approval's run resumes through `approvals.decide`.
+- 119ac78: **A webhook trigger or a schedule can name tools its runs call without waiting for a person's yes (`toolsAllowedUnattended`).** A tool that declares `needsApprovalWhenUnattended` waits for a person's yes in a run no person started. A trigger's list lifts that wait for the tools it names, and only that: the tenant's approval rules, the agent's own, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+  - **Where:** `POST` and `PATCH` on `/v1/webhooks` and `/v1/schedules` take it, and their records show it (absent: none). `POST /v1/runs` never takes it. A take-over (`/owner`) keeps it and refuses a body that names it (`400 bad-input`).
+  - **Who:** naming it, `[]` included, takes `admin` on the trigger's project, at register too.
+  - **What:** each tool by its id: at most 100, no wildcard or pattern, each once. Each must be a tool the target calls, else `400 bad-input` naming it. For a flow, that's its tool steps, loop bodies, fan-out branches, its subflows' tools, and its agents' tools at the node's version, the flow's pin or the latest. An improvement schedule calls no tools, so its list can only be `[]`.
+  - **A new target:** a schedule `PATCH` to another flow or agent while its list isn't empty must name the list again, as it is or `[]`, else `400 bad-input` naming the kept ids. A new version alone keeps it. A webhook trigger's new `flowVersion` keeps it, and naming it checks it against that version.
+  - **Audit:** every change is recorded as `trigger-tools-allowed-unattended-set` (the trigger, its target, `from`, `to`, `by`), and `trigger-owner-set` names the list a take-over keeps.
+  - **Runs:** a run's `toolsAllowedUnattended` is its trigger's list as it was when the run started. A child run has its parent's, and a resumed agent turn keeps its run's, never the resumer's.
+  - **For runtimes:** `@kindgi/runtime` exports `needsPersonsYesUnattended(tool, startedBy, toolsAllowedUnattended)`, the one rule the agent's tool gate and a flow's tool steps share. The field is on `RunFlowInput`, `StartRunParams`, the run record, and the trigger registry's register and update inputs and its records. It's also on `InvokeAgentInput`, the run snapshot, and the API's `InvokeAgentBindingInput` and `InvokeFlowBindingInput`, which a webhook's or a schedule's fire sets from its trigger.
+- @kindgi/audit-events@0.2.0-rc.0
+  - @kindgi/log@0.2.0-rc.0
+  - @kindgi/platform@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [25a7309]
+  - @kindgi/platform@0.1.10
+  - @kindgi/audit-events@0.1.10
+  - @kindgi/log@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/audit-events@0.1.10-rc.1
+  - @kindgi/log@0.1.10-rc.1
+  - @kindgi/platform@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- Updated dependencies [25a7309]
+  - @kindgi/platform@0.1.10-rc.0
+  - @kindgi/audit-events@0.1.10-rc.0
+  - @kindgi/log@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- 5d68d0d: **An audit record that can't be written, and a check the authorization model can't answer, are logged through your logger instead of the console.**
+  - `emitResolveEvent` and `emitLifecycleEvent` (`@kindgi/compliance`) take an optional `log`, a `@kindgi/log` `Logger`. An append that fails or throws still never fails the caller's operation. It's logged there at `warn`, with the record's `tenantId` and `kind`, and the error's `code` or the error it threw. Without a `log` it isn't logged anywhere; before, it went to `console.warn`.
+  - `createApp` passes the request's logger, under the subsystem `audit`, for a secret or env write's record and for a secret read refused for its scope. `resolveAtScope` takes that `log` as an optional fourth argument. An app without a `logger` won't see that a record was dropped, and the `logger` option's docs say so.
+  - A check the authorization model has no relation for, which is a bug in a route, is logged at `error` through the request's logger, under the subsystem `authz`, with its `action` and `resource`. Before, it went to `console.error`.
+  - `createInMemoryEnvBinding` takes an optional `log` and passes it on with every audit record it writes.
+- d563887: **Promoting a build from one environment to the next.**
+  - `kindgi promote --from=<env> --to=<env>` moves a build to the next environment of its environment order: the same signed image, with the edits made since to its agents and flows. It finds the pack's one deployment serving in `--from` (or takes `--deployment`). It prints what moves, with the carried edits marked and the edits that stay behind, and then each value the build needs in `--to` that isn't set, with the command that sets it. It promotes only when every value is set, and exits 1 while one isn't. `--check` stops before moving anything. `--json` gives the deployment, the check and the promotion as one object.
+  - `POST /v1/deployments/{deploymentId}/promotions` promotes a deployment to the next environment of its order, `{ toProjectId, reason? }`. The target gets a deployment of its own, with the source's signed fields, contents and pack, and `promotedFromDeploymentId`. The edits of its agents and flows move with it, and each tool's secrets are read where the target reads them. Nothing is built, and no registry is written. It answers `201` with `{ deployment, created, moved, leftBehind? }`. A target that has the build already answers `200` with its deployment (`created: false`), and records the carried edits it lacked. The promoter needs read on the deployment's project and admin on the target. The deployment must still serve and its signer still be trusted, with the signature checked again. Every value the build needs in the target must be ready. The audit trail records `deployment-promoted`, with the reason.
+  - `POST /v1/deployments/{deploymentId}/promotions/check` answers what would move, the values not ready in the target, and the next environment. It writes nothing, and it refuses as the promotion would.
+  - New error codes: `409 promotion-not-next-environment` (the project named isn't the next environment of the order), `409 promotion-values-not-ready` (`details.values`), `409 deployment-superseded` (`details.environment`, `details.newerDeploymentId`) and `501 promotions-unsupported`. A promotion from or into a suspended project or pack answers `project-suspended` or `pack-suspended`, with `details.environment`.
+  - `GET /v1/deployments` takes `projectId` (one environment's deployments; the Default project also finds those that name no project) and `packId`. Each page names the filters it applied, so a client can tell a runtime that ignored them.
+  - A deployment record carries `promotedFromDeploymentId` and `packId` when they're set.
+  - `@kindgi/api`: `DeploymentRegistryBinding.promote` (optional) writes a promotion in one transaction. Without it, a promotion answers `501 promotions-unsupported`, and the check still answers. `createApp`'s `deploymentValues` supplies where a provider's model key is and the pack's own env, for the values check.
+  - `@kindgi/client`: `deployments.promote`, `deployments.promoteCheck`, and `projectId` and `packId` on `deployments.list`.
+  - `@kindgi/compliance`, `@kindgi/specs`: the audit event kind `deployment-promoted`.
+  - `kindgi deploy` refused with `409 environment-takes-promotions` names where the build enters its environment order and prints each `kindgi promote` to run from there, one environment at a time, naming each environment from the pack config. When the refusal leaves out the first environment, because the caller can't read it, the hint says the rule and points at `kindgi environments list`.
+  - `kindgi deploy` refused with `deployment-validation-failed` prints each issue again. They're in the refusal's `details.issues`, and the CLI looked for them elsewhere.
+  - `@kindgi/api`: `DeploymentValue` describes one value a deployment needs where it's promoted to: a tool's secret or env, an agent's model key, or the pack's env. It says where the value is set and why it isn't ready, never the value itself. `ModelKeyLookup` says where a run finds a provider's model key.
+  - `@kindgi/api`: `deploymentValues` lists every value a deployment needs in the project it's promoted to, each read where a run there reads it: each tool version's secrets at the scope a promotion records for them, its env values with no default, a model key for each agent version (its registered preferred provider's, else any registered provider's), and the pack's own env. `carriedVersions` gives the edits that move with a deployment to the next environment (an edit of a version it ships, reached where it serves) and the ones left behind. `findNamedSecretScope` gives the scope a secret is recorded at and the secret found there.
+  - `@kindgi/tools`: `toolRequiredEnvNames` gives the env values a tool declares with no default.
+  - `kindgi promote` outside a pack takes a project id or slug for `--from` and `--to` (a slug two projects share is refused), and lists every deployment serving in `--from`, with each one's pack when several serve. In a pack or outside one, the command it prints for a value sets it at the target project's scope (`--scope=project:<id>`), under the env the runtime serves. In a pack, it talks to the runtime `kindgi deploy` would use for `--from`, and refuses two environments whose `endpoint` or `tenantId` differ, naming both: an environment order lives in one tenant on one runtime.
+  - The promotion check answers `envName`, the env the runtime serves, which a run in the target reads its values under. It's absent when the runtime names none.
+  - A key or session limited to a project is refused promotions and their checks, `403 key-project-mismatch`, whether or not the runtime has an authorizer: a promotion reads one project and writes another.
+  - A tool secret whose schema names null and validates it is optional, as at run time: unset in the target, it isn't listed and doesn't hold a promotion back. Set or revoked, it's checked like any other. `@kindgi/tools`: `toolOptionalSecretNames` gives a tool's optional secrets.
+  - With no model provider registered in the tenant, each agent version that runs on any provider is listed as `any provider`, with the problem `no-provider`: a run there would have none to call. `kindgi promote` says to register one.
+- d563887: **Environment orders — the order a tenant runs a project through on its way to live.** One ordered list of projects per parent: the tenant, or one of its orgs.
+  - **`GET /v1/environment-orders`** lists the orders the caller can read a project in; **`GET /v1/environment-orders/tenant`** and **`/orgs/{orgId}`** read one (empty when it was never set or was cleared). A project the caller can't read is named by its position alone, without its id — the same project-read check `GET /v1/projects` filters its list with.
+  - **`PUT /v1/environment-orders/tenant`** and **`/orgs/{orgId}`** replace an order with the projects given, in order; send `[]` to clear it. For a tenant admin; an org admin or a project admin is refused, even on an org's own order. An order needs two or more projects, no project named twice, and each project live in the tenant under that parent and in no other order (`409 project-in-another-order`). A write that changes nothing is a no-op.
+  - A new optional `environmentOrders` binding (`EnvironmentOrderBinding`) backs the routes; a runtime that doesn't wire it doesn't mount them. The host application supplies it — `@kindgi/api` never constructs one.
+  - The TypeScript and Python clients reach them through `client.environmentOrders`.
+  - **`kindgi environments`** lists an order (`list`), sets it (`set`, naming environments from the pack config's new optional `environments.<name>.project`, or `--projects` ids/slugs), and clears it (`clear`). `kindgi env` is reworded to name a value set, to tell the two apart.
+  - A signed, exportable `environment-order-set` audit event records each set, with the order before and after — never anything a project holds.
+- 3c8afcf: **A pack service run per deployment can be given the secrets its pack declares, when the orchestrator asks for them.**
+  - **`GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env?secrets=values`** gives each declared name that's set only as a secret in `secrets`, as `{ value, revision }`, beside the plain values in `env`.
+    - Each is read at the version its revision names. A secret that changes while it's read is read again once, and then the answer is `503 pack-env-unavailable`.
+    - The `revision` (`ps1-…`) is made from the name's part of the deployment's revision, never from the value, so it changes whenever what's given for the name does.
+    - Every secret given is audited before the answer: one `secret-resolved` row each (caller `pack-env`, with the deployment id, the revision, the request's id as its correlation id, and the system key's id), all written in one append. Each row is in the project the deployment's names were read for: the one it names, else the tenant's Default. When they can't be written, none is given (`503 pack-env-unavailable`). A server with no audit store gives none (`501 pack-env-secrets-unaudited`).
+    - It's given only to a key holding `system:pack-env` itself. Any other key asking for it, `kindgi:system` included, is refused (`403 system-scope-missing`), with nothing read.
+    - A secret that can't be read for a reason the platform fixes, not the owner, is `pack-env-secret-unreadable`, and no value is given. The store's message is never passed on.
+    - Without `secrets=values`, the answer is as before: such a name is `pack-env-secret-not-yet`.
+  - **`GET /v1/system/pack-env`** lists a pack service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` at its current revision every time, with its `held` code: the revision doesn't move when the platform fixes it. `PACK_ENV_PLATFORM_HOLDS` names them.
+  - **New codes:** `pack-env-secret-unreadable` (a problem), and the orchestrator's own `pack-env-secrets-unaudited`, `pack-env-secret-too-large`, `pack-env-secret-capacity` (an endpoint's problem) and `pack-env-secret-redeploy` (a ready service's hold).
+  - **The owner's check** (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'` with no problem, read without its value. `kindgi deploy --hosted` says why for each new code, and says the platform's team is told for the ones it fixes.
+  - **`kindgi deploy --hosted` refusing `environments.<env>.env` in kindgi.config** names the command that sets a secret too, at the same scope: `kindgi secrets set NAME --scope=… --env=…`.
+  - **`@kindgi/compliance`:** `resolveEvent` builds a resolve event for a caller that appends its own rows. The `pack-env` caller is new, and a resolve event can carry the revision, the deployment id, the request's id (`correlationId`) and the system key's id (`systemKeyId`).
+- 3502389: A webhook or schedule trigger can run as a **service account**. A trigger's runs act as its owner; now the owner can be an account rather than whoever registered it. Pass `runAsServiceAccountId` when registering (`webhooks.register`, `schedules.register`) or when taking over a trigger whose owner left (`webhooks.takeOwnership`, `schedules.takeOwnership`), or `--run-as <service-account-id>` on `kindgi webhooks register`, `kindgi schedules create` and the `take-ownership` commands. Naming an account needs `act_as` on it. Only a caller who may read service accounts learns whether a named one is missing, unregistered or not `act_as`-able; everyone else gets a uniform permission error.
+- Updated dependencies [3b90568]
+- Updated dependencies [d563887]
+- Updated dependencies [409b9bf]
+  - @kindgi/log@0.1.9
+  - @kindgi/platform@0.1.9
+  - @kindgi/audit-events@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/audit-events@0.1.9-rc.1
+  - @kindgi/log@0.1.9-rc.1
+  - @kindgi/platform@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- 5d68d0d: **An audit record that can't be written, and a check the authorization model can't answer, are logged through your logger instead of the console.**
+  - `emitResolveEvent` and `emitLifecycleEvent` (`@kindgi/compliance`) take an optional `log`, a `@kindgi/log` `Logger`. An append that fails or throws still never fails the caller's operation. It's logged there at `warn`, with the record's `tenantId` and `kind`, and the error's `code` or the error it threw. Without a `log` it isn't logged anywhere; before, it went to `console.warn`.
+  - `createApp` passes the request's logger, under the subsystem `audit`, for a secret or env write's record and for a secret read refused for its scope. `resolveAtScope` takes that `log` as an optional fourth argument. An app without a `logger` won't see that a record was dropped, and the `logger` option's docs say so.
+  - A check the authorization model has no relation for, which is a bug in a route, is logged at `error` through the request's logger, under the subsystem `authz`, with its `action` and `resource`. Before, it went to `console.error`.
+  - `createInMemoryEnvBinding` takes an optional `log` and passes it on with every audit record it writes.
+- d563887: **Promoting a build from one environment to the next.**
+  - `kindgi promote --from=<env> --to=<env>` moves a build to the next environment of its environment order: the same signed image, with the edits made since to its agents and flows. It finds the pack's one deployment serving in `--from` (or takes `--deployment`). It prints what moves, with the carried edits marked and the edits that stay behind, and then each value the build needs in `--to` that isn't set, with the command that sets it. It promotes only when every value is set, and exits 1 while one isn't. `--check` stops before moving anything. `--json` gives the deployment, the check and the promotion as one object.
+  - `POST /v1/deployments/{deploymentId}/promotions` promotes a deployment to the next environment of its order, `{ toProjectId, reason? }`. The target gets a deployment of its own, with the source's signed fields, contents and pack, and `promotedFromDeploymentId`. The edits of its agents and flows move with it, and each tool's secrets are read where the target reads them. Nothing is built, and no registry is written. It answers `201` with `{ deployment, created, moved, leftBehind? }`. A target that has the build already answers `200` with its deployment (`created: false`), and records the carried edits it lacked. The promoter needs read on the deployment's project and admin on the target. The deployment must still serve and its signer still be trusted, with the signature checked again. Every value the build needs in the target must be ready. The audit trail records `deployment-promoted`, with the reason.
+  - `POST /v1/deployments/{deploymentId}/promotions/check` answers what would move, the values not ready in the target, and the next environment. It writes nothing, and it refuses as the promotion would.
+  - New error codes: `409 promotion-not-next-environment` (the project named isn't the next environment of the order), `409 promotion-values-not-ready` (`details.values`), `409 deployment-superseded` (`details.environment`, `details.newerDeploymentId`) and `501 promotions-unsupported`. A promotion from or into a suspended project or pack answers `project-suspended` or `pack-suspended`, with `details.environment`.
+  - `GET /v1/deployments` takes `projectId` (one environment's deployments; the Default project also finds those that name no project) and `packId`. Each page names the filters it applied, so a client can tell a runtime that ignored them.
+  - A deployment record carries `promotedFromDeploymentId` and `packId` when they're set.
+  - `@kindgi/api`: `DeploymentRegistryBinding.promote` (optional) writes a promotion in one transaction. Without it, a promotion answers `501 promotions-unsupported`, and the check still answers. `createApp`'s `deploymentValues` supplies where a provider's model key is and the pack's own env, for the values check.
+  - `@kindgi/client`: `deployments.promote`, `deployments.promoteCheck`, and `projectId` and `packId` on `deployments.list`.
+  - `@kindgi/compliance`, `@kindgi/specs`: the audit event kind `deployment-promoted`.
+  - `kindgi deploy` refused with `409 environment-takes-promotions` names where the build enters its environment order and prints each `kindgi promote` to run from there, one environment at a time, naming each environment from the pack config. When the refusal leaves out the first environment, because the caller can't read it, the hint says the rule and points at `kindgi environments list`.
+  - `kindgi deploy` refused with `deployment-validation-failed` prints each issue again. They're in the refusal's `details.issues`, and the CLI looked for them elsewhere.
+  - `@kindgi/api`: `DeploymentValue` describes one value a deployment needs where it's promoted to: a tool's secret or env, an agent's model key, or the pack's env. It says where the value is set and why it isn't ready, never the value itself. `ModelKeyLookup` says where a run finds a provider's model key.
+  - `@kindgi/api`: `deploymentValues` lists every value a deployment needs in the project it's promoted to, each read where a run there reads it: each tool version's secrets at the scope a promotion records for them, its env values with no default, a model key for each agent version (its registered preferred provider's, else any registered provider's), and the pack's own env. `carriedVersions` gives the edits that move with a deployment to the next environment (an edit of a version it ships, reached where it serves) and the ones left behind. `findNamedSecretScope` gives the scope a secret is recorded at and the secret found there.
+  - `@kindgi/tools`: `toolRequiredEnvNames` gives the env values a tool declares with no default.
+  - `kindgi promote` outside a pack takes a project id or slug for `--from` and `--to` (a slug two projects share is refused), and lists every deployment serving in `--from`, with each one's pack when several serve. In a pack or outside one, the command it prints for a value sets it at the target project's scope (`--scope=project:<id>`), under the env the runtime serves. In a pack, it talks to the runtime `kindgi deploy` would use for `--from`, and refuses two environments whose `endpoint` or `tenantId` differ, naming both: an environment order lives in one tenant on one runtime.
+  - The promotion check answers `envName`, the env the runtime serves, which a run in the target reads its values under. It's absent when the runtime names none.
+  - A key or session limited to a project is refused promotions and their checks, `403 key-project-mismatch`, whether or not the runtime has an authorizer: a promotion reads one project and writes another.
+  - A tool secret whose schema names null and validates it is optional, as at run time: unset in the target, it isn't listed and doesn't hold a promotion back. Set or revoked, it's checked like any other. `@kindgi/tools`: `toolOptionalSecretNames` gives a tool's optional secrets.
+  - With no model provider registered in the tenant, each agent version that runs on any provider is listed as `any provider`, with the problem `no-provider`: a run there would have none to call. `kindgi promote` says to register one.
+- d563887: **Environment orders — the order a tenant runs a project through on its way to live.** One ordered list of projects per parent: the tenant, or one of its orgs.
+  - **`GET /v1/environment-orders`** lists the orders the caller can read a project in; **`GET /v1/environment-orders/tenant`** and **`/orgs/{orgId}`** read one (empty when it was never set or was cleared). A project the caller can't read is named by its position alone, without its id — the same project-read check `GET /v1/projects` filters its list with.
+  - **`PUT /v1/environment-orders/tenant`** and **`/orgs/{orgId}`** replace an order with the projects given, in order; send `[]` to clear it. For a tenant admin; an org admin or a project admin is refused, even on an org's own order. An order needs two or more projects, no project named twice, and each project live in the tenant under that parent and in no other order (`409 project-in-another-order`). A write that changes nothing is a no-op.
+  - A new optional `environmentOrders` binding (`EnvironmentOrderBinding`) backs the routes; a runtime that doesn't wire it doesn't mount them. The host application supplies it — `@kindgi/api` never constructs one.
+  - The TypeScript and Python clients reach them through `client.environmentOrders`.
+  - **`kindgi environments`** lists an order (`list`), sets it (`set`, naming environments from the pack config's new optional `environments.<name>.project`, or `--projects` ids/slugs), and clears it (`clear`). `kindgi env` is reworded to name a value set, to tell the two apart.
+  - A signed, exportable `environment-order-set` audit event records each set, with the order before and after — never anything a project holds.
+- 3c8afcf: **A pack service run per deployment can be given the secrets its pack declares, when the orchestrator asks for them.**
+  - **`GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env?secrets=values`** gives each declared name that's set only as a secret in `secrets`, as `{ value, revision }`, beside the plain values in `env`.
+    - Each is read at the version its revision names. A secret that changes while it's read is read again once, and then the answer is `503 pack-env-unavailable`.
+    - The `revision` (`ps1-…`) is made from the name's part of the deployment's revision, never from the value, so it changes whenever what's given for the name does.
+    - Every secret given is audited before the answer: one `secret-resolved` row each (caller `pack-env`, with the deployment id, the revision, the request's id as its correlation id, and the system key's id), all written in one append. Each row is in the project the deployment's names were read for: the one it names, else the tenant's Default. When they can't be written, none is given (`503 pack-env-unavailable`). A server with no audit store gives none (`501 pack-env-secrets-unaudited`).
+    - It's given only to a key holding `system:pack-env` itself. Any other key asking for it, `kindgi:system` included, is refused (`403 system-scope-missing`), with nothing read.
+    - A secret that can't be read for a reason the platform fixes, not the owner, is `pack-env-secret-unreadable`, and no value is given. The store's message is never passed on.
+    - Without `secrets=values`, the answer is as before: such a name is `pack-env-secret-not-yet`.
+  - **`GET /v1/system/pack-env`** lists a pack service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` at its current revision every time, with its `held` code: the revision doesn't move when the platform fixes it. `PACK_ENV_PLATFORM_HOLDS` names them.
+  - **New codes:** `pack-env-secret-unreadable` (a problem), and the orchestrator's own `pack-env-secrets-unaudited`, `pack-env-secret-too-large`, `pack-env-secret-capacity` (an endpoint's problem) and `pack-env-secret-redeploy` (a ready service's hold).
+  - **The owner's check** (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'` with no problem, read without its value. `kindgi deploy --hosted` says why for each new code, and says the platform's team is told for the ones it fixes.
+  - **`kindgi deploy --hosted` refusing `environments.<env>.env` in kindgi.config** names the command that sets a secret too, at the same scope: `kindgi secrets set NAME --scope=… --env=…`.
+  - **`@kindgi/compliance`:** `resolveEvent` builds a resolve event for a caller that appends its own rows. The `pack-env` caller is new, and a resolve event can carry the revision, the deployment id, the request's id (`correlationId`) and the system key's id (`systemKeyId`).
+- 3502389: A webhook or schedule trigger can run as a **service account**. A trigger's runs act as its owner; now the owner can be an account rather than whoever registered it. Pass `runAsServiceAccountId` when registering (`webhooks.register`, `schedules.register`) or when taking over a trigger whose owner left (`webhooks.takeOwnership`, `schedules.takeOwnership`), or `--run-as <service-account-id>` on `kindgi webhooks register`, `kindgi schedules create` and the `take-ownership` commands. Naming an account needs `act_as` on it. Only a caller who may read service accounts learns whether a named one is missing, unregistered or not `act_as`-able; everyone else gets a uniform permission error.
+- Updated dependencies [3b90568]
+- Updated dependencies [d563887]
+- Updated dependencies [409b9bf]
+  - @kindgi/log@0.1.9-rc.0
+  - @kindgi/platform@0.1.9-rc.0
+  - @kindgi/audit-events@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

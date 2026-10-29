@@ -42,6 +42,12 @@
  * To mark fixed, add `> **Fixed:** <note>` right after the header;
  * to remove, delete the section including the trailing `---`.
  *
+ * Once sent (`kindgi feedback submit`), an entry carries one
+ * `- **submitted:** <date> · **report:** <reportId>` line per report, and
+ * ` · **withdrawn:** <date>` once that report is taken back. The report id
+ * isn't a credential, so the file can be committed; the key that withdraws
+ * a report stays in `~/.kindgi/feedback/keys.json` (`feedback/run.ts`).
+ *
  * ## Invocation modes
  *
  *  - **Interactive** (default when no body given): opens `$EDITOR`
@@ -50,12 +56,11 @@
  *    right for AI-driven invocation (Claude Code piping a report).
  *  - Every mode requires `--title` + `--kind`.
  *
- * ## Not in scope for v1
+ * ## Sending
  *
- *  - Hosted submission (`kindgi feedback submit`) — waits for
- *    Kindgi Hosted.
- *  - Cross-pack de-duplication — framework-side manual reconcile for
- *    now.
+ *  - `submit`, `status` and `withdraw` talk to Kindgi's feedback intake
+ *    on access.kindgi.com (`feedback/run.ts`): what's sent, redacted, is
+ *    exactly what the person saw.
  */
 
 import { spawn } from 'node:child_process';
@@ -67,16 +72,19 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { UsageError } from '../errors.js';
-import { renderJson } from '../output.js';
+import {
+  AUTHORS,
+  FEEDBACK_FILENAME,
+  type FeedbackKind,
+  type FeedbackSeverity,
+  KINDS,
+  SEVERITIES,
+} from '../feedback/entries.js';
+import { runStatus, runSubmit, runWithdraw } from '../feedback/run.js';
+import { renderJson, successNote } from '../output.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
-
-export type FeedbackKind = 'bug' | 'friction' | 'question' | 'design';
-export type FeedbackSeverity = 'blocker' | 'high' | 'medium' | 'low';
-
-const KINDS: readonly FeedbackKind[] = ['bug', 'friction', 'question', 'design'];
-const SEVERITIES: readonly FeedbackSeverity[] = ['blocker', 'high', 'medium', 'low'];
 
 export interface FeedbackWriteReport {
   readonly path: string;
@@ -88,19 +96,60 @@ export interface FeedbackWriteReport {
   readonly bodyBytes: number;
 }
 
+const PATH_OPTION = {
+  type: 'string',
+  description: 'The pack root, where `FEEDBACK.md` is. Default: the current directory.',
+} as const;
+
+const ACCESS_URL_OPTION = {
+  type: 'string',
+  description: 'Another instance of the intake (default https://access.kindgi.com).',
+} as const;
+
 const submit: LeafCommand = {
   kind: 'leaf',
   name: 'submit',
-  description: 'Submit feedback reports to Kindgi (not available yet).',
-  usage: 'kindgi feedback submit',
-  run: async (): Promise<CommandResult> => ({
-    kind: 'error',
-    stderr:
-      'kindgi feedback submit is not yet wired.\n' +
-      'Feedback entries currently live in FEEDBACK.md at the pack root — commit it to share with ' +
-      'the framework maintainers, or send it to them directly.\n',
-    exitCode: 1,
-  }),
+  description:
+    "Send FEEDBACK.md's entries to Kindgi, redacted, exactly as previewed: those named, or every one not sent yet and not fixed. A coding agent previews, shows the person, and sends only after they say yes. KINDGI_FEEDBACK_SUBMIT=off turns it off.",
+  usage:
+    'kindgi feedback submit [<id|hash>...] [--preview] [--yes=<digest>] [--path=<pack-dir>] [--access-url=<origin>]',
+  optionSpec: {
+    preview: {
+      type: 'boolean',
+      description:
+        'Print exactly what would be sent, after redaction, with its digest. Sends nothing.',
+    },
+    yes: {
+      type: 'string',
+      description:
+        "The preview's digest: sends the report only if it's still exactly what the person saw. Needed with no terminal to ask on.",
+    },
+    path: PATH_OPTION,
+    'access-url': ACCESS_URL_OPTION,
+  },
+  run: runSubmit,
+};
+
+const status: LeafCommand = {
+  kind: 'leaf',
+  name: 'status',
+  description:
+    "Ask Kindgi what became of the reports sent: received, known (with its issue), fixed (with the version), won't fix (with why), or withdrawn. Asks about each at most once a day unless named, and marks fixed ones in FEEDBACK.md.",
+  usage:
+    'kindgi feedback status [<id|hash|reportId>...] [--path=<pack-dir>] [--access-url=<origin>]',
+  optionSpec: { path: PATH_OPTION, 'access-url': ACCESS_URL_OPTION },
+  run: runStatus,
+};
+
+const withdraw: LeafCommand = {
+  kind: 'leaf',
+  name: 'withdraw',
+  description:
+    "Take reports back: Kindgi's intake clears their text at once. Needs the keys kept on the machine that sent them.",
+  usage:
+    'kindgi feedback withdraw <id|hash|reportId>... [--path=<pack-dir>] [--access-url=<origin>]',
+  optionSpec: { path: PATH_OPTION, 'access-url': ACCESS_URL_OPTION },
+  run: runWithdraw,
 };
 
 const write: LeafCommand = {
@@ -136,10 +185,7 @@ const write: LeafCommand = {
       type: 'string',
       description: 'Who wrote the entry: `human` (default), `claude-code` or `mixed`.',
     },
-    path: {
-      type: 'string',
-      description: 'The pack root, where `FEEDBACK.md` is. Default: the current directory.',
-    },
+    path: PATH_OPTION,
   },
   run: async (ctx): Promise<CommandResult> => {
     try {
@@ -164,7 +210,7 @@ const write: LeafCommand = {
       const severity = severityArg as FeedbackSeverity;
 
       const authoredByArg = stringFlag(ctx, 'authored-by') ?? 'human';
-      if (!['claude-code', 'human', 'mixed'].includes(authoredByArg)) {
+      if (!(AUTHORS as readonly string[]).includes(authoredByArg)) {
         throw new UsageError(
           `--authored-by must be claude-code, human, or mixed (got "${authoredByArg}")`,
         );
@@ -200,7 +246,10 @@ const write: LeafCommand = {
       // interactive user sees the write happened while the JSON goes
       // to stdout (respecting the CLI's format convention).
       process.stderr.write(
-        `✓ appended entry ${report.id} to ${report.path}\n  To mark items fixed, add \`> **Fixed:** <note>\` right after their header.\n  Commit FEEDBACK.md to share with the framework maintainers.\n`,
+        successNote(
+          ctx.globals.format,
+          `✓ appended entry ${report.id} to ${report.path}\n  To mark items fixed, add \`> **Fixed:** <note>\` right after their header.\n  Send it to Kindgi with kindgi feedback submit --preview (it shows exactly what's sent first).\n`,
+        ),
       );
       return {
         kind: 'ok',
@@ -217,7 +266,7 @@ export const feedbackCommand: Command = {
   name: 'feedback',
   description:
     'Report framework friction Claude Code diagnosed — bugs, wire schema gaps, misleading errors, UX cliffs.',
-  subcommands: [write, submit],
+  subcommands: [write, submit, status, withdraw],
 };
 
 // -----------------------------------------------------------------------
@@ -255,7 +304,8 @@ async function runInteractiveEditor(seed: string): Promise<string> {
     tmpdir(),
     `kindgi-feedback-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.md`,
   );
-  await writeFile(tmpPath, seed, 'utf8');
+  // The draft may get a pasted secret, and the temp folder may be shared.
+  await writeFile(tmpPath, seed, { encoding: 'utf8', mode: 0o600 });
   await new Promise<void>((resolve_, reject) => {
     const child = spawn(editor, [tmpPath], { stdio: 'inherit' });
     child.on('exit', (code) => {
@@ -276,7 +326,6 @@ interface FeedbackWriteInput {
   readonly body: string;
 }
 
-const FEEDBACK_FILENAME = 'FEEDBACK.md';
 const FEEDBACK_HEADER =
   '# Kindgi framework feedback\n\n' +
   'Running list of bugs, friction, questions, and design observations ' +

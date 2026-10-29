@@ -25,6 +25,8 @@ import type {
   ProviderSecretRef,
 } from '../provider-binding.js';
 import type { SecretUse } from '../provider-keys.js';
+import { RESERVED_SECRET_NAME_PREFIX } from '../secrets-binding.js';
+import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
@@ -70,6 +72,12 @@ export function providersRouter(
   options: {
     /** What in the tenant uses a secret: a provider's key can't be one of them. */
     readonly secretUsers?: (tenantId: TenantId, name: string) => Promise<readonly SecretUse[]>;
+    /**
+     * On a runtime that refuses other envs: a registration whose
+     * `secret_ref` names another env answers `409 env-not-served`
+     * (`refuseUnservedReference`). Absent: any env.
+     */
+    readonly servedEnv?: ServedEnvRule;
   } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -265,6 +273,15 @@ export function providersRouter(
           requestId,
         ),
       );
+    }
+
+    const unserved =
+      secretRefResult.value === undefined
+        ? undefined
+        : refuseUnservedReference(options.servedEnv, secretRefResult.value, '`secret_ref`');
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
     }
 
     // A model provider's key is used by its provider only: a key a tool, an
@@ -855,7 +872,8 @@ function parseAdapterConfig(
 /**
  * Parse the optional `secret_ref` on the register request body.
  * Accepts `undefined` (no credential — dev-echo, local models),
- * `{envName: string, name: string}`, or rejects any other shape.
+ * `{envName: string, name: string}`, or rejects any other shape, and a
+ * `name` under the reserved `kindgi.` prefix.
  */
 function parseSecretRef(
   raw: unknown,
@@ -872,6 +890,12 @@ function parseSecretRef(
   }
   if (typeof r.name !== 'string' || r.name.length === 0) {
     return { kind: 'err', error: '`secret_ref.name` must be a non-empty string.' };
+  }
+  if (r.name.startsWith(RESERVED_SECRET_NAME_PREFIX)) {
+    return {
+      kind: 'err',
+      error: `\`secret_ref.name\` is \`${r.name}\`, under the reserved "${RESERVED_SECRET_NAME_PREFIX}" prefix: those names are Kindgi's own. Store the key under a name of its own.`,
+    };
   }
   return { kind: 'ok', value: { envName: r.envName, name: r.name } };
 }

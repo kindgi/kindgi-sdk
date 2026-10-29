@@ -10,7 +10,14 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { settingsSchemaIssues, tunableKeys, validateBlock } from '../src/index.js';
+import {
+  modelNamedTwice,
+  modelSettingsIssues,
+  modelSettingsTunableKeys,
+  settingsSchemaIssues,
+  tunableKeys,
+  validateBlock,
+} from '../src/index.js';
 
 const issues = (input: unknown) => {
   const r = validateBlock(input);
@@ -138,5 +145,86 @@ describe('tunable settings keys', () => {
       }),
     ).toEqual([]);
     expect(tunableKeys(undefined)).toEqual([]);
+  });
+});
+
+describe('model settings name the model', () => {
+  test('a block may set the model and its provider, as non-empty strings', () => {
+    expect(
+      modelSettingsIssues({ providerId: 'anthropic', model: 'claude-haiku-4-5', temperature: 0.2 }),
+    ).toEqual([]);
+    expect(modelSettingsIssues({ model: '' }).map((i) => i.path)).toEqual([
+      '/content/values/model',
+    ]);
+    expect(modelSettingsIssues({ providerId: 7 }).map((i) => i.path)).toEqual([
+      '/content/values/providerId',
+    ]);
+  });
+
+  test('named in the block and on the agent is named twice, and says both places', () => {
+    const twice = modelNamedTwice(
+      { preferredModel: 'claude-sonnet-5-5' },
+      { model: 'claude-haiku-4-5' },
+    );
+    expect(twice).toContain('model');
+    expect(twice).toContain('preferredModel');
+    expect(modelNamedTwice({ preferredProvider: 'anthropic' }, { providerId: 'openai' })).toContain(
+      'preferredProvider',
+    );
+  });
+
+  test('named in one place, or not at all, is fine', () => {
+    expect(modelNamedTwice({}, { model: 'claude-haiku-4-5' })).toBeUndefined();
+    expect(
+      modelNamedTwice({ preferredModel: 'claude-sonnet-5-5' }, { temperature: 0.2 }),
+    ).toBeUndefined();
+    expect(modelNamedTwice({ preferredModel: 'claude-sonnet-5-5' }, undefined)).toBeUndefined();
+  });
+});
+
+describe("a model-settings block's tunable keys", () => {
+  const schema = (properties: Record<string, unknown>) => ({ type: 'object', properties });
+
+  test("a number is held inside model settings' bounds, an integer knob tried at integers", () => {
+    const { keys, skipped } = modelSettingsTunableKeys(
+      schema({
+        temperature: { type: 'number', minimum: 0.5, maximum: 5, 'x-kindgi-tunable': true },
+        maxOutputTokens: { type: 'number', minimum: 0, maximum: 800, 'x-kindgi-tunable': true },
+      }),
+      {},
+    );
+    expect(keys).toEqual([
+      { key: 'temperature', kind: 'number', minimum: 0.5, maximum: 2 },
+      { key: 'maxOutputTokens', kind: 'integer', minimum: 1, maximum: 800 },
+    ]);
+    expect(skipped).toBeUndefined();
+  });
+
+  test('an enum keeps only the values model settings take; a key they lack is never tried', () => {
+    const { keys } = modelSettingsTunableKeys(
+      schema({
+        model: { enum: ['claude-sonnet-5-5', 'claude-haiku-4-5', ''], 'x-kindgi-tunable': true },
+        temperature: { enum: [0.2, 3], 'x-kindgi-tunable': true },
+        tone: { enum: ['plain', 'formal'], 'x-kindgi-tunable': true },
+      }),
+      {},
+    );
+    expect(keys).toEqual([
+      { key: 'model', kind: 'enum', values: ['claude-sonnet-5-5', 'claude-haiku-4-5'] },
+    ]);
+  });
+
+  test('the model is not tried when the agent names its own, and the pass is told why', () => {
+    const { keys, skipped } = modelSettingsTunableKeys(
+      schema({
+        model: { enum: ['claude-sonnet-5-5', 'claude-haiku-4-5'], 'x-kindgi-tunable': true },
+        providerId: { enum: ['anthropic', 'openai'], 'x-kindgi-tunable': true },
+        temperature: { type: 'number', minimum: 0, maximum: 1, 'x-kindgi-tunable': true },
+      }),
+      { preferredModel: 'claude-sonnet-5-5' },
+    );
+    expect(keys.map((k) => k.key)).toEqual(['temperature']);
+    expect(skipped).toContain('"model" and "providerId"');
+    expect(skipped).toContain('preferredModel');
   });
 });

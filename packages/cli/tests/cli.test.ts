@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { turnFailureMessage } from '@kindgi/agents';
+import { KindgiApiError, fromWire } from '@kindgi/client';
 import type { KindgiClient } from '@kindgi/client';
 
 import { runCli } from '../src/main.js';
@@ -70,7 +71,7 @@ describe('root-level flags and help', () => {
   test('unknown top-level command exits 2 with root help on stderr', async () => {
     const out = await runCli(baseInputs({ argv: ['bogus'] }));
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('Unknown command: bogus');
+    expect(out.stderr).toContain('Unknown command "bogus"');
   });
 
   test('an unknown subcommand exits 2, naming it and the nearest one, with the group help on stderr', async () => {
@@ -92,6 +93,56 @@ describe('root-level flags and help', () => {
     const far = await runCli(baseInputs({ argv: ['runs', 'zzzzzz'] }));
     expect(far.exitCode).toBe(2);
     expect(far.stderr.split('\n')[0]).toBe('Unknown subcommand "zzzzzz" for kindgi runs.');
+  });
+
+  test('a near-miss top-level command points to the real one', async () => {
+    const improve = await runCli(baseInputs({ argv: ['improve', '--agent=acme.x', '--tenant'] }));
+    expect(improve.exitCode).toBe(2);
+    expect(improve.stdout).toBe('');
+    // Only the command word is quoted (like unknown-subcommand), so a trailing
+    // flag can't blur into the message's own full stop.
+    expect(improve.stderr).toMatch(
+      /^Unknown command "improve"\. Did you mean "kindgi proposals improve"\?\n\n/,
+    );
+    expect(improve.stderr).toContain('Usage: kindgi <command>');
+
+    const evalCmd = await runCli(baseInputs({ argv: ['eval'] }));
+    expect(evalCmd.exitCode).toBe(2);
+    expect(evalCmd.stderr).toContain(
+      'Unknown command "eval". Did you mean "kindgi eval-runs" or "kindgi eval-suites"?',
+    );
+
+    // A word that is no near-miss keeps the plain message, with no hint.
+    const plain = await runCli(baseInputs({ argv: ['bogus'] }));
+    expect(plain.stderr).toContain('Unknown command "bogus".');
+    expect(plain.stderr).not.toContain('Did you mean');
+  });
+
+  test('the commands a near-miss points to are real', async () => {
+    for (const argv of [
+      ['proposals', 'improve', '--help'],
+      ['eval-runs', '--help'],
+      ['eval-suites', '--help'],
+    ]) {
+      const out = await runCli(baseInputs({ argv }));
+      expect(out.exitCode, argv.join(' ')).toBe(0);
+    }
+  });
+
+  test('a prototype property name is an ordinary unknown word, not a crash', async () => {
+    // The near-miss and synonym maps are plain objects; "constructor" (and the
+    // like) must read them with no prototype member, so it stays a clean exit 2.
+    const topLevel = await runCli(baseInputs({ argv: ['constructor'] }));
+    expect(topLevel.exitCode).toBe(2);
+    expect(topLevel.stderr.split('\n')[0]).toBe('Unknown command "constructor".');
+    expect(topLevel.stderr).not.toContain('Did you mean');
+
+    const subcommand = await runCli(baseInputs({ argv: ['runs', 'constructor'] }));
+    expect(subcommand.exitCode).toBe(2);
+    expect(subcommand.stderr.split('\n')[0]).toBe(
+      'Unknown subcommand "constructor" for kindgi runs.',
+    );
+    expect(subcommand.stderr).not.toContain('Did you mean');
   });
 
   test('a group with only a flag still prints its help', async () => {
@@ -355,6 +406,211 @@ describe('not-implemented-in-preview SDK errors', () => {
   );
 });
 
+describe("kindgi runs resume and runs get: a wait for another system's answer", () => {
+  describe("runs resume --output: answers the run's wait for another system's answer, then says what it waits for next", () => {
+    const wait = (tokenId: string, name?: string) => ({
+      tokenId,
+      ...(name !== undefined && { name }),
+      tool: { id: 'acme.review', version: '1.0.0' },
+      createdAt: '2026-10-21T12:00:00.000Z',
+      timesOutAt: '2026-10-22T12:00:00.000Z',
+    });
+    /** A run waiting on `tokens` until it is answered; then `after`'s. */
+    function runWaiting(tokens: readonly ReturnType<typeof wait>[], after = 'completed') {
+      const resumes: unknown[] = [];
+      let gets = 0;
+      const client = {
+        runs: {
+          get: async (id: string) => {
+            gets += 1;
+            return resumes.length === 0
+              ? { id, status: 'suspended', waitingFor: { approvals: [], other: [], tokens } }
+              : after === 'suspended'
+                ? {
+                    id,
+                    status: 'suspended',
+                    waitingFor: { approvals: [], other: [], tokens: [wait('pause:k9:1')] },
+                  }
+                : { id, status: after };
+          },
+          journal: async () => ({ data: [], hasMore: false }),
+          resume: async (input: unknown) => {
+            resumes.push(input);
+            return {};
+          },
+        },
+      } as never;
+      const run = (...flags: string[]) =>
+        runCli(
+          baseInputs({
+            argv: ['runs', 'resume', 'run-1', ...flags, '--url=https://x', '--token=t'],
+            clientFactory: () => client,
+          }),
+        );
+      return { run, resumes, gets: () => gets };
+    }
+
+    test('the only wait is answered with the output; the run finished: exit 0', async () => {
+      const r = runWaiting([wait('pause:k1:1', 'manager sign-off')]);
+      const out = await r.run('--output={"approved":true}');
+      expect(r.resumes).toEqual([
+        { runId: 'run-1', waitpointId: 'pause:k1:1', value: { approved: true } },
+      ]);
+      expect(out.exitCode).toBe(0);
+      expect(JSON.parse(out.stdout)).toMatchObject({
+        kind: 'not-waiting',
+        status: 'completed',
+        answered: { waitpointId: 'pause:k1:1' },
+      });
+      expect(out.stderr).toBe(
+        "Answered pause:k1:1.\nRun run-1 is completed: it isn't waiting, so there's nothing to resume.\n",
+      );
+    });
+
+    test('the run then waits for another answer: exit 5', async () => {
+      const r = runWaiting([wait('pause:k1:1')], 'suspended');
+      const out = await r.run('--output={}');
+      expect(out.exitCode).toBe(5);
+      expect(out.stderr).toContain('waits for an answer from another system');
+    });
+
+    test('--waitpoint names the wait: sent as it is, without reading the run first', async () => {
+      const r = runWaiting([wait('pause:k1:1'), wait('pause:k2:1')]);
+      const out = await r.run('--output={"approved":false}', '--waitpoint=pause:k2:1');
+      expect(r.resumes).toEqual([
+        { runId: 'run-1', waitpointId: 'pause:k2:1', value: { approved: false } },
+      ]);
+      expect(r.gets()).toBe(1);
+      expect(out.exitCode).toBe(0);
+    });
+
+    test('several waits and no --waitpoint: a usage error naming them, nothing sent', async () => {
+      const r = runWaiting([wait('pause:k1:1', 'sign-off'), wait('pause:k2:1')]);
+      const out = await r.run('--output={}');
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain(
+        'Run run-1 waits for 2 answers: name one with --waitpoint=<id> (pause:k1:1, "sign-off", pause:k2:1).',
+      );
+      expect(r.resumes).toEqual([]);
+    });
+
+    test('no wait for an answer: an error, nothing sent', async () => {
+      const r = runWaiting([]);
+      const out = await r.run('--output={}');
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain("doesn't wait for another system's answer, so nothing was sent");
+      expect(r.resumes).toEqual([]);
+    });
+
+    test("--waitpoint without --output, or output that isn't JSON: a usage error, nothing read or sent", async () => {
+      const r = runWaiting([wait('pause:k1:1')]);
+      const alone = await r.run('--waitpoint=pause:k1:1');
+      expect(alone.exitCode).toBe(2);
+      expect(alone.stderr).toContain('--waitpoint goes with --output=<json-or-@file>');
+      const malformed = await r.run('--output={approved');
+      expect(malformed.exitCode).toBe(2);
+      expect(malformed.stderr).toContain('Malformed JSON input');
+      expect(r.gets()).toBe(0);
+      expect(r.resumes).toEqual([]);
+    });
+  });
+
+  test("runs get: a run waiting for another system's answer gets a line per wait, after its JSON; --quiet prints neither", async () => {
+    const run = {
+      id: 'run-1',
+      status: 'suspended',
+      waitingFor: {
+        approvals: [],
+        other: [],
+        tokens: [
+          {
+            tokenId: 'pause:k1:1',
+            name: 'manager sign-off',
+            tool: { id: 'acme.review', version: '1.0.0' },
+            createdAt: '2026-10-21T12:00:00.000Z',
+            timesOutAt: '2026-10-22T12:00:00.000Z',
+          },
+        ],
+      },
+    };
+    const get = (...flags: string[]) =>
+      runCli(
+        baseInputs({
+          argv: ['runs', 'get', 'run-1', ...flags, '--url=https://x', '--token=t'],
+          clientFactory: () => ({ runs: { get: async () => run } }) as never,
+        }),
+      );
+    const out = await get();
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual(run);
+    expect(out.stderr).toBe(
+      'Run run-1 waits for "manager sign-off" from another system, for its call to acme.review@1.0.0. It continues once that system answers through the link the tool handed on, or: kindgi runs resume run-1 --output=<json>. It times out at 2026-10-22T12:00:00.000Z.\n',
+    );
+    const quiet = await get('--quiet');
+    expect(quiet.stdout).toBe('');
+    expect(quiet.stderr).toBe('');
+  });
+
+  test("runs get: a run waiting for a person's connect gets a line per connect with its link, after the lines for other systems' answers; --quiet prints neither", async () => {
+    const connect = (
+      name: string,
+      appName: string,
+      says: readonly string[],
+      reconnects?: boolean,
+    ) => ({
+      name,
+      requestId: `cr-${name}`,
+      waitToken: `connect:cr-${name}`,
+      app: 'acme-mail',
+      appName,
+      says,
+      connectUrl: `https://kindgi.example/connect/cr-${name}`,
+      expiresAt: '2026-10-22T12:00:00.000Z',
+      ...(reconnects !== undefined && { reconnects }),
+    });
+    const run = {
+      id: 'run-1',
+      status: 'suspended',
+      waitingFor: {
+        approvals: [],
+        other: [],
+        tokens: [
+          {
+            tokenId: 'pause:k1:1',
+            name: 'manager sign-off',
+            tool: { id: 'acme.review', version: '1.0.0' },
+            createdAt: '2026-10-21T12:00:00.000Z',
+            timesOutAt: '2026-10-22T12:00:00.000Z',
+          },
+        ],
+        connections: [
+          connect('mail', 'Acme Mail', ['Send mail as you', 'Read your mail']),
+          connect('files', 'Acme Files', [], true),
+        ],
+      },
+    };
+    const get = (...flags: string[]) =>
+      runCli(
+        baseInputs({
+          argv: ['runs', 'get', 'run-1', ...flags, '--url=https://x', '--token=t'],
+          clientFactory: () => ({ runs: { get: async () => run } }) as never,
+        }),
+      );
+    const out = await get();
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual(run);
+    expect(out.stderr.split('\n')).toEqual([
+      'Run run-1 waits for "manager sign-off" from another system, for its call to acme.review@1.0.0. It continues once that system answers through the link the tool handed on, or: kindgi runs resume run-1 --output=<json>. It times out at 2026-10-22T12:00:00.000Z.',
+      'Run run-1 waits for the person who started it to connect Acme Mail for its "mail" connection (it asks for: Send mail as you; Read your mail). It continues once they have, from the run\'s page or this link, which works until 2026-10-22T12:00:00.000Z: https://kindgi.example/connect/cr-mail',
+      'Run run-1 waits for the person who started it to reconnect Acme Files for its "files" connection. It continues once they have, from the run\'s page or this link, which works until 2026-10-22T12:00:00.000Z: https://kindgi.example/connect/cr-files',
+      '',
+    ]);
+    const quiet = await get('--quiet');
+    expect(quiet.stdout).toBe('');
+    expect(quiet.stderr).toBe('');
+  });
+});
+
 describe('kindgi runs start', () => {
   test('prints the run it started, as runs get does', async () => {
     const run = { id: 'run-1', status: 'completed', output: { answer: 42 } };
@@ -551,9 +807,17 @@ describe('kindgi runs start', () => {
     );
   });
 
-  test('--quiet: nothing printed, and the exit code still says it failed', async () => {
-    const out = await startThenRead(['--agent=pack.agent', '--quiet'], { status: 'failed' });
-    expect([out.exitCode, out.stdout, out.stderr]).toEqual([1, '', '']);
+  test('--quiet: the warnings and the error line still, as --quiet keeps errors', async () => {
+    const out = await startThenRead(['--agent=pack.agent', '--quiet'], {
+      status: 'failed',
+      failureMessage: routing,
+      output: { warnings: [{ code: 'fallback-provider', message: 'Answered by a fallback' }] },
+    });
+    expect([out.exitCode, out.stdout, out.stderr]).toEqual([
+      1,
+      '',
+      '⚠ Answered by a fallback\nError [capability-routing-failed]: No registered provider satisfies the capability declaration\n',
+    ]);
   });
 
   test.each(['completed', 'cancelled', 'suspended'])(
@@ -630,6 +894,42 @@ describe('kindgi runs start', () => {
       expect(out.stderr).toContain(message);
       expect(started).toEqual([]);
     }
+  });
+  test('a turn into a closed conversation prints the refusal, and no run, with --no-wait too', async () => {
+    const id = '0c9b03fb-be50-4076-be4f-7c019c3bc634';
+    const out = await runCli(
+      baseInputs({
+        argv: [
+          'runs',
+          'start',
+          '--agent=pack.agent',
+          `--input={"userMessage":"One more thing","conversationId":"${id}"}`,
+          '--no-wait',
+          '--url=https://x',
+          '--token=t',
+        ],
+        clientFactory: () =>
+          ({
+            runs: {
+              start: async () => {
+                throw new KindgiApiError(
+                  fromWire(
+                    {
+                      code: 'conversation-closed',
+                      message: `Conversation "${id}" is closed`,
+                      details: { conversationId: id },
+                    },
+                    409,
+                  ),
+                );
+              },
+            },
+          }) as never,
+      }),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain(`Error [conversation-closed]: Conversation "${id}" is closed`);
   });
 });
 

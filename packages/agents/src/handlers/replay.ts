@@ -15,7 +15,8 @@
  *     effect): its result is computed again from the same arguments, so
  *     the replay hasn't diverged from the past run. A tool that does read
  *     from somewhere runs as `live`;
- *   - `recorded`: the past run's result for the same call is used;
+ *   - `recorded`: the past run's result for the same call is used, as
+ *     outside data when the past run kept it so (`fromEvent`);
  *   - `refused`: the tool doesn't run, and the model gets the given result.
  *
  * A turn marked as a replay with no binding refuses every call. Each
@@ -72,7 +73,19 @@ export type ReplayToolDecision =
       readonly env?: Readonly<Record<string, string>>;
     }
   | { readonly kind: 'recomputed' }
-  | { readonly kind: 'recorded'; readonly result: unknown }
+  | {
+      readonly kind: 'recorded';
+      readonly result: unknown;
+      /**
+       * The past run kept the result as outside data (its tool message's
+       * `fromEvent`): another system's answer to a paused call, or a result
+       * its tool says is outside data. The replay stores it marked, and the
+       * model reads it as data, as in the past run. Absent: it's outside
+       * data only when the replayed tool says its results are
+       * (`Tool.resultIsOutsideData`).
+       */
+      readonly fromEvent?: true;
+    }
   | { readonly kind: 'refused'; readonly result: unknown; readonly reason: string };
 
 /** An approval decision the past run recorded. */
@@ -200,9 +213,14 @@ function refusedResult(reason: string): Readonly<Record<string, unknown>> {
   return { status: 'not-executed', reason };
 }
 
-/** The journaled decision of one call: its trace entry, the result the model got, and a live call's env. */
+/**
+ * The journaled decision of one call: its trace entry, the result the
+ * model got (with a recorded one's outside-data mark), and a live call's
+ * env.
+ */
 interface RecordedDecision extends ReplayToolTrace {
   readonly result?: unknown;
+  readonly fromEvent?: true;
   readonly env?: Readonly<Record<string, string>>;
 }
 
@@ -258,9 +276,7 @@ export async function decideReplayTool(
         callId: call.callId,
         gated: call.gated,
       });
-      if (decision.kind === 'recorded') {
-        return { ...base, source: 'recorded', result: decision.result };
-      }
+      if (decision.kind === 'recorded') return recordedDecision(base, decision);
       if (decision.kind === 'refused') {
         return { ...base, source: 'refused', reason: decision.reason, result: decision.result };
       }
@@ -282,13 +298,32 @@ export async function decideReplayTool(
     if (decided.recomputed === true) return { kind: 'recomputed' };
     return { kind: 'live', ...(decided.env !== undefined && { env: decided.env }) };
   }
-  if (decided.source === 'recorded') return { kind: 'recorded', result: decided.result };
+  if (decided.source === 'recorded') {
+    return {
+      kind: 'recorded',
+      result: decided.result,
+      ...(decided.fromEvent === true && { fromEvent: true as const }),
+    };
+  }
   return { kind: 'refused', result: decided.result, reason: decided.reason ?? CHANGES_REASON };
 }
 
-/** A journaled decision's trace entry (without the result or the env values). */
+/** A `recorded` decision as journaled: the past run's result, with its outside-data mark. */
+function recordedDecision(
+  base: Omit<ReplayToolTrace, 'source'>,
+  decision: Extract<ReplayToolDecision, { readonly kind: 'recorded' }>,
+): RecordedDecision {
+  return {
+    ...base,
+    source: 'recorded',
+    result: decision.result,
+    ...(decision.fromEvent === true && { fromEvent: true as const }),
+  };
+}
+
+/** A journaled decision's trace entry (without the result, its mark or the env values). */
 function traceOf(decided: RecordedDecision): ReplayToolTrace {
-  const { result: _result, env: _env, ...trace } = decided;
+  const { result: _result, fromEvent: _fromEvent, env: _env, ...trace } = decided;
   return trace;
 }
 
@@ -336,7 +371,7 @@ export async function followReplaySessionGate(ctx: TurnContext, kctx: NodeContex
       approval.rationale !== undefined ? `: ${approval.rationale}` : ''
     }`,
     ...(approval.rationale !== undefined && { rationale: approval.rationale }),
-  } as never);
+  });
 }
 
 /**

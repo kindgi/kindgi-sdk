@@ -16,11 +16,13 @@ import type {
   AdapterFactoryInput,
   ModelCallInput,
   ModelCallResult,
+  ModelInfo,
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
 import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { headerValueProblem } from '@kindgi/types';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
@@ -65,6 +67,37 @@ export interface GeminiProviderOptions {
   readonly apiKey?: () => string | Promise<string>;
   /** An injected client, used as is (tests). `vertex`, `credentials` and `apiKey` are then unused. */
   readonly client?: GeminiClient;
+  /**
+   * How much each model thinks before it answers, by model name: Gemini's
+   * `thinkingLevel`, sent on every call to that model. A model it names
+   * needs `thinking` in `metadata.models`, and a level no lower than its
+   * `thinking.lowest`. A model it doesn't name thinks as Google sets by
+   * default. A call's `thinking: 'lowest'` still sends the model's lowest.
+   * Gemini 3 models: Gemini 2.5 takes a token budget instead.
+   */
+  readonly thinkingLevels?: Readonly<Record<string, GeminiThinkingLevel>>;
+}
+
+/**
+ * A Gemini 3 thinking level (`ThinkingConfig.thinkingLevel`), lowercase
+ * like `ModelInfo.thinking.lowest`. Each thinks more than the one before.
+ */
+export type GeminiThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
+
+/** Gemini's thinking levels, least first. */
+const THINKING_LEVELS: readonly GeminiThinkingLevel[] = ['minimal', 'low', 'medium', 'high'];
+
+/**
+ * The level a call sends: the model's lowest when the call asks for the
+ * least thinking, otherwise the level set for the model, if any.
+ */
+function thinkingLevelFor(
+  input: ModelCallInput,
+  model: ModelInfo,
+  levels: ReadonlyMap<string, GeminiThinkingLevel>,
+): string | undefined {
+  if (input.thinking === 'lowest' && model.thinking !== undefined) return model.thinking.lowest;
+  return levels.get(model.name);
 }
 
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
@@ -112,13 +145,18 @@ const RETRY_ATTEMPTS = 3;
 export function createGeminiProvider(options: GeminiProviderOptions): ModelProvider {
   const { metadata } = options;
   if (options.client === undefined) checkTarget(metadata.id, options);
+  const thinkingLevels = new Map(Object.entries(options.thinkingLevels ?? {}));
+  throwIf(metadata.id, thinkingLevelProblems(thinkingLevels, metadata.models)[0]);
   const modelsByName = new Map<string, GeminiModelInfo>(
     metadata.models.map((m) => [m.name, m] as const),
   );
 
-  // One client per credential: reused while the resolved key stays the
-  // same, rebuilt when it rotates. `''` stands for ADC.
-  let cached: { readonly key: string; readonly client: GeminiClient } | undefined;
+  // One client per credential, reused while it resolves to that one: calls
+  // whose keys take turns (a run in each of two projects with keys of their
+  // own) each reuse their own; a rotated key builds a new one. On Vertex AI
+  // a client holds its own auth client and the token it fetched, so a client
+  // built again fetches a token again. `''` stands for ADC.
+  const clients = createClientsByKey<GeminiClient>();
   // Counts each call's HTTP attempts, through the `fetch` the client sends with.
   const attempts = createAttemptCounter();
   async function resolveClient(): Promise<GeminiClient> {
@@ -138,44 +176,46 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           `${GEMINI_ADAPTER_ID}: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
         );
       }
-      if (cached?.key === key) return cached.client;
-      const client = new GoogleGenAI({
-        apiKey: key,
-        // Given, so GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE in the server's environment can't
-        // move a Developer API provider to Vertex AI (the server's project and credentials).
-        vertexai: false,
-        httpOptions: {
-          // Given, so GOOGLE_GEMINI_BASE_URL in the server's environment can't move the call.
-          baseUrl: GEMINI_DEVELOPER_BASE_URL,
-          fetch: attempts.fetch,
-          retryOptions: { attempts: RETRY_ATTEMPTS },
-        },
-      });
-      cached = { key, client };
-      return client;
+      return clients.get(
+        key,
+        () =>
+          new GoogleGenAI({
+            apiKey: key,
+            // Given, so GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE in the server's environment can't
+            // move a Developer API provider to Vertex AI (the server's project and credentials).
+            vertexai: false,
+            httpOptions: {
+              // Given, so GOOGLE_GEMINI_BASE_URL in the server's environment can't move the call.
+              baseUrl: GEMINI_DEVELOPER_BASE_URL,
+              fetch: attempts.fetch,
+              retryOptions: { attempts: RETRY_ATTEMPTS },
+            },
+          }),
+      );
     }
     const vertex = options.vertex as NonNullable<GeminiProviderOptions['vertex']>;
     const key = options.credentials !== undefined ? await options.credentials() : '';
-    if (cached?.key === key) return cached.client;
-    const client = new GoogleGenAI({
-      vertexai: true,
-      project: vertex.project,
-      location: vertex.location,
-      httpOptions: {
-        // Given, so GOOGLE_VERTEX_BASE_URL in the server's environment can't move the call.
-        baseUrl: vertexBaseUrl(vertex.location),
-        fetch: attempts.fetch,
-        retryOptions: { attempts: RETRY_ATTEMPTS },
-      },
-      ...(key !== '' && {
-        googleAuthOptions: {
-          credentials: parseServiceAccountKey(key),
-          scopes: [CLOUD_PLATFORM_SCOPE],
-        },
-      }),
-    });
-    cached = { key, client };
-    return client;
+    return clients.get(
+      key,
+      () =>
+        new GoogleGenAI({
+          vertexai: true,
+          project: vertex.project,
+          location: vertex.location,
+          httpOptions: {
+            // Given, so GOOGLE_VERTEX_BASE_URL in the server's environment can't move the call.
+            baseUrl: vertexBaseUrl(vertex.location),
+            fetch: attempts.fetch,
+            retryOptions: { attempts: RETRY_ATTEMPTS },
+          },
+          ...(key !== '' && {
+            googleAuthOptions: {
+              credentials: parseServiceAccountKey(key),
+              scopes: [CLOUD_PLATFORM_SCOPE],
+            },
+          }),
+        }),
+    );
   }
 
   return {
@@ -192,6 +232,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       const { systemInstruction, contents } = toGeminiRequest(input.messages);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const sampling = samplingFor(model, input);
+      const thinkingLevel = thinkingLevelFor(input, model, thinkingLevels);
       const config: GenerateContentConfig = {
         ...(systemInstruction !== undefined && { systemInstruction }),
         ...(input.tools !== undefined &&
@@ -203,11 +244,10 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           responseJsonSchema: input.structuredOutput.schema,
         }),
         ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-        ...(input.thinking === 'lowest' &&
-          model.thinking !== undefined && {
-            // Gemini's thinking levels: `low`, `minimal` (3.8 Flash refuses `minimal`).
-            thinkingConfig: { thinkingLevel: model.thinking.lowest.toUpperCase() as ThinkingLevel },
-          }),
+        ...(thinkingLevel !== undefined && {
+          // Gemini's thinking levels: `minimal`, `low`, `medium`, `high` (3.8 Flash refuses `minimal`).
+          thinkingConfig: { thinkingLevel: thinkingLevel.toUpperCase() as ThinkingLevel },
+        }),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
         // A header on this request only, when the caller sets it (the
@@ -307,6 +347,11 @@ export function parseServiceAccountKey(key: string): Record<string, string> {
  *
  * On the Gemini Developer API (`api: "developer"`):
  *   - `secret_ref` (required) — a Gemini API key from Google AI Studio.
+ *
+ * On either:
+ *   - `adapter_config.thinkingLevels` (optional) — how much each model
+ *     thinks, `"model=level,…"` (`"gemini-3.8-flash=low"`): see
+ *     `GeminiProviderOptions.thinkingLevels`.
  */
 export const geminiAdapterFactory: AdapterFactory = (input) => {
   const metadata = input.metadata as GeminiProviderOptions['metadata'];
@@ -317,32 +362,41 @@ export const geminiAdapterFactory: AdapterFactory = (input) => {
       developerKeyProblem(input, hasSecretRef) ??
       serverCredentialsProblem(input, hasSecretRef),
   );
+  const thinking = readThinkingLevels(input);
+  throwIf(input.metadata.id, thinking.problems[0]);
+  const thinkingLevels = thinking.levels !== undefined && { thinkingLevels: thinking.levels };
   if (apiOf(input) === 'developer') {
-    return createGeminiProvider({ metadata, apiKey: input.resolveApiKey as () => Promise<string> });
+    return createGeminiProvider({
+      metadata,
+      apiKey: input.resolveApiKey as () => Promise<string>,
+      ...thinkingLevels,
+    });
   }
   return createGeminiProvider({
     metadata,
     vertex: vertexTarget(input),
     ...(input.resolveApiKey !== undefined && { credentials: input.resolveApiKey }),
+    ...thinkingLevels,
   });
 };
 
 /**
  * What's wrong with a registration for this adapter, read without building
  * it (`AdapterFactoryEntry.checkConfig`): its API, its Gemini API key on
- * the Developer API, its Vertex project and location. Each problem's
- * message is the error the factory throws for it: both read the
- * registration through the same functions.
+ * the Developer API, its Vertex project and location, its thinking levels.
+ * Each problem's message is the error the factory throws for it: both read
+ * the registration through the same functions.
  */
 export function geminiCheckConfig(input: AdapterConfigCheckInput): readonly AdapterConfigProblem[] {
   const api = apiProblem(input);
   if (api !== undefined) return [api];
+  const thinking = readThinkingLevels(input).problems;
   if (apiOf(input) === 'developer') {
     const key = developerKeyProblem(input, input.hasSecretRef);
-    return key !== undefined ? [key] : [];
+    return [...(key !== undefined ? [key] : []), ...thinking];
   }
   const server = serverCredentialsProblem(input, input.hasSecretRef);
-  return [...vertexTargetProblems(input), ...(server !== undefined ? [server] : [])];
+  return [...vertexTargetProblems(input), ...(server !== undefined ? [server] : []), ...thinking];
 }
 
 /** The entry a runtime registers: the factory, and its static check. */
@@ -355,6 +409,88 @@ export const geminiAdapterEntry: AdapterFactoryEntry = {
 
 /** What the checks read of a registration. */
 type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config' | 'serverCredentials'>;
+
+/**
+ * `adapter_config.thinkingLevels`, `"model=level,…"`: the levels it sets,
+ * by model, or what's wrong with it. Absent: none.
+ */
+function readThinkingLevels(input: Registration): {
+  readonly levels?: Readonly<Record<string, GeminiThinkingLevel>>;
+  readonly problems: readonly AdapterConfigProblem[];
+} {
+  const value = input.config?.thinkingLevels;
+  if (value === undefined) return { problems: [] };
+  if (typeof value !== 'string' || value.trim() === '') {
+    return {
+      problems: [
+        {
+          path: THINKING_LEVELS_PATH,
+          message: `adapter_config.thinkingLevels must be "model=level,…" (e.g. "gemini-3.8-flash=low"), got ${JSON.stringify(value)}.`,
+        },
+      ],
+    };
+  }
+  const levels = new Map<string, string>();
+  const problems: AdapterConfigProblem[] = [];
+  for (const pair of value.split(',')) {
+    const [model, level, extra] = pair.split('=').map((part) => part.trim());
+    if (
+      model === undefined ||
+      model === '' ||
+      level === undefined ||
+      level === '' ||
+      extra !== undefined
+    ) {
+      problems.push({
+        path: THINKING_LEVELS_PATH,
+        message: `adapter_config.thinkingLevels has "${pair.trim()}": each entry is model=level.`,
+      });
+    } else if (levels.has(model)) {
+      problems.push({
+        path: THINKING_LEVELS_PATH,
+        message: `adapter_config.thinkingLevels names ${model} twice: one level each.`,
+      });
+    } else levels.set(model, level);
+  }
+  problems.push(...thinkingLevelProblems(levels, input.metadata.models));
+  if (problems.length > 0) return { problems };
+  return { levels: Object.fromEntries(levels) as Record<string, GeminiThinkingLevel>, problems };
+}
+
+/**
+ * What's wrong with the levels set by model: each must name a model the
+ * registration lists, one that thinks (`thinking`) with a Gemini level as
+ * its `thinking.lowest` (in any case: it's sent upper-cased), and give it
+ * a level no lower than that.
+ */
+function thinkingLevelProblems(
+  levels: ReadonlyMap<string, unknown>,
+  models: readonly ModelInfo[],
+): AdapterConfigProblem[] {
+  const byName = new Map(models.map((m) => [m.name, m] as const));
+  const problems: AdapterConfigProblem[] = [];
+  for (const [name, level] of levels) {
+    const lowest = byName.get(name)?.thinking?.lowest;
+    const floor = THINKING_LEVELS.indexOf(lowest?.toLowerCase() as GeminiThinkingLevel);
+    const at = THINKING_LEVELS.indexOf(level as GeminiThinkingLevel);
+    let message: string | undefined;
+    if (!byName.has(name)) {
+      message = `adapter_config.thinkingLevels names ${name}, which this registration doesn't list in metadata.models.`;
+    } else if (lowest === undefined) {
+      message = `adapter_config.thinkingLevels names ${name}, which has no thinking in metadata.models: it isn't known to think.`;
+    } else if (at === -1) {
+      message = `adapter_config.thinkingLevels gives ${name} ${JSON.stringify(level)}: a level is minimal, low, medium or high.`;
+    } else if (floor === -1) {
+      message = `adapter_config.thinkingLevels names ${name}, whose thinking.lowest ${JSON.stringify(lowest)} isn't a Gemini thinking level (minimal, low, medium or high), so its least isn't known.`;
+    } else if (at < floor) {
+      message = `adapter_config.thinkingLevels gives ${name} "${level as string}", below its thinking.lowest: it thinks at "${THINKING_LEVELS[floor]}" at the least.`;
+    }
+    if (message !== undefined) problems.push({ path: THINKING_LEVELS_PATH, message });
+  }
+  return problems;
+}
+
+const THINKING_LEVELS_PATH = '/adapter_config/thinkingLevels';
 
 function throwIf(providerId: string, problem: AdapterConfigProblem | undefined): void {
   if (problem !== undefined) throw adapterConfigError(GEMINI_ADAPTER_ID, providerId, problem);

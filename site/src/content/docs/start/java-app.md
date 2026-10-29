@@ -23,7 +23,9 @@ with its `echo-agent`). The client finds that runtime by itself.
 ## 1. Get the client
 
 The client is on Maven Central, and needs Java 17 or later. In your app, it's
-one dependency, at your Kindgi release's version (the CLI's, `kindgi --version`):
+one dependency, at your Kindgi release's version (the CLI's, `kindgi --version`).
+Ask your coding agent: "Add Kindgi's Java client to our app." For reference,
+it adds this to `pom.xml`:
 
 ```xml
 <dependency>
@@ -39,9 +41,16 @@ settings) is left alone; that's checked with Spring Boot 3.2 to 4.1.
 
 ## 2. Start a run and follow it
 
-To try it, make a small app in a folder inside the pack, `my-pack/hello-java`:
+To try it, make a small app in a folder inside the pack:
 `Kindgi.create()` finds the running `kindgi dev` through the nearest
-`.kindgirc.json` above the folder the app runs in, which is the pack's. Its
+`.kindgirc.json` above the folder the app runs in, which is the pack's. Ask
+your coding agent to make it:
+
+```text
+I want a small Java app in my pack that runs the echo agent and prints its events and its answer.
+```
+
+For reference, this guide makes it in `my-pack/hello-java`, with this
 `pom.xml`:
 
 ```xml
@@ -184,8 +193,10 @@ and every request body has a builder that checks it against the API's
 rules before it's sent (a `ValidationException` lists what's wrong).
 
 A newer Kindgi runtime may answer with an enum value or a kind of object
-this client doesn't know yet. The Java client keeps it (`status().value()`
-is `UNRECOGNIZED`), where the Python client refuses the whole answer.
+this client doesn't know yet. The client keeps it: `status().value()` is
+`UNRECOGNIZED`. A request body is checked against the values this client
+knows before it's sent (a `ValidationException` if not), so a value read
+from a newer runtime can't be sent back.
 
 More detail is in the client's
 [README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme):

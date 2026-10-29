@@ -8,13 +8,15 @@ description: >
   project has no kindgi.config.ts yet and the user asks to "add
   Kindgi", "create a pack", "scaffold a Kindgi pack", "start a
   new pack", or when the user needs the mental model for what a Kindgi
-  pack IS. Once the pack is scaffolded and you are authoring code,
+  pack IS. Load it too when upgrading a self-hosted deployment, or
+  when asked for a migration script (there is none). Once the pack is
+  scaffolded and you are authoring code,
   switch to kindgi-authoring-tools / kindgi-authoring-agents /
   kindgi-authoring-guardrails / kindgi-authoring-flows for the specific
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.12"
+version: "0.3.18"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -76,12 +78,28 @@ never creates env files: `kindgi dev` reads the app's own `.env` /
 not `devDependencies`: the deployed pack installs production dependencies
 only (see `kindgi-authoring-tools`).
 
+In a Next.js app, a tool can't import a module that has
+`import 'server-only'`, directly or through another module. Outside Next.js
+that line stops the module from loading, so `kindgi test`, `kindgi dev` and
+`kindgi build` fail on the tool. When the app doesn't install the package
+(Next.js doesn't need it), `kindgi test` fails with `Cannot find package
+'server-only'`, and `kindgi dev` and `kindgi build` with `Could not resolve
+"server-only"`. When it does, all three fail with the package's own "This
+module cannot be imported from a Client Component module". Don't remove the
+line, and don't alias `server-only` away in the vitest config: the build
+still fails. Move the code the tool needs, as it is, to a module without
+the line (`lib/orders.ts` → `lib/orders-core.ts`). The guarded module keeps
+the line and re-exports it
+(`import 'server-only'; export * from './orders-core';`), so the app's own
+imports don't change. The tool imports the new module. Nothing guards it,
+so only the app's server code and the pack should import it.
+
 Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 `package.json`, so the project runs the `kindgi` it pins — never a global
 one. (`npx @kindgi/cli` is the scoped package; a bare `npx kindgi` would
 fetch an unrelated package.)
 
-Four templates:
+Five templates:
 
 - `--template=minimal` (default) — folder structure only, no example
   primitives. Right when you know what you want to build.
@@ -95,6 +113,10 @@ Four templates:
   Server signed in with OAuth: house-style fixes as drafts with every
   change approved, and a flow that checks each saved article before an
   agent sees it. Its README explains each choice.
+- `--template=follow-up` — an agent that writes a follow-up mail from
+  your notes and sends it from your own Gmail, each send approved first.
+  Its send tool comes from `@kindgi/connections`, under the pack's own
+  id. Its README explains each choice.
 
 ## Boot the dev harness
 
@@ -104,8 +126,9 @@ pnpm exec kindgi dev
 
 `kindgi dev` boots a local Kindgi runtime (starting the services it
 needs on first run), indexes the pack, registers every primitive, and
-re-registers on every save. The banner prints the API URL, the seeded
-bearer token, and (if the console is bundled) the `/console/` URL.
+re-registers on every save. The banner prints the API URL, the dev
+token's last four characters (the pack's `.kindgirc.json` has it in full,
+as `token`), and (if the console is bundled) the `/console/` URL.
 
 One `kindgi dev` per pack. When one is already running (the person's
 terminal, say), `kindgi dev` exits with code 3 and prints where it is
@@ -183,11 +206,16 @@ Most of the setup is automatable, but two require your knowledge:
 - **Real LLM provider credentials** — the built-in dev-echo provider
   returns canned responses (great for the loop test, useless for real
   agents). It is a fallback, so it steps aside once a real provider is
-  registered. Declare it in `kindgi.config.ts`
+  registered. Anthropic is the example below; `kindgi providers presets`
+  lists OpenAI, Gemini, Groq and OpenRouter too.
+  Declare one in `kindgi.config.ts`
   (`providers: [{ preset: 'anthropic' }]`, the key stored by the person with
   `kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant`) and `kindgi dev`
-  registers it on every boot, in every worktree and after `--reset`; or once,
-  by hand: `kindgi providers register --preset=anthropic`. See
+  registers it on every boot, in every worktree and after `--reset`. Commit
+  the declaration: it holds the key's name, never the key, and it's how a
+  teammate's `kindgi dev`, or another worktree's, gets the same provider.
+  Or once, by hand: `kindgi providers register --preset=anthropic`, which
+  is in this worktree's dev database only. See
   `kindgi-authoring-providers`.
 
 ## Commands for the person's own terminal
@@ -293,7 +321,7 @@ const month = await kindgi.cost.usage.summary({
 // month.totalUsd; month.groups[i].key ({ month: '2026-10' }), .totalUsd, .tokens
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/observability/cost-per-run/
+Docs: https://docs.kindgi.com/v0.2/guides/observability/cost-per-run/
 
 Show it in the app's own UI. **Never:**
 
@@ -304,7 +332,35 @@ Show it in the app's own UI. **Never:**
 - **link users to Kindgi's console** or any Kindgi UI for this data.
 
 To keep a copy (reporting, search), pull it through the API into the app's
-own tables. Docs: https://docs.kindgi.com/v0.1/guides/runs/show-runs-in-your-app/
+own tables. Docs: https://docs.kindgi.com/v0.2/guides/runs/show-runs-in-your-app/
+
+## Upgrading a deployment
+
+There's no migration script, and none to write: a self-hosted runtime brings
+its database up to date when it starts, applying the migrations the database
+doesn't have yet, then serving. Migrations only go forward: an upgrade
+starts with a backup of the database, and going back means restoring it and
+running the older version on it.
+
+- **On Cloud Run, a deployment of the module** (on runtime 0.1.8 or later,
+  in any `network_mode`; before the `@kindgi/sdk@0.3.0` tag, `"none"` only):
+  the module's `./upgrade.sh`, as of the `@kindgi/sdk@<version>` tag of the
+  release you're upgrading to, since it knows the steps up to its own
+  release. It takes a `--var-file` for each file the deployment's variables
+  are in. Run `./upgrade.sh --dry-run` first: it changes nothing, and lists
+  what a real run would change. A real run's `yes` applies exactly the
+  saved plan it showed. The module README's Upgrading section has the rest:
+  https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
+- **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
+  Run page's "Upgrade by hand" section says:
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/cloud-run/#upgrade-by-hand
+- **On Azure Container Apps:** the "Operate it" section of its page:
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/azure-container-apps/#operate-it
+- **Otherwise:** the operate page's upgrade steps:
+  https://docs.kindgi.com/v0.2/deploy/self-hosted/operate/#upgrade-the-runtime
+
+An upgrade changes a running deployment: give the person the commands to run
+in their own terminal (`./upgrade.sh` waits for them to type `yes`).
 
 ## References
 

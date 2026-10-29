@@ -15,10 +15,10 @@ stricter, never looser.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell. Policies
-  are published through the HTTP API. With `kindgi dev`, the URL and token
-  are the ones it prints. They're also in the pack's `.kindgirc.json`.
+  are published through the HTTP API. With `kindgi dev`, they're `apiUrl`
+  and `token` in the pack's `.kindgirc.json`.
 - **An agent that calls the tool you gate.** This guide uses
   `acme-ops.status-agent`, which calls `acme-ops.post-update`.
 
@@ -28,7 +28,7 @@ Publish the rules as a `hitl` policy with an id and a version:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/policies" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{
     "id": "acme.approval-rules",
     "version": "1.0.0",
@@ -60,7 +60,7 @@ An agent that calls `acme-ops.post-update` and has no approval settings now
 waits. `--agent` is the agent, and `--input` its input:
 
 ```sh
-kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+pnpm exec kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 ```json
@@ -79,7 +79,7 @@ register yourself as `standard` first, with
 pending approvals. `--status=pending` lists only the ones still `pending`:
 
 ```sh
-kindgi approvals list --status=pending
+pnpm exec kindgi approvals list --status=pending
 ```
 
 ```json
@@ -127,7 +127,7 @@ Unregister a version by the policy's id and the version, in the path:
 
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/policies/acme.approval-rules/versions/1.0.0/unregister" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json

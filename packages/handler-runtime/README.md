@@ -15,6 +15,8 @@ Runs a Kindgi pack's own code: its tool handlers and guardrail checks.
 3. Calls `handler(input, ctx)`, awaiting a promise.
 4. Validates the return value against the tool's output JSON Schema.
 
+A tool that declares `pauses: true` gets the call's `ctx.waitToken` (`{ id, url }`) and `ctx.pause({ timeoutMs, name })`: its handler hands the `url` to the system that will answer and returns `ctx.pause()`, and the run waits for that answer (pack protocol 2.8.0). `runHandlerOrPause` returns the pause as a third outcome, `{ kind: 'pause', pause: { timeoutMs, name } }`, and the pack service answers it as a `pause` message. `runHandler`, whose caller can only take a result, reports a pause as `pause-not-available`. A tool that doesn't declare `pauses` gets neither, even when the call carries a token.
+
 `runCheck({ check, config, trace, abortSignal? })` runs one guardrail check: it imports the module, resolves its `evaluate` (`default`, `check`, or a bare export), and calls `evaluate(config, trace, bindings)`. `bindings` carries only `abortSignal`; a check here has no provider registry, so llm-judge checks run in the server.
 
 Neither throws. Each returns `{ kind: 'ok', value }` or `{ kind: 'err', error: HandlerError }`:
@@ -24,9 +26,10 @@ Neither throws. Each returns `{ kind: 'ok', value }` or `{ kind: 'err', error: H
 | `input-validation-failed` | The input failed its schema (`issues` lists why). The handler isn't called. |
 | `output-validation-failed` | The handler's return value failed the output schema. |
 | `handler-import-failed` | Importing the module threw (`cause`). |
-| `handler-shape-invalid` | The module exports no handler. |
+| `handler-shape-invalid` | The module exports no handler, or the handler paused for no time, for more than 24 days, or with a name that isn't 1 to 200 characters. |
 | `handler-throw` | The handler (or `evaluate`) threw (`cause`). |
 | `check-shape-invalid` | The check module exports no `evaluate`. |
+| `pause-not-available` | The tool tried to pause, but the call carries no wait token (its runtime is older than pack protocol 2.8.0), or the tool doesn't declare `pauses`. |
 
 ```ts
 import { runHandler } from '@kindgi/handler-runtime';
@@ -65,6 +68,7 @@ A pack image runs it bundled (`dist/kindgi-pack-service.mjs`) with `--bundle-map
 - **The declared process env:** a pack lists the environment variables its code reads in `kindgi.config` (`env: { required, optional }`), and the index carries them. With a `required` name unset or empty, the service isn't ready: `/readyz` and every call answer `503` with `{ "error": "missing env", "missingEnv": [...] }`, names only. `KINDGI_PACK_ENV_CHECK=warn` serves anyway and names them in the log (`missing-env`) and `/v1/info`; `kindgi dev` uses it. `resolvePackEnv` and `missingPackEnv` are the shared checks.
 - **Only the declared names reach the pack's code:** before it loads, the process entry drops from its environment every variable the pack doesn't declare, except `KINDGI_*` and the platform's (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata), and logs their names once (`env-dropped`), never their values. `KINDGI_PACK_ENV_FILTER=off` keeps every variable; `kindgi dev` sets it. `undeclaredPackEnv` is the shared check; `startPackService` filters only when its config says `envFilter: 'on'`, so an in-process caller's environment is left alone.
 - **Cancellation:** the handler's `ctx.abortSignal` fires on a deadline or a disconnect. Handlers that do slow I/O should pass it on.
+- **Connections** (protocol 2.9.0): a call's context can carry `connections`, the accounts at other apps the tool declares (`needsSpec.connections`), each with a short-lived token. The handler gets them as `ctx.connections`, not enumerable, like `ctx.secrets`, and the service never logs them. A handler whose app refuses a token throws `ConnectionRejectedError` (`@kindgi/tools`) with the connection's name; the call answers `connection-rejected` with `connection`, and the runtime renews that token once and runs the call again.
 - **Boot fails** (exit `1`, listing every problem) when the index can't be read, a module it names is missing, or one fails to import. SIGTERM drains in-flight calls and exits `0`.
 - **Logs** are JSON lines on stderr. The `listening` line carries the bound port, so a caller can start the service with `PORT=0`.
 - **Programmatic:** `createPackService({ index, resolveModule, token, … })` returns a service whose `handle` is a `node:http` request handler. `startPackService(config)` also listens (`@kindgi/handler-runtime/pack-service`).
@@ -75,6 +79,7 @@ A pack image runs it bundled (`dist/kindgi-pack-service.mjs`) with `--bundle-map
 
 - `listen()` opens the front; `start(indexPath)` boots a child on the index (loopback, any port) and switches calls to it once it listens. The previous child finishes its in-flight calls and stops; a child that fails to boot leaves the previous one serving; a child that exits on its own is restarted.
 - The front forwards `POST /v1/invoke` and `GET /v1/info`, and answers `503` with `Retry-After` while no child serves (the call did not run, so a caller may retry) and `502` when a child died mid-call (it may have run). `/healthz` answers while the front listens, `/readyz` while a child serves.
+- `writeBlock` (optional; `kindgi dev` gives one): the front also takes `POST /v1/blocks`, token-gated like `/v1/invoke`, and writes a block made live into its file in the pack (`writePackBlock`). Without it, the route answers `404`.
 - `command` is the child's argv; the supervisor appends `--index`, `--module-root` and `--host`. Any pack service with the process contract of [`pack-protocol.schema.json`](../specs/schemas/pack-protocol.schema.json) works: this package's (`[process.execPath, <pack-service-main>]`) or the Python SDK's (`[python, '-m', 'kindgi.pack', 'serve']`). It can also be a function returning the argv, called before every start: for a command that depends on what that start runs (`kindgi dev` writes the pack service's sandbox for it there). `cwd` sets the child's working directory.
 - The child's environment is exactly `env()` plus the token and `PORT=0`.
 - Forwarding is a separate `relay` (a request body plus deadline, run and request ids, and a cancel signal), so a listener other than HTTP can reuse it.
@@ -98,7 +103,7 @@ They're data only: `kindgi build` renders them into the image's Containerfile.
 
 1. **Discovers** files under `tools/`, `guardrails/`, `agents/`, `flows/` per `kindgi.config.ts` (`.ts` / `.js` / `.mjs` all accepted). Indexing a build (`bundleMap`), the map's source paths are the file list, classified by the same patterns — the source tree needn't be there — each imported from its bundle; the index still records the source path.
 2. **Kind-maps** each file by its containing directory (primary) or by structural detection on the default export (fallback for files matched by custom-discovery globs outside the four default folders).
-3. **Imports** each file and reads the `default` export — accepting either the raw primitive shape or a `Result`-wrapped envelope from `defineTool` / `defineGuardrail` / etc. Fails loud on: no default export, kind mismatch, or a `Result`-wrapped error.
+3. **Imports** each file and reads the `default` export — accepting either the raw primitive shape or a `Result`-wrapped envelope from `defineTool` / `validateGuardrail` / etc. Fails loud on: no default export, kind mismatch, or a `Result`-wrapped error.
 4. **Converts Zod schemas** — `tool.inputZod` / `tool.outputZod` / `check.configZod` — to their JSON Schema wire form via `@kindgi/schema.toJSONSchemaSync`. JSON-Schema-authored slots pass through verbatim.
 5. **Writes** the `v: 1` `index.json` envelope atomically (write to `.tmp-<pid>-<time>`, then rename) to the configured output path.
 

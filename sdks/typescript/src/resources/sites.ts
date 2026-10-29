@@ -21,6 +21,7 @@ import type {
   SiteCollectionPage,
   SiteEnrollmentCode,
   SiteKey,
+  SitePersonRestoreResult,
   SiteRoleGrant,
   SiteSignInBody,
   SiteSignInResult,
@@ -37,6 +38,7 @@ export type {
   SiteCollectionPage,
   SiteEnrollmentCode,
   SiteKey,
+  SitePersonRestoreResult,
   SiteRoleGrant,
   SiteSignInBody,
   SiteSignInResult,
@@ -92,6 +94,19 @@ export interface SitesClient {
   ): Promise<SiteEnrollmentCode>;
   /** @wire POST /v1/projects/:projectId/sites/:siteId/keys/:kid/revoke */
   revokeKey(projectId: string, siteId: string, kid: string, options?: Idempotent): Promise<Site>;
+  /**
+   * Let one of the site's people removed in Kindgi back in, while the site
+   * still knows them: the same person, with their history. Their grants
+   * come back the next time the site signs them in. Someone the site said
+   * left stays gone: if they come back, it signs them in as a new person.
+   * @wire POST /v1/projects/:projectId/sites/:siteId/people/:userId/restore
+   */
+  restorePerson(
+    projectId: string,
+    siteId: string,
+    userId: string,
+    options?: Idempotent,
+  ): Promise<SitePersonRestoreResult>;
 }
 
 const seg = (s: string): string => encodeURIComponent(s);
@@ -157,6 +172,12 @@ export function makeSitesClient(transport: Transport): SitesClient {
       transport.request<Site>({
         method: 'POST',
         path: `/v1/projects/${seg(projectId)}/sites/${seg(siteId)}/keys/${seg(kid)}/revoke`,
+        ...key(options),
+      }),
+    restorePerson: (projectId, siteId, userId, options) =>
+      transport.request<SitePersonRestoreResult>({
+        method: 'POST',
+        path: `/v1/projects/${seg(projectId)}/sites/${seg(siteId)}/people/${seg(userId)}/restore`,
         ...key(options),
       }),
   };

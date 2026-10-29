@@ -33,7 +33,7 @@ An agent `acme.greeter` 1.0.0 asks for `acme.greet` `^1.0.0` while
 the version shows:
 
 ```sh
-curl "$KINDGI_API_URL/v1/agents/acme.greeter/versions/1.0.0" -H "Authorization: Bearer $KINDGI_API_TOKEN"
+curl "$KINDGI_API_URL/v1/agents/acme.greeter/versions/1.0.0" -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API
@@ -93,10 +93,30 @@ The same happens when you change an agent's code and keep its version
 number: the deploy registers the next free version, because
 `1.4.0 is taken by a different definition`.
 
+**A tool's version doesn't move for you.** A tool version keeps the
+definition it was first published with, so code you change under the same
+version would run under the old one. When you change what a tool declares,
+such as its description, its input or output, its needs, `mutating` or its
+approvals, and keep its version, the deploy is refused with
+`409 tool-already-registered`. The
+refusal names the fields that differ, and nothing is deployed. Give the tool a
+new version. A range that takes it (`^1.0.0` takes 1.1.0) picks it up in the
+agent's next version, as above. A new image of the same tool keeps its
+version: the deploy points the version at the new image.
+
 **Flows** are pinned the same way. A flow version pins its tool nodes, and
 its agent steps that don't name a version, to their latest at publish. A tool
 change reaches a flow through a new agent version and a new flow version, in
 one deploy, with a line for each.
+
+**Where a version runs.** An agent version runs in the project it was
+published in, and in each project a deployment that isn't retired shipped
+it into, such as the next environment `kindgi promote` carried its build to.
+So a change to the agent reaches each of them. `client.agents.projects(agentId)`
+(`GET /v1/agents/{agentId}/projects`) lists them, the agent's first project
+first, naming only the ones you can read. A project stays on the list after
+the versions shipped there are unregistered, because reinstating one would
+run there again.
 
 **An agent version published without pins,** such as by an older runtime,
 gets a pinned next version at the first deploy:
@@ -112,7 +132,9 @@ CLI. An app that runs the latest gets the pinned one.
 ## What unregistering a version does
 
 Unregistering a version stops it from being chosen. It doesn't stop the
-versions that pin it.
+versions that pin it. Ask your coding agent: "I want a script that takes an
+old version of my agent out of use, and can bring it back." For reference,
+the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -250,10 +272,10 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   one waiting for an approval included, finishes on the version it started.
 
 - **A version live somewhere can't be unregistered.** First roll back, unpin
-  or promote another version in each scope where it's live, as
+  or make another version live everywhere this one is live, as
   [Release an agent version](../../evals/release-an-agent-version/#roll-back-or-unpin)
-  shows. Until then, it's refused with `409 agent-version-live`, naming the
-  scopes in `details.scopes`:
+  shows. Until then, it's refused with `409 agent-version-live`, naming
+  where it's live in `details.scopes`:
 
   ```text
   acme.order-desk 1.0.0 is live in a scope: roll back, unpin, or promote another version there first, then unregister it.
@@ -264,8 +286,8 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   runs as before.
 - **You can still read it:** it keeps its pins, and fetching it shows
   `unregisteredAt`. Reinstating it makes it choosable again.
-- **Finding one to reinstate:** an agent's, flow's, tool's or test set's
-  versions list includes unregistered versions when you ask, each with
+- **Finding one to reinstate:** the versions list of an agent, flow, tool
+  or set of test cases includes unregistered versions when you ask, each with
   `unregisteredAt`. Ask with `?includeTombstoned=true`, or
   `kindgi agents versions <id> --include-unregistered`, and the same for
   `flows` and `tools`.

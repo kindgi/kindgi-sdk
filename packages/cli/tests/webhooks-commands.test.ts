@@ -173,6 +173,20 @@ describe('kindgi webhooks register', () => {
     );
   });
 
+  test('--generate-secret --quiet: the signing secret alone on stdout, and no notes', async () => {
+    const value = 'Q7mZp2Lk9Xv4Rt8Bn3Wc6Yh1Jd5Fg0Sa2Ke7Uo4Hi';
+    const { out } = await webhooks([...GENERATE, '--quiet'], {
+      trigger: {
+        ...TRIGGER,
+        hmacSecretScope: { kind: 'project', projectId: 'p-1' },
+        signingSecret: value,
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(`${value}\n`);
+    expect(out.stderr).toBe('');
+  });
+
   test('a secret its registrant administers no scope for: said plainly, with the fix', async () => {
     const { out } = await webhooks(
       GENERATE.filter((a) => a !== '--generate-secret'),
@@ -184,6 +198,32 @@ describe('kindgi webhooks register', () => {
     expect(out.stderr).toContain(
       `Nothing is read for acme-woo-secret until a project admin names it again (\`kindgi webhooks update ${ID} --secret=acme-woo-secret\`)`,
     );
+  });
+
+  test('--quiet: a secret nothing reads, and no receive URL, are still said; the notes are not', async () => {
+    const { receiveUrl: _, ...noUrl } = TRIGGER;
+    const { out } = await webhooks(
+      [...GENERATE.filter((a) => a !== '--generate-secret'), '--quiet'],
+      { trigger: { ...noUrl, hmacSecretScope: null } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toBe(
+      [
+        `  No receive URL: this deployment has no public URL configured. Set KINDGI_PUBLIC_URL on the runtime to the address your sender reaches it at, then \`kindgi webhooks get ${ID}\` shows it.`,
+        `  Nothing is read for acme-woo-secret until a project admin names it again (\`kindgi webhooks update ${ID} --secret=acme-woo-secret\`): you don't administer a scope it could be read at. Or register with --generate-secret, which stores a new one in the project.`,
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('--quiet with a receive URL and a readable secret: nothing on stderr', async () => {
+    const { out } = await webhooks([
+      ...GENERATE.filter((a) => a !== '--generate-secret'),
+      '--quiet',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toBe('');
   });
 
   test('a named secret: nothing is made, and nothing is shown', async () => {
@@ -264,7 +304,28 @@ describe('kindgi webhooks: the rest of the group', () => {
     expect(calls).toEqual([['list', { projectId: 'p-1', status: 'active' }]]);
     expect(out.stdout).toContain('acme.refund-review@1.0.0');
     expect(out.stdout).toContain('base64 X-WC-Webhook-Signature');
-    expect(out.stdout).toContain('Ada Lovelace');
+    expect(out.stdout).toContain('RUNS AS');
+    expect(out.stdout).toContain('Ada Lovelace (personal)');
+  });
+
+  test('list: a shared trigger names its service account; one with no owner says an admin can take it over', async () => {
+    const shared = await webhooks(['list', '--table'], {
+      trigger: { ...TRIGGER, owner: { kind: 'service', id: 'sa-1', displayName: 'acme-bot' } },
+    });
+    expect(shared.out.stdout).toContain('acme-bot (shared)');
+    const none = await webhooks(['list', '--table'], {
+      trigger: { ...TRIGGER, owner: { kind: 'service', id: 'unknown' } },
+    });
+    expect(none.out.stdout).toContain('no owner (an admin can take it over)');
+    expect(none.out.stdout).not.toContain('(shared)');
+    const project = await webhooks(['list', '--table'], {
+      trigger: {
+        ...TRIGGER,
+        owner: { kind: 'service', id: 'sa-2', displayName: 'project-p-1', isProjectAccount: true },
+      },
+    });
+    expect(project.out.stdout).toContain('this project (shared)');
+    expect(project.out.stdout).not.toContain('project-p-1');
   });
 
   test('pause says the events of a paused trigger are dropped', async () => {
@@ -304,5 +365,117 @@ describe('kindgi webhooks: the rest of the group', () => {
       const { calls } = await webhooks([cmd, ID]);
       expect(calls).toEqual([[call, ID]]);
     }
+  });
+
+  test('--run-as names a service account on register and take-over', async () => {
+    const BOT = '22222222-2222-4222-8222-222222222222';
+    const reg = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      `--run-as=${BOT}`,
+    ]);
+    expect(reg.out.exitCode, reg.out.stderr).toBe(0);
+    expect(reg.calls[0]).toMatchObject(['register', { runAsServiceAccountId: BOT }]);
+
+    const take = await webhooks(['take-ownership', ID, `--run-as=${BOT}`]);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsServiceAccountId: BOT }]]);
+  });
+
+  test("--run-as=project names the project's own account on register and take-over", async () => {
+    const reg = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      '--run-as=project',
+    ]);
+    expect(reg.out.exitCode, reg.out.stderr).toBe(0);
+    expect(reg.calls[0]).toMatchObject(['register', { runAsProject: true }]);
+    expect(reg.calls[0]?.[1]).not.toHaveProperty('runAsServiceAccountId');
+
+    const take = await webhooks(['take-ownership', ID, '--run-as=project']);
+    expect(take.calls).toEqual([['takeOwnership', ID, { runAsProject: true }]]);
+  });
+
+  test('--allow-unattended: repeatable on register and update; `none` clears on update only', async () => {
+    const reg = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      '--allow-unattended=acme.refund',
+      '--allow-unattended=acme.notify',
+    ]);
+    expect(reg.out.exitCode, reg.out.stderr).toBe(0);
+    expect(reg.calls[0]).toMatchObject([
+      'register',
+      { toolsAllowedUnattended: ['acme.refund', 'acme.notify'] },
+    ]);
+
+    const cleared = await webhooks(['update', ID, '--allow-unattended=none']);
+    expect(cleared.calls).toEqual([['update', ID, { toolsAllowedUnattended: [] }]]);
+    const replaced = await webhooks(['update', ID, '--allow-unattended=acme.refund']);
+    expect(replaced.calls).toEqual([['update', ID, { toolsAllowedUnattended: ['acme.refund'] }]]);
+    const kept = await webhooks(['update', ID, '--label=orders']);
+    expect(kept.calls).toEqual([['update', ID, { label: 'orders' }]]);
+
+    const noneAtRegister = await webhooks([
+      'register',
+      '--flow=acme.refund-review',
+      '--flow-version=1.0.0',
+      '--secret=acme-woo-secret',
+      '--allow-unattended=none',
+    ]);
+    expect(noneAtRegister.out.exitCode).not.toBe(0);
+    expect(noneAtRegister.out.stderr).toContain(
+      '--allow-unattended=none clears the list on update',
+    );
+    expect(noneAtRegister.calls).toEqual([]);
+    const noneWithIds = await webhooks([
+      'update',
+      ID,
+      '--allow-unattended=none',
+      '--allow-unattended=acme.refund',
+    ]);
+    expect(noneWithIds.out.exitCode).not.toBe(0);
+    expect(noneWithIds.calls).toEqual([]);
+  });
+
+  test('take-ownership names the tools the trigger keeps allowed unattended, when it lists any', async () => {
+    const listed = await webhooks(['take-ownership', ID], {
+      trigger: { ...TRIGGER, toolsAllowedUnattended: ['acme.refund'] },
+    });
+    expect(listed.out.exitCode, listed.out.stderr).toBe(0);
+    expect(listed.out.stderr).toContain('It keeps its tools allowed unattended (acme.refund)');
+    expect(listed.out.stderr).toContain(
+      "their calls in its runs still don't wait for a person's yes just because no person started them, now as the new owner.",
+    );
+    expect(listed.out.stderr).toContain(`kindgi webhooks update ${ID} --allow-unattended=none`);
+    const none = await webhooks(['take-ownership', ID]);
+    expect(none.out.stderr).not.toContain('allowed unattended');
+  });
+
+  test('--quiet: get, pause and take-ownership say nothing; no receive URL and kept tools are still said', async () => {
+    for (const argv of [
+      ['get', ID],
+      ['pause', ID],
+      ['take-ownership', ID],
+    ]) {
+      const { out } = await webhooks([...argv, '--quiet']);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect([argv, out.stdout, out.stderr]).toEqual([argv, '', '']);
+    }
+    const { receiveUrl: _, ...noUrl } = TRIGGER;
+    const got = await webhooks(['get', ID, '--quiet'], { trigger: noUrl });
+    expect(got.out.stderr).toBe(
+      `  No receive URL: this deployment has no public URL configured. Set KINDGI_PUBLIC_URL on the runtime to the address your sender reaches it at, then \`kindgi webhooks get ${ID}\` shows it.\n`,
+    );
+    const taken = await webhooks(['take-ownership', ID, '--quiet'], {
+      trigger: { ...TRIGGER, toolsAllowedUnattended: ['acme.refund'] },
+    });
+    expect(taken.out.stderr).toContain('It keeps its tools allowed unattended (acme.refund)');
+    expect(taken.out.stderr).not.toContain('now runs as');
   });
 });

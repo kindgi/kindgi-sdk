@@ -11,11 +11,14 @@ import type { BlockRecord, BlockRegistryBinding } from '../../src/index.js';
  * versions never change, a block's versions share its first version's
  * project, unregister is soft, `getVersion` reads an unregistered
  * version (with `unregisteredAt`), and the latest is the highest active
- * version. `orgs` maps a project to its org, for an org-scoped list.
+ * version. `orgs` maps a project to its org, for an org-scoped list. A
+ * version may be published to another project of its first version's
+ * project's environment order (`orders`), and reads that project.
  */
 export function inMemoryBlocks(
   knownProjects?: readonly ProjectId[],
   orgs: Readonly<Record<string, OrgId>> = {},
+  orders: readonly (readonly ProjectId[])[] = [],
 ): BlockRegistryBinding & { readonly rows: Map<string, BlockRecord> } {
   const rows = new Map<string, BlockRecord>();
   let clock = Date.parse('2026-10-06T00:00:00.000Z');
@@ -55,7 +58,10 @@ export function inMemoryBlocks(
         return { kind: 'project-not-found', blockId: block.id, projectId };
       }
       const owner = versionsOf(block.id, true)[0];
-      if (owner !== undefined && owner.projectId !== projectId) {
+      const sameOrder = orders.some(
+        (o) => owner !== undefined && o.includes(owner.projectId) && o.includes(projectId),
+      );
+      if (owner !== undefined && owner.projectId !== projectId && !sameOrder) {
         return { kind: 'project-mismatch', blockId: block.id, projectId: owner.projectId };
       }
       if (rows.has(key(block.id, block.version))) {

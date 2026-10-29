@@ -18,25 +18,52 @@ Use it to answer "where did this answer come from?" and "what did it cost?".
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.1's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.2's CLI.
 - **The id of an agent turn's run.** `kindgi runs list` shows it.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell, for the
-  HTTP requests. With `kindgi dev`, they're the URL and token it prints. They're
-  also in the pack's `.kindgirc.json`.
+  HTTP requests. With `kindgi dev`, they're `apiUrl` and `token` in the pack's
+  `.kindgirc.json`.
 
 ## Read a turn's record
 
 Fetch it by the run's id:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
+pnpm exec kindgi provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw provenance get a64ce71c-9cfc-4263-87b1-b5562f09079c
+```
+
+</TabItem>
+</Tabs>
 
 Over HTTP it's `GET /v1/provenance/<run-id>`:
 
 ```sh
 curl "$KINDGI_API_URL/v1/provenance/a64ce71c-9cfc-4263-87b1-b5562f09079c" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 Both answer the record:
@@ -115,8 +142,10 @@ without `callUsage`.
 
 ## From your app
 
-Read the record in your app's code. Each script takes the run's id as its
-first argument:
+Read the record in your app's code. Ask your coding agent: "I want to see
+which model calls and tool calls produced a run's answer, and what each model
+call cost." For reference, the code looks like this. Each script takes the
+run's id as its first argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -237,9 +266,36 @@ provider was registered with, as [Models](../../models/) describes. The whole
 turn's total is in the run's output, under `usage`. Get the run.
 `<run-id>` is its id:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get <run-id>
+pnpm exec kindgi runs get <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 ```json excerpt
     "usage": {
@@ -267,9 +323,36 @@ Each agent step is a run of its own, with its own record. The step's output
 in the flow's journal has that run's id. `<flow-run-id>` is the flow run's
 id:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs journal <flow-run-id>
+pnpm exec kindgi runs journal <flow-run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs journal <flow-run-id>
+```
+
+</TabItem>
+</Tabs>
 
 ```json
   {
@@ -293,9 +376,36 @@ Fetch the record for that run: `kindgi provenance get 4bdae2f9-…`.
 or `--org=<id>` one project's or one org's. `--table` prints a row per
 record:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
+pnpm exec kindgi provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw provenance list --created-after=2026-10-06T17:00:00Z --limit=3 --table
+```
+
+</TabItem>
+</Tabs>
 
 ```text
 RUN                                   CREATED                   FLOW  SIGNED
@@ -308,7 +418,7 @@ Over HTTP it's `GET /v1/provenance`, filtered by `runId`, `agentId` or
 
 ```sh
 curl "$KINDGI_API_URL/v1/provenance?createdAfter=2026-10-05T16:25:00Z&limit=3" \
-  -H "Authorization: Bearer $KINDGI_API_TOKEN"
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN")
 ```
 
 ```json

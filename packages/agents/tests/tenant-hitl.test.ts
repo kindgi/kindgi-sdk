@@ -12,10 +12,16 @@ import { defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
 import type { RunId, TenantId, ToolId } from '@kindgi/types';
 
+import type { HitlCancelledError, HitlWithdrawnError } from '../src/guardrails-gate.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
 import { APPROVAL_WITHDRAWN_REASON } from '../src/handlers/gate-decision.js';
+import {
+  TOOL_GATE_RECORD_PREFIX,
+  computeToolCallWaitToken,
+  hashToolArgs,
+} from '../src/handlers/tool-hitl.js';
 import { resolveTurnHitlPolicy } from '../src/handlers/turn-environment.js';
 import { resolveEffectiveHitlPolicy, separateApproverFor } from '../src/hitl-policy.js';
 import type { Agent } from '../src/types.js';
@@ -164,6 +170,8 @@ async function dispatchUnder(
     readonly answer?: (tokenId: string) => Promise<unknown>;
     /** Whom the turn runs for. */
     readonly principal?: Principal;
+    /** The step's scope: in a loop, one per iteration. */
+    readonly stepScope?: string;
   } = {},
 ) {
   const ran: unknown[] = [];
@@ -215,6 +223,7 @@ async function dispatchUnder(
     testNodeContext(
       {
         runId: 'run-1' as RunId,
+        ...(options.stepScope !== undefined && { stepScope: options.stepScope }),
         waitForToken: (async (tokenId: string, wait: { readonly timeoutMs: number }) => {
           waits.push({ tokenId, timeoutMs: wait.timeoutMs });
           return options.answer !== undefined ? options.answer(tokenId) : { decided: 'approve' };
@@ -333,6 +342,46 @@ describe('a tool gate that parked keeps its decision when the turn resumes', () 
   });
 });
 
+describe("a tool gate's wait, per loop iteration", () => {
+  const gated = { tools: { 'pack.lookup': 'always_ask' as const } };
+  const ITERATION_2 = 'agent-loop#2/dispatch-tools';
+  const ITERATION_3 = 'agent-loop#3/dispatch-tools';
+
+  test('a call a later iteration makes again, with the same id and arguments, asks again', async () => {
+    // Each iteration is a step of its own, so each has its own records.
+    const second = await dispatchUnder(gated, agent(), { stepScope: ITERATION_2 });
+    const third = await dispatchUnder(gated, agent(), { stepScope: ITERATION_3 });
+    expect(second.waits).toHaveLength(1);
+    expect(third.waits).toHaveLength(1);
+    expect(third.waits[0]?.tokenId).not.toBe(second.waits[0]?.tokenId);
+    expect(third.enqueued[0]?.waitTokenId).toBe(third.waits[0]?.tokenId);
+    expect(third.enqueued[0]?.waitTokenId).not.toBe(second.enqueued[0]?.waitTokenId);
+  });
+
+  test('the same step run again waits on the same answer', async () => {
+    const first = await dispatchUnder(gated, agent(), { stepScope: ITERATION_2 });
+    const again = await dispatchUnder(gated, agent(), { stepScope: ITERATION_2 });
+    expect(again.waits[0]?.tokenId).toBe(first.waits[0]?.tokenId);
+  });
+
+  test('a gate recorded before the token took the step scope resumes on the token it recorded', async () => {
+    const argsHash = hashToolArgs({ q: 'x' });
+    const recorded = computeToolCallWaitToken({ runId: 'run-1', callId: 'call-0', argsHash });
+    const records = new Map<string, unknown>([
+      [
+        `${TOOL_GATE_RECORD_PREFIX}call-0`,
+        { argsHash, waitTokenId: recorded, requiredRole: 'standard', timeoutMs: HOUR },
+      ],
+    ]);
+    const { waits, ran } = await dispatchUnder(gated, agent(), {
+      records,
+      stepScope: ITERATION_2,
+    });
+    expect(waits.map((w) => w.tokenId)).toEqual([recorded]);
+    expect(ran).toEqual([{ q: 'x' }]);
+  });
+});
+
 describe('dispatch-tools — a gated call whose wait is cancelled', () => {
   const gated = agent({ hitl: { tools: { overrides: { 'pack.lookup': 'always_ask' } } } });
   const cancelledWith = (reason: string) => async (tokenId: string) => {
@@ -343,23 +392,34 @@ describe('dispatch-tools — a gated call whose wait is cancelled', () => {
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(AgentTurnFailure);
-    return (error as AgentTurnFailure).payload as unknown as Record<string, unknown>;
+    return (error as AgentTurnFailure).payload;
   };
 
   test('withdrawn by a reviewer: the turn fails with hitl-withdrawn, and the tool never runs', async () => {
-    expect(await failureOf(APPROVAL_WITHDRAWN_REASON)).toEqual({
+    const failure = await failureOf(APPROVAL_WITHDRAWN_REASON);
+    expect(failure).toEqual({
       code: 'hitl-withdrawn',
       message: 'The approval for tool call pack.lookup was withdrawn',
       reason: APPROVAL_WITHDRAWN_REASON,
     });
+    // A declared error: a typed caller narrows to it.
+    if (failure.code === 'hitl-withdrawn') {
+      const declared: HitlWithdrawnError = failure;
+      expect(declared.reason).toBe(APPROVAL_WITHDRAWN_REASON);
+    }
   });
 
   test('cancelled otherwise (a timeout): hitl-cancelled, as before', async () => {
-    expect(await failureOf('timeout')).toEqual({
+    const failure = await failureOf('timeout');
+    expect(failure).toEqual({
       code: 'hitl-cancelled',
       message: 'Tool-call HITL cancelled for pack.lookup: timeout',
       reason: 'timeout',
     });
+    if (failure.code === 'hitl-cancelled') {
+      const declared: HitlCancelledError = failure;
+      expect(declared.reason).toBe('timeout');
+    }
   });
 });
 

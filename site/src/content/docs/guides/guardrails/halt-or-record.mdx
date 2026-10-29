@@ -14,7 +14,7 @@ it, or let it finish and record the failure.
 
 - **The answer-length guardrail** from
   [Write a guardrail](../write-a-guardrail/), in the pack `my-pack`, with
-  `kindgi dev` running and Kindgi 0.1's CLI.
+  `kindgi dev` running and Kindgi 0.2's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell, to count a
   guardrail's outcomes: your runtime's URL and its API token.
 
@@ -26,6 +26,11 @@ A guardrail's action decides what a failed check does to the turn:
   has no answer.
 - **`log-only`** lets it finish. The answer goes out, and the failure is
   recorded on the turn as a violation.
+
+Ask your coding agent, for example: "When my answer length guardrail fails,
+don't stop the turn. Just record it." Kindgi's skills in your pack tell it
+how ([How it knows Kindgi](../../../start/coding-agents/)). For reference, it
+sets the action like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -72,9 +77,36 @@ action: { 'on-violation': 'log-only' },
 
 With `halt`, starting a run fails with the check's reason:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent the guardrail is on, and `--input` its input.
 
@@ -85,9 +117,36 @@ Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.answer-length': 
 The run is `failed`, and its `failureMessage` carries the violation. Get
 the run:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs get <run-id>
+pnpm exec kindgi runs get <run-id>
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs get <run-id>
+```
+
+</TabItem>
+</Tabs>
 
 `<run-id>` is the failed run's id. `kindgi runs list` shows it first.
 
@@ -158,6 +217,8 @@ can't run when:
 - no check by that name is registered;
 - its configuration is invalid;
 - an `llm-judge` guardrail's judge can't be routed to a model;
+- with a pack service for each deployment, the check's pack isn't deployed
+  into the run's project;
 - the check throws, because pack code crashed or a pack service couldn't be
   reached.
 
@@ -172,6 +233,14 @@ What happens next depends on the action:
   ```
 - With any other action, the turn completes.
 
+Where each deployment has its own pack service, as on Kindgi Cloud
+([A pack service for each deployment](../../../deploy/self-hosted/serve-many-tenants/#a-pack-service-for-each-deployment)),
+a guardrail's pack check runs from a pack deployed into the run's project,
+which is the guardrail's own, never from one in another project. So a
+guardrail that names a check deployed into another project can't run it,
+and the message ends:
+`A guardrail's pack check runs from a pack deployed into the run's project.`
+
 Either way, the error is recorded in two places. The run's provenance has
 the guardrail's node, with `evaluated: false`. The run journal's
 `evaluate-guardrails` step has it under `errors`.
@@ -185,7 +254,8 @@ can be `critical`.
 ## Which agents it covers
 
 A guardrail checks the turns of every agent that lists it. `scope` narrows
-that:
+that. Ask your coding agent, for example: "Check answer length only on my
+echo agent." For reference, it sets the scope like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -250,7 +320,7 @@ Here `acme.no-secret` halts on `SECRET`, on an agent at versions 2.0.0 and
 once. Count its outcomes:
 
 ```sh
-curl -s -H "authorization: Bearer $KINDGI_API_TOKEN" \
+curl -s -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") \
   "$KINDGI_API_URL/v1/guardrails/acme.no-secret/outcomes?projectId=a1e2b238-ae0b-4f03-b012-07875b9e5ee0&from=2026-10-11T06:02:19Z&to=2026-10-11T06:05:22Z"
 ```
 
@@ -347,7 +417,7 @@ the same counts, for the project you're in, over the last 24 hours, 7 days,
 address, as `?period=30d`. So do the table's sort and columns, so a link
 opens the page the same way.
 
-![The page of No secrets in answers (acme.no-secrets), with What it caught: "In the last 7 days it checked 14 answers: 11 passed, 3 blocked the answer (the turn failed).", "Counted from 2026-10-11 12:22 UTC, …", the four windows with Last 7 days chosen, the Columns menu, a row for each of acme.guarded 1.0.0 (6 passed, 0 let through, 2 blocked, 0 couldn't run, "2 of 8 blocked (25%)") and 1.1.0 (5, 0, 1, 0, "1 of 6 blocked (16.7%)"), and the three runs it blocked, newest first.](../../../../assets/guardrails/what-it-caught.png)
+![The page of No secrets in answers, with What it caught: "In the last 7 days it checked 14 answers: 11 passed, 3 blocked the answer (the turn failed).", "Counted from 25 Oct 2026, 1:45 AM EDT, …", the four periods with Last 7 days chosen, the Columns menu, a row for each of Guarded agent 1.0.0 (6 passed, 0 let through, 2 blocked, 0 couldn't run, "2 of 8 blocked (25%)") and 1.1.0 (5, 0, 1, 0, "1 of 6 blocked (16.7%)"), and the three runs it blocked, newest first.](../../../../assets/guardrails/what-it-caught.png)
 
 - **The sentence** counts the answers it checked in the window, by outcome:
   "passed", "found something without stopping the turn" (`violated`),
@@ -359,8 +429,10 @@ opens the page the same way.
 - **The latest runs it blocked:** each time opens that run's page, where
   the blocked answer stays withheld.
 - **When outcomes start later than the window**, it says from when it
-  counted ("Counted from 2026-10-11 12:22 UTC, the earliest outcome kept for
-  it here: outcomes go with their runs."), as `recordedSince` does.
+  counted ("Counted from 25 Oct 2026, 1:45 AM EDT, the earliest outcome kept
+  for it here: outcomes go with their runs."), as `recordedSince` does. Its
+  times are on your own clock, or UTC
+  ([The menu under your name](../../sso/sign-in/#the-menu-under-your-name)).
 
 ## Next
 

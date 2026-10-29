@@ -57,13 +57,14 @@ import semver from 'semver';
 import { PACK_ID_REGEX } from '../commands/init.js';
 import { syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
-import { renderJson } from '../output.js';
+import { type OutputFormat, renderJson } from '../output.js';
 import {
   type PackageManager,
   binDisplay,
   detectPackageManager,
   installCommand,
 } from '../package-manager.js';
+import { note, renderLines, warning } from '../progress-lines.js';
 import { MODELS_GUIDE } from '../providers/models-guide.js';
 import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import { type KindgiDependencySpecs, resolveKindgiDependencySpecs } from './dependency-specs.js';
@@ -113,6 +114,12 @@ export interface RunInitAugmentInputs {
    * pre-existing skill files.
    */
   readonly force: boolean;
+  /**
+   * The output format the command was given (`ctx.globals.format`): the
+   * summary prints as it asks, and `quiet` keeps only the warnings on
+   * stderr. Default `json`, as with no flag.
+   */
+  readonly format?: OutputFormat;
   /** `--link-local`: link the Kindgi checkout even when the target is inside its workspace. */
   readonly linkLocal?: boolean;
   /**
@@ -359,25 +366,30 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
     nextSteps,
   };
 
-  const rendered = renderJson(summary, 'json');
+  const format = inputs.format ?? 'json';
+  const rendered = renderJson(summary, format);
 
   return {
     kind: 'ok',
     rendered: {
       stdout: rendered.stdout,
-      stderr: [
-        '',
-        `  Kindgi added to ${inputs.targetDir} (augment mode).`,
-        `  Pack id: ${packId}    Version: ${packVersion}`,
-        `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
-        ...(patchResult.outside ?? []).map((line) => `  ✓ ${line}`),
-        ...warnings.map((warning) => `  ⚠ ${warning}`),
-        '',
-        '  Next steps:',
-        ...nextSteps.map((step) => `    ${step}`),
-        '',
-        '',
-      ].join('\n'),
+      stderr: renderLines(
+        [
+          note(''),
+          note(`  Kindgi added to ${inputs.targetDir} (augment mode).`),
+          note(`  Pack id: ${packId}    Version: ${packVersion}`),
+          note(
+            `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+          ),
+          ...(patchResult.outside ?? []).map((line) => note(`  ✓ ${line}`)),
+          ...warnings.map((w) => warning(`  ⚠ ${w}`)),
+          note(''),
+          note('  Next steps:'),
+          ...nextSteps.map((step) => note(`    ${step}`)),
+          note(''),
+        ],
+        format === 'quiet',
+      ),
     },
   };
 }

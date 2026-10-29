@@ -31,7 +31,7 @@ import type { GuardrailConfigProblem } from './config-problems.js';
  *
  * The `BUILT_IN_GUARDRAIL_KINDS` constant enumerates the well-known values
  * (the schema lists them as `examples`); the schema accepts any non-empty
- * kind. `defineGuardrail` still requires a registered check of the same
+ * kind. `validateGuardrail` still requires a registered check of the same
  * kind, and runtime dispatch uses the registered strategies, not this
  * union.
  */
@@ -50,7 +50,8 @@ export type GuardrailSeverity = 'info' | 'warn' | 'error' | 'critical';
  * `'redact-then-continue'`. Any non-empty name is accepted when the
  * guardrail is defined; with `EvaluationBindings.actions` set, a name
  * with no registered handler fails with `unknown-action` when the
- * guardrail fires.
+ * guardrail fires. The agent runtime in 0.1 binds no action handlers
+ * and acts only on `'halt'` (see `Action`).
  */
 export type OnViolation = string;
 
@@ -66,9 +67,20 @@ export type BuiltInOnViolation = (typeof BUILT_IN_ON_VIOLATIONS)[number];
 export type ScopeWhen = 'always' | 'ci-only' | 'runtime-only';
 
 export interface Action {
+  /**
+   * What a failed check does to the agent turn. In 0.1 the runtime acts
+   * only on `'halt'`: the turn fails with `guardrail-violation` and its
+   * response is not stored. Any other action, `'retry'`, `'escalate'` and
+   * `'compensate'` included, is recorded on the turn's `violations`, as
+   * `'log-only'` is, and the turn completes: nothing runs the turn again,
+   * escalates or calls a compensating tool.
+   */
   readonly 'on-violation': OnViolation;
+  /** The attempts a `'retry'` asks for. In 0.1 nothing acts on it: there's no second attempt. */
   readonly retry?: { readonly maxAttempts: number };
+  /** Where an `'escalate'` goes. In 0.1 nothing escalates. */
   readonly escalateTo?: string;
+  /** The tool id a `'compensate'` names. In 0.1 that tool isn't called. */
   readonly compensateWith?: string;
 }
 
@@ -159,7 +171,7 @@ export type CodeArtifactRef =
  * `check` references a concrete check implementation:
  *   - For `zero-llm`: id of a check in the CheckRegistry (built-in or custom).
  *   - For `llm-judge`: id of a registered check of kind `llm-judge`
- *     (`defineGuardrail` resolves it); the judge itself is configured by
+ *     (`validateGuardrail` resolves it); the judge itself is configured by
  *     `config` (`LlmJudgeConfig`) + `judgeCapabilities`.
  *   - For `external` and adapter kinds: an id the kind's strategy understands.
  *
@@ -206,18 +218,18 @@ export interface Guardrail {
   /**
    * Check-specific configuration. Interpreted by the check
    * implementation (validated by the check's `validateConfig`, e.g.
-   * derived from its `configSchema`, when `defineGuardrail` runs).
+   * derived from its `configSchema`, when `validateGuardrail` runs).
    * Shape is opaque to the engine; e.g. `must-cite` reads
    * `{minCitations?: number}`, `output-matches` reads `{pattern: string}`.
    */
   readonly config?: Readonly<Record<string, unknown>>;
   /**
-   * What the framework does when this guardrail fires — `halt`
-   * (fail the run), `retry` (re-execute the step with a
-   * `maxAttempts` cap), `escalate` (route to HITL review),
-   * `log-only` (record but don't block), `compensate` (invoke a
-   * named compensation tool). `BUILT_IN_ON_VIOLATIONS` lists the
-   * built-in values; `OnViolation` itself is an open string.
+   * What a failed check does to the agent turn. In 0.1 the runtime
+   * acts only on `halt`: the turn fails with `guardrail-violation`.
+   * `retry`, `escalate`, `compensate` and any other name are recorded
+   * like `log-only` and the turn completes (see `Action`).
+   * `BUILT_IN_ON_VIOLATIONS` lists the built-in values; `OnViolation`
+   * itself is an open string.
    */
   readonly action: Action;
   /**

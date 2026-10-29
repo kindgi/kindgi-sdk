@@ -47,6 +47,8 @@ const SITE = {
 };
 const KEY = { kid: 'k1', thumbprint: 'thumb-1', addedAt: '2026-10-10T00:01:00.000Z' };
 const CODE = { code: 'acme-code-1', expiresAt: '2026-10-10T00:15:00.000Z' };
+const PERSON_ID = '44444444-4444-4444-8444-444444444444';
+const PERSON = { userId: PERSON_ID, displayName: 'Jane', createdAt: '2026-10-10T00:02:00.000Z' };
 
 async function sites(argv: readonly string[]) {
   const calls: unknown[][] = [];
@@ -85,6 +87,7 @@ async function sites(argv: readonly string[]) {
             }),
             newEnrollmentCode: record('newEnrollmentCode', CODE),
             revokeKey: record('revokeKey', SITE),
+            restorePerson: record('restorePerson', { user: PERSON }),
           },
         },
       }) as never,
@@ -115,6 +118,13 @@ describe('kindgi sites register', () => {
     expect(out.stderr).toContain('under Kindgi → Settings');
     expect(out.stderr).toContain('this CLI uses https://kindgi.acme.example');
     expect(out.stderr).toContain(`\`kindgi sites code ${SITE_ID}\` gives a new one`);
+  });
+
+  test('--quiet: the one-time code alone on stdout, and no notes', async () => {
+    const { out } = await sites(['register', ...REQUIRED, '--quiet']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(`${CODE.code}\n`);
+    expect(out.stderr).toBe('');
   });
 
   test('every setting, in a project given', async () => {
@@ -195,6 +205,13 @@ describe('kindgi sites: the rest of the group', () => {
     expect(out.stderr).toContain('under Kindgi → Settings');
   });
 
+  test('code --quiet: the one-time code alone on stdout, and no notes', async () => {
+    const { out } = await sites(['code', SITE_ID, `--project=${PROJECT}`, '--quiet']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(`${CODE.code}\n`);
+    expect(out.stderr).toBe('');
+  });
+
   test('list as a table: each site, its state and its keys; unregistered ones when asked', async () => {
     const { out, calls } = await sites(['list', '--include-unregistered', '--limit=10', '--table']);
     expect(out.exitCode, out.stderr).toBe(0);
@@ -230,5 +247,22 @@ describe('kindgi sites: the rest of the group', () => {
     const revoked = await sites(['revoke-key', SITE_ID, 'k1', `--project=${PROJECT}`]);
     expect(revoked.out.exitCode, revoked.out.stderr).toBe(0);
     expect(revoked.calls).toEqual([['revokeKey', PROJECT, SITE_ID, 'k1']]);
+  });
+
+  test('restore-person: the site and the person by id, in the project given or the Default one', async () => {
+    const restored = await sites(['restore-person', SITE_ID, PERSON_ID, `--project=${PROJECT}`]);
+    expect(restored.out.exitCode, restored.out.stderr).toBe(0);
+    expect(restored.calls).toEqual([['restorePerson', PROJECT, SITE_ID, PERSON_ID]]);
+    expect(JSON.parse(restored.out.stdout)).toEqual({ user: PERSON });
+    const inDefault = await sites(['restore-person', SITE_ID, PERSON_ID]);
+    expect(inDefault.out.exitCode, inDefault.out.stderr).toBe(0);
+    expect(inDefault.calls).toEqual([
+      ['getDefault'],
+      ['restorePerson', DEFAULT_PROJECT, SITE_ID, PERSON_ID],
+    ]);
+    // The person's id is required: nothing is asked without it.
+    const noPerson = await sites(['restore-person', SITE_ID, `--project=${PROJECT}`]);
+    expect(noPerson.out.exitCode).not.toBe(0);
+    expect(noPerson.calls).toEqual([]);
   });
 });

@@ -21,6 +21,11 @@ export const GLOBAL_OPTION_SPEC = {
     description:
       'The API token. Overrides `KINDGI_API_TOKEN` and the config files, and goes to the address the command does.',
   },
+  hosted: {
+    type: 'boolean' as const,
+    description:
+      "Go to the CLI's own address (`--url`, `KINDGI_API_URL` or the one `kindgi auth login` stored), never a `kindgi dev` runtime's `.kindgirc.json`; `kindgi build` and `kindgi deploy` then use the hosted build service. An env block's `build: 'hosted'` does the same for the env a command acts in. `kindgi dev` refuses it: a dev runtime is never hosted.",
+  },
   verbose: {
     type: 'boolean' as const,
     short: 'v' as const,
@@ -33,13 +38,16 @@ export const GLOBAL_OPTION_SPEC = {
   raw: { type: 'boolean' as const, description: 'Output compact, one-line JSON.' },
   quiet: {
     type: 'boolean' as const,
-    description: 'Print nothing: the exit code alone reports the result.',
+    description:
+      "Print errors and warnings only, and what's shown only once (a link, a secret, a code) alone on stdout: the exit code reports the result.",
   },
 } as const;
 
 export interface GlobalFlags {
   readonly url?: string;
   readonly token?: string;
+  /** `--hosted`: the command goes to the CLI's own address, never a `kindgi dev` runtime's (api-address.ts `hostedScope`). */
+  readonly hosted: boolean;
   readonly verbose: boolean;
   readonly help: boolean;
   readonly version: boolean;
@@ -112,6 +120,7 @@ export function parseCommand(
     values.quiet === true,
   );
   const globals: GlobalFlags = {
+    hosted: values.hosted === true,
     verbose: values.verbose === true,
     help: values.help === true,
     version: values.version === true,

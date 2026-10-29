@@ -4,7 +4,7 @@
 import type { Site, SiteCollectionPage, SiteEnrollmentCode, SitesClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
-import { renderJson } from '../output.js';
+import { type Rendered, renderJson, successNote } from '../output.js';
 import {
   type TableSpec,
   integerFlag,
@@ -112,6 +112,14 @@ async function settingsFrom(ctx: CommandContext): Promise<Settings> {
   };
 }
 
+/**
+ * The result's stdout: under `--quiet`, the one-time code alone, since it's
+ * shown this once, as `connections connect`'s link is; else `rendered`'s.
+ */
+function codeStdout(ctx: CommandContext, rendered: Rendered, code: SiteEnrollmentCode): string {
+  return ctx.globals.format === 'quiet' ? `${code.code}\n` : rendered.stdout;
+}
+
 /** Where the code goes, said once: what the plugin's admin pastes. */
 function codeNote(ctx: CommandContext, code: SiteEnrollmentCode): string[] {
   return [
@@ -160,15 +168,18 @@ const register: LeafCommand = {
         .projects.sites.register(projectId, { ...settings, displayName, origin, approvalsUrl });
       const rendered = renderJson({ site, enrollment }, ctx.globals.format);
       return {
-        stdout: rendered.stdout,
-        stderr: [
-          '',
-          `  Registered site ${site.siteId} on project ${site.projectId}: its people show as "<name>, via ${site.displayName}".`,
-          ...codeNote(ctx, enrollment),
-          `  A code that ran out: \`kindgi sites code ${site.siteId}${projectSuffix(ctx)}\` gives a new one.`,
-          '',
-          '',
-        ].join('\n'),
+        stdout: codeStdout(ctx, rendered, enrollment),
+        stderr: successNote(
+          ctx.globals.format,
+          [
+            '',
+            `  Registered site ${site.siteId} on project ${site.projectId}: its people show as "<name>, via ${site.displayName}".`,
+            ...codeNote(ctx, enrollment),
+            `  A code that ran out: \`kindgi sites code ${site.siteId}${projectSuffix(ctx)}\` gives a new one.`,
+            '',
+            '',
+          ].join('\n'),
+        ),
       };
     }),
 };
@@ -194,8 +205,11 @@ const code: LeafCommand = {
         .projects.sites.newEnrollmentCode(await projectIdFlag(ctx), siteId);
       const rendered = renderJson(enrollment, ctx.globals.format);
       return {
-        stdout: rendered.stdout,
-        stderr: ['', ...codeNote(ctx, enrollment), '', ''].join('\n'),
+        stdout: codeStdout(ctx, rendered, enrollment),
+        stderr: successNote(
+          ctx.globals.format,
+          ['', ...codeNote(ctx, enrollment), '', ''].join('\n'),
+        ),
       };
     }),
 };
@@ -283,11 +297,28 @@ const revokeKey: LeafCommand = {
     }),
 };
 
+const restorePerson: LeafCommand = {
+  kind: 'leaf',
+  name: 'restore-person',
+  description:
+    "Let one of a site's people removed in Kindgi back in, by their user id (`kindgi people list --include-removed` finds it): the same person, with their history, and their grants come back the next time the site signs them in. Refused, with nothing changed, for someone who isn't removed, someone their site said left (if they come back, it signs them in as a new person), and someone who also signs in another way. Tenant admins only. Needs a runtime on Kindgi 0.1.10 or later.",
+  usage: 'kindgi sites restore-person <site-id> <user-id> [--project=<project-id>]',
+  optionSpec: PROJECT_FLAG,
+  run: (ctx) =>
+    runSdk(ctx, 'sites restore-person', async () => {
+      const siteId = requiredPositional(ctx, 0, 'site-id');
+      const userId = requiredPositional(ctx, 1, 'user-id');
+      return await ctx
+        .client()
+        .projects.sites.restorePerson(await projectIdFlag(ctx), siteId, userId);
+    }),
+};
+
 export const sitesCommand: Command = {
   kind: 'group',
   name: 'sites',
   description:
-    'Sites that sign their own people in to a project (the Kindgi WordPress plugin): register, code, list, get, update, pause, resume, revoke-key, unregister. Tenant admins only.',
+    'Sites that sign their own people in to a project (the Kindgi WordPress plugin): register, code, list, get, update, pause, resume, revoke-key, restore-person, unregister. Tenant admins only.',
   subcommands: [
     register,
     code,
@@ -303,6 +334,7 @@ export const sitesCommand: Command = {
     ),
     bySite('resume', "Start a paused site's sign-ins again.", (s, p, id) => s.resume(p, id)),
     revokeKey,
+    restorePerson,
     bySite(
       'unregister',
       'Unregister a site: its sign-ins stop and its live sessions end. The people it signed in stay, with their records.',

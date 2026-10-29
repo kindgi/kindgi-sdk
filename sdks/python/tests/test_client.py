@@ -193,6 +193,40 @@ def test_eval_suites_unregister_names_the_call_as_the_other_resources_do() -> No
     ] * 2
 
 
+def test_a_usage_group_keeps_a_kind_class_or_state_this_client_does_not_list() -> None:
+    # A runtime may count more kinds, classes and states than this client
+    # was built with: the page still parses, and each value comes as it is.
+    group = {
+        "tenantId": "6f1c2c0e-3b0a-4f1e-9a51-0c1d2e3f4a5b",
+        "kind": "a-later-kind",
+        "class": "a-later-class",
+        "state": "a-later-state",
+        "count": 1,
+        "quantity": 0,
+        "firstAt": "2026-11-02T10:00:00.000Z",
+        "lastAt": "2026-11-02T10:00:00.000Z",
+    }
+    page = {"data": [group], "watermark": "2026-11-04T00:00:00.000Z"}
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    read = api.system_usage.read(from_="2026-11-01T00:00:00Z", to="2026-12-01T00:00:00Z")
+    (got,) = read.data
+    assert (got.kind, got.class_, got.state) == ("a-later-kind", "a-later-class", "a-later-state")
+    assert seen[0].url.path == "/v1/system/usage"
+
+
+def test_a_tenant_is_renamed_by_its_admins_or_the_operator_and_answers_nothing() -> None:
+    tenant_id = "6f1c2c0e-3b0a-4f1e-9a51-0c1d2e3f4a5b"
+    api, seen = client(lambda r: httpx.Response(204))
+    assert api.tenant.update(name="Acme Store", slug="acme-store", idempotency_key="k-1") is None
+    assert api.system_tenants.update(tenant_id, {"slug": "acme-store"}) is None
+    assert [(r.method, r.url.path, json.loads(r.content)) for r in seen] == [
+        ("PATCH", "/v1/tenant", {"name": "Acme Store", "slug": "acme-store"}),
+        ("PATCH", f"/v1/system/tenants/{tenant_id}", {"slug": "acme-store"}),
+    ]
+    assert seen[0].headers["idempotency-key"] == "k-1"
+    assert seen[1].headers["idempotency-key"]  # generated: the call is safe to retry
+
+
 def test_conversations_list_takes_replays() -> None:
     # A comparison's replay conversations are left out unless asked for.
     api, seen = client(lambda r: httpx.Response(200, json={"data": [], "hasMore": False}))

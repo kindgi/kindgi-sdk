@@ -27,6 +27,7 @@
 import type {
   PatchWebhookTriggerBody,
   RegisterWebhookTriggerBody,
+  TakeTriggerOwnerBody,
   WebhookFire,
   WebhookFirePage,
   WebhookSignature,
@@ -41,6 +42,7 @@ export type WebhookTriggerPage = WebhookTriggerCollectionPage;
 export type RegisterWebhookTriggerInput = RegisterWebhookTriggerBody;
 export type UpdateWebhookTriggerInput = PatchWebhookTriggerBody;
 export type UnregisterWebhookTriggerResult = WebhookTriggerUnregisterResult;
+export type TakeTriggerOwnerInput = TakeTriggerOwnerBody;
 export type { WebhookFire, WebhookFirePage, WebhookSignature };
 
 export interface ListWebhookTriggersFilter {
@@ -89,11 +91,18 @@ export interface WebhooksClient {
   fires(triggerId: string, filter?: ListWebhookFiresFilter): Promise<WebhookFirePage>;
   /**
    * The caller becomes the trigger's owner: its runs act as the caller
-   * from the next delivery.
+   * from the next delivery. Pass `{ runAsServiceAccountId }` to make a
+   * service account the owner instead (needs `act_as` on the account), or
+   * `{ runAsProject: true }` to make the project's own account the owner
+   * (made the first time).
    *
    * @wire POST /v1/webhooks/:triggerId/owner
    */
-  takeOwnership(triggerId: string, options?: MutationOptions): Promise<WebhookTrigger>;
+  takeOwnership(
+    triggerId: string,
+    input?: TakeTriggerOwnerInput,
+    options?: MutationOptions,
+  ): Promise<WebhookTrigger>;
 }
 
 interface MutationOptions {
@@ -167,10 +176,11 @@ export function makeWebhooksClient(transport: Transport): WebhooksClient {
         },
       });
     },
-    async takeOwnership(triggerId, options) {
+    async takeOwnership(triggerId, input, options) {
       return transport.request<WebhookTrigger>({
         method: 'POST',
         path: `/v1/webhooks/${encodeURIComponent(triggerId)}/owner`,
+        ...(input !== undefined && { body: input }),
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },

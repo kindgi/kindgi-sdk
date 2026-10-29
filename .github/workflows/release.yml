@@ -53,6 +53,14 @@ name: Release
 # scripts/central-bundle.mjs uploads them as one deployment. A dry run has
 # the Portal validate that deployment, then drops it: nothing is published.
 # A version Central already has is skipped (Central's versions are permanent).
+#
+# Last, the release's GitHub release (scripts/github-release.mjs), on the
+# `@kindgi/sdk@<version>` tag the npm job pushes, carries the WordPress
+# plugin as the zip WordPress installs, `kindgi-<plugin version>.zip`, and
+# its SHA-256 (scripts/wordpress-plugin-zip.mjs). A release candidate's is
+# a pre-release. A dry run builds the zip, keeps it as the run's artifact
+# and shows the release's notes in the run's summary, to read before a
+# publish; it makes no release.
 
 on:
   push:
@@ -99,7 +107,8 @@ jobs:
       # `version-packages` gives the Python projects the packages' new version
       # (scripts/sync-python-version.mjs), and uv re-locks them. It moves the
       # JVM SDKs' poms too and stamps their changelog
-      # (scripts/sync-jvm-version.mjs --release; text edits, no Maven).
+      # (scripts/sync-jvm-version.mjs --release; text edits, no Maven), and
+      # moves the skills' docs links to the new line (scripts/sync-docs-line.mjs).
       - uses: astral-sh/setup-uv@v6
         with:
           version-file: sdks/python/pyproject.toml
@@ -280,6 +289,38 @@ jobs:
           pnpm changeset git-tag
           git push origin --tags
           node scripts/check-release-tags.mjs
+
+  github-release:
+    name: The GitHub release, with the WordPress plugin
+    # After npm: its job pushes the tag the release goes on.
+    needs: publish
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (inputs.dry-run || needs.publish.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the GitHub release
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          # The zip and the notes are plain Node, with no dependencies: no
+          # install, so no package-manager cache (on by default when
+          # package.json names one, and it needs pnpm on the runner).
+          package-manager-cache: false
+      - name: The WordPress plugin's zip and its checksum
+        id: zip
+        run: echo "zip=$(node scripts/wordpress-plugin-zip.mjs "$RUNNER_TEMP/wordpress-plugin")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wordpress-plugin
+          path: ${{ runner.temp }}/wordpress-plugin/
+      - name: The release's notes
+        run: node scripts/github-release.mjs --notes "${{ steps.zip.outputs.zip }}" >> "$GITHUB_STEP_SUMMARY"
+      - name: The GitHub release
+        if: ${{ !inputs.dry-run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/github-release.mjs "${{ steps.zip.outputs.zip }}"
 
   publish-pypi:
     name: Publish to PyPI

@@ -8,10 +8,10 @@ import { setCookie } from 'hono/cookie';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import { ref } from '@kindgi/authz';
-import type { ApiTokenId, Timestamp } from '@kindgi/types';
+import type { TenantId, Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import { encodeSessionToken } from '../middleware/auth.js';
+import { encodeSessionToken, tokenSignInProvider } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
@@ -30,17 +30,26 @@ import { refused } from './denied.js';
  * 403 `token-sign-in-not-allowed`. The session acts as the key did: it
  * carries the key's scopes (a deployment without an authorizer reads tenant
  * admin from them; a key's scopes never change after it's minted). It never
- * outlives the key: it ends when the key expires, and, with a store that has
- * `revokeByProvider`, when the key is revoked (its `providerId` is
- * `api-token:<tokenId>`).
+ * outlives the key: it ends when the key expires, and when the key is
+ * revoked. Its `providerId` is `api-token:<tokenId>`: each request on it reads
+ * the key (the auth middleware's `apiKeys`, which is why token sign-in needs
+ * the deployment's API keys), and a store with `revokeByProvider` ends it at
+ * the revoke too.
  * Refusals are audited (`sign-in-refused`), as is each sign-in. A 403 is
  * also an access decision on a known caller, so it's recorded with the
  * authorizer (`refused`), as every refusal the API decides itself is, and
  * keeps its own code.
  */
 export type TokenSignInRouteOptions =
-  /** The deployment doesn't allow it, or has no browser sessions: 403 `token-sign-in-off`. */
-  | { readonly enabled: false }
+  | {
+      /** The deployment doesn't allow it, or has no browser sessions: 403 `token-sign-in-off`. */
+      readonly enabled: false;
+      /**
+       * It allows it, but can't read its API keys, which each request on such
+       * a session checks: 403 `token-sign-in-off`, saying so.
+       */
+      readonly withoutApiKeys?: boolean;
+    }
   | {
       readonly enabled: true;
       readonly sessionStore: SessionStoreBinding;
@@ -51,6 +60,11 @@ export type TokenSignInRouteOptions =
       readonly cookieSecure?: boolean;
       /** `signed-in` events, best effort. */
       readonly auditEvents?: AuditEventBinding;
+      /**
+       * Whether the tenant requires a second factor at sign-in, which a
+       * token can't give: refused then, 403 `second-factor-required`.
+       */
+      readonly secondFactorRequired?: (tenantId: TenantId) => Promise<boolean>;
     };
 
 export function tokenSignInRouter(
@@ -58,6 +72,11 @@ export function tokenSignInRouter(
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  /** The tenant requires a second factor at sign-in, which a token can't give. */
+  const needsSecondFactor = async (tenantId: TenantId): Promise<boolean> =>
+    options.enabled && options.secondFactorRequired !== undefined
+      ? options.secondFactorRequired(tenantId)
+      : false;
 
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
@@ -115,7 +134,9 @@ export function tokenSignInRouter(
     if (!options.enabled) {
       return refuse(
         'token-sign-in-off',
-        "This deployment doesn't allow signing in to the console with an API token. Sign in with your organization's identity provider, or ask whoever runs Kindgi to allow it.",
+        options.withoutApiKeys === true
+          ? "This deployment can't check its API keys, so a session opened with one couldn't end when the key is revoked: signing in to the console with an API token needs them. Sign in with your organization's identity provider, or ask whoever runs Kindgi to give the server its API keys."
+          : "This deployment doesn't allow signing in to the console with an API token. Sign in with your organization's identity provider, or ask whoever runs Kindgi to allow it.",
         'scope',
       );
     }
@@ -138,6 +159,14 @@ export function tokenSignInRouter(
       return refuse(
         'token-sign-in-not-allowed',
         "A narrowed key (a member role, or one project) can't open a console session: the session would carry all of your permissions. Use a full key, or sign in with your identity provider.",
+        'scope',
+      );
+    }
+
+    if (await needsSecondFactor(tenantId)) {
+      return refuse(
+        'second-factor-required',
+        "This workspace requires a second factor at sign-in, which an API token can't give: sign in another way, with your second factor.",
         'scope',
       );
     }
@@ -187,19 +216,4 @@ export function tokenSignInRouter(
   });
 
   return r;
-}
-
-const TOKEN_SIGN_IN_PROVIDER = 'api-token';
-
-/** The provider of a session token sign-in opens: `api-token:<tokenId>`, or `api-token` for a key with no id. */
-export function tokenSignInProvider(tokenId: ApiTokenId | undefined): string {
-  return tokenId === undefined ? TOKEN_SIGN_IN_PROVIDER : `${TOKEN_SIGN_IN_PROVIDER}:${tokenId}`;
-}
-
-/** The key a session was opened with by token sign-in, from its provider; `undefined` for any other session. */
-export function tokenSignInKey(providerId: string | undefined): ApiTokenId | undefined {
-  const prefix = `${TOKEN_SIGN_IN_PROVIDER}:`;
-  if (providerId === undefined || !providerId.startsWith(prefix)) return undefined;
-  const tokenId = providerId.slice(prefix.length);
-  return tokenId.length > 0 ? (tokenId as ApiTokenId) : undefined;
 }

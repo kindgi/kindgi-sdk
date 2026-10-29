@@ -10,6 +10,7 @@ import {
   menu,
   plan,
   redirects,
+  robots,
   snapshotKey,
 } from './versions-plan.mjs';
 
@@ -108,6 +109,38 @@ test('_redirects: each line path goes to its newest release, page for page', () 
   assert.equal(
     redirects(plan(tags('0.1.2', '0.1.3', '0.2.0'))),
     '/v0.2 /v0.2.0/ 301\n/v0.2/* /v0.2.0/:splat 301\n/v0.1 /v0.1.3/ 301\n/v0.1/* /v0.1.3/:splat 301\n',
+  );
+});
+
+test('_redirects: a line with only pre-releases goes to /next/, page for page, with a 302', () => {
+  assert.equal(
+    redirects(plan(tags('0.1.9', '0.1.10', '0.1.11-rc.0', '0.2.0-rc.0'))),
+    '/v0.2 /next/ 302\n/v0.2/* /next/:splat 302\n/v0.1 /v0.1.10/ 301\n/v0.1/* /v0.1.10/:splat 301\n',
+  );
+});
+
+test("_redirects: once the line's release ships, its 301 takes the path, and no 302 is left", () => {
+  assert.equal(
+    redirects(plan(tags('0.1.10', '0.2.0-rc.0', '0.2.0-rc.1', '0.2.0'))),
+    '/v0.2 /v0.2.0/ 301\n/v0.2/* /v0.2.0/:splat 301\n/v0.1 /v0.1.10/ 301\n/v0.1/* /v0.1.10/:splat 301\n',
+  );
+});
+
+test('_redirects: a pre-release of a line that has a release leaves its line on the release', () => {
+  for (const versions of [
+    ['0.1.10', '0.1.11-rc.0'],
+    ['0.1.10', '0.2.0', '0.2.1-rc.0'],
+  ]) {
+    const p = plan(tags(...versions));
+    assert.notEqual(p.next, undefined);
+    assert.doesNotMatch(redirects(p), / 302\n/);
+  }
+});
+
+test("_redirects: the next line's pre-release gets its own 302", () => {
+  assert.equal(
+    redirects(plan(tags('0.1.10', '0.2.0-rc.1', '0.2.0', '0.3.0-rc.0'))),
+    '/v0.3 /next/ 302\n/v0.3/* /next/:splat 302\n/v0.2 /v0.2.0/ 301\n/v0.2/* /v0.2.0/:splat 301\n/v0.1 /v0.1.10/ 301\n/v0.1/* /v0.1.10/:splat 301\n',
   );
 });
 
@@ -483,5 +516,21 @@ test("without a lockfile change, the lockfiles aren't read", () => {
       lockfiles: { tag: LOCKFILE_TEXT, branch: lockfileWith(['sha512-f1', 'sha512-f2']) },
     }),
     { ref: 'origin/release-docs/0.1.4' },
+  );
+});
+
+test('robots.txt: nothing disallowed, and the sitemap that / was built with', () => {
+  const index =
+    '<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>https://docs.kindgi.com/sitemap-0.xml</loc></sitemap></sitemapindex>';
+  assert.equal(
+    robots(index),
+    'User-agent: *\nAllow: /\n\nSitemap: https://docs.kindgi.com/sitemap-index.xml\n',
+  );
+  assert.doesNotMatch(robots(index), /Disallow/);
+  // No sitemap built for /: robots.txt would name a missing one, so the build stops.
+  assert.throws(() => robots(undefined), /no sitemap-index\.xml naming a sitemap/);
+  assert.throws(
+    () => robots('<sitemapindex></sitemapindex>'),
+    /no sitemap-index\.xml naming a sitemap/,
   );
 });

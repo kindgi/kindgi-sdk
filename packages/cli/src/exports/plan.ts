@@ -121,6 +121,13 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     admin: true,
   },
   {
+    name: 'user-second-factors',
+    route: '/v1/identity/users/{userId}/second-factor',
+    paging: 'one',
+    parent: { kind: 'users', params: { userId: 'userId' } },
+    admin: true,
+  },
+  {
     name: 'service-accounts',
     route: '/v1/service-accounts',
     paging: cursor,
@@ -154,9 +161,11 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     paging: whole,
     covers: ['/v1/auth/providers/{providerId}'],
   },
+  { name: 'sign-in-settings', route: '/v1/auth/settings', paging: 'one', admin: true },
 
   // Settings.
   { name: 'environments', route: '/v1/environments', paging: cursor, admin: true },
+  { name: 'environment-orders', route: '/v1/environment-orders', paging: cursor, admin: true },
   {
     name: 'env',
     route: '/v1/env',
@@ -182,6 +191,22 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/secrets/{name}/versions/{versionId}'],
   },
   { name: 'tenant-config', route: '/v1/tenant/config', paging: cursor },
+  {
+    name: 'connection-apps',
+    route: '/v1/connection-apps',
+    paging: cursor,
+    query: { includeRemoved: 'true' },
+    covers: ['/v1/connection-apps/{appId}'],
+    admin: true,
+  },
+  {
+    name: 'connections',
+    route: '/v1/connections',
+    paging: cursor,
+    query: { includeRemoved: 'true' },
+    covers: ['/v1/connections/{connectionId}'],
+    admin: true,
+  },
 
   // What the packs and the console registered.
   {
@@ -369,10 +394,23 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     parent: { kind: 'webhooks', params: { triggerId: 'triggerId' } },
   },
   {
+    name: 'mail-triggers',
+    route: '/v1/mail-triggers',
+    paging: cursor,
+    covers: ['/v1/mail-triggers/{triggerId}'],
+  },
+  {
+    name: 'mail-trigger-fires',
+    route: '/v1/mail-triggers/{triggerId}/fires',
+    paging: cursor,
+    parent: { kind: 'mail-triggers', params: { triggerId: 'triggerId' } },
+  },
+  {
     name: 'webhook-endpoints',
     route: '/v1/webhook-endpoints',
     paging: cursor,
     covers: ['/v1/webhook-endpoints/{endpointId}'],
+    admin: true,
   },
   {
     name: 'webhook-deliveries',
@@ -489,6 +527,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/compliance/evidence',
     paging: cursor,
     covers: ['/v1/compliance/evidence/{evidenceId}'],
+    admin: true,
   },
   { name: 'sign-ins', route: '/v1/audit/sign-ins', paging: cursor, admin: true },
   { name: 'access-decisions', route: '/v1/audit/authz', paging: cursor },
@@ -511,6 +550,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/adapters': 'the server, not the workspace: the adapters the deployment wired at boot',
   '/v1/adapters/{adapterId}':
     'the server, not the workspace: the adapters the deployment wired at boot',
+  '/v1/connection-entries':
+    'the server, not the workspace: the apps its deployment ships entries for',
   '/v1/system/keys': "the server's operator routes",
   '/v1/system/tenants': "the server's operator routes",
   '/v1/system/tenants/{tenantId}': "the server's operator routes",
@@ -518,9 +559,14 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/tenants/{tenantId}/limits': "the server's operator routes",
   '/v1/system/whoami': "the server's operator routes",
   '/v1/system/deployments': "the server's operator routes",
+  '/v1/system/pack-env': "the server's operator routes",
+  '/v1/system/usage': "the server's operator routes",
+  '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env':
+    "the server's operator routes",
   // The caller, not the workspace.
   '/v1/identity/whoami': 'the caller, not the workspace',
   '/v1/identity/me/permissions': 'the caller, not the workspace',
+  '/v1/identity/me/second-factor': 'the caller, not the workspace',
   '/v1/auth/sign-in-options': 'the caller, not the workspace',
   '/v1/auth/providers/{providerId}/sign-in': 'the caller, not the workspace',
   // Live views of records exported elsewhere.
@@ -532,8 +578,11 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   // Computed from records that are exported, not stored.
   '/v1/runs/failures': 'computed from runs',
   '/v1/cost/aggregate': 'computed from cost-records',
+  '/v1/usage':
+    'computed from runs, approvals, cost-records and projects (the metering ledger counts them)',
   '/v1/agents/{agentId}/live': 'computed from agent-live-versions',
   '/v1/agents/{agentId}/gate-policy': 'computed from gate-policies',
+  '/v1/agents/{agentId}/projects': 'computed from agent-versions and deployments',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',
   '/v1/projects/{projectId}/judging-rules/preview': 'computed from judging-rules and runs',
   '/v1/projects/{projectId}/judging-rules/{ruleId}/results': 'computed from judgments',
@@ -541,11 +590,18 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from project-memberships, team-project-grants, orgs and users',
   '/v1/projects/default': 'one of projects',
   '/v1/projects/{projectId}/team-grants': 'the same records as team-project-grants',
+  '/v1/environment-orders/tenant': 'the same records as environment-orders',
+  '/v1/environment-orders/orgs/{orgId}': 'the same records as environment-orders',
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",
+  '/v1/deployments/{deploymentId}/values':
+    'computed from deployments, tools, agents, providers, secrets and env values',
   '/v1/retention/scheduled': 'computed from the retention policies and the records',
+  '/v1/deployments/{deploymentId}/pack-env': 'computed from deployments, env and secrets',
   // Not listed by any route.
   '/v1/secrets/{name}/rotations/{rotationId}':
     "read by the id its rotation's request answered; no route lists rotations, and each rotation's versions are in secret-versions",
+  '/v1/connections/requests/{requestId}':
+    'read by the id its connect request answered; no route lists connect requests',
   // Read live from another server.
   '/v1/mcp/endpoints/{endpointId}/resources': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/resources/{uri}': "read live from the MCP endpoint's own server",

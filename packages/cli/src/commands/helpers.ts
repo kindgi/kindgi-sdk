@@ -137,6 +137,19 @@ export function stringFlag(ctx: CommandContext, name: string): string | undefine
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
 }
 
+/**
+ * A flag's value, trimmed, or `undefined` when it isn't given. Given empty
+ * (`--org=$ORG` with `ORG` unset) is a usage error, never the same as not
+ * given: a project in no org, or a slug nobody chose, would be made.
+ */
+export function givenFlag(ctx: CommandContext, name: string): string | undefined {
+  const raw = ctx.options[name];
+  if (raw === undefined) return undefined;
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (value === '') throw new UsageError(`--${name} takes a value`);
+  return value;
+}
+
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ZONED_TIME =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -209,6 +222,68 @@ export function listFlag(ctx: CommandContext, name: string): string[] {
   const raw: unknown = ctx.options[name];
   const values = Array.isArray(raw) ? raw : [raw];
   return values.filter((v): v is string => typeof v === 'string' && v !== '');
+}
+
+/**
+ * `--allow-unattended=<tool-id>` (repeatable) as a webhook's or a schedule's
+ * `toolsAllowedUnattended`: the tools whose calls in its runs needn't wait
+ * for a person's yes. On update, `none` clears the list; left out, the body
+ * doesn't name it, so the trigger keeps its list.
+ */
+export function allowUnattendedField(
+  ctx: CommandContext,
+  on: 'register' | 'update',
+): { toolsAllowedUnattended?: string[] } {
+  const ids = listFlag(ctx, 'allow-unattended');
+  if (ids.length === 0) return {};
+  if (!ids.includes('none')) return { toolsAllowedUnattended: ids };
+  if (on === 'register') {
+    throw new UsageError('--allow-unattended=none clears the list on update: leave it out here');
+  }
+  if (ids.length > 1) {
+    throw new UsageError('--allow-unattended=none clears the list: not with tool ids');
+  }
+  return { toolsAllowedUnattended: [] };
+}
+
+/**
+ * A schedule's, a webhook trigger's or a mail trigger's `RUNS AS` cell: its
+ * owner's name (else id), and whether that makes it personal (a person) or
+ * shared (a service account). One run as its project's own account says
+ * "this project". A trigger with no owner (the server's
+ * `{service, 'unknown'}`) is neither: it starts nothing until an admin takes
+ * it over. Empty when the server names no owner at all.
+ */
+export function runsAsCell(
+  owner:
+    | {
+        readonly kind: string;
+        readonly id: string;
+        readonly displayName?: string;
+        readonly isProjectAccount?: boolean;
+      }
+    | undefined,
+): string {
+  if (owner === undefined) return '';
+  if (owner.kind === 'service' && owner.id === 'unknown') {
+    return 'no owner (an admin can take it over)';
+  }
+  if (owner.isProjectAccount === true) return 'this project (shared)';
+  return `${owner.displayName ?? owner.id} (${owner.kind === 'user' ? 'personal' : 'shared'})`;
+}
+
+/**
+ * The owner `--run-as` names, as a register or take-over body says it:
+ * `project` is the trigger's project's own account (`runAsProject`), and
+ * anything else a service account's id. A runtime's account ids are UUIDs,
+ * so the word can't be one. Nothing when the flag is absent.
+ */
+export function runAsFields(runAs: string | undefined): {
+  readonly runAsProject?: true;
+  readonly runAsServiceAccountId?: string;
+} {
+  if (runAs === undefined) return {};
+  return runAs === 'project' ? { runAsProject: true } : { runAsServiceAccountId: runAs };
 }
 
 /** Extract an optional integer flag; throws on non-integer values. */

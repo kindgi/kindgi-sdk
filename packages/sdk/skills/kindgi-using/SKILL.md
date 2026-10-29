@@ -7,14 +7,15 @@ description: >
   find, check or understand something in Kindgi rather than build it:
   "show me around the console", "where do I see the answers it gave",
   "which orders did the agent look up", "which rule stopped that answer",
-  "walk me through approving this", "what does Kindgi remember about
-  <customer>", "when does the report run next", "is Kindgi healthy",
-  "who has access", "the answers I rated", "what did each answer cost".
-  Guiding is read-only: approving, erasing, adding people, making a
-  version live and judging stay with the person.
+  "walk me through approving this", "what is the run waiting for",
+  "what does Kindgi remember about <customer>", "when does the report run
+  next", "is Kindgi healthy", "who has access", "the answers I rated",
+  "what did each answer cost". Guiding is read-only: approving, connecting
+  an app, erasing, adding people, making a version live and judging stay
+  with the person.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.0"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -43,12 +44,12 @@ clicks, so they can see it for themselves.
 2. **Guiding is read-only.** You look things up and show where they are.
    Nothing you run here changes Kindgi.
 3. **Some actions are the person's alone.** Never do these for them, even
-   when asked: decide an approval (approve or reject), erase what Kindgi
-   remembers about someone, add or remove people, grant or take away
-   roles, create or revoke API keys, make an agent version live, judge
-   (rate) an answer. Don't run their commands either, not even with a
-   check or dry-run flag. Give the link and the clicks, then stop: they
-   do it.
+   when asked: decide an approval (approve or reject), connect an app to
+   their account, erase what Kindgi remembers about someone, add or
+   remove people, grant or take away roles, create or revoke API keys,
+   make an agent version live, judge (rate) an answer. Don't run their
+   commands either, not even with a check or dry-run flag. Give the
+   link and the clicks, then stop: they do it.
 4. **Only through the CLI and the console.** The `kindgi` CLI signs in by
    itself. Never call Kindgi's API with a token read from a file, never
    open `.kindgirc.json` or env files, and never print a token.
@@ -96,6 +97,7 @@ decided one opens its own page.
 | Guardrails | `guardrails`, one: `guardrails/<guardrailId>` | each rule's settings, the agents it checks, what it caught |
 | Flows | `flows`, one: `flows/<flowId>` | the flows and their steps |
 | Schedules | `schedules`, one: `schedules/<triggerId>` | when each runs next, and its past runs |
+| Mail triggers | `mail-triggers`, one: `mail-triggers/<triggerId>` | the mailbox each watches and what it starts; its latest mails, and the run each started |
 | Conversations | `conversations`, one: `conversations/<conversationId>` | each conversation's turns |
 | Cost | `cost` | what the project's model calls cost, by agent, model, flow or kind |
 | Quality | `quality` | answers waiting to be rated, rating rules, trends |
@@ -174,10 +176,37 @@ say there were none.
 **"Walk me through approving this."**
 - In the CLI: `kindgi approvals list --status=pending` finds it: say what it asks for
   (`subjectKind`, the tool), and since when it waits.
+- **One with an `approver` is addressed to one person:** its call acts
+  with their own account in another app, which `connection` names
+  (`appName`, `account`). Only they decide it. Say who it is
+  (`approver.userId`; `kindgi people list` gives their name). When that
+  isn't the person asking, don't walk them through deciding it: a tenant
+  admin sees it, but any decision of theirs, escalating included, is
+  refused (`403 named-approver-required`). Other reviewers don't see it
+  at all. Its person approves or rejects it, but can't escalate it
+  (`409 invalid-transition`). If they don't decide by its deadline, it
+  expires.
 - In the console: `<console>approvals/<approvalId>` opens it in the Inbox.
   Under **Your decision** they choose **Approve** or **Reject**, add a
   rationale if they like, and press the button. Then stop: the decision
   is theirs.
+
+**"What is the run waiting for?"**
+- In the CLI: `kindgi runs resume <runId>`, without `--output` (that
+  answers the wait), says it in a sentence for each wait, and its exit
+  code says which: `3` an approval, `5` another system's answer to a
+  tool's call, `6` the person who started the run connecting an app, `4`
+  the runtime itself (a queued start, a child run, a retry). Waiting on
+  more than one, it exits with the first of `3`, `5`, `6`, `4` that
+  applies. A connect's sentence names the app and what it asks for, and
+  ends with when the link stops working and the link itself. Give that
+  link in full and stop: only the person who started the run connects,
+  from that link or the run's page, and the run goes on once they have.
+  `kindgi runs get <runId>` prints the same line after the run's JSON
+  (`waitingFor.connections`).
+- In the console: `runs/<runId>` shows what it waits for, with a line per
+  wait: **Open the approval**, or for a connect, what it asks to do and
+  **Open the connect link**.
 
 **"What does Kindgi remember about <a customer>?"**
 - In the CLI: an agent that remembers for "the person you are talking
@@ -195,6 +224,17 @@ say there were none.
   each with its `runId`. `kindgi runs get <runId>` on the newest: its
   `status`, and its answer, `output.response.content`.
 - In the console: `schedules/<triggerId>`, and the run's `runs/<runId>`.
+
+**"What did the support inbox do with that mail?"**
+- In the CLI: `kindgi mail-triggers list` finds the trigger; `kindgi
+  mail-triggers fires <triggerId>` lists each new mail it found, newest
+  first, with its `outcome` (`started`, `pending`, `skipped`, `refused` or
+  `failed`), a `detail` saying why, and the `runId` it started. A
+  `refused` mail never runs: staff handle it in the mailbox.
+- In the console: `mail-triggers/<triggerId>` lists its latest mails, up
+  to 50, what happened to each, and the run it started; an older one is
+  in the CLI's `fires`. `runs?trigger=<triggerId>` is every run it
+  started. The run is `runs/<runId>`.
 
 **"Is Kindgi healthy?"**
 - In the CLI: `kindgi health` (`"ok": true` when the server answers) and
@@ -226,11 +266,13 @@ say there were none.
 
 ## More
 
-- Runs: https://docs.kindgi.com/v0.1/guides/runs/list-runs/ and
-  https://docs.kindgi.com/v0.1/guides/runs/read-the-journal/
-- Approvals: https://docs.kindgi.com/v0.1/guides/approvals/decide-an-approval/
-- Memory: https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/
-- Schedules: https://docs.kindgi.com/v0.1/guides/runs/run-on-a-schedule/
-- People and keys: https://docs.kindgi.com/v0.1/deploy/people-and-keys/
-- Cost: https://docs.kindgi.com/v0.1/guides/observability/cost-per-run/
-- Rating answers: https://docs.kindgi.com/v0.1/guides/evals/judge-a-runs-output/
+- Runs: https://docs.kindgi.com/v0.2/guides/runs/list-runs/ and
+  https://docs.kindgi.com/v0.2/guides/runs/read-the-journal/
+- Approvals: https://docs.kindgi.com/v0.2/guides/approvals/decide-an-approval/
+- Connections: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
+- Memory: https://docs.kindgi.com/v0.2/guides/agents/give-an-agent-memory/
+- Schedules: https://docs.kindgi.com/v0.2/guides/runs/run-on-a-schedule/
+- Mail triggers: https://docs.kindgi.com/v0.2/guides/runs/start-runs-from-new-mail/
+- People and keys: https://docs.kindgi.com/v0.2/deploy/people-and-keys/
+- Cost: https://docs.kindgi.com/v0.2/guides/observability/cost-per-run/
+- Rating answers: https://docs.kindgi.com/v0.2/guides/evals/judge-a-runs-output/

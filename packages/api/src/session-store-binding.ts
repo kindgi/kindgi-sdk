@@ -62,7 +62,9 @@ export interface SessionStoreBinding {
    * End every live session one provider opened, in one tenant: the console
    * sessions an API key opened (`api-token:<tokenId>`, from token sign-in)
    * when it's revoked; an identity provider's sign-ins when it's removed.
-   * Absent → those sessions run until they expire.
+   * Absent → those sessions stay live until they expire, except that a
+   * session token sign-in opened is refused once its key is revoked: each
+   * request on it reads the key.
    */
   readonly revokeByProvider?: (
     input: SessionRevokeByProviderInput,
@@ -100,6 +102,27 @@ export interface SessionCreateInput {
   readonly projectId?: ProjectId;
   /** The session's role ceiling, as an API key's `role`: `member` takes no admin action on the tenant. */
   readonly role?: 'admin' | 'member';
+  /**
+   * How the person signing in gave a second factor, and when. A store
+   * must keep it and return it from `get` and `resolveToken`. One that
+   * drops it fails closed: in a workspace that requires a second factor,
+   * a session without it is refused.
+   */
+  readonly secondFactor?: SessionSecondFactor;
+}
+
+/** How a session's person gave a second factor at the sign-in that made it. */
+export interface SessionSecondFactor {
+  /**
+   * - `totp`: a code from their authenticator app.
+   * - `recovery-code`: one of their recovery codes.
+   * - `identity-provider`: they signed in through the workspace's own
+   *   identity provider, which owns the second factor there.
+   * - `site`: a site signed them in (`SiteBinding`), and the site owns
+   *   their second factor.
+   */
+  readonly method: 'totp' | 'recovery-code' | 'identity-provider' | 'site';
+  readonly at: Timestamp;
 }
 
 export interface SessionCreateOutput {
@@ -158,6 +181,8 @@ export interface Session {
   readonly projectId?: ProjectId;
   /** The session's role ceiling (`SessionCreateInput.role`). */
   readonly role?: 'admin' | 'member';
+  /** How its person gave a second factor (`SessionCreateInput.secondFactor`). */
+  readonly secondFactor?: SessionSecondFactor;
   readonly createdAt: Timestamp;
   /**
    * Last-observed activity timestamp. Populated by adapters that

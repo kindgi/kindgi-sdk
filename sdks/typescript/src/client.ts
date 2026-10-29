@@ -10,10 +10,22 @@ import { type AuthClient, makeAuthClient } from './resources/auth.js';
 import { type BlocksClient, makeBlocksClient } from './resources/blocks.js';
 import { type CapabilitiesClient, makeCapabilitiesClient } from './resources/capabilities.js';
 import { type ComplianceClient, makeComplianceClient } from './resources/compliance.js';
+import {
+  type ConnectionAppsClient,
+  type ConnectionEntriesClient,
+  type ConnectionsClient,
+  makeConnectionAppsClient,
+  makeConnectionEntriesClient,
+  makeConnectionsClient,
+} from './resources/connections.js';
 import { type ConversationsClient, makeConversationsClient } from './resources/conversations.js';
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
 import { type EnvClient, makeEnvClient } from './resources/env.js';
+import {
+  type EnvironmentOrdersClient,
+  makeEnvironmentOrdersClient,
+} from './resources/environment-orders.js';
 import { type EnvironmentsClient, makeEnvironmentsClient } from './resources/environments.js';
 import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.js';
 import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-suites.js';
@@ -33,6 +45,7 @@ import {
 import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
 import { type JudgmentsClient, makeJudgmentsClient } from './resources/judgments.js';
 import { type LicenseClient, makeLicenseClient } from './resources/license.js';
+import { type MailTriggersClient, makeMailTriggersClient } from './resources/mail-triggers.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
 import { type MemoryClient, makeMemoryClient } from './resources/memory.js';
 import { type ObservationsClient, makeObservationsClient } from './resources/observations.js';
@@ -63,6 +76,12 @@ import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
 import { type ToolsClient, makeToolsClient } from './resources/tools.js';
+import {
+  type SystemUsageClient,
+  type TenantUsageClient,
+  makeSystemUsageClient,
+  makeTenantUsageClient,
+} from './resources/usage.js';
 import { type UsersClient, makeUsersClient } from './resources/users.js';
 import {
   type WebhookEndpointsClient,
@@ -103,6 +122,8 @@ export interface KindgiClient {
   // Platform & configuration
   readonly tenant: TenantClient;
   readonly cost: CostClient;
+  /** Your workspace's usage, aggregated, over the projects you may read. */
+  readonly usage: TenantUsageClient;
   readonly capabilities: CapabilitiesClient;
   readonly adapters: AdaptersClient;
   readonly providers: ProvidersClient;
@@ -115,6 +136,8 @@ export interface KindgiClient {
   readonly secrets: SecretsClient;
   /** The tenant's env names, across env values and secrets (tenant admin). */
   readonly environments: EnvironmentsClient;
+  /** The order a tenant runs a project through on its way to live (its "environments"). */
+  readonly environmentOrders: EnvironmentOrdersClient;
   readonly deployments: DeploymentsClient;
   readonly compliance: ComplianceClient;
   readonly audit: AuditResourceClient;
@@ -144,6 +167,8 @@ export interface KindgiClient {
   readonly systemDeployments: SystemDeploymentsClient;
   /** What the control plane sets on a tenant: production allowed, and limits. System keys only. */
   readonly systemTenants: SystemTenantsClient;
+  /** Usage across tenants, aggregated. System keys only. */
+  readonly systemUsage: SystemUsageClient;
   readonly tokens: TokensClient;
   /** Non-human principals with their own grants; they act through API keys. */
   readonly serviceAccounts: ServiceAccountsClient;
@@ -152,8 +177,13 @@ export interface KindgiClient {
   readonly events: EventsClient;
   readonly artifacts: ArtifactsClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
+  readonly connectionEntries: ConnectionEntriesClient;
+  readonly connectionApps: ConnectionAppsClient;
+  readonly connections: ConnectionsClient;
   /** Inbound webhook triggers: a signed request starts a flow run. */
   readonly webhooks: WebhooksClient;
+  /** Mail triggers: a mailbox's new mail starts runs of an agent or a flow. */
+  readonly mailTriggers: MailTriggersClient;
   // Packs
   readonly packs: PacksClient;
 }
@@ -191,6 +221,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     approvals: makeApprovalsClient(transport),
     tenant: makeTenantClient(transport),
     cost: makeCostClient(transport),
+    usage: makeTenantUsageClient(transport),
     capabilities: makeCapabilitiesClient(transport),
     adapters: makeAdaptersClient(transport),
     providers: makeProvidersClient(transport),
@@ -201,6 +232,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     env: makeEnvClient(transport),
     secrets: makeSecretsClient(transport),
     environments: makeEnvironmentsClient(transport),
+    environmentOrders: makeEnvironmentOrdersClient(transport),
     deployments: makeDeploymentsClient(transport),
     compliance: makeComplianceClient(transport),
     audit: makeAuditClient(transport),
@@ -220,13 +252,18 @@ export function createClient(options: ClientOptions): KindgiClient {
     systemKeys: makeSystemKeysClient(transport),
     systemDeployments: makeSystemDeploymentsClient(transport),
     systemTenants: makeSystemTenantsClient(transport),
+    systemUsage: makeSystemUsageClient(transport),
     tokens: makeTokensClient(transport),
     serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),
     events: makeEventsClient(transport),
     artifacts: makeArtifactsClient(transport),
     webhookEndpoints: makeWebhookEndpointsClient(transport),
+    connectionEntries: makeConnectionEntriesClient(transport),
+    connectionApps: makeConnectionAppsClient(transport),
+    connections: makeConnectionsClient(transport),
     webhooks: makeWebhooksClient(transport),
+    mailTriggers: makeMailTriggersClient(transport),
     packs: makePacksClient(transport),
   };
 }

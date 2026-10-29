@@ -50,8 +50,13 @@ import {
 } from '../dev/google-credentials.js';
 import { javaMajor } from '../dev/pack-code.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
-import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
-import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
+import { DEFAULT_RUNTIME_IMAGE, isKindgiRegistry, registryOf } from '../dev/runtime-image.js';
+import {
+  checkDocker,
+  checkImageAccess,
+  credentialHelperHint,
+  registryLoginArgs,
+} from '../dev/runtime-registry.js';
 import { probeReal } from '../dev/sandbox/detect.js';
 import {
   DEV_SANDBOX_DOCS,
@@ -66,6 +71,7 @@ import { LICENSE_GRACE_DAYS, renewAdvice, standingOf } from '../license/expiry.j
 import { checkLicenseKey } from '../license/license-key.js';
 import { KINDGI_ACCESS_ORIGIN } from '../license/protocol.js';
 import { secretStoreFor } from '../license/stores.js';
+import { MIN_NODE, MIN_NODE_MAJOR, atLeast } from '../node-version.js';
 import { renderJson } from '../output.js';
 import {
   type PackageManager,
@@ -91,8 +97,6 @@ import type { CommandResult, LeafCommand } from './types.js';
  */
 const DEV_ECHO_PROVIDER_ID = 'dev-echo';
 
-/** The Node the CLI needs (`engines.node` in its package.json). */
-export const MIN_NODE = '22.12.0';
 /** The Python a Python project needs (`requires-python` in its pyproject.toml). */
 export const MIN_PYTHON = '3.11.0';
 /** The JDK a Java or Scala project needs (kindgi-pack's baseline). */
@@ -491,7 +495,7 @@ function nodeCheck(version: string, pypi: boolean): DoctorCheck {
     : fail(
         'node',
         `Node ${version}; Kindgi needs ${MIN_NODE} or later.`,
-        `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install 22).`,
+        `Install Node ${MIN_NODE} or later from https://nodejs.org (or: nvm install ${MIN_NODE_MAJOR}).`,
       );
 }
 
@@ -735,7 +739,11 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
-  const login = `${kindgi('auth', 'registry', '--username', '<your robot name>', '--password-stdin')} (the robot name and the token are on ${KINDGI_ACCESS_ORIGIN} once you sign in with GitHub; pipe the token in, never paste it into a chat)`;
+  const withKey = isKindgiRegistry(host);
+  const command = kindgi(...registryLoginArgs(host), '--password-stdin');
+  const login = withKey
+    ? `${command} (your license key is on ${KINDGI_ACCESS_ORIGIN} once you sign in; pipe it in, never paste it into a chat)`
+    : `${command} (pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);
@@ -743,7 +751,7 @@ async function registryCheck(
       return fail(
         'registry',
         `Docker can't pull the runtime image from ${host}: ${firstLine(access.detail)}`,
-        `Log Docker in with your pull token: ${login}. Then run doctor again.`,
+        `Log Docker in with your ${withKey ? 'license key' : `username and token for ${host}`}: ${login}. Then run doctor again.`,
       );
     case 'not-found':
       return access.maybeNoAccess === true
@@ -1617,22 +1625,6 @@ function runTool(command: string, args: readonly string[]): Promise<ToolOutcome>
       done({ code: code ?? 1, stdout, stderr });
     });
   });
-}
-
-/** `a` ≥ `b`, comparing `major.minor.patch`. */
-export function atLeast(a: string, b: string): boolean {
-  const parse = (v: string) =>
-    v
-      .replace(/^v/, '')
-      .split(/[.-]/)
-      .slice(0, 3)
-      .map((n) => Number.parseInt(n, 10) || 0);
-  const [x, y] = [parse(a), parse(b)];
-  for (let i = 0; i < 3; i += 1) {
-    const d = (x[i] ?? 0) - (y[i] ?? 0);
-    if (d !== 0) return d > 0;
-  }
-  return true;
 }
 
 async function isDirectory(path: string): Promise<boolean> {

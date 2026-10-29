@@ -61,6 +61,12 @@ export const EVIDENCE_KINDS = [
   // Human-in-the-loop approval decisions (exportable in the shipped
   // compliance classifier).
   'hitl-decision',
+  // Another system's answer to a run's paused tool call, at its wait
+  // token's link or through the API: an answer landed (held for the run,
+  // or taken), and a held early answer the run never took. The payload
+  // carries the answer's size and SHA-256, never the answer.
+  'wait-token-completed',
+  'wait-token-discarded',
   // Which agent version is live for a scope: a promotion, a rollback, or
   // an unpin (the scope falls back to the one above).
   'agent-promotion',
@@ -83,6 +89,30 @@ export const EVIDENCE_KINDS = [
   'person-added',
   'person-granted',
   'person-ungranted',
+  // A trigger's owner (the principal its runs act as) set at registration
+  // or changed on take-over — a delegation when it names a service account.
+  'trigger-owner-set',
+  // A trigger's `toolsAllowedUnattended` set at registration or changed:
+  // the tools its runs may call without a person's yes though no person
+  // started them. The payload names the trigger, its target and project,
+  // and the tool ids before and after — never what a run did.
+  'trigger-tools-allowed-unattended-set',
+  // A project admin changed, paused, resumed, fired or deleted a person's
+  // trigger, and it kept its owner: its runs go on acting as that person,
+  // with that person's connections. The payload names the trigger, its
+  // kind, its owner, who did it and what (`change`; on an update the
+  // `fields` changed, and what it runs or reads before and after) — never
+  // an input's value or what a run did.
+  'trigger-changed-for-owner',
+  // The order a tenant (or one of its orgs) runs a project through to live
+  // was set, changed or cleared. The payload carries the order before and
+  // after, each a list of project ids — never anything a project holds.
+  'environment-order-set',
+  // A deployment was promoted into the next environment of its order: a new
+  // deployment there, or versions carried onto the one it had. The payload
+  // names both deployments, both projects, the image digest and the
+  // versions carried — never anything a project holds.
+  'deployment-promoted',
 ] as const;
 
 /**

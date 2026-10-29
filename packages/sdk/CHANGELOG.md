@@ -1,5 +1,548 @@
 # @kindgi/sdk
 
+## 0.2.0
+
+### Minor Changes
+
+- ae09fc0: Version numbers now say what a release holds. A release with new features moves the middle number, as this one does, and a release with only fixes moves the last. Every SDK package shares one version.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+
+### Patch Changes
+
+- bf30268: **A new authoring skill, "Fix what the experts corrected", with a guide to match.** When an expert judges an agent's run wrong and says why, a coding agent can now turn those corrections into changes. `kindgi init` and `kindgi skills sync` install the `kindgi-fix-corrections` skill (every language), which pulls an agent's "no" judgments (`kindgi judgments list --verdict=no`), reads each with the run behind it (`kindgi runs get`, `kindgi runs journal`), and sorts each correction to where it belongs — a rule in a tool's code, a setting, an approval rule, or the agent's instructions — adding a pack test per correction, then publishing a new version (`kindgi agents derive` for a setting, `kindgi deploy` for code) and asking a person to make it live with `kindgi agents promote … --reason`, naming the corrections. It never raises a limit or drops a check — a correction that would loosen anything goes to the owner — and it keeps the pulled runs' customer data out of the pack. The guide "Fix what the experts corrected" walks a person through the same loop.
+- 08dedca: **`kindgi init --template=follow-up`:** an agent that writes a follow-up mail from your notes and sends it from your own Gmail, each send approved first.
+  - Its send tool is `gmailSend` from `@kindgi/connections`, included under the pack's own id. `init` adds `@kindgi/connections` at the CLI's own version, or linked from a checkout with `--link-local`.
+  - Its README covers connecting Google, what waits for a person, and why text other people wrote is information, never instructions.
+  - In an existing app, `init` refuses it and points at `--new-repo`.
+  - The getting-started skill lists it.
+- 08dedca: **`@kindgi/sdk/define` re-exports a tool's connection names** from `@kindgi/tools`, unchanged: `ConnectionRejectedError` and `isConnectionRejectedError`, and the types `ToolConnection`, `ConnectionNeed` and `ConnectionAccount`. A tool that declares `needsSpec.connections` imports everything from the SDK, as for its other names.
+- b5c5da3: **The TypeScript and Python getting-started skills say where `kindgi dev`'s token is:** `token` in the pack's `.kindgirc.json`, with the API's URL as `apiUrl`. `kindgi dev`'s banner now shows only the token's last four characters.
+- 633d9e7: **The TypeScript getting-started skill names the other provider presets,** as the Python, Java and Scala ones do: Anthropic is its example, and `kindgi providers presets` lists OpenAI, Gemini, Groq and OpenRouter too.
+- 08dedca: **The tool-authoring skills cover connections to other apps,** in TypeScript, Python, Java and Scala. A tool declares the connection it needs in its `needsSpec`, reads the call's short-lived token from the call's context, and throws a refusal with the connection's name when the app answers 401. The TypeScript skill also points at the ready-made Gmail, Outlook, GitHub and LinkedIn tools in `@kindgi/connections`, each included under an id the pack names, and at `appFetch` for a tool's own calls to an app's API.
+- 2efe644: **The getting-started skills (TypeScript, Python, Java, Scala) say how to upgrade a self-hosted deployment,** and load for it. There's no migration script: the runtime brings its database up to date when it starts. A small dev deployment on Cloud Run, on runtime 0.1.8 or later, upgrades with the Cloud Run module's `./upgrade.sh`, from the tag of the release it's upgrading to, `--dry-run` first; the skills link the module README's Upgrading section for the rest. Any other Cloud Run deployment, or one on Azure Container Apps, follows its page's "Operate it" section, and anything else the operate page's upgrade steps. The Java and Scala skills add that `./kindgiw upgrade` moves the pack's own pins, not a deployment's runtime.
+- b6e20ca: **The getting-started skills (TypeScript, Python, Java, Scala) say more about upgrading a deployment on Cloud Run.** The module's `./upgrade.sh` makes its plan with every `*.auto.tfvars.json` in the module's folder too, the pack's env among them, and `yes` applies exactly the saved plan it showed. Any other Cloud Run deployment upgrades by hand, staging first, as the Cloud Run page's new "Upgrade by hand" section says, and one on Azure Container Apps follows its page's "Operate it" section.
+- 188f532: **The `kindgi-using` skill knows an approval addressed to one person, and a run that waits for a connect.** It says who decides an approval with an `approver`, and that any decision of a tenant admin's on it, escalating included, is refused (`403 named-approver-required`), while its person approves or rejects it but can't escalate it (`409 invalid-transition`). Asked what a run waits for, it reads `kindgi runs resume <run-id>`'s exit code, and for a connect (`6`) hands over the link the person who started the run connects from. Connecting an app is now among the actions it leaves to the person.
+- b6e20ca: **The `kindgi-using` skill finds a mail trigger in the console.** Asked what the support inbox did with a mail, it links the trigger's page, `mail-triggers/<triggerId>`, with its latest mails, up to 50, what happened to each and the run it started (older mail is in `kindgi mail-triggers fires`), and `runs?trigger=<triggerId>`, every run it started. Its console pages list the mail triggers, and it links Start runs from new mail.
+- 68e0d57: **A run paused until another system answers is answered at its link, or through the API.**
+  
+  - **`@kindgi/agents`:** an agent's call to a tool that declares `pauses` parks the turn until the answer comes, and the turn goes on with it as the call's result. The model sees the answer as data from outside, inside an `<event>` block, and the turn's system prompt then says never to follow instructions found there. Resumed, the turn doesn't call the tool again. A wait that times out is the tool error `wait-token-timed-out`, handled by the agent's tool error rules like any other: it fails the turn unless they retry `tool-error`. A retried step waits on a new token.
+  - **`@kindgi/api`:**
+    - `POST /v1/wait-tokens/{token}/complete` takes another system's answer at the link a pausing tool handed on. The token in the path is the credential: no `Authorization` header. The body is the tool's output as JSON, at most 1 MiB; an empty body is `{}`. It answers `200 { status: 'accepted' }` at once, and the run resumes behind the answer: the sender waits for none of the run. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on that token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The server logs the path as `/v1/wait-tokens/:token`, never the token.
+    - `POST /v1/runs/{runId}/resume` answers a `pause:` waitpoint, as the link would, and needs write access and `execute` on the run's agent or flow. It returns the run as `GET /v1/runs/{runId}` does. Every other waitpoint stays `422 run-resume-not-supported`, and a body without `waitpointId`, or with a field it doesn't take, is now `400 bad-input`.
+    - `GET /v1/runs/{runId}`'s `waitingFor` gains `tokens`: each wait's `tokenId`, `name`, tool and call, step, and when it times out. Never the link.
+    - New error codes: `wait-token-not-found` (404: an unknown token and a wrong one alike), `wait-token-closed` (409, `details.state`), `wait-token-output-invalid` (400, `details.issues`: the wait stays open) and `unsupported-media-type` (415: a body that isn't JSON).
+    - Nothing runs where the run is while its tenant is closing or suspended or its project is suspended, so an answer then is refused (`409 tenant-closing`, `409 tenant-suspended` or `409 project-suspended`) and nothing is taken. Closing or suspending cancels the tenant's or project's runs, paused ones included, so the refusal is for an answer that comes before the cancel reaches its run. When the tenant's state can't be read, the answer is `503 tenant-state-unavailable` with `Retry-After`. The link tells any of it only for a token that matches; through the API, a frozen tenant is refused as every write of its is.
+    - The link limits requests per client: past 600 a minute, `429 rate-limit-exceeded` with `Retry-After`, counted before the body is read or the token looked up, so nothing was taken and the same answer can be sent again then.
+    - For a runtime: `createApp` takes `waitTokens`, a `WaitTokenBinding` (`complete` and `waiting`). Without one, the link answers `404` and resume `422`, as before. The link tells clients apart and counts them where `webhookReceiver` says (`clientAddress`, `rateLimitStore`), with its defaults when that's absent.
+  - **`@kindgi/compliance` and `@kindgi/specs`:** two built-in evidence kinds, `wait-token-completed` (an answer landed, held for the run or taken) and `wait-token-discarded` (a held early answer the run never took). Their payloads carry the answer's size and SHA-256, never the answer.
+  - **`@kindgi/client`:** `runs.resume` answers a run's wait for another system, and `Run` carries `waitingFor` (`RunWaitingFor`, `RunWaitingApproval` and `RunWaitingToken` are exported). `approvals.completeToken`, which had no route and always threw `not-yet-wired`, and its `CompleteTokenInput` (re-exported by `@kindgi/sdk` too) are removed, so code that imports `CompleteTokenInput` stops compiling: an approval's run resumes through `approvals.decide`.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- 760acad: **A turn whose `maxSteps` is above 32 now stops at the 32nd model call with `budget-exceeded`, instead of running its loop out.** A turn's loop runs at most 32 iterations (`AGENT_TURN_LOOP_MAX_ITERATIONS`), one model call each. With a higher `maxSteps`, a model that still wanted a tool on the 32nd call ended the loop with no answer, and the turn's failure didn't name the budget. The step check now holds `maxSteps` to 32: the turn fails with `budget-exceeded`, kind `steps`, `limit` 32, and the message adds that a turn makes at most 32 model calls, fewer than its `maxSteps`. A typed answer that doesn't fit on the 32nd call gets no repair the loop couldn't run, so the turn fails with `output-schema-violation`. A `maxSteps` of 32 or less works as before. No API, type or flow change: the turn's flow stays `agent.turn` 1.1.0.
+  
+  The budget docs now give the real defaults. `defineAgent`'s doc said `maxSteps` 6, `maxCostUsd` 0.1 and `maxWallMs` 30 000. They are 8 steps, no cost cap, and 120 000 ms. The `TurnBudget` type, `agent.schema.json`, the agent-authoring skills and the budgets guide now also say a turn makes at most 32 model calls.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [e019e64]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [119ac78]
+- Updated dependencies [fc7347c]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [760acad]
+- Updated dependencies [b6e20ca]
+  - @kindgi/agents@0.2.0
+  - @kindgi/handler-runtime@0.2.0
+  - @kindgi/client@0.2.0
+  - @kindgi/tools@0.2.0
+  - @kindgi/schema@0.2.0
+  - @kindgi/flow@0.2.0
+  - @kindgi/guardrails@0.2.0
+  - @kindgi/crypto@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **The getting-started skills (TypeScript, Python, Java, Scala) say more about upgrading a deployment on Cloud Run.** The module's `./upgrade.sh` makes its plan with every `*.auto.tfvars.json` in the module's folder too, the pack's env among them, and `yes` applies exactly the saved plan it showed. Any other Cloud Run deployment upgrades by hand, staging first, as the Cloud Run page's new "Upgrade by hand" section says, and one on Azure Container Apps follows its page's "Operate it" section.
+- b6e20ca: **The `kindgi-using` skill finds a mail trigger in the console.** Asked what the support inbox did with a mail, it links the trigger's page, `mail-triggers/<triggerId>`, with its latest mails, up to 50, what happened to each and the run it started (older mail is in `kindgi mail-triggers fires`), and `runs?trigger=<triggerId>`, every run it started. Its console pages list the mail triggers, and it links Start runs from new mail.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/tools@0.2.0-rc.1
+  - @kindgi/client@0.2.0-rc.1
+  - @kindgi/handler-runtime@0.2.0-rc.1
+  - @kindgi/agents@0.2.0-rc.1
+  - @kindgi/guardrails@0.2.0-rc.1
+  - @kindgi/flow@0.2.0-rc.1
+  - @kindgi/schema@0.2.0-rc.1
+  - @kindgi/crypto@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Minor Changes
+
+- ae09fc0: Version numbers now say what a release holds. A release with new features moves the middle number, as this one does, and a release with only fixes moves the last. Every SDK package shares one version.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+
+### Patch Changes
+
+- bf30268: **A new authoring skill, "Fix what the experts corrected", with a guide to match.** When an expert judges an agent's run wrong and says why, a coding agent can now turn those corrections into changes. `kindgi init` and `kindgi skills sync` install the `kindgi-fix-corrections` skill (every language), which pulls an agent's "no" judgments (`kindgi judgments list --verdict=no`), reads each with the run behind it (`kindgi runs get`, `kindgi runs journal`), and sorts each correction to where it belongs — a rule in a tool's code, a setting, an approval rule, or the agent's instructions — adding a pack test per correction, then publishing a new version (`kindgi agents derive` for a setting, `kindgi deploy` for code) and asking a person to make it live with `kindgi agents promote … --reason`, naming the corrections. It never raises a limit or drops a check — a correction that would loosen anything goes to the owner — and it keeps the pulled runs' customer data out of the pack. The guide "Fix what the experts corrected" walks a person through the same loop.
+- 08dedca: **`kindgi init --template=follow-up`:** an agent that writes a follow-up mail from your notes and sends it from your own Gmail, each send approved first.
+  - Its send tool is `gmailSend` from `@kindgi/connections`, included under the pack's own id. `init` adds `@kindgi/connections` at the CLI's own version, or linked from a checkout with `--link-local`.
+  - Its README covers connecting Google, what waits for a person, and why text other people wrote is information, never instructions.
+  - In an existing app, `init` refuses it and points at `--new-repo`.
+  - The getting-started skill lists it.
+- 08dedca: **`@kindgi/sdk/define` re-exports a tool's connection names** from `@kindgi/tools`, unchanged: `ConnectionRejectedError` and `isConnectionRejectedError`, and the types `ToolConnection`, `ConnectionNeed` and `ConnectionAccount`. A tool that declares `needsSpec.connections` imports everything from the SDK, as for its other names.
+- b5c5da3: **The TypeScript and Python getting-started skills say where `kindgi dev`'s token is:** `token` in the pack's `.kindgirc.json`, with the API's URL as `apiUrl`. `kindgi dev`'s banner now shows only the token's last four characters.
+- 633d9e7: **The TypeScript getting-started skill names the other provider presets,** as the Python, Java and Scala ones do: Anthropic is its example, and `kindgi providers presets` lists OpenAI, Gemini, Groq and OpenRouter too.
+- 08dedca: **The tool-authoring skills cover connections to other apps,** in TypeScript, Python, Java and Scala. A tool declares the connection it needs in its `needsSpec`, reads the call's short-lived token from the call's context, and throws a refusal with the connection's name when the app answers 401. The TypeScript skill also points at the ready-made Gmail, Outlook, GitHub and LinkedIn tools in `@kindgi/connections`, each included under an id the pack names, and at `appFetch` for a tool's own calls to an app's API.
+- 2efe644: **The getting-started skills (TypeScript, Python, Java, Scala) say how to upgrade a self-hosted deployment,** and load for it. There's no migration script: the runtime brings its database up to date when it starts. A small dev deployment on Cloud Run, on runtime 0.1.8 or later, upgrades with the Cloud Run module's `./upgrade.sh`, from the tag of the release it's upgrading to, `--dry-run` first; the skills link the module README's Upgrading section for the rest. Any other Cloud Run deployment, or one on Azure Container Apps, follows its page's "Operate it" section, and anything else the operate page's upgrade steps. The Java and Scala skills add that `./kindgiw upgrade` moves the pack's own pins, not a deployment's runtime.
+- 188f532: **The `kindgi-using` skill knows an approval addressed to one person, and a run that waits for a connect.** It says who decides an approval with an `approver`, and that any decision of a tenant admin's on it, escalating included, is refused (`403 named-approver-required`), while its person approves or rejects it but can't escalate it (`409 invalid-transition`). Asked what a run waits for, it reads `kindgi runs resume <run-id>`'s exit code, and for a connect (`6`) hands over the link the person who started the run connects from. Connecting an app is now among the actions it leaves to the person.
+- 68e0d57: **A run paused until another system answers is answered at its link, or through the API.**
+  
+  - **`@kindgi/agents`:** an agent's call to a tool that declares `pauses` parks the turn until the answer comes, and the turn goes on with it as the call's result. The model sees the answer as data from outside, inside an `<event>` block, and the turn's system prompt then says never to follow instructions found there. Resumed, the turn doesn't call the tool again. A wait that times out is the tool error `wait-token-timed-out`, handled by the agent's tool error rules like any other: it fails the turn unless they retry `tool-error`. A retried step waits on a new token.
+  - **`@kindgi/api`:**
+    - `POST /v1/wait-tokens/{token}/complete` takes another system's answer at the link a pausing tool handed on. The token in the path is the credential: no `Authorization` header. The body is the tool's output as JSON, at most 1 MiB; an empty body is `{}`. It answers `200 { status: 'accepted' }` at once, and the run resumes behind the answer: the sender waits for none of the run. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on that token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The server logs the path as `/v1/wait-tokens/:token`, never the token.
+    - `POST /v1/runs/{runId}/resume` answers a `pause:` waitpoint, as the link would, and needs write access and `execute` on the run's agent or flow. It returns the run as `GET /v1/runs/{runId}` does. Every other waitpoint stays `422 run-resume-not-supported`, and a body without `waitpointId`, or with a field it doesn't take, is now `400 bad-input`.
+    - `GET /v1/runs/{runId}`'s `waitingFor` gains `tokens`: each wait's `tokenId`, `name`, tool and call, step, and when it times out. Never the link.
+    - New error codes: `wait-token-not-found` (404: an unknown token and a wrong one alike), `wait-token-closed` (409, `details.state`), `wait-token-output-invalid` (400, `details.issues`: the wait stays open) and `unsupported-media-type` (415: a body that isn't JSON).
+    - Nothing runs where the run is while its tenant is closing or suspended or its project is suspended, so an answer then is refused (`409 tenant-closing`, `409 tenant-suspended` or `409 project-suspended`) and nothing is taken. Closing or suspending cancels the tenant's or project's runs, paused ones included, so the refusal is for an answer that comes before the cancel reaches its run. When the tenant's state can't be read, the answer is `503 tenant-state-unavailable` with `Retry-After`. The link tells any of it only for a token that matches; through the API, a frozen tenant is refused as every write of its is.
+    - The link limits requests per client: past 600 a minute, `429 rate-limit-exceeded` with `Retry-After`, counted before the body is read or the token looked up, so nothing was taken and the same answer can be sent again then.
+    - For a runtime: `createApp` takes `waitTokens`, a `WaitTokenBinding` (`complete` and `waiting`). Without one, the link answers `404` and resume `422`, as before. The link tells clients apart and counts them where `webhookReceiver` says (`clientAddress`, `rateLimitStore`), with its defaults when that's absent.
+  - **`@kindgi/compliance` and `@kindgi/specs`:** two built-in evidence kinds, `wait-token-completed` (an answer landed, held for the run or taken) and `wait-token-discarded` (a held early answer the run never took). Their payloads carry the answer's size and SHA-256, never the answer.
+  - **`@kindgi/client`:** `runs.resume` answers a run's wait for another system, and `Run` carries `waitingFor` (`RunWaitingFor`, `RunWaitingApproval` and `RunWaitingToken` are exported). `approvals.completeToken`, which had no route and always threw `not-yet-wired`, and its `CompleteTokenInput` (re-exported by `@kindgi/sdk` too) are removed, so code that imports `CompleteTokenInput` stops compiling: an approval's run resumes through `approvals.decide`.
+- 760acad: **A turn whose `maxSteps` is above 32 now stops at the 32nd model call with `budget-exceeded`, instead of running its loop out.** A turn's loop runs at most 32 iterations (`AGENT_TURN_LOOP_MAX_ITERATIONS`), one model call each. With a higher `maxSteps`, a model that still wanted a tool on the 32nd call ended the loop with no answer, and the turn's failure didn't name the budget. The step check now holds `maxSteps` to 32: the turn fails with `budget-exceeded`, kind `steps`, `limit` 32, and the message adds that a turn makes at most 32 model calls, fewer than its `maxSteps`. A typed answer that doesn't fit on the 32nd call gets no repair the loop couldn't run, so the turn fails with `output-schema-violation`. A `maxSteps` of 32 or less works as before. No API, type or flow change: the turn's flow stays `agent.turn` 1.1.0.
+  
+  The budget docs now give the real defaults. `defineAgent`'s doc said `maxSteps` 6, `maxCostUsd` 0.1 and `maxWallMs` 30 000. They are 8 steps, no cost cap, and 120 000 ms. The `TurnBudget` type, `agent.schema.json`, the agent-authoring skills and the budgets guide now also say a turn makes at most 32 model calls.
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [e019e64]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [08dedca]
+- Updated dependencies [119ac78]
+- Updated dependencies [fc7347c]
+- Updated dependencies [760acad]
+  - @kindgi/agents@0.2.0-rc.0
+  - @kindgi/handler-runtime@0.2.0-rc.0
+  - @kindgi/client@0.2.0-rc.0
+  - @kindgi/tools@0.2.0-rc.0
+  - @kindgi/schema@0.2.0-rc.0
+  - @kindgi/flow@0.2.0-rc.0
+  - @kindgi/guardrails@0.2.0-rc.0
+  - @kindgi/crypto@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
+## 0.1.10
+
+### Patch Changes
+
+- 2e60ae2: A TypeScript pack's image can carry only what the pack loads: `image: { dependencies: 'loaded' }` in `kindgi.config` keeps the packages the pack's bundles import by name, with their own dependencies, and what `image.keep` names, instead of every production dependency of the app (`'all'`, still the default).
+  
+  - Each package is resolved as Node resolves it, over the layout the package manager made (pnpm's links, npm's and Yarn's hoisting), and kept whole.
+  - Most misses fail the build, naming the package. An import that isn't installed fails the image's closure step, by name. Every package the bundles import is loaded on the trimmed install before indexing, which runs there too. A `require(x)` / `import(x)` with a computed name in the pack's own code fails `kindgi build`, by file and line, until `image.keep` names what it loads.
+  - The build prints what it kept of what's installed, and which of the pack's own dependencies its tools don't import.
+  - What no check can see reaches a run: a package loaded by a name in a string (a plugin named in a config), through a `createRequire` alias or `module.require`, or a dependency's own undeclared one. That call fails, saying what to add to `image.keep`.
+  - `prisma()` keeps Prisma 6's generated `.prisma/client` when it's there.
+  - A Python pack's `[tool.kindgi.image] dependencies = "loaded"` (or `keep`) is refused for now: its image keeps every dependency in the lockfile.
+- 4bdb49f: **The `kindgi-authoring-providers` skill leads with the pack's config: declare the provider there and commit it.** Its step 2 used to be `kindgi providers register --preset=…`, which puts the provider in one worktree's dev database and leaves nothing to commit, so another worktree, a `--reset` or a teammate's `kindgi dev` had none. Step 2 is now the declaration (`providers` in `kindgi.config.ts`, `[[tool.kindgi.providers]]` in `pyproject.toml`, `providers` in `kindgi.config.json`), which holds a key's name, never the key, and is committed. Registering by hand comes second, for a runtime `kindgi dev` doesn't run (staging, production, Kindgi Cloud): once per runtime, since a registration is shared by every environment it serves, with the key set in each environment that runs the pack. `kindgi deploy` doesn't register providers, and `kindgi promote` stops while the target has none. A hand-written `provider.json` is committed too. A new mistake says `.kindgi/dev/providers.json` is `kindgi dev`'s local record, not the file to commit, and the end-to-end check declares the provider. The getting-started skills (TypeScript, Python, Java, Scala) and the Java and Scala agent-authoring skills say to commit the declaration where they show it.
+- a21cec2: **The tool-authoring skill covers a default import of a package that ships only CommonJS.** A pack's code runs as ES modules, loaded with Node's own `import()`, so Node gives such an import the package's whole `module.exports`, with the class on its `default`, where Vitest, Next.js and tsx in a CommonJS app give the class. A tool, or app code it imports, then passes `kindgi test` and fails under `kindgi dev` with "is not a constructor". The skill tells a coding agent to take the class either way, with a typed helper that compiles under both `NodeNext` and `bundler` module resolution.
+- e1fd4cd: **The tool-authoring skill covers a dynamic import of a package that ships only CommonJS.** `(await import('…')).default` is the class under Vitest and the package's whole `module.exports` under Node, as with a default import, so the skill takes it with the same helper.
+- a05a216: **The getting-started and tool-authoring skills cover a tool that needs code from a Next.js module with `import 'server-only'`.** Outside Next.js that line stops the module from loading, so `kindgi test`, `kindgi dev` and `kindgi build` fail on such a tool. The skills tell a coding agent to keep the line, move the code the tool needs into a module without it, have the guarded module re-export that module so the app's own imports don't change, and import the new module from the tool.
+- 9b6da8a: **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
+  
+  - **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+  - **The query,** the same on both routes:
+    - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
+    - `groupBy`, comma-separated;
+    - the filters `kind`, `class` and `state`, each comma-separated. A list naming an unknown value, or one value twice, is `400 bad-input`;
+    - `limit`: groups a page, from 1 to 10000 (default 1000);
+    - `cursor`: the last page's `nextCursor`. A cursor the route didn't give is `400 bad-input`.
+  - **The answer** is `{ data, watermark, nextCursor? }`. Every record at or before `watermark` is in it, so a reader re-reads a window until its watermark is past the window's end. Every page of one read carries the same watermark. A group's `kind`, `class` and `state` are plain strings: a runtime may count more later, and a reader shows a value it doesn't know as it is.
+  - **`GET /v1/usage`:** the caller's tenant's usage. `groupBy` takes `project`, `agent`, `kind`, `class`, `state` and `day` (the UTC date); the default is `project,kind`. `projectId` reads one project.
+    - **Which projects:** a tenant admin, or a deployment without authorization, reads every project and the tenant's records with no project. Anyone else, an admin's API key limited to a project included, reads only the projects they may `read`, and no record without a project.
+    - **A project the caller can't read** is absent from the answer, never an error, so the answer doesn't say it exists.
+    - **When the projects a caller may read can't be listed,** one asked for with `projectId` is still read. A read across projects is refused (`403`), never over-counted.
+  - **`GET /v1/system/usage`** takes the new system capability `system:usage:read` (`kindgi:system` includes it). `groupBy` also takes `tenant`; the default is `tenant,kind`. `tenantId` reads one tenant.
+    - A test tenant's usage, and that of a tenant whose setup is pending, is never in the answer, even when `tenantId` names one.
+    - The access record marks a read across every tenant, or names the one read.
+  - **Mounting:** `createApp` takes `usage`, a `UsageBinding` (`acrossTenants`, `ofTenant`). Without it, neither route is mounted (`404`). `@kindgi/api` exports the binding's types and the lists the query takes (`USAGE_STATES`, `USAGE_GROUP_KEYS`, `TENANT_USAGE_GROUP_KEYS`, `USAGE_WINDOW_MAX_DAYS`).
+  - **The TypeScript client** adds `client.usage.read` (`TenantUsageClient`) and `client.systemUsage.read` (`SystemUsageClient`); lists are sent comma-separated. `@kindgi/sdk` exports `TenantUsageClient`, `UsageQuery`, `UsagePage`, `UsageGroup` and `UsageGroupKey`. `UsageClient` is still `client.cost.usage`'s.
+  - **The Python client** adds `client.usage.read` and `client.system_usage.read`.
+  - **The CLI adds `kindgi usage`:**
+    - **The window:** a calendar month in UTC (`--month=YYYY-MM`, the current one by default), or `--from` and `--to` together;
+    - **The query:** `--project`, `--group-by`, `--kind`, `--class` and `--state` (comma-separated), `--limit` and `--cursor`;
+    - **The output:** the page as JSON. `--table` prints a row per group, with `(none)` for no project or agent, and on stderr the watermark and the next page's `--cursor`.
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [d6f844d]
+- Updated dependencies [2e60ae2]
+- Updated dependencies [72b63e8]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [9b6da8a]
+  - @kindgi/client@0.1.10
+  - @kindgi/agents@0.1.10
+  - @kindgi/handler-runtime@0.1.10
+  - @kindgi/flow@0.1.10
+  - @kindgi/guardrails@0.1.10
+  - @kindgi/schema@0.1.10
+  - @kindgi/tools@0.1.10
+  - @kindgi/crypto@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/agents@0.1.10-rc.1
+  - @kindgi/crypto@0.1.10-rc.1
+  - @kindgi/flow@0.1.10-rc.1
+  - @kindgi/guardrails@0.1.10-rc.1
+  - @kindgi/handler-runtime@0.1.10-rc.1
+  - @kindgi/schema@0.1.10-rc.1
+  - @kindgi/tools@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+  - @kindgi/client@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- 2e60ae2: A TypeScript pack's image can carry only what the pack loads: `image: { dependencies: 'loaded' }` in `kindgi.config` keeps the packages the pack's bundles import by name, with their own dependencies, and what `image.keep` names, instead of every production dependency of the app (`'all'`, still the default).
+  
+  - Each package is resolved as Node resolves it, over the layout the package manager made (pnpm's links, npm's and Yarn's hoisting), and kept whole.
+  - Most misses fail the build, naming the package. An import that isn't installed fails the image's closure step, by name. Every package the bundles import is loaded on the trimmed install before indexing, which runs there too. A `require(x)` / `import(x)` with a computed name in the pack's own code fails `kindgi build`, by file and line, until `image.keep` names what it loads.
+  - The build prints what it kept of what's installed, and which of the pack's own dependencies its tools don't import.
+  - What no check can see reaches a run: a package loaded by a name in a string (a plugin named in a config), through a `createRequire` alias or `module.require`, or a dependency's own undeclared one. That call fails, saying what to add to `image.keep`.
+  - `prisma()` keeps Prisma 6's generated `.prisma/client` when it's there.
+  - A Python pack's `[tool.kindgi.image] dependencies = "loaded"` (or `keep`) is refused for now: its image keeps every dependency in the lockfile.
+- 4bdb49f: **The `kindgi-authoring-providers` skill leads with the pack's config: declare the provider there and commit it.** Its step 2 used to be `kindgi providers register --preset=…`, which puts the provider in one worktree's dev database and leaves nothing to commit, so another worktree, a `--reset` or a teammate's `kindgi dev` had none. Step 2 is now the declaration (`providers` in `kindgi.config.ts`, `[[tool.kindgi.providers]]` in `pyproject.toml`, `providers` in `kindgi.config.json`), which holds a key's name, never the key, and is committed. Registering by hand comes second, for a runtime `kindgi dev` doesn't run (staging, production, Kindgi Cloud): once per runtime, since a registration is shared by every environment it serves, with the key set in each environment that runs the pack. `kindgi deploy` doesn't register providers, and `kindgi promote` stops while the target has none. A hand-written `provider.json` is committed too. A new mistake says `.kindgi/dev/providers.json` is `kindgi dev`'s local record, not the file to commit, and the end-to-end check declares the provider. The getting-started skills (TypeScript, Python, Java, Scala) and the Java and Scala agent-authoring skills say to commit the declaration where they show it.
+- a21cec2: **The tool-authoring skill covers a default import of a package that ships only CommonJS.** A pack's code runs as ES modules, loaded with Node's own `import()`, so Node gives such an import the package's whole `module.exports`, with the class on its `default`, where Vitest, Next.js and tsx in a CommonJS app give the class. A tool, or app code it imports, then passes `kindgi test` and fails under `kindgi dev` with "is not a constructor". The skill tells a coding agent to take the class either way, with a typed helper that compiles under both `NodeNext` and `bundler` module resolution.
+- e1fd4cd: **The tool-authoring skill covers a dynamic import of a package that ships only CommonJS.** `(await import('…')).default` is the class under Vitest and the package's whole `module.exports` under Node, as with a default import, so the skill takes it with the same helper.
+- a05a216: **The getting-started and tool-authoring skills cover a tool that needs code from a Next.js module with `import 'server-only'`.** Outside Next.js that line stops the module from loading, so `kindgi test`, `kindgi dev` and `kindgi build` fail on such a tool. The skills tell a coding agent to keep the line, move the code the tool needs into a module without it, have the guarded module re-export that module so the app's own imports don't change, and import the new module from the tool.
+- 9b6da8a: **Usage reads: a tenant reads its own usage, aggregated, and the operator reads usage across tenants.**
+  
+  - **What's counted:** usage records (`USAGE_KINDS`): runs started and ended, each with its class; approvals requested and decided; model calls, inference and embedding; and a project put in production or taken out. A read answers groups: each group's count, the sum of its quantities (milliseconds for `run.ended`, tokens for model calls, and 1 for every other record, so a group of those has a quantity equal to its count) and its first and last times. It never answers a record's content. Model-call cost stays on `/v1/cost`.
+  - **The query,** the same on both routes:
+    - `from` and `to`: times with a zone, `to` not included, at most 92 days apart. A longer span is read in parts;
+    - `groupBy`, comma-separated;
+    - the filters `kind`, `class` and `state`, each comma-separated. A list naming an unknown value, or one value twice, is `400 bad-input`;
+    - `limit`: groups a page, from 1 to 10000 (default 1000);
+    - `cursor`: the last page's `nextCursor`. A cursor the route didn't give is `400 bad-input`.
+  - **The answer** is `{ data, watermark, nextCursor? }`. Every record at or before `watermark` is in it, so a reader re-reads a window until its watermark is past the window's end. Every page of one read carries the same watermark. A group's `kind`, `class` and `state` are plain strings: a runtime may count more later, and a reader shows a value it doesn't know as it is.
+  - **`GET /v1/usage`:** the caller's tenant's usage. `groupBy` takes `project`, `agent`, `kind`, `class`, `state` and `day` (the UTC date); the default is `project,kind`. `projectId` reads one project.
+    - **Which projects:** a tenant admin, or a deployment without authorization, reads every project and the tenant's records with no project. Anyone else, an admin's API key limited to a project included, reads only the projects they may `read`, and no record without a project.
+    - **A project the caller can't read** is absent from the answer, never an error, so the answer doesn't say it exists.
+    - **When the projects a caller may read can't be listed,** one asked for with `projectId` is still read. A read across projects is refused (`403`), never over-counted.
+  - **`GET /v1/system/usage`** takes the new system capability `system:usage:read` (`kindgi:system` includes it). `groupBy` also takes `tenant`; the default is `tenant,kind`. `tenantId` reads one tenant.
+    - A test tenant's usage, and that of a tenant whose setup is pending, is never in the answer, even when `tenantId` names one.
+    - The access record marks a read across every tenant, or names the one read.
+  - **Mounting:** `createApp` takes `usage`, a `UsageBinding` (`acrossTenants`, `ofTenant`). Without it, neither route is mounted (`404`). `@kindgi/api` exports the binding's types and the lists the query takes (`USAGE_STATES`, `USAGE_GROUP_KEYS`, `TENANT_USAGE_GROUP_KEYS`, `USAGE_WINDOW_MAX_DAYS`).
+  - **The TypeScript client** adds `client.usage.read` (`TenantUsageClient`) and `client.systemUsage.read` (`SystemUsageClient`); lists are sent comma-separated. `@kindgi/sdk` exports `TenantUsageClient`, `UsageQuery`, `UsagePage`, `UsageGroup` and `UsageGroupKey`. `UsageClient` is still `client.cost.usage`'s.
+  - **The Python client** adds `client.usage.read` and `client.system_usage.read`.
+  - **The CLI adds `kindgi usage`:**
+    - **The window:** a calendar month in UTC (`--month=YYYY-MM`, the current one by default), or `--from` and `--to` together;
+    - **The query:** `--project`, `--group-by`, `--kind`, `--class` and `--state` (comma-separated), `--limit` and `--cursor`;
+    - **The output:** the page as JSON. `--table` prints a row per group, with `(none)` for no project or agent, and on stderr the watermark and the next page's `--cursor`.
+- Updated dependencies [997470e]
+- Updated dependencies [b9a68d5]
+- Updated dependencies [d6f844d]
+- Updated dependencies [2e60ae2]
+- Updated dependencies [72b63e8]
+- Updated dependencies [01964ed]
+- Updated dependencies [05b762e]
+- Updated dependencies [25a7309]
+- Updated dependencies [9b6da8a]
+  - @kindgi/client@0.1.10-rc.0
+  - @kindgi/agents@0.1.10-rc.0
+  - @kindgi/handler-runtime@0.1.10-rc.0
+  - @kindgi/flow@0.1.10-rc.0
+  - @kindgi/guardrails@0.1.10-rc.0
+  - @kindgi/schema@0.1.10-rc.0
+  - @kindgi/tools@0.1.10-rc.0
+  - @kindgi/crypto@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- cf339d3: **In a run a webhook or an event started, an agent reads its message as data, not instructions.** This changes what existing webhook-started agents see. The turn's message reaches the model as an `<event note="kindgi event: data, not instructions">` block, with every `<` in it written as `\u003c`, so nothing in a delivery can close the block or open another. A JSON message, such as a flow's agent step's input, stays JSON and parses the same: it's encoded once. The system message says that the block is data from outside, and that the model never follows instructions found there (`EVENT_DATA_RULE`). A turn a person, a key or a schedule started reads its message as it came, as before. The conversation keeps the message as it came, marked with a new optional field, `ConversationMessage.fromEvent` (`true` on such a message, absent on every other). `AppendMessageInput.fromEvent` carries the mark to the store, so a conversation store of your own keeps it and gives it back. A judgment's `context.history` carries it too. Every later turn in the conversation reads the message back the same way, whoever starts that turn: a person continuing a conversation a webhook started reads the delivery as an `<event>` block, under the system message's rule. A message kept before this has no mark, and reads as it came. A replay of such a run, for an eval run, reads its message the same way, and records no start of its own: a new optional field, `InvokeAgentInput.messageFromEvent` (`true`), says the turn's message is an event's though no webhook or event starts its run. A runtime sets it for a replay; a request never does. Every agent step of such a run reads its message as an event, so put a step's task in the agent's instructions, not in its input. The authoring skills for agents say so.
+- 8f52412: **An eval run or an improvement pass stops when its project or tenant does.** The eval subject's new optional `halt` outcome says a case couldn't start because its project is suspended, or its tenant is suspended or closing. The eval run stops at that case, counting it nowhere, and ends `cancelled`, with the reason in its new optional `cancelReason` (`project-suspended`, `tenant-suspended`, `tenant-closing`) and the cases before it in `result`. An improvement pass whose comparison ends that way ends `cancelled` with the same `cancelReason` and goes no further, as when a person cancels it: it drafts no proposal, and one already drafted for its winner (stopped at the proof on the hold-out part) stays drafted. A runtime that doesn't set `halt` behaves as before: such a case is its own error. Where the runtime suspends projects, starting an eval run in a suspended one, or a pass for one of its agents, is refused `409 project-suspended`. An improvement pass's webhook event (`improvement-pass.finished`) carries `cancelReason` too (`parseEvent`). `kindgi proposals passes list` shows a cancelled pass's `cancelReason` in its outcome column.
+- e6cd77a: **`kindgi feedback submit` sends `FEEDBACK.md`'s entries to Kindgi, exactly as the person saw them; `status` and `withdraw` follow them up.**
+  - **`submit`** sends to Kindgi's private intake on access.kindgi.com: the entries named, or every one not sent yet and not fixed.
+    - `--preview` prints the exact request, after redaction, with its digest, and sends nothing. `--yes=<digest>` sends it only if nothing changed since. At a terminal it asks instead; with no terminal and no `--yes`, nothing is sent.
+    - Redaction runs first: the home directory, paths outside the pack, values from the pack's env files, private keys, token shapes, URL user info and query values, and email addresses. The environment goes as the OS, Node and CLI versions, the pack's language, and `kindgi doctor`'s checks as id and status only.
+    - Each entry gets a `submitted` line with its report id, which isn't a secret. The key that withdraws a report is kept in `~/.kindgi/feedback/keys.json` (0600) on the machine that sent it, and is never printed.
+    - When the answer is lost, comes too late or can't be read, it says Kindgi may have received the reports, and that sending again makes a second report. Once they're received, a key that can't be kept or an entry that can't be marked is said beside that, and the entries are still marked.
+    - `KINDGI_FEEDBACK_SUBMIT=off` turns sending off; any value but `on` or `off` does too, and says so.
+  - **`status`** says what became of each report: received, known (with its issue), fixed (with the version), won't fix (with why), or withdrawn. It asks at most once a day unless the report is named, never again once it's final or, unless it's named, once the intake doesn't have it, and marks a fixed entry in `FEEDBACK.md`.
+  - **`withdraw <id|hash|reportId>`** takes reports back: the intake clears their text at once.
+  - **The `kindgi-framework-feedback` skill** (0.4.4) and the templates' `AGENTS.md` tell a coding agent to send only after the person says yes to the preview, and to run `status` at the start of a session.
+- 8bcfa4b: **The guardrail skills and the guardrails guide say up front what a guardrail can do in 0.1.** Before, the skills listed `halt / retry / escalate / log-only / compensate` in their descriptions and said only far down that the runtime acts only on `halt`, so a coding agent asked to "block the reply and make the agent try again" planned a retry it couldn't build. The skills (`kindgi-authoring-guardrails` 0.3.10, `kindgi-python-authoring-guardrails` 0.1.5, `kindgi-java-authoring-guardrails` 0.1.2, `kindgi-scala-authoring-guardrails` 0.1.2) and the guide's overview now open with three limits:
+  - **Only `halt` acts.** `retry`, `escalate` and `compensate` are recorded on the turn's violations, as `log-only` is, and nothing runs the turn again, escalates or calls a tool.
+  - **A check sees one turn:** that turn's user message, tool calls, tool results and answer. Earlier turns aren't in its trace.
+  - **A check's in-memory state doesn't last:** it's lost when the pack's process is replaced (every reload and restart under `kindgi dev`, an instance stopping in a deployment), and each instance keeps its own.
+  
+  They also say what works today for a check on figures, and what it doesn't cover. The `on-violation` action's docs say the same: the `Action` JSDoc in `@kindgi/guardrails`, the Python `@guardrail` docstring, and `onViolation` in the Java and Scala packs. No behaviour changes.
+- b3fa796: **The `kindgi-authoring-providers` skill says where a pack on Kindgi Cloud keeps its model key and provider: `prod`.** A pack deployed with `kindgi deploy --hosted` runs on a runtime that serves `prod`, but every example in the skill used `--env=local`, for `kindgi dev`. The skill now gives the lines for Kindgi Cloud (`kindgi secrets set … --env=prod --scope=tenant`, `kindgi providers register … --env=prod`, `kindgi deploy --hosted --env=prod`) and links the hosted guide. Its `envName` mistake now says where each command writes: `kindgi secrets set` needs `--env`, `kindgi providers register --preset` writes `local` without it, and a `--spec` file names its own.
+- d563887: **A runtime that keeps its values under one env refuses a value it would never read.** A runtime that serves one env, `prod` say, reads every value under it, so a secret set under `production` was stored and never read. Such a runtime can now refuse those values: `createApp({ envName, refuseOtherEnvs: true })` (`KINDGI_REFUSE_OTHER_ENVS=true` on the server, with `KINDGI_ENV`). Off by default; a runtime that leaves it off takes any env, as before.
+  - **What it refuses, with `409 env-not-served`:**
+    - a secret set or rotated, or an env value put, under another env (`POST /v1/secrets`, `POST /v1/secrets/{name}/rotate`, `PUT /v1/env/{name}`), and a deployment's secret sync under another env (`POST /v1/deployments/{deploymentId}/secrets`), before anything is written;
+    - a model provider, MCP endpoint or webhook endpoint created or changed with its secret named under another env.
+  - **The error** names the env the runtime serves and what to do (`details: { envName, servedEnv }`).
+  - **What it still takes:**
+    - reads and deletes under any env, so a value stored before can be found and removed;
+    - a secret that a registration made before names under its own env, at the scope it's read at, so a value in use can still be rotated: a provider's or a webhook endpoint's at the tenant's scope, an MCP endpoint's at the scope recorded for it.
+  - **whoami says what's served:** `GET /v1/identity/whoami` answers `servedEnv: { envName, refusesOtherEnvs }` when the runtime serves an env. The field is optional, and absent on a runtime that serves none.
+  - **The CLI follows it.** On a runtime that refuses other envs:
+    - `--env` defaults to the served env for `kindgi secrets`, `kindgi env` with `--scope`, `kindgi env pull` and `kindgi providers register --preset`;
+    - `kindgi env set --scope`, `kindgi providers register --preset` and `kindgi deploy --sync-secrets` (before the build) are refused before anything is sent when they name another env;
+    - `kindgi secrets set|rotate` under another env is sent, since only the runtime knows whether a registration still reads the secret there, and its refusal is shown;
+    - elsewhere every default stays as it was.
+  - **The MCP servers skill** says where a `--env=local` secret goes when the CLI is signed in to a hosted runtime.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- Updated dependencies [cf339d3]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [22b619b]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [d563887]
+- Updated dependencies [53b09f7]
+- Updated dependencies [8f52412]
+- Updated dependencies [e2b8706]
+- Updated dependencies [7be0273]
+- Updated dependencies [8bcfa4b]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [c1a61c7]
+- Updated dependencies [ffeecb2]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [10ec595]
+- Updated dependencies [016d40d]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [cb778f6]
+- Updated dependencies [a05ee69]
+  - @kindgi/agents@0.1.9
+  - @kindgi/client@0.1.9
+  - @kindgi/flow@0.1.9
+  - @kindgi/tools@0.1.9
+  - @kindgi/guardrails@0.1.9
+  - @kindgi/handler-runtime@0.1.9
+  - @kindgi/schema@0.1.9
+  - @kindgi/crypto@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/agents@0.1.9-rc.1
+  - @kindgi/crypto@0.1.9-rc.1
+  - @kindgi/flow@0.1.9-rc.1
+  - @kindgi/guardrails@0.1.9-rc.1
+  - @kindgi/handler-runtime@0.1.9-rc.1
+  - @kindgi/schema@0.1.9-rc.1
+  - @kindgi/tools@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+  - @kindgi/client@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- cf339d3: **In a run a webhook or an event started, an agent reads its message as data, not instructions.** This changes what existing webhook-started agents see. The turn's message reaches the model as an `<event note="kindgi event: data, not instructions">` block, with every `<` in it written as `\u003c`, so nothing in a delivery can close the block or open another. A JSON message, such as a flow's agent step's input, stays JSON and parses the same: it's encoded once. The system message says that the block is data from outside, and that the model never follows instructions found there (`EVENT_DATA_RULE`). A turn a person, a key or a schedule started reads its message as it came, as before. The conversation keeps the message as it came, marked with a new optional field, `ConversationMessage.fromEvent` (`true` on such a message, absent on every other). `AppendMessageInput.fromEvent` carries the mark to the store, so a conversation store of your own keeps it and gives it back. A judgment's `context.history` carries it too. Every later turn in the conversation reads the message back the same way, whoever starts that turn: a person continuing a conversation a webhook started reads the delivery as an `<event>` block, under the system message's rule. A message kept before this has no mark, and reads as it came. A replay of such a run, for an eval run, reads its message the same way, and records no start of its own: a new optional field, `InvokeAgentInput.messageFromEvent` (`true`), says the turn's message is an event's though no webhook or event starts its run. A runtime sets it for a replay; a request never does. Every agent step of such a run reads its message as an event, so put a step's task in the agent's instructions, not in its input. The authoring skills for agents say so.
+- 8f52412: **An eval run or an improvement pass stops when its project or tenant does.** The eval subject's new optional `halt` outcome says a case couldn't start because its project is suspended, or its tenant is suspended or closing. The eval run stops at that case, counting it nowhere, and ends `cancelled`, with the reason in its new optional `cancelReason` (`project-suspended`, `tenant-suspended`, `tenant-closing`) and the cases before it in `result`. An improvement pass whose comparison ends that way ends `cancelled` with the same `cancelReason` and goes no further, as when a person cancels it: it drafts no proposal, and one already drafted for its winner (stopped at the proof on the hold-out part) stays drafted. A runtime that doesn't set `halt` behaves as before: such a case is its own error. Where the runtime suspends projects, starting an eval run in a suspended one, or a pass for one of its agents, is refused `409 project-suspended`. An improvement pass's webhook event (`improvement-pass.finished`) carries `cancelReason` too (`parseEvent`). `kindgi proposals passes list` shows a cancelled pass's `cancelReason` in its outcome column.
+- e6cd77a: **`kindgi feedback submit` sends `FEEDBACK.md`'s entries to Kindgi, exactly as the person saw them; `status` and `withdraw` follow them up.**
+  - **`submit`** sends to Kindgi's private intake on access.kindgi.com: the entries named, or every one not sent yet and not fixed.
+    - `--preview` prints the exact request, after redaction, with its digest, and sends nothing. `--yes=<digest>` sends it only if nothing changed since. At a terminal it asks instead; with no terminal and no `--yes`, nothing is sent.
+    - Redaction runs first: the home directory, paths outside the pack, values from the pack's env files, private keys, token shapes, URL user info and query values, and email addresses. The environment goes as the OS, Node and CLI versions, the pack's language, and `kindgi doctor`'s checks as id and status only.
+    - Each entry gets a `submitted` line with its report id, which isn't a secret. The key that withdraws a report is kept in `~/.kindgi/feedback/keys.json` (0600) on the machine that sent it, and is never printed.
+    - When the answer is lost, comes too late or can't be read, it says Kindgi may have received the reports, and that sending again makes a second report. Once they're received, a key that can't be kept or an entry that can't be marked is said beside that, and the entries are still marked.
+    - `KINDGI_FEEDBACK_SUBMIT=off` turns sending off; any value but `on` or `off` does too, and says so.
+  - **`status`** says what became of each report: received, known (with its issue), fixed (with the version), won't fix (with why), or withdrawn. It asks at most once a day unless the report is named, never again once it's final or, unless it's named, once the intake doesn't have it, and marks a fixed entry in `FEEDBACK.md`.
+  - **`withdraw <id|hash|reportId>`** takes reports back: the intake clears their text at once.
+  - **The `kindgi-framework-feedback` skill** (0.4.4) and the templates' `AGENTS.md` tell a coding agent to send only after the person says yes to the preview, and to run `status` at the start of a session.
+- 8bcfa4b: **The guardrail skills and the guardrails guide say up front what a guardrail can do in 0.1.** Before, the skills listed `halt / retry / escalate / log-only / compensate` in their descriptions and said only far down that the runtime acts only on `halt`, so a coding agent asked to "block the reply and make the agent try again" planned a retry it couldn't build. The skills (`kindgi-authoring-guardrails` 0.3.10, `kindgi-python-authoring-guardrails` 0.1.5, `kindgi-java-authoring-guardrails` 0.1.2, `kindgi-scala-authoring-guardrails` 0.1.2) and the guide's overview now open with three limits:
+  - **Only `halt` acts.** `retry`, `escalate` and `compensate` are recorded on the turn's violations, as `log-only` is, and nothing runs the turn again, escalates or calls a tool.
+  - **A check sees one turn:** that turn's user message, tool calls, tool results and answer. Earlier turns aren't in its trace.
+  - **A check's in-memory state doesn't last:** it's lost when the pack's process is replaced (every reload and restart under `kindgi dev`, an instance stopping in a deployment), and each instance keeps its own.
+  
+  They also say what works today for a check on figures, and what it doesn't cover. The `on-violation` action's docs say the same: the `Action` JSDoc in `@kindgi/guardrails`, the Python `@guardrail` docstring, and `onViolation` in the Java and Scala packs. No behaviour changes.
+- b3fa796: **The `kindgi-authoring-providers` skill says where a pack on Kindgi Cloud keeps its model key and provider: `prod`.** A pack deployed with `kindgi deploy --hosted` runs on a runtime that serves `prod`, but every example in the skill used `--env=local`, for `kindgi dev`. The skill now gives the lines for Kindgi Cloud (`kindgi secrets set … --env=prod --scope=tenant`, `kindgi providers register … --env=prod`, `kindgi deploy --hosted --env=prod`) and links the hosted guide. Its `envName` mistake now says where each command writes: `kindgi secrets set` needs `--env`, `kindgi providers register --preset` writes `local` without it, and a `--spec` file names its own.
+- d563887: **A runtime that keeps its values under one env refuses a value it would never read.** A runtime that serves one env, `prod` say, reads every value under it, so a secret set under `production` was stored and never read. Such a runtime can now refuse those values: `createApp({ envName, refuseOtherEnvs: true })` (`KINDGI_REFUSE_OTHER_ENVS=true` on the server, with `KINDGI_ENV`). Off by default; a runtime that leaves it off takes any env, as before.
+  - **What it refuses, with `409 env-not-served`:**
+    - a secret set or rotated, or an env value put, under another env (`POST /v1/secrets`, `POST /v1/secrets/{name}/rotate`, `PUT /v1/env/{name}`), and a deployment's secret sync under another env (`POST /v1/deployments/{deploymentId}/secrets`), before anything is written;
+    - a model provider, MCP endpoint or webhook endpoint created or changed with its secret named under another env.
+  - **The error** names the env the runtime serves and what to do (`details: { envName, servedEnv }`).
+  - **What it still takes:**
+    - reads and deletes under any env, so a value stored before can be found and removed;
+    - a secret that a registration made before names under its own env, at the scope it's read at, so a value in use can still be rotated: a provider's or a webhook endpoint's at the tenant's scope, an MCP endpoint's at the scope recorded for it.
+  - **whoami says what's served:** `GET /v1/identity/whoami` answers `servedEnv: { envName, refusesOtherEnvs }` when the runtime serves an env. The field is optional, and absent on a runtime that serves none.
+  - **The CLI follows it.** On a runtime that refuses other envs:
+    - `--env` defaults to the served env for `kindgi secrets`, `kindgi env` with `--scope`, `kindgi env pull` and `kindgi providers register --preset`;
+    - `kindgi env set --scope`, `kindgi providers register --preset` and `kindgi deploy --sync-secrets` (before the build) are refused before anything is sent when they name another env;
+    - `kindgi secrets set|rotate` under another env is sent, since only the runtime knows whether a registration still reads the secret there, and its refusal is shown;
+    - elsewhere every default stays as it was.
+  - **The MCP servers skill** says where a `--env=local` secret goes when the CLI is signed in to a hosted runtime.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- Updated dependencies [cf339d3]
+- Updated dependencies [499082a]
+- Updated dependencies [17bc390]
+- Updated dependencies [22b619b]
+- Updated dependencies [d563887]
+- Updated dependencies [d563887]
+- Updated dependencies [1ac8e67]
+- Updated dependencies [404c4c9]
+- Updated dependencies [d563887]
+- Updated dependencies [53b09f7]
+- Updated dependencies [8f52412]
+- Updated dependencies [e2b8706]
+- Updated dependencies [7be0273]
+- Updated dependencies [8bcfa4b]
+- Updated dependencies [f82bb04]
+- Updated dependencies [d563887]
+- Updated dependencies [6d3ccdd]
+- Updated dependencies [3c8afcf]
+- Updated dependencies [c8d3c1e]
+- Updated dependencies [66bb5eb]
+- Updated dependencies [d563887]
+- Updated dependencies [c1a61c7]
+- Updated dependencies [ffeecb2]
+- Updated dependencies [5b5bd3b]
+- Updated dependencies [c44d803]
+- Updated dependencies [ec3dbf9]
+- Updated dependencies [10ec595]
+- Updated dependencies [016d40d]
+- Updated dependencies [cf339d3]
+- Updated dependencies [3502389]
+- Updated dependencies [cb778f6]
+- Updated dependencies [a05ee69]
+  - @kindgi/agents@0.1.9-rc.0
+  - @kindgi/client@0.1.9-rc.0
+  - @kindgi/flow@0.1.9-rc.0
+  - @kindgi/tools@0.1.9-rc.0
+  - @kindgi/guardrails@0.1.9-rc.0
+  - @kindgi/handler-runtime@0.1.9-rc.0
+  - @kindgi/schema@0.1.9-rc.0
+  - @kindgi/crypto@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

@@ -13,7 +13,14 @@ import { statusFor, toWireError } from '../errors.js';
 import type { PersonCapabilitiesBinding } from '../person-capabilities-binding.js';
 import { PUBLIC_RUN_TOKEN_PREFIX, verifyPublicRunToken } from '../public-run-token.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
-import { SYSTEM_TENANT_ID, type SystemPrincipal, isSystemCapability } from '../system.js';
+import {
+  FULL_SYSTEM_CAPABILITY,
+  SYSTEM_TENANT_ID,
+  type SystemPrincipal,
+  isSystemCapability,
+  isSystemKeysPath,
+} from '../system.js';
+import type { TokenAdmin } from '../token-admin.js';
 
 /**
  * Resolve an API token → tenant identity. For static bearer tokens this
@@ -80,6 +87,14 @@ export interface TokenResolution {
    * gives such a request `SYSTEM_TENANT_ID` whatever `tenantId` says.
    */
   readonly system?: SystemPrincipal;
+  /**
+   * Set on the deployment's own token by a runtime serving one tenant: on
+   * `/v1/system/keys` (and under it) the token is this system principal,
+   * with the full system capability and nothing of the tenant's, so it
+   * mints, lists and revokes the system keys. Everywhere else it is what
+   * the rest of this resolution says.
+   */
+  readonly systemKeysOperator?: SystemPrincipal;
   /**
    * Optional session id. Populated by the session-token verifier path
    * (`kgi_sk_*` tokens) so `/v1/identity/whoami` and `/v1/auth/logout`
@@ -217,6 +232,21 @@ export function encodeSessionToken(sessionId: SessionId): string {
   return `${SESSION_TOKEN_PREFIX}${sessionId as unknown as string}`;
 }
 
+const TOKEN_SIGN_IN_PROVIDER = 'api-token';
+
+/** The provider of a session token sign-in opens: `api-token:<tokenId>`, or `api-token` for a key with no id. */
+export function tokenSignInProvider(tokenId: ApiTokenId | undefined): string {
+  return tokenId === undefined ? TOKEN_SIGN_IN_PROVIDER : `${TOKEN_SIGN_IN_PROVIDER}:${tokenId}`;
+}
+
+/** The key a session was opened with by token sign-in, from its provider; `undefined` for any other session. */
+export function tokenSignInKey(providerId: string | undefined): ApiTokenId | undefined {
+  const prefix = `${TOKEN_SIGN_IN_PROVIDER}:`;
+  if (providerId === undefined || !providerId.startsWith(prefix)) return undefined;
+  const tokenId = providerId.slice(prefix.length);
+  return tokenId.length > 0 ? (tokenId as ApiTokenId) : undefined;
+}
+
 /**
  * Optional wiring for the session-token flavor. Provided to the
  * middleware via `bearerAuthMiddleware(resolveToken, { sessionStore })`
@@ -234,6 +264,15 @@ export interface BearerAuthMiddlewareOptions {
    * none. An API key's are its own, never its person's.
    */
   readonly personCapabilities?: PersonCapabilitiesBinding;
+  /**
+   * The deployment's API keys, read on each request on a session token
+   * sign-in opened (its provider names the key, `api-token:<tokenId>`) once
+   * the session is found valid: a revoked or missing key refuses it, 401
+   * `auth-revoked`, whatever failed to end it when the key was revoked.
+   * Absent → such a session is refused: nothing can check its key. Other
+   * sessions, and API keys themselves, read nothing more.
+   */
+  readonly apiKeys?: Pick<TokenAdmin, 'get'>;
   /**
    * Inactivity timeout — sessions whose `lastActiveAt` is older than
    * `Date.now() - inactivityTimeoutMs` are rejected with 401
@@ -306,7 +345,7 @@ export function bearerAuthMiddleware(
     const isSessionToken = sessionStore !== undefined && token.startsWith(SESSION_TOKEN_PREFIX);
     const resolution = isSessionToken
       ? await resolveSessionToken(sessionStore!, token)
-      : await resolve(token);
+      : operatorOnSystemKeys(await resolve(token), c.req.path);
     if (resolution === null) {
       const body = toWireError(
         { code: 'auth-missing', message: 'Bearer token is not recognized' },
@@ -368,6 +407,13 @@ export function bearerAuthMiddleware(
         );
         return c.json(body, statusFor('session-inactive') as never);
       }
+    }
+    const keyRefusal = isSessionToken
+      ? await sessionKeyRefusal(options.apiKeys, resolution)
+      : undefined;
+    if (keyRefusal !== undefined) {
+      const body = toWireError({ code: 'auth-revoked', message: keyRefusal }, requestId);
+      return c.json(body, statusFor('auth-revoked') as never);
     }
 
     if (resolution.system !== undefined) {
@@ -481,6 +527,51 @@ export function bearerAuthMiddleware(
 
     return authenticate(c, next, token, requestId);
   };
+}
+
+/**
+ * Serving one tenant, the deployment's own token on `/v1/system/keys`:
+ * the system principal `systemKeysOperator` names, holding `kindgi:system`,
+ * in no tenant. Elsewhere, and for any other token, the resolution as it is.
+ */
+function operatorOnSystemKeys(
+  resolution: TokenResolution | null,
+  path: string,
+): TokenResolution | null {
+  const operator = resolution?.systemKeysOperator;
+  if (resolution === null || operator === undefined || !isSystemKeysPath(path)) return resolution;
+  return {
+    tenantId: SYSTEM_TENANT_ID,
+    system: operator,
+    capabilities: [FULL_SYSTEM_CAPABILITY],
+    ...(resolution.expiresAt !== undefined && { expiresAt: resolution.expiresAt }),
+    ...(resolution.revoked !== undefined && { revoked: resolution.revoked }),
+  };
+}
+
+/**
+ * Why a valid session token sign-in opened is refused: its key is revoked or
+ * gone, or the deployment can't read its keys to tell. `undefined` for a
+ * live key, and for every other session (an identity provider's, or the
+ * deployment's own token's, `api-token` with no key id). Read on each
+ * request, never cached, so the session ends at its key's revoke even when
+ * ending it then failed. A read that fails fails the request, as a failed
+ * session lookup does: it never reads as a live key.
+ */
+async function sessionKeyRefusal(
+  apiKeys: Pick<TokenAdmin, 'get'> | undefined,
+  resolution: TokenResolution,
+): Promise<string | undefined> {
+  const tokenId = tokenSignInKey(resolution.providerId);
+  if (tokenId === undefined) return undefined;
+  if (apiKeys === undefined) {
+    return "This session was opened with an API key, and this deployment can't check its API keys: sign in another way";
+  }
+  const key = await apiKeys.get({ tenantId: resolution.tenantId, tokenId });
+  if (key === undefined || key.revokedAt !== undefined) {
+    return 'The API key this session was opened with is revoked: sign in again';
+  }
+  return undefined;
 }
 
 /**

@@ -12,19 +12,19 @@ Python: two tools, an agent that calls them, a guardrail and a flow.
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Python 3.11 and uv, and access to the runtime image. No Node: the CLI
 comes from PyPI. Sign in at [access.kindgi.com](https://access.kindgi.com)
-with GitHub for the runtime image's pull credentials, then log in once with
+with GitHub or your email address for a license key, then log in once with
 `kindgi auth registry`.
 
 ## 1. Create the pack
 
 ```sh tutorial=run
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=python
 cd my-pack
 uv sync          # a .venv with the kindgi package and the kindgi CLI
 uv run pytest    # the template's tests: the tools and the check, called directly
 ```
 
-- `uvx --from "kindgi-cli>=0.1,<0.2" kindgi` runs the newest 0.1 release of
+- `uvx --from "kindgi-cli>=0.2,<0.3" kindgi` runs the newest 0.2 release of
   the Kindgi CLI from PyPI, the line these docs describe, without installing
   it ([Check this machine](../install/#check-this-machine) says how). The
   range is optional: `uvx --from kindgi-cli kindgi init my-pack --template=python`

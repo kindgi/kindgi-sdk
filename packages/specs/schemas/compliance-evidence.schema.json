@@ -54,6 +54,8 @@
         "secret-revoked",
         "secret-hard-revoked",
         "hitl-decision",
+        "wait-token-completed",
+        "wait-token-discarded",
         "agent-promotion",
         "agent-promotion-refused",
         "agent-rollback",
@@ -67,7 +69,12 @@
         "service-account-unregistered",
         "person-added",
         "person-granted",
-        "person-ungranted"
+        "person-ungranted",
+        "trigger-owner-set",
+        "trigger-tools-allowed-unattended-set",
+        "trigger-changed-for-owner",
+        "environment-order-set",
+        "deployment-promoted"
       ]
     },
     "timestamp": {

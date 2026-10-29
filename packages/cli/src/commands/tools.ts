@@ -86,7 +86,7 @@ const publish: LeafCommand = {
   kind: 'leaf',
   name: 'publish',
   description:
-    'Register a tool manifest at its version: the tool minus its handler, which the runtime must already have.',
+    "Register a tool manifest at its version: the tool minus its handler, which the runtime must already have. In the Default project, an id that's an MCP endpoint's tool is refused (`tool-kind-mismatch`).",
   usage: 'kindgi tools publish --manifest=<json-or-@file> [--project=<project-id>]',
   optionSpec: {
     manifest: {
@@ -177,7 +177,8 @@ const getVersion: LeafCommand = {
 const reinstate: LeafCommand = {
   kind: 'leaf',
   name: 'reinstate',
-  description: 'Bring back an unregistered tool version (semver).',
+  description:
+    "Bring back an unregistered tool version (semver). Refused (`tool-kind-mismatch`) while the id's active versions are the other kind, an MCP endpoint's tool or a published one; the version stays unregistered.",
   usage: 'kindgi tools reinstate <tool-id> <version>',
   run: (ctx) =>
     runSdk(ctx, 'tools reinstate', async () => {

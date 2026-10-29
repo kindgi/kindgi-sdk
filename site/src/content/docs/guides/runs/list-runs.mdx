@@ -12,19 +12,46 @@ started, the runs inside one run, or one agent's turns.
 
 ## Before you start
 
-- **Runs to list,** on a runtime such as `kindgi dev`, with Kindgi 0.1's
+- **Runs to list,** on a runtime such as `kindgi dev`, with Kindgi 0.2's
   CLI.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## From the CLI
 
 The newest runs come first. List two:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs list --limit=2
+pnpm exec kindgi runs list --limit=2
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs list --limit=2
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs list --limit=2
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs list --limit=2
+```
+
+</TabItem>
+</Tabs>
 
 `--limit=2` is the most runs on a page. It prints the page:
 
@@ -63,8 +90,9 @@ scope.
 
 ## From your app
 
-Your app lists runs with `runs.list`. This code lists the newest runs your
-app started, then gets the next page:
+Your app lists runs with `runs.list`. Ask your coding agent: "I want my app
+to list the runs it started, newest first, a page at a time." For reference,
+this code lists the newest runs your app started, then gets the next page:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -228,8 +256,9 @@ version without its id is refused with `400 bad-input`, naming it:
 { "error": { "code": "bad-input", "message": "`agentVersion` needs `agentId`", … } }
 ```
 
-The filters combine. The runs created in the last day that failed or were
-cancelled, leaving out the runs inside them:
+The filters combine. Ask your coding agent, for example: "I want my app to
+list the runs from the last day that failed or were cancelled." For
+reference, this code lists them, leaving out the runs inside them:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -354,7 +383,9 @@ b0896582-86d7-4e7d-8387-931550da93a3 failed null
 
 A flow's run starts a run for each agent step. `parentRunId`
 (`parent_run_id`) lists the runs a run started, each with the step it belongs
-to:
+to. Ask your coding agent: "I want my app to list the agent turns inside a
+flow's run." For reference, this code starts a flow's run, then lists the
+runs inside it:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -467,9 +498,36 @@ version that ran and the conversation. That goes for an agent run and for
 the turn a flow's agent step starts. List one agent's turns, at every
 version:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```sh
-kindgi runs list --agent=acme.chat-desk --table
+pnpm exec kindgi runs list --agent=acme.chat-desk --table
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi runs list --agent=acme.chat-desk --table
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw runs list --agent=acme.chat-desk --table
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw runs list --agent=acme.chat-desk --table
+```
+
+</TabItem>
+</Tabs>
 
 `--agent` is the agent's id, and `--table` prints a table instead of JSON:
 
@@ -480,7 +538,9 @@ ID                                    STATUS     FLOW / AGENT          CREATED
 95674147-b935-4a63-a74c-cbffc0fb103a  completed  acme.chat-desk@0.1.0  2026-10-11T07:55:39.011Z
 ```
 
-In the clients, it's `agentId`, or `agent_id` in Python:
+In the clients, it's `agentId`, or `agent_id` in Python. Ask your coding
+agent: "I want my app to list one agent's turns." For reference, the code
+looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -613,8 +673,8 @@ Its filters:
   waiting run waits on something, such as an approval.
 - **Started:** in the last hour, 24 hours, 7 days or 30 days.
 - **An agent or a flow, and its version,** from a link that names them. A
-  flow's page links **Its runs →**, and **Runs of 1.1.0 →** for the version
-  it shows. A schedule's page links **Its runs →**. **Its failed runs** on
+  flow's page has **Runs** at the top, and **Runs →** on each version's row.
+  A schedule's page links **Runs it started →**. **Its failed runs** on
   [What failed](#what-failed) names the agent or flow and its version. With
   an agent chosen, a **Version** choice appears: **Every version**, or one.
 - **Include steps inside flows** and **Include eval replays.**
@@ -624,7 +684,7 @@ Each filter shows as a chip ("Status: Failed", "Started in the last hour",
 too. The page's address keeps the filters, the sort and the search, so a
 link opens the same list.
 
-![The Runs page reached from a flow's "Runs of 1.1.0 →": the chips Flow: Refunds and Flow version: 1.1.0.](../../../../assets/runs/runs-flow-version.png)
+![The Runs page reached from Runs → on a flow's 1.1.0 row: the chips Flow: Refunds and Flow version: 1.1.0.](../../../../assets/runs/runs-flow-version.png)
 
 ### What failed
 

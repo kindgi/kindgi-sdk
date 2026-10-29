@@ -11,7 +11,16 @@ the Kindgi CLI and SDK.
 ## What you need
 
 - **For a TypeScript pack: Node 22.12 or later.** The `kindgi` CLI and the SDK
-  run on Node.
+  run on Node. On an older Node, `kindgi` stops before it does anything and
+  exits `1`, with this line:
+
+  ```text
+  Kindgi needs Node 22.12.0 or later; this is Node 20.11.0. Install or switch to it (nvm install 22, or https://nodejs.org), then run the command again.
+  ```
+
+  Through `npx`, npm may warn `EBADENGINE` first, once for each package that
+  needs the newer Node.
+
 - **Docker** (Docker Desktop, or the Docker engine on Linux). `kindgi dev`
   runs the Kindgi runtime as a container, and a Postgres container for it:
   with `docker compose` when it's there, with plain `docker` otherwise. With
@@ -31,21 +40,25 @@ runs for you.
 
 ### Access to the runtime image
 
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub.
-Under **1. Pull the runtime image** it shows the image's pull credentials: a
-robot name, in its command after `--username`, and a token. Log in to its
-registry once with them. The CLI asks for the token without showing
-it, hands both to `docker login` (Kindgi keeps no copy), and checks that you
-can pull the image it runs:
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or
+your email address for a license key, which starts with `kgi_lk_`. The key is
+the runtime image's password on its registry, `registry.kindgi.com`. Log in
+there once with it. The CLI asks for the key without showing it, hands it to
+`docker login` (Kindgi keeps no copy), and checks that you can pull the image
+it runs:
 
 ```sh
-npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
-# without Node: uvx --from "kindgi-cli>=0.1,<0.2" kindgi auth registry --username <your robot name>
+npx --yes @kindgi/cli@0.2 auth registry
+# without Node: uvx --from "kindgi-cli>=0.2,<0.3" kindgi auth registry
 ```
 
 ```text
-✓ You can pull quay.io/kindgi/runtime:…@sha256:…, the image this CLI runs.
+✓ Logged in to registry.kindgi.com with your license key. Docker keeps it in its own credential store; Kindgi stores nothing. When your key renews, log in again with the new one.
+✓ You can pull registry.kindgi.com/kindgi/runtime:…@sha256:…, the image this CLI runs.
 ```
+
+The `docker login registry.kindgi.com --username kindgi` that
+access.kindgi.com shows logs in too, without the check.
 
 The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
 `arm64`). Questions or trouble: contact@kindgi.com.
@@ -58,12 +71,12 @@ dependencies, its model key, the runtime and a provider. Each check that
 fails says how to fix it, and it exits `1` until nothing does:
 
 ```sh
-npx --yes @kindgi/cli@0.1 doctor
+npx --yes @kindgi/cli@0.2 doctor
 ```
 
 - `npx` downloads `@kindgi/cli` and runs it. It asks before it downloads a
   package, and `--yes` answers for you.
-- `@0.1` takes the newest 0.1 release of the CLI, the line these docs
+- `@0.2` takes the newest 0.2 release of the CLI, the line these docs
   describe. It's optional: `npx --yes @kindgi/cli doctor` runs the newest
   release, which may be on a later line than these docs.
 
@@ -76,7 +89,7 @@ kindgi doctor (CLI …)
   ✓ npm: npm 11.21.0.
 …
   ✓ Docker: Docker is running.
-  ✓ Runtime image: Docker can pull the runtime image (quay.io/kindgi/runtime:…@sha256:…).
+  ✓ Runtime image: Docker can pull the runtime image (registry.kindgi.com/kindgi/runtime:…@sha256:…).
 …
   – Project: No Kindgi project in …: no kindgi.config.ts, kindgi.config.mts, kindgi.config.mjs, kindgi.config.js, kindgi.config.cjs, no pyproject.toml with [tool.kindgi], and no kindgi.config.json.
 …
@@ -89,7 +102,7 @@ such as the project's before you make one.
 Without Node, run the CLI from PyPI instead:
 
 ```sh
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi doctor
+uvx --from "kindgi-cli>=0.2,<0.3" kindgi doctor
 ```
 
 - `uvx` runs a command from a PyPI package without installing it.
@@ -148,13 +161,13 @@ devDependency and runs the version it pins, so everyone on the project runs
 the same one. `kindgi init` adds it, with `@kindgi/sdk`:
 
 ```sh
-npx --yes @kindgi/cli@0.1 init my-pack
+npx --yes @kindgi/cli@0.2 init my-pack
 ```
 
 - `init my-pack` makes a new pack in the folder `my-pack`. In an app you
-  already have, run `npx --yes @kindgi/cli@0.1 init` in its folder instead
+  already have, run `npx --yes @kindgi/cli@0.2 init` in its folder instead
   ([Add Kindgi to an existing app](../existing-app/)).
-- `--yes` and `@0.1` are as for `doctor` in [Check this machine](#check-this-machine).
+- `--yes` and `@0.2` are as for `doctor` in [Check this machine](#check-this-machine).
 
 It prints what it made, then the next steps:
 
@@ -189,13 +202,16 @@ With npm:
 Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package
 on npm.
 
+These docs write `pnpm exec kindgi <command>`. With another package manager,
+use its form from the table.
+
 ## A Python project
 
 The CLI is the `kindgi-cli` package on PyPI. Start a new pack with it,
 pinned to Kindgi's minor version:
 
 ```sh
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=python
 cd my-pack
 uv sync
 ```
@@ -215,15 +231,17 @@ Installed 26 packages in 206ms
 
 `init` puts the SDK, the `kindgi` package, in the pack's dependencies and
 `kindgi-cli` in its dev group, so `uv sync` installs both and everyone on the
-project runs the CLI it pins. From then on, in a Python project, every
-`kindgi <command>` in these docs is `uv run kindgi <command>` (with Poetry,
-`poetry run kindgi <command>`).
+project runs the CLI it pins. From then on, a Python project runs it as
+`uv run kindgi <command>` (with Poetry, `poetry run kindgi <command>`). A
+page with language tabs shows that in its Python tab. A page without them
+writes `pnpm exec kindgi <command>`, which in a Python project is
+`uv run kindgi <command>`.
 
 In an existing app, add both yourself:
 
 ```sh
 uv add kindgi
-uv add --dev "kindgi-cli>=0.1,<0.2"
+uv add --dev "kindgi-cli>=0.2,<0.3"
 ```
 
 The first adds the SDK. The second adds the CLI, and `--dev` puts it in the
@@ -239,20 +257,22 @@ Each prints what it added. The CLI brings its own Node:
  + nodejs-wheel-binaries==24.19.0
 ```
 
-With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.1,<0.2"`.
-With pip: `pip install kindgi "kindgi-cli>=0.1,<0.2"`.
+With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.2,<0.3"`.
+With pip: `pip install kindgi "kindgi-cli>=0.2,<0.3"`.
 
 ## A Java or Scala project
 
 ```sh
-npx --yes @kindgi/cli@0.1 init my-pack --template=java
+npx --yes @kindgi/cli@0.2 init my-pack --template=java
 ```
 
 - `--template=scala` makes a Scala pack. Without Node:
-  `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=java`.
+  `uvx --from "kindgi-cli>=0.2,<0.3" kindgi init my-pack --template=java`.
 - The pack pins the Kindgi CLI it runs with, `"cli"` in `kindgi.config.json`.
-  From then on, in a Java or Scala project, every `kindgi <command>` in these
-  docs is `./kindgiw <command>` (`kindgiw.cmd` on Windows).
+  From then on, a Java or Scala project runs it as `./kindgiw <command>`
+  (`kindgiw.cmd` on Windows). A page with language tabs shows that in its
+  Java and Scala tabs. A page without them writes
+  `pnpm exec kindgi <command>`, which here is `./kindgiw <command>`.
 - The SDK is a dependency at your Kindgi release's version:
   `com.kindgi:kindgi-pack` in a Java pack's `pom.xml`,
   `"com.kindgi" %% "kindgi-pack-scala"` in a Scala pack's `build.sbt`.

@@ -79,15 +79,36 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
 
 - The input and output schemas come from the handler's annotations — a
   pydantic model, a `TypedDict`, a dataclass, anything pydantic understands —
-  or from `input=` / `output=` (a type, or a JSON Schema dict). Field aliases
-  are the names on the wire. The input is an object: a model calls a tool with
-  an object of arguments.
+  or from `input=` / `output=` (a type, or a JSON Schema dict). A dict is
+  checked when the tool is defined, as the runtime compiles it, strictly: one
+  the runtime would refuse raises `DefinitionError`. So does a `pattern` only
+  JavaScript reads, such as `\p{L}`: the SDK checks data against it with
+  Python's `re`. A schema derived from a type is compiled the same way, so a
+  keyword `json_schema_extra` adds, or a `format` the runtime doesn't know (a
+  `Path` field's `"format": "path"`, `UUID4`'s `"uuid4"`), raises it too; a
+  plain `uuid.UUID` or `str`, or pydantic's `WithJsonSchema`, gives such a
+  field a schema the runtime compiles. In a derived schema, a `\p{L}`
+  pattern doesn't raise: pydantic checks data against it, and reads it.
+  Field aliases are the names on the wire.
+  The input is an object: a model calls a tool with an object of arguments.
 - The description is the docstring (or `description=`); the version is the
   pack's (or `version=`, an exact semver).
 - `mutating=False` declares a tool read-only: it runs in a dry run, and an
   agent with tool approval gates on (and no override or `default` for it)
   doesn't ask before it. Without it a tool may change something (as with
   `mutating=True`).
+- `needs_approval_when_unattended=True` makes each call wait for a person's
+  approval in a run no person started (a webhook, a schedule, an event, or a
+  service account's key). A flow's tool step that calls it is refused there.
+  A webhook trigger or a schedule whose `toolsAllowedUnattended` names the
+  tool (a project admin's to set) lifts that, in its own runs only. A run a
+  person starts is unaffected.
+- `result_is_outside_data=True` says the tool's results are text from outside
+  that nobody checked, such as a mail someone sent or a page a search found.
+  An agent reads each result of the tool as data, not instructions, in that
+  turn and in every later turn's history. It changes what the model is told,
+  not what the tool may do: pair it with approvals for anything an agent could
+  do with what it read. Absent means `false`.
 - The handler is `(input)` or `(input, ctx)`, `def` or `async def`. A `def`
   handler runs in a worker thread, so blocking I/O is fine.
 - Before calling you, the pack service validates the input against the schema
@@ -167,7 +188,10 @@ type here — without it the check gets `{}`, its defaults. `RunTrace` holds the
 `tool_calls`, `tool_results`, `model_calls`, … (snake_case here, camelCase on
 the wire). `on_violation` names the action (`halt`, `retry`, `escalate`,
 `log-only`, `compensate`); `action=` takes the whole object
-(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`).
+(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`). In 0.1 the
+runtime acts only on `halt`: the turn fails with `guardrail-violation`. Any
+other action is recorded on the turn's violations and the turn completes;
+nothing runs it again, escalates or calls a compensating tool.
 
 ### Agents and flows
 
@@ -302,6 +326,12 @@ never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
   that name is another schema's (`JudgedRunContextFlow`). A union's members
   are named by the value that tells them apart (`ScopeTenant`, `ScopeOrg`,
   `ScopeProject`).
+- **Newer runtimes are expected.** An enum in an answer is typed
+  `Literal[...] | str`: a value this client doesn't know comes back as its
+  text. A union in an answer has a member for a kind it doesn't know,
+  `<Union>Unrecognized` (`ScopeUnrecognized`), with every field kept. A
+  request body is checked against the values this client knows before it's
+  sent, so a value read from a newer runtime can't be sent back.
 - Path parameters are positional; query and header parameters keyword-only.
 - An operation that takes an `Idempotency-Key` gets one when you pass none.
   Retries (`max_retries=2`, honouring `Retry-After`):

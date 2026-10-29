@@ -3,7 +3,7 @@
 
 import { type Context, Hono } from 'hono';
 
-import { type AgentId, tunableKeys } from '@kindgi/agents';
+import { type AgentId, modelSettingsTunableKeys, tunableKeys } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
@@ -11,6 +11,7 @@ import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalClassWeights } from '../eval-run-binding.js';
+import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
 import {
   IMPROVE_SCHEDULE_DEFAULTS,
   type ImproveScheduleInput,
@@ -21,6 +22,8 @@ import {
   type ImprovementPassBinding,
   type ImprovementTier,
 } from '../improvement-pass-binding.js';
+import { type ItemRights, writeWhereMade } from '../item-rights.js';
+import type { JudgeClassScope, JudgmentRegistryBinding } from '../judgment-binding.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -29,11 +32,14 @@ import {
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
+import { refusesCandidates, refusesScope } from '../registry-read-only.js';
 import type { ProposalObjective } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, coordinatesOf } from './agent-releases.js';
+import { deniedBy } from './denied.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
+import { UUID_RE } from './uuid-param.js';
 
 type Ctx = Context<AppEnv>;
 
@@ -45,8 +51,108 @@ export interface ImproveDeps {
   readonly releases: AgentReleaseBindings;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
-  /** Whether a project is suspended: no pass starts for an agent in one. Absent: no check. */
+  /** Whether a project is suspended: no pass starts in one. Absent: no check. */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+  /**
+   * The tenant's judge classes. The `classWeights` default counts everyone
+   * (`as-recorded`) until a restricted judge class (one with `assertableBy`) is named
+   * in the tenant, the project the pass reads its judgments from, or on the
+   * agent improved, then it's `restricted-only`. Absent: the default stays
+   * `restricted-only`. Only `listClasses` is used.
+   */
+  readonly judgeClasses?: Pick<JudgmentRegistryBinding, 'listClasses'>;
+  /**
+   * Eval suites, to resolve the project a pass reads its judgments from: a
+   * judged suite's own `spec.projectId`, else the suite's recorded project.
+   * That's the project the `classWeights` default keys off, not where the
+   * agent is made — the two differ when the suite is an earlier environment's.
+   * Absent, or the suite records no project: the default keys off the agent
+   * version's project. Only `get` is used.
+   */
+  readonly suites?: Pick<EvalSuiteRegistryBinding, 'get'>;
+}
+
+/**
+ * The pass default for `classWeights` when the caller doesn't set one.
+ * Until a restricted judge class (one with `assertableBy`) is named — in the
+ * tenant, the project the pass reads its judgments from (`projectId`), or on
+ * the agent being improved — Improve counts *everyone's* judgments
+ * (`as-recorded`); once one is, the default is trusted judgments only
+ * (`restricted-only`). An explicit `classWeights` always wins. With no
+ * judge-class binding wired, the default stays `restricted-only` (the prior
+ * behavior).
+ */
+async function resolveClassWeights(
+  deps: ImproveDeps,
+  tenantId: TenantId,
+  projectId: ProjectId | undefined,
+  agentId: string | undefined,
+  explicit: EvalClassWeights | undefined,
+): Promise<EvalClassWeights> {
+  if (explicit !== undefined) return explicit;
+  if (deps.judgeClasses === undefined) return 'restricted-only';
+  return (await projectHasExpertClass(deps.judgeClasses, tenantId, projectId, agentId))
+    ? 'restricted-only'
+    : 'as-recorded';
+}
+
+/**
+ * Whether a restricted judge class — one restricted to named asserters
+ * (`assertableBy` set) — applies to this pass: one in tenant scope, in the
+ * pass's project, or on the agent being improved (that agent, in that
+ * project). A tenant-wide restricted judge class names experts for every project;
+ * another agent's class, or another project's, doesn't count.
+ *
+ * Exported so a caller that resolves the default outside the improve route
+ * — a pass started from a schedule — decides it exactly the same way.
+ */
+export async function projectHasExpertClass(
+  registry: Pick<JudgmentRegistryBinding, 'listClasses'>,
+  tenantId: TenantId,
+  projectId: ProjectId | undefined,
+  agentId?: string,
+): Promise<boolean> {
+  const scopes: JudgeClassScope[] = [
+    ...(projectId !== undefined ? [{ kind: 'project', projectId } as const] : []),
+    ...(projectId !== undefined && agentId !== undefined
+      ? [{ kind: 'agent', projectId, agentId } as const]
+      : []),
+    { kind: 'tenant' } as const,
+  ];
+  for (const scope of scopes) {
+    let cursor: Cursor | undefined;
+    do {
+      const page = await registry.listClasses({
+        tenantId,
+        scope,
+        limit: 100,
+        ...(cursor !== undefined && { cursor }),
+      });
+      if (page.data.some((c) => c.assertableBy !== undefined)) return true;
+      cursor = page.nextCursor;
+    } while (cursor !== undefined);
+  }
+  return false;
+}
+
+/**
+ * The project a pass reads its judgments from, which the `classWeights`
+ * default keys off: a judged suite's own `spec.projectId`, else the suite's
+ * recorded project. Undefined when no suite binding is wired or the suite
+ * records no project — the caller then falls back to the agent version's
+ * project. (The two differ when the suite is an earlier environment's.)
+ */
+async function suiteProjectId(
+  deps: ImproveDeps,
+  tenantId: TenantId,
+  suiteId: string,
+): Promise<ProjectId | undefined> {
+  if (deps.suites === undefined) return undefined;
+  const suite = await deps.suites.get({ tenantId, suiteId });
+  if (suite === null) return undefined;
+  const specProject =
+    suite.kind === 'judged' ? (suite.spec as { projectId?: ProjectId }).projectId : undefined;
+  return specProject ?? suite.projectId;
 }
 
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
@@ -62,66 +168,64 @@ const OBJECTIVES: readonly ProposalObjective[] = ['weightedYesShare', 'weightedP
  * Checked first, as evaluating its proposal would be: the version must be
  * active and pinned, it must pin a settings block with tunable keys, the
  * agent registry must take writes, and the agent must have a live version
- * for the whole tenant. Needs `publish` on the agent.
+ * for the whole tenant. Needs `publish` on the agent; for an agent more
+ * than one project serves, `write` where its new versions are made
+ * (`item-rights.ts`).
+ *
+ * The pass works in one project: its test set must be one that project
+ * reaches, and its eval runs run there. As an improve schedule's: the
+ * `projectId` named, else the scope's project, else the agent version's.
+ * A project or segment scope must be in it, the version must reach it,
+ * and a project other than the version's needs `write` there, as the
+ * pass's eval runs do. Its proposal's version is made where the agent's
+ * versions are, as any proposal's.
  */
-export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer?: Authorizer) {
+export function mountImproveRoute(
+  r: Hono<AppEnv>,
+  deps: ImproveDeps,
+  authorizer?: Authorizer,
+  itemRights?: ItemRights,
+) {
   r.post('/improve', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const body = await readBody(c);
     if (body === undefined) return badInput(c, 'Request body must be a JSON object');
     const parsed = parseImproveBody(body);
     if (typeof parsed === 'string') return badInput(c, parsed);
-    const denied = await deny(c, authorizer, 'publish', parsed.agentId);
+    const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
     if (denied !== undefined) return denied;
     if (deps.passes === undefined) return unsupported(c);
-    if (deps.agents.readOnly !== undefined) {
+    // A read-only registry takes a pass only when it takes its candidates.
+    if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
       return fail(c, 'registry-read-only', {
         code: 'registry-read-only',
         message: deps.agents.readOnly.reason,
       });
     }
-    const fromVersion =
-      parsed.fromVersion ?? (await servingVersion(deps, tenantId, parsed.agentId, parsed.scope));
-    const from =
-      fromVersion === undefined
-        ? null
-        : await deps.agents.getVersion({
-            tenantId,
-            agentId: parsed.agentId as AgentId,
-            version: fromVersion as Semver,
-          });
-    if (from === null || from.unregisteredAt !== undefined) {
-      return fail(c, 'agent-version-not-found', {
-        code: 'agent-version-not-found',
-        message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
-      });
+    const narrower = refusesScope(deps.agents.readOnly, parsed.scope);
+    if (narrower !== undefined) {
+      return fail(c, 'registry-read-only', { code: 'registry-read-only', message: narrower });
     }
-    // The suite must be the agent's project's to reach, and the scope must
-    // reach the agent (`reference-scope.ts`).
-    const outOfScope =
-      (from.projectId === undefined
-        ? undefined
-        : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
-            { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
-          ])) ??
-      (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope));
-    if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
+    const target = await resolveImproveTarget(c, deps, authorizer, tenantId, parsed);
+    if (target instanceof Response) return target;
+    const { from, projectId } = target;
     if (
-      from.projectId !== undefined &&
+      projectId !== undefined &&
       deps.projectSuspended !== undefined &&
-      (await deps.projectSuspended(tenantId, from.projectId))
+      (await deps.projectSuspended(tenantId, projectId))
     ) {
       return fail(c, 'project-suspended', {
         code: 'project-suspended',
         message:
-          "The agent's project is suspended, so nothing new runs in it until it's restored; the pass wasn't started",
+          "The pass's project is suspended, so nothing new runs in it until it's restored; the pass wasn't started",
       });
     }
     const nothing = await nothingToTune(deps.blocks, tenantId, from, parsed.tiers[0]);
     if (nothing !== undefined) {
       return fail(c, 'validation-failed', {
         code: 'validation-failed',
-        message: nothing,
+        message: nothing.message,
+        reason: nothing.reason,
         issues: [],
       });
     }
@@ -131,16 +235,32 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
         message: `${parsed.agentId} has no live version for the whole tenant, so the version a pass proposes would serve every scope nothing is pinned for. Promote its current version for the tenant first (scope { "kind": "tenant" }), then start the pass.`,
       });
     }
+    // The `classWeights` default keys off the project the pass READS its
+    // judgments from — its suite's project — not where the agent is made;
+    // the two differ when the suite is an earlier environment's. Only the
+    // default needs it, so skip the suite read when `classWeights` is
+    // explicit, or when no judge-class registry is wired (the default is
+    // fixed at `restricted-only` either way).
+    const readProjectId =
+      parsed.classWeights === undefined && deps.judgeClasses !== undefined
+        ? ((await suiteProjectId(deps, tenantId, parsed.suiteId)) ?? from.projectId)
+        : from.projectId;
     const pass = await deps.passes.start({
       tenantId,
-      ...(from.projectId !== undefined && { projectId: from.projectId }),
+      ...(projectId !== undefined && { projectId }),
       agentId: parsed.agentId,
       fromVersion: from.version as unknown as string,
       scope: parsed.scope,
       suiteId: parsed.suiteId,
       tiers: parsed.tiers,
       objective: parsed.objective,
-      classWeights: parsed.classWeights,
+      classWeights: await resolveClassWeights(
+        deps,
+        tenantId,
+        readProjectId,
+        parsed.agentId,
+        parsed.classWeights,
+      ),
       ...(parsed.model !== undefined && { model: parsed.model }),
       ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
       budget: parsed.budget,
@@ -148,6 +268,45 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
     });
     c.status(202);
     return c.json(serializePass(pass));
+  });
+
+  r.post('/improve/estimate', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const body = await readBody(c);
+    if (body === undefined) return badInput(c, 'Request body must be a JSON object');
+    const parsed = parseImproveBody(body);
+    if (typeof parsed === 'string') return badInput(c, parsed);
+    const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
+    if (denied !== undefined) return denied;
+    const passes = deps.passes;
+    if (passes === undefined || passes.estimateBasis === undefined) return unsupported(c);
+    // Resolve and reach-check the same body `/improve` would, so a bad body
+    // fails the same way here; the estimate is a read, so it stops there and
+    // doesn't take `/improve`'s run-gating refusals.
+    const resolved = await resolveImproveTarget(c, deps, authorizer, tenantId, parsed);
+    if (resolved instanceof Response) return resolved;
+    const basis = await passes.estimateBasis({
+      tenantId,
+      agentId: parsed.agentId,
+      fromVersion: resolved.from.version as string,
+      scope: parsed.scope,
+      suiteId: parsed.suiteId,
+      tiers: parsed.tiers,
+      ...(parsed.model !== undefined && { model: parsed.model }),
+      ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
+    });
+    const estimatedCostUsd =
+      basis.meanRunCostUsd === undefined
+        ? undefined
+        : usd(Math.min(parsed.budget.maxCostUsd, basis.replays * Number(basis.meanRunCostUsd)));
+    return c.json({
+      ...(estimatedCostUsd !== undefined && { estimatedCostUsd }),
+      maxCostUsd: usd(parsed.budget.maxCostUsd),
+      basis: {
+        replays: basis.replays,
+        ...(basis.meanRunCostUsd !== undefined && { meanRunCostUsd: basis.meanRunCostUsd }),
+      },
+    });
   });
 }
 
@@ -159,11 +318,14 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
  *   POST /:passId/cancel stop a running pass (it writes no proposal)
  *
  * Authorized on the pass's agent: `read`, and `publish` to cancel. A pass
- * the caller can't read answers 404.
+ * the caller can't read answers 404. For an agent more than one project
+ * serves (`item-rights.ts`): `read` on the agent or any of its projects,
+ * and `write` where its new versions are made to cancel.
  */
 export function improvementPassesRouter(
   passes: ImprovementPassBinding | undefined,
   authorizer?: Authorizer,
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -171,10 +333,7 @@ export function improvementPassesRouter(
     if (passes === undefined) return unsupported(c);
     const passId = c.req.param('passId') ?? '';
     const pass = await passes.get({ tenantId: c.get('tenantId') as TenantId, passId });
-    const hidden =
-      pass !== null &&
-      authorizer !== undefined &&
-      !(await authorizer.can(c, 'read', ref('agent', pass.agentId)));
+    const hidden = pass !== null && !(await readable(c, pass.agentId));
     if (pass === null || hidden) {
       return fail(c, 'improvement-pass-not-found', {
         code: 'improvement-pass-not-found',
@@ -183,6 +342,15 @@ export function improvementPassesRouter(
       });
     }
     return pass;
+  }
+
+  /** Whether the caller reads the agent: `read` on it, or for one more than one project serves, on any of them. */
+  async function readable(c: Ctx, agentId: string): Promise<boolean> {
+    if (authorizer === undefined) return true;
+    const projects = await itemRights?.multi(c, 'agent', agentId);
+    return itemRights !== undefined && projects !== undefined
+      ? (await itemRights.read(c, 'agent', agentId, projects)) === undefined
+      : authorizer.can(c, 'read', ref('agent', agentId));
   }
 
   r.get('/', async (c) => {
@@ -195,12 +363,17 @@ export function improvementPassesRouter(
       ...(agentId !== undefined && agentId !== '' && { agentId }),
       ...(cursor !== undefined && cursor !== '' && { cursor: cursor as Cursor }),
     });
-    const readable =
+    const shown =
       authorizer === undefined
         ? page.data
-        : await authorizer.filterByCan(c, 'read', page.data, (p) => ref('agent', p.agentId));
+        : itemRights === undefined
+          ? await authorizer.filterByCan(c, 'read', page.data, (p) => ref('agent', p.agentId))
+          : await itemRights.filterItems(c, 'agent', page.data, {
+              idOf: (p) => p.agentId,
+              todayRef: (p) => ref('agent', p.agentId),
+            });
     return c.json({
-      data: readable.map(serializePass),
+      data: shown.map(serializePass),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -215,7 +388,7 @@ export function improvementPassesRouter(
   r.post('/:passId/cancel', async (c) => {
     const pass = await load(c);
     if (pass instanceof Response) return pass;
-    const denied = await deny(c, authorizer, 'publish', pass.agentId);
+    const denied = await deny(c, authorizer, 'publish', pass.agentId, itemRights);
     if (denied !== undefined) return denied;
     const actor = actorOf(c);
     const outcome = await (passes as ImprovementPassBinding).cancel({
@@ -244,6 +417,102 @@ export function improvementPassesRouter(
   return r;
 }
 
+/**
+ * Resolve and reach-check an improve body the way `/improve` does before it
+ * runs — so `/improve` and `/improve/estimate`, which take the same body,
+ * fail it the same way. Resolves the from-version (given, or the one serving
+ * the scope), 404s an unknown or inactive one, then the pass's project
+ * (`passProject`). Returns the version and the project, or the response to
+ * send.
+ */
+async function resolveImproveTarget(
+  c: Ctx,
+  deps: ImproveDeps,
+  authorizer: Authorizer | undefined,
+  tenantId: TenantId,
+  parsed: ImproveBody,
+): Promise<
+  { readonly from: AgentVersionRecord; readonly projectId: ProjectId | undefined } | Response
+> {
+  const fromVersion =
+    parsed.fromVersion ?? (await servingVersion(deps, tenantId, parsed.agentId, parsed.scope));
+  const from =
+    fromVersion === undefined
+      ? null
+      : await deps.agents.getVersion({
+          tenantId,
+          agentId: parsed.agentId as AgentId,
+          version: fromVersion as Semver,
+        });
+  if (from === null || from.unregisteredAt !== undefined) {
+    return fail(c, 'agent-version-not-found', {
+      code: 'agent-version-not-found',
+      message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
+    });
+  }
+  const project = await passProject(c, deps, authorizer, tenantId, parsed, from);
+  if (project instanceof Response) return project;
+  return { from, projectId: project.projectId };
+}
+
+/**
+ * The project a pass works in, as an improve schedule's (`schedules.ts`):
+ * the one named, else the scope's, else the version's. A project or
+ * segment scope must be in it; a project other than the version's needs
+ * `write` there and must reach the version; it must reach the suite, and
+ * the scope the agent. The project, or the refusal. Whether it's suspended
+ * is `/improve`'s to ask, since the estimate starts nothing.
+ */
+async function passProject(
+  c: Ctx,
+  deps: ImproveDeps,
+  authorizer: Authorizer | undefined,
+  tenantId: TenantId,
+  parsed: ImproveBody,
+  from: AgentVersionRecord,
+): Promise<{ readonly projectId: ProjectId | undefined } | Response> {
+  const scopeProject = scopeProjectOf(parsed.scope);
+  const projectId = (parsed.projectId as ProjectId | undefined) ?? scopeProject ?? from.projectId;
+  if (scopeProject !== undefined && projectId !== scopeProject) {
+    return badInput(
+      c,
+      "An improve pass's scope must be in its project (`projectId`): it learns from that project's runs",
+    );
+  }
+  const elsewhere = projectId !== undefined && projectId !== from.projectId;
+  if (elsewhere) {
+    const refused = await deniedBy(authorizer, c, 'write', ref('project', projectId as string));
+    if (refused !== undefined) return refused;
+  }
+  // The scope must reach the agent; then the pass's project must reach
+  // the version (when it isn't the version's own) and the suite
+  // (`reference-scope.ts`).
+  const outOfScope =
+    (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope)) ??
+    (projectId === undefined
+      ? undefined
+      : await referencesOutOfScope(deps.referenceScope, tenantId, projectId, [
+          ...(elsewhere
+            ? [
+                {
+                  path: '/fromVersion',
+                  kind: 'agent' as const,
+                  id: parsed.agentId,
+                  version: from.version as unknown as string,
+                },
+              ]
+            : []),
+          { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
+        ]));
+  if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
+  return { projectId };
+}
+
+/** A project or segment scope's project; `undefined` for the tenant or an org. */
+function scopeProjectOf(scope: ImprovementPass['scope']): ProjectId | undefined {
+  return scope.kind === 'project' || scope.kind === 'segment' ? scope.projectId : undefined;
+}
+
 /** What serves the scope now: its live version, else the agent's latest. */
 async function servingVersion(
   deps: ImproveDeps,
@@ -257,29 +526,51 @@ async function servingVersion(
   return latest?.version as unknown as string | undefined;
 }
 
+/**
+ * Why a pass of a tier has nothing to work on in a version. `reason` is
+ * the refusal's `details.reason`, for a client to tell the two apart
+ * without reading `message`.
+ */
+interface NothingToTune {
+  readonly reason: 'no-pinned-prompt-block' | 'no-tunable-keys';
+  readonly message: string;
+}
+
 /** Why a pass of this tier has nothing to work on in this version; `undefined` when it has. */
 async function nothingToTune(
   blocks: BlockRegistryBinding,
   tenantId: TenantId,
   version: AgentVersionRecord,
   tier: ImprovementTier | undefined,
-): Promise<string | undefined> {
+): Promise<NothingToTune | undefined> {
   const named = `${version.id as unknown as string} ${version.version as unknown as string}`;
   if (tier === 'prompt') {
     const prompt =
       typeof version.instructions === 'object' ? version.instructions.prompt : undefined;
     return prompt !== undefined && version.pins?.prompts[prompt] !== undefined
       ? undefined
-      : `${named} doesn't take its instructions from a pinned prompt block: there's no template for a prompt pass to draft. Move the instructions into a prompt block and publish the agent again.`;
+      : {
+          reason: 'no-pinned-prompt-block',
+          message: `${named} doesn't take its instructions from a pinned prompt block: there's no template for a prompt pass to draft. Move the instructions into a prompt block and publish the agent again.`,
+        };
   }
+  // Why the model-settings block's model keys aren't tried, if they aren't.
+  let skipped: string | undefined;
   for (const [blockId, pinned] of Object.entries(version.pins?.settings ?? {})) {
-    if (version.modelSettings?.id === blockId) continue;
     const block = await blocks.getVersion({ tenantId, blockId, version: pinned });
-    if (block?.kind === 'settings' && tunableKeys(block.content.schema).length > 0) {
-      return undefined;
-    }
+    if (block?.kind !== 'settings') continue;
+    const tunable: { readonly keys: readonly unknown[]; readonly skipped?: string } =
+      version.modelSettings?.id === blockId
+        ? modelSettingsTunableKeys(block.content.schema, version)
+        : { keys: tunableKeys(block.content.schema) };
+    if (tunable.keys.length > 0) return undefined;
+    skipped ??= tunable.skipped;
   }
-  return `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.`;
+  const why = skipped === undefined ? '' : ` In its model-settings block, ${skipped}.`;
+  return {
+    reason: 'no-tunable-keys',
+    message: `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.${why}`,
+  };
 }
 
 export function serializePass(p: ImprovementPass): Record<string, unknown> {
@@ -315,11 +606,12 @@ export function serializePass(p: ImprovementPass): Record<string, unknown> {
 interface ImproveBody {
   readonly agentId: string;
   readonly fromVersion?: string;
+  readonly projectId?: string;
   readonly scope: ImprovementPass['scope'];
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
-  readonly classWeights: EvalClassWeights;
+  readonly classWeights?: EvalClassWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   readonly budget: ImprovementBudget;
@@ -388,6 +680,7 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   const known = [
     'agentId',
     'fromVersion',
+    'projectId',
     'scope',
     'suiteId',
     'tiers',
@@ -403,6 +696,12 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   if (b.fromVersion !== undefined && !nonEmpty(b.fromVersion)) {
     return '`fromVersion` must be a version when given (default: the one serving the scope)';
   }
+  if (
+    b.projectId !== undefined &&
+    (typeof b.projectId !== 'string' || !UUID_RE.test(b.projectId))
+  ) {
+    return '`projectId` must be a project id (a UUID)';
+  }
   const scope = parseLiveScopeBody(b.scope);
   if (scope.kind === 'err') return scope.message;
   if (!nonEmpty(b.suiteId)) return '`suiteId` is required: the test set to search and prove on';
@@ -411,6 +710,7 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   return {
     agentId: b.agentId,
     ...(typeof b.fromVersion === 'string' && { fromVersion: b.fromVersion }),
+    ...(typeof b.projectId === 'string' && { projectId: b.projectId }),
     scope: scope.scope,
     suiteId: b.suiteId,
     ...options,
@@ -436,9 +736,13 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as ProposalObjective)) {
     return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
   }
-  const classWeights = b.classWeights ?? 'restricted-only';
-  if (classWeights !== 'restricted-only' && classWeights !== 'as-recorded') {
-    return "`classWeights` is 'restricted-only' (trusted judgments, the default) or 'as-recorded'";
+  const classWeights = b.classWeights;
+  if (
+    classWeights !== undefined &&
+    classWeights !== 'restricted-only' &&
+    classWeights !== 'as-recorded'
+  ) {
+    return "`classWeights` is 'restricted-only' (trusted judgments) or 'as-recorded' (everyone); omit it for the project's default";
   }
   const prompt = parsePromptOptions(b, tier);
   if (typeof prompt === 'string') return prompt;
@@ -447,7 +751,7 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   return {
     tiers: [tier],
     objective: (b.objective as ProposalObjective | undefined) ?? 'weightedYesShare',
-    classWeights,
+    ...(classWeights !== undefined && { classWeights }),
     ...prompt,
     budget,
   };
@@ -523,7 +827,7 @@ function parseThreshold(raw: unknown): ImproveThreshold | string {
     t.runs > t.judgments ||
     t.judges > t.judgments
   ) {
-    return `\`threshold\` is { judgments?, runs?, judges? }: how many trusted "no" judgments since the last pass (default ${d.judgments}), across how many runs (${d.runs}) and from how many judges (${d.judges}); runs and judges at most judgments`;
+    return `\`threshold\` is { judgments?, runs?, judges? }: how many answers marked wrong since the last Improve run (default ${d.judgments}), across how many runs (${d.runs}) and from how many judges (${d.judges}); runs and judges at most judgments`;
   }
   return t as ImproveThreshold;
 }
@@ -543,8 +847,28 @@ async function readBody(c: Ctx): Promise<Record<string, unknown> | undefined> {
 
 // ---------- helpers ----------
 
-async function deny(c: Ctx, authorizer: Authorizer | undefined, action: Action, agentId: string) {
+/**
+ * `undefined` when allowed; else the 403. For an agent more than one
+ * project serves, `publish` is `write` where its new versions are made.
+ */
+async function deny(
+  c: Ctx,
+  authorizer: Authorizer | undefined,
+  action: Action,
+  agentId: string,
+  itemRights?: ItemRights,
+) {
   if (authorizer === undefined) return undefined;
+  const projects = await itemRights?.multi(c, 'agent', agentId);
+  if (itemRights !== undefined && projects !== undefined) {
+    return writeWhereMade(
+      c,
+      itemRights,
+      { kind: 'agent', id: agentId },
+      projects,
+      `improving agent "${agentId}"`,
+    );
+  }
   const decision = await authorizer.check(c, action, ref('agent', agentId));
   if (decision.allowed) return undefined;
   return fail(c, 'permission-denied', {
@@ -571,4 +895,9 @@ function fail(
 
 function badInput(c: Ctx, message: string) {
   return fail(c, 'bad-input', { code: 'bad-input', message });
+}
+
+/** A US-dollar amount as a decimal string: rounded to the millionth, trailing zeros dropped. */
+function usd(n: number): string {
+  return String(Math.round(n * 1e6) / 1e6);
 }

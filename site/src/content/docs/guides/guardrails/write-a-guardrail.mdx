@@ -23,7 +23,11 @@ on an agent, and tests its check.
 ## The guardrail
 
 The guardrail fails a turn whose answer is longer than a limit. It's one
-file in the pack's `guardrails` folder:
+file in the pack's `guardrails` folder. Ask your coding agent: "I want a
+guardrail that keeps my agent's answers short." Kindgi's skills in your pack
+tell it how ([How it knows Kindgi](../../../start/coding-agents/)). For
+reference, the guardrail looks like this. This guide calls it
+`my-pack.answer-length`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -211,8 +215,9 @@ case class, is the config's schema, and `set("config", …)` gives its values.
 
 ## Put it on an agent
 
-A guardrail checks only the agents that list it. Add it to the agent's
-guardrails:
+A guardrail checks only the agents that list it. Ask your coding agent: "Put
+the answer length guardrail on my agent." For reference, it adds it to the
+agent's guardrails:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -263,9 +268,9 @@ import mypack.guardrails.{AnswerLength, ResponseNotEmpty}
 </TabItem>
 </Tabs>
 
-Save. `kindgi dev` registers the guardrail with the rest of the pack. An
-agent that names a guardrail that isn't registered doesn't run. Its turn
-fails with:
+Once it's saved, `kindgi dev` registers the guardrail with the rest of the
+pack. An agent that names a guardrail that isn't registered doesn't run. Its
+turn fails with:
 
 ```text
 Error [unresolved-guardrail]: Agent "my-pack.gated" references guardrails not in the registry: my-pack.no-such-guardrail
@@ -337,7 +342,9 @@ itself can't run.
 ## Test the check
 
 The check is a function of the config and the trace, so a unit test calls it
-directly, without a run. Write the test, then run the pack's tests:
+directly, without a run. Ask your coding agent: "Write tests for my answer
+length guardrail." For reference, the tests look like this, with the command
+that runs the pack's tests:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -501,53 +508,58 @@ Test run mypack.guardrails.AnswerLengthSuite finished: 0 failed, 0 ignored, 2 to
 
 ## In the console
 
-A project's **Guardrails** page lists its guardrails, with a headline such
-as "5 guardrails; 1 isn't named by any agent here." Each row says:
-- **how it checks:** "A rule: no model call", with the check;
-- **what happens when it fires:** "The turn fails", or "It is recorded;
-  nothing stops";
-- **when it applies:** "In runs and in CI", or "In runs only, not in CI";
-- **how many agents name it:** "1 agent", or "No agent".
+A project's **Guardrails** page lists its guardrails: "Checks on each agent
+answer: how each checks, what happens when it fires, which agents it
+covers." Each row has:
+- **How it checks:** "A rule in code, no model call", "A model judges each
+  answer, a model call each time" or "Another system checks it", with its
+  check, such as "Check: forbidden substring (built in)";
+- **When it fires:** "The turn fails", or "It is recorded; nothing stops";
+- **Applies:** "In runs and in CI", or "In runs only, not in CI";
+- **Named by:** how many agents name it, "1 agent", or "No agent".
 
 The list has a search box, sorts by a column's header, and **Columns**
 chooses which columns it shows.
 
-![The Guardrails page: "5 guardrails; 1 isn't named by any agent here.", a search box and the Columns menu, with No secrets in answers, Says thanks, No refund promises, No shouting and No placeholder text, each with how it checks, when it fires, where it applies and how many agents name it.](../../../../assets/guardrails/guardrails-list.png)
+![The Guardrails page: "Checks on each agent answer: how each checks, what happens when it fires, which agents it covers.", a search box and the Columns menu, then No secrets in answers, Says thanks, No refund promises, No shouting and No placeholder text, each a rule in code with its built-in check, when it fires, where it applies and how many agents name it: 1 agent each, and No agent for No placeholder text.](../../../../assets/guardrails/guardrails-list.png)
 
 A guardrail's page has:
 - **What it checks:** how, the check, its settings, when it fires, its
   severity and where it applies.
 - **Agents it checks:** each agent version that names it and can run here,
-  marked "(latest)" or "(live)".
+  marked "(latest)", "(live)" or "(live and latest)".
 - **What it caught:** its outcomes by agent version, as
   [Stop a turn or record a violation](../halt-or-record/#in-the-console)
   shows.
 
-![No secrets in answers' page: a rule, forbidden-substring (built in), patterns ["password"], the turn fails, critical, in runs and in CI; the agent version that names it, Guarded agent 1.0.0 (latest); and What it caught.](../../../../assets/guardrails/guardrail-page.png)
+![No secrets in answers' page, with Remove: a rule in code, forbidden substring (built in), Patterns: "password", the turn fails, Critical, in runs and in CI; the agent version that names it, Guarded agent 1.0.0 (latest); and What it caught: 8 answers checked in the last 7 days, 6 passed and 2 blocked.](../../../../assets/guardrails/guardrail-page.png)
 
 A flow step runs the agent version its flow version pins, so that version is
 checked too: "Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0)".
 
-![No shouting's page, whose agent version is one a flow pins: Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0).](../../../../assets/guardrails/guardrail-flow-pinned.png)
+![No shouting's page, with Remove, whose agent version is one a flow pins: Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0).](../../../../assets/guardrails/guardrail-flow-pinned.png)
 
-Guardrail admins also see **Unregister**. Its dialog names the agent
+Guardrail admins also see **Remove**. It asks first, naming the agent
 versions whose turns then fail, and how they come back:
 
 ```text
-Unregister No secrets in answers?
+Remove No secrets in answers?
 Guarded agent 1.0.0 (latest) names it: its turns fail, saying it isn't registered, until it's registered again or a version that doesn't name it goes live.
-There's no reinstate: registering it again brings it back.
+There's no undo: registering it again brings it back.
 ```
 
 - **When a flow pins one of those versions,** it adds: "The flow version
   that pins it fails at that step too: …".
-- **Once it's done,** the dialog shows the guardrail's definition, to
-  register it again.
+- **Keep it** closes the dialog with nothing changed.
+- **Once it's removed,** the dialog says "Removed. Its definition, to
+  register it again:", with the definition.
 - **Past 100 agents or flows,** the page and the dialog say which weren't
   checked: "Only the first 100 agents were checked." They say the same of
   the first 100 flows' steps.
+- **Under `kindgi dev`,** Remove is off: "the pack's files are its
+  guardrails. Take it out of the pack, and kindgi dev reloads it."
 
-![The Unregister No secrets in answers? dialog: Guarded agent 1.0.0 (latest) names it, its turns fail until it's registered again or a version that doesn't name it goes live, and there's no reinstate.](../../../../assets/guardrails/guardrail-unregister.png)
+![The Remove No secrets in answers? dialog: Guarded agent 1.0.0 (latest) names it, its turns fail until it's registered again or a version that doesn't name it goes live, and there's no undo; then Keep it and Remove.](../../../../assets/guardrails/guardrail-remove.png)
 
 ## Next
 

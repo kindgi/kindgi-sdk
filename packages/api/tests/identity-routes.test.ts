@@ -685,3 +685,261 @@ describe('API — removing a person (POST /users/:userId/unregister)', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('API — invitations', () => {
+  const INVITE = {
+    state: 'pending' as const,
+    expiresAt: '2026-10-23T12:00:00.000Z' as Timestamp,
+    sentAt: '2026-10-16T12:00:00.000Z' as Timestamp,
+  };
+
+  function makeInviteApp(
+    options: {
+      readonly created?: Awaited<ReturnType<NonNullable<IdentityDirectoryBinding['createUser']>>>;
+      readonly resend?: Awaited<ReturnType<NonNullable<IdentityDirectoryBinding['resendInvite']>>>;
+      readonly filters?: boolean;
+    } = {},
+  ) {
+    const directory = makeInMemoryDirectory();
+    const creates: unknown[] = [];
+    const resends: unknown[] = [];
+    const lists: unknown[] = [];
+    const binding: IdentityDirectoryBinding = {
+      ...directory.binding,
+      async listUsers(input) {
+        lists.push(input.pending);
+        const page = await directory.binding.listUsers(input);
+        return input.pending === true && options.filters === true
+          ? { data: page.data.filter((u) => u.invite !== undefined) }
+          : page;
+      },
+      async createUser(input) {
+        creates.push(input);
+        return (
+          options.created ?? {
+            kind: 'created',
+            user: baseUser({ userId: 'u-new' as UserId, tenantId: tenantA }),
+          }
+        );
+      },
+      ...(options.resend !== undefined && {
+        async resendInvite(input) {
+          resends.push(input);
+          return options.resend as NonNullable<typeof options.resend>;
+        },
+      }),
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: bearerResolver,
+      runHandler: noopRunHandler,
+      identityDirectory: binding,
+    });
+    return { app, directory, creates, resends, lists };
+  }
+
+  const post = (
+    app: ReturnType<typeof makeApp>['app'],
+    path: string,
+    body: unknown,
+    token: string,
+  ) =>
+    app.request(path, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  test('an add passes sendInvite through, and the 201 says whether the invitation was emailed', async () => {
+    const { app, creates } = makeInviteApp({
+      created: {
+        kind: 'created',
+        user: { ...baseUser({ userId: 'u-new' as UserId, tenantId: tenantA }), invite: INVITE },
+        inviteEmail: { sent: false, reason: 'not-configured' },
+      },
+    });
+    for (const sendInvite of [undefined, true, false]) {
+      const res = await post(
+        app,
+        '/v1/identity/users',
+        {
+          displayName: 'Carol',
+          primaryEmail: 'carol@acme.test',
+          ...(sendInvite !== undefined && { sendInvite }),
+        },
+        ADMIN_TOKEN,
+      );
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({
+        userId: 'u-new',
+        tenantId: tenantA,
+        primaryEmail: 'u-new@example.com',
+        displayName: 'User u-new',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        invite: INVITE,
+        inviteEmail: { sent: false, reason: 'not-configured' },
+      });
+    }
+    expect(creates).toEqual([
+      { tenantId: tenantA, displayName: 'Carol', primaryEmail: 'carol@acme.test' },
+      {
+        tenantId: tenantA,
+        displayName: 'Carol',
+        primaryEmail: 'carol@acme.test',
+        sendInvite: true,
+      },
+      {
+        tenantId: tenantA,
+        displayName: 'Carol',
+        primaryEmail: 'carol@acme.test',
+        sendInvite: false,
+      },
+    ]);
+  });
+
+  test("a directory that doesn't invite: the 201 is the person alone, as before", async () => {
+    const { app } = makeInviteApp();
+    const res = await post(app, '/v1/identity/users', { displayName: 'Carol' }, ADMIN_TOKEN);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.userId).toBe('u-new');
+    expect(Object.keys(body)).not.toContain('inviteEmail');
+    expect(Object.keys(body)).not.toContain('invite');
+  });
+
+  test('a sendInvite that is not true or false is 400, and the directory is not asked', async () => {
+    const { app, creates } = makeInviteApp();
+    for (const sendInvite of ['yes', 1, null]) {
+      const res = await post(
+        app,
+        '/v1/identity/users',
+        { displayName: 'Carol', sendInvite },
+        ADMIN_TOKEN,
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: { message: string } }).error.message).toBe(
+        '`sendInvite` must be true or false',
+      );
+    }
+    expect(creates).toEqual([]);
+  });
+
+  test('a person carries their invitation and first sign-in on every read', async () => {
+    const { app, directory } = makeInviteApp();
+    directory.setUser({
+      ...baseUser({ userId: 'u-p' as UserId, tenantId: tenantA }),
+      invite: { state: 'expired', expiresAt: INVITE.expiresAt },
+    });
+    directory.setUser({
+      ...baseUser({ userId: 'u-j' as UserId, tenantId: tenantA }),
+      firstSignedInAt: '2026-10-17T09:00:00.000Z' as Timestamp,
+    });
+    const one = (await (
+      await jsonGet(app, '/v1/identity/users/u-p', ADMIN_TOKEN)
+    ).json()) as Record<string, unknown>;
+    expect(one.invite).toEqual({ state: 'expired', expiresAt: INVITE.expiresAt });
+    const list = (await (await jsonGet(app, '/v1/identity/users', ADMIN_TOKEN)).json()) as {
+      data: Record<string, unknown>[];
+    };
+    expect(list.data.map((u) => [u.userId, u.invite, u.firstSignedInAt])).toEqual([
+      ['u-j', undefined, '2026-10-17T09:00:00.000Z'],
+      ['u-p', { state: 'expired', expiresAt: INVITE.expiresAt }, undefined],
+    ]);
+  });
+
+  test('pending=true asks the directory for the invited, and lists only them even from one that ignores it', async () => {
+    for (const filters of [true, false]) {
+      const { app, directory, lists } = makeInviteApp({ filters });
+      directory.setUser({ ...baseUser({ userId: 'u-j' as UserId, tenantId: tenantA }) });
+      directory.setUser({
+        ...baseUser({ userId: 'u-p' as UserId, tenantId: tenantA }),
+        invite: INVITE,
+      });
+      const pending = (await (
+        await jsonGet(app, '/v1/identity/users?pending=true', ADMIN_TOKEN)
+      ).json()) as { data: { userId: string }[] };
+      expect(pending.data.map((u) => u.userId)).toEqual(['u-p']);
+      const all = (await (await jsonGet(app, '/v1/identity/users', ADMIN_TOKEN)).json()) as {
+        data: { userId: string }[];
+      };
+      expect(all.data.map((u) => u.userId)).toEqual(['u-j', 'u-p']);
+      expect(lists).toEqual([true, undefined]);
+    }
+  });
+
+  test('a tenant admin renews an invitation: the person with the new expiry, and whether it was emailed', async () => {
+    const user = { ...baseUser({ userId: 'u-p' as UserId, tenantId: tenantA }), invite: INVITE };
+    const { app, resends } = makeInviteApp({
+      resend: { kind: 'renewed', user, inviteEmail: { sent: true } },
+    });
+    const res = await jsonPost(app, '/v1/identity/users/u-p/invite', ADMIN_TOKEN);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      user: {
+        userId: 'u-p',
+        tenantId: tenantA,
+        primaryEmail: 'u-p@example.com',
+        displayName: 'User u-p',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        invite: INVITE,
+      },
+      inviteEmail: { sent: true },
+    });
+    expect(resends).toEqual([{ tenantId: tenantA, userId: 'u-p' }]);
+  });
+
+  test('anyone else is refused before the directory is asked', async () => {
+    const { app, resends } = makeInviteApp({
+      resend: {
+        kind: 'renewed',
+        user: baseUser({ userId: 'u-p' as UserId, tenantId: tenantA }),
+        inviteEmail: { sent: true },
+      },
+    });
+    for (const token of [BEARER_TOKEN, MEMBER_TOKEN]) {
+      const res = await jsonPost(app, '/v1/identity/users/u-p/invite', token);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'permission-denied',
+      );
+    }
+    expect(resends).toEqual([]);
+  });
+
+  test('not here: 404; joined or never invited: 409 identity-user-not-invited', async () => {
+    const gone = makeInviteApp({ resend: { kind: 'not-found' } });
+    const res404 = await jsonPost(gone.app, '/v1/identity/users/u-x/invite', ADMIN_TOKEN);
+    expect(res404.status).toBe(404);
+    expect(((await res404.json()) as { error: { code: string } }).error.code).toBe(
+      'identity-user-not-found',
+    );
+    const joined = makeInviteApp({ resend: { kind: 'not-invited' } });
+    const res409 = await jsonPost(joined.app, '/v1/identity/users/u-j/invite', ADMIN_TOKEN);
+    expect(res409.status).toBe(409);
+    expect(
+      ((await res409.json()) as { error: { code: string; details?: unknown } }).error,
+    ).toMatchObject({
+      code: 'identity-user-not-invited',
+      details: { userId: 'u-j' },
+    });
+  });
+
+  test('over the limits: 429 invite-capped, with Retry-After in whole seconds', async () => {
+    for (const [ms, seconds] of [
+      [42_100, '43'],
+      [10, '1'],
+    ] as const) {
+      const { app } = makeInviteApp({ resend: { kind: 'capped', retryAfterMs: ms } });
+      const res = await jsonPost(app, '/v1/identity/users/u-p/invite', ADMIN_TOKEN);
+      expect(res.status).toBe(429);
+      expect(res.headers.get('retry-after')).toBe(seconds);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe('invite-capped');
+    }
+  });
+
+  test('without resendInvite on the directory, the route is not mounted', async () => {
+    const { app } = makeInviteApp();
+    const res = await jsonPost(app, '/v1/identity/users/u-p/invite', ADMIN_TOKEN);
+    expect(res.status).toBe(404);
+  });
+});

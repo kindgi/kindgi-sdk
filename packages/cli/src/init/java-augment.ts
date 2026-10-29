@@ -23,8 +23,9 @@ import { join } from 'node:path';
 import { PACK_ID_REGEX } from '../commands/init.js';
 import { syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
-import { renderJson } from '../output.js';
+import { type OutputFormat, renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
+import { note, renderLines, warning } from '../progress-lines.js';
 import { CLI_VERSION } from '../version-info.js';
 import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import { JVM_PREVIEW, type KindgiJavaSource, resolveKindgiJavaSource } from './dependency-specs.js';
@@ -43,6 +44,8 @@ export interface RunInitJavaAugmentInputs {
   readonly packIdOverride?: string;
   /** Overwrite an existing `kindgi.config.json` and the skills. */
   readonly force: boolean;
+  /** As `RunInitAugmentInputs.format`: default `json`, as with no flag. */
+  readonly format?: OutputFormat;
   /** Test seam: where kindgi-pack comes from. */
   readonly javaSource?: KindgiJavaSource;
 }
@@ -211,24 +214,29 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
     warnings: access.warnings,
     nextSteps,
   };
+  const format = inputs.format ?? 'json';
   return {
     kind: 'ok',
     rendered: {
-      stdout: renderJson(summary, 'json').stdout,
-      stderr: [
-        '',
-        `  Kindgi added to ${inputs.targetDir} (a Java pack in the app; preview).`,
-        `  ${JVM_PREVIEW}`,
-        `  Pack id: ${packId}    Version: ${version}`,
-        `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
-        ...access.outside.map((line) => `  ✓ ${line}`),
-        ...access.warnings.map((warning) => `  ⚠ ${warning}`),
-        '',
-        '  Next steps:',
-        ...nextSteps.map((step) => `    ${step}`),
-        '',
-        '',
-      ].join('\n'),
+      stdout: renderJson(summary, format).stdout,
+      stderr: renderLines(
+        [
+          note(''),
+          note(`  Kindgi added to ${inputs.targetDir} (a Java pack in the app; preview).`),
+          note(`  ${JVM_PREVIEW}`),
+          note(`  Pack id: ${packId}    Version: ${version}`),
+          note(
+            `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+          ),
+          ...access.outside.map((line) => note(`  ✓ ${line}`)),
+          ...access.warnings.map((w) => warning(`  ⚠ ${w}`)),
+          note(''),
+          note('  Next steps:'),
+          ...nextSteps.map((step) => note(`    ${step}`)),
+          note(''),
+        ],
+        format === 'quiet',
+      ),
     },
   };
 }

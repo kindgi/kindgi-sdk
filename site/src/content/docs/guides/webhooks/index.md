@@ -26,7 +26,8 @@ cancelled.
 - [Test and replay deliveries](test-and-replay/): send a test event, see
   what was delivered, and send a failed delivery again.
 - [Webhook events and deliveries](webhook-events/): every event and what it
-  carries, how deliveries are retried, and the console's Webhooks page.
+  carries, how deliveries are retried, and the console's Outgoing webhooks
+  page.
 
 Requests are signed in the [Standard Webhooks](https://www.standardwebhooks.com)
 format, so a receiver in another language can use any Standard Webhooks

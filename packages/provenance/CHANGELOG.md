@@ -1,5 +1,70 @@
 # @kindgi/provenance
 
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [d70c2a5]
+  - @kindgi/schema@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- @kindgi/schema@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [d70c2a5]
+  - @kindgi/schema@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
+## 0.1.10
+
+### Patch Changes
+
+- @kindgi/schema@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/schema@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- @kindgi/schema@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- @kindgi/schema@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/schema@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- @kindgi/schema@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes

@@ -1,42 +1,70 @@
 ---
-title: Judge a run's output
-description: Record a yes or no, with a reason, on each item of a finished run's output, from your app, the CLI or the console, and weight judges by class.
+title: Correct a run's output
+description: Record a yes or no, with a reason, on each item of a finished run's output, from your app, the CLI or the console, and weight corrections by judge class.
 sidebar:
   order: 1
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-This guide records people's yes or no on what a run returned, weights some
-judges more than others, and queues the runs that need judging.
+This guide records people's yes or no on what a run returned, counts some
+people's corrections more than others, and queues the runs that need a
+correction.
 
-A **judgment** is a yes or no, with an optional reason, about one item of a
+A **correction** is a yes or no, with an optional reason, about one item of a
 finished run's output: the whole answer, or one element of a list it
-returned. People who know the work, your users or your experts, judge. The
-judgments then tell you how an agent or flow version does: you
-[build a test set](../build-a-test-set/) from them, and
-[compare a new version](../compare-an-agent-version/) on it.
-[Judging reference](../judging-reference/) has every field, rule and console
-page.
+returned. People who know the work, your users or your experts, correct it.
+The corrections then tell you how an agent or flow version does: you
+[build test cases](../build-a-test-set/) from them, and
+[try a new version](../compare-an-agent-version/) on them.
+[Corrections reference](../judging-reference/) has every field, rule and
+console page.
 
 ## Before you start
 
-- **A finished run to judge,** and its id, on a runtime such as `kindgi dev`,
-  with Kindgi 0.1's CLI. [List runs](../../runs/list-runs/) finds one.
+- **A finished run to correct,** and its id, on a runtime such as `kindgi dev`,
+  with Kindgi 0.2's CLI. [List runs](../../runs/list-runs/) finds one.
 - **Write access to the run's project,** when authorization is on.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.2's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
-## Judge an item
+## Correct an item
 
-A judgment records whether one item of the run's output was right.
+A correction records whether one item of the run's output was right.
 
-From the CLI, judge the run's answer:
+From the CLI, correct the run's answer:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+```
+
+</TabItem>
+</Tabs>
 
 - `--run=<run-id>` is the run's id.
 - `--item=answer` is your id for the item: `answer` for the whole answer.
@@ -45,7 +73,7 @@ kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --
 - `--yes` is the verdict, or `--no`.
 - `--reason` (optional) says why.
 
-It prints the judgment:
+It prints the correction:
 
 ```json
 {
@@ -62,8 +90,9 @@ It prints the judgment:
 }
 ```
 
-From your app, when your users judge in your own UI, pass the run's id as
-the script's argument:
+From your app, when your users correct runs in your own UI, ask your coding
+agent: "I want to record my user's yes or no on a run's answer." For
+reference, the script looks like this, with the run's id as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -170,81 +199,263 @@ object Judge {
 </TabItem>
 </Tabs>
 
-- **`participantId`** is your app's own opaque id for the user who judged.
-  Who called comes from the token, as `assertedBy`.
-- **Judging the same item again,** as the same caller and participant,
-  replaces the earlier judgment, and the earlier one stays in the history.
+- **`participantId`** is your app's own opaque id for the user who made the
+  correction. Who called comes from the token, as `assertedBy`.
+- **Correcting the same item again,** as the same caller and participant,
+  replaces the earlier correction, and the earlier one stays in the history.
 
-The run now has the judgment. Only a finished run can be judged, and the
-pointer must find something.
-[Judgments](../judging-reference/#judgments) has the rules and the
+The run now has the correction. Only a finished run can be corrected, and
+the pointer must find something.
+[Corrections](../judging-reference/#corrections) has the rules and the
 refusals.
 
-In the console, a finished run's page has **Judge this run**, or a
-**Judgments** tab once it has judgments. It lists the answer and each element
-of a list in the output, each with **Yes** and **No** and the counts so far.
-It lists each judgment with who made it, its class and its reason.
+In the console, a finished run's page has **Correct this run**, or a
+**Corrections** tab once it has corrections. It lists the answer and each
+element of a list in the output, each with **Yes** and **No** and the counts
+so far. It lists each correction with who made it, its class and its reason.
 
-## See the judgments
+## Say what it should have done
 
-A run's judgments say how its output was judged, and by whom:
+A correction of an agent's run can also say what the run should have done
+(runtime 0.2.0 or later): the tool calls it should have made, with the
+arguments that matter, and the tools it shouldn't have called. It's about
+the whole run, not one item of its output. When you
+[try a version](../compare-an-agent-version/#what-it-should-have-done) on
+test cases built from the run, it checks what that version does against it.
 
-```sh
-kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
-kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
-kindgi judgments remove <judgment-id>
+Write what it should have done in a file, such as `refund-fix.json`:
+
+```json
+{
+  "calls": [
+    { "tool": "acme-store.offer-store-credit", "args": { "orderId": "A-1042" } }
+  ],
+  "notCalled": ["acme-store.refund"]
+}
 ```
 
-- `<run-id>` is the run's id, and `<judgment-id>` a judgment's `id`, from the
-  list.
+- **`calls`** are the calls it should have made. `args` holds only the
+  top-level arguments that matter, each compared whole. Arguments left out
+  aren't compared, and `{}` asks only that the tool was called.
+- **`notCalled`** are the tools it shouldn't have called at all.
+
+Then record it with your mark:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi judgments add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+```
+
+</TabItem>
+</Tabs>
+
+- `--correction` is what it should have done, as JSON or `@<file>`.
+- `--no` marks the run's decisions wrong. `--yes` marks them right, and the
+  calls you record then hold a later version to them.
+- It's about the whole run, so leave out `--item` and `--pointer`.
+
+It prints the correction, with what it should have done as its `correction`:
+
+```text
+CAPTURE: the printed judgment, with "item": { "key": "kindgi:correction", "pointer": "" } and its "correction"
+```
+
+- **One per run per person.** Saving it again for the same run, as the same
+  caller and participant, replaces your last one.
+- **Only the agent's own tools.** A tool the agent version that ran doesn't
+  have is refused: `The judged version has no tool "<tool>".`
+
+From your app, ask your coding agent: "I want to record what my expert says
+the run should have done." The clients' `judgments.create` takes it as
+`correction`, under the item `{ key: 'kindgi:correction', pointer: '' }`.
+Its types are `Correction` and `ExpectedCall`, and in Python the field is
+`not_called`.
+
+In the console, a completed agent run's **Correct this run**, or its
+**Corrections** tab once it has corrections, has
+**What should it have done?**:
+
+1. It lists the run's calls. Keep the ones that were right, and edit or
+   untick the argument fields that matter.
+2. Flag the calls that shouldn't have happened, and add any the run missed
+   with **Add a call…**.
+3. Choose **The decisions were wrong** or **The decisions were right**, add
+   **Why (optional)**, and **Save correction**.
+
+## See the corrections
+
+A run's corrections say how its output was corrected, and by whom:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+pnpm exec kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+pnpm exec kindgi judgments remove <judgment-id>
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+uv run kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+uv run kindgi judgments remove <judgment-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+./kindgiw judgments remove <judgment-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
+./kindgiw judgments remove <judgment-id>
+```
+
+</TabItem>
+</Tabs>
+
+- `<run-id>` is the run's id, and `<judgment-id>` a correction's `id`, from
+  the list.
 - `list` also filters by agent and version, flow, verdict, judge class,
   participant and project.
 
-`list` prints a page of judgments as JSON: `data`, `hasMore`, and
-`nextCursor` when there's another page. `show` prints one judgment, and
+`list` prints a page of corrections as JSON: `data`, `hasMore`, and
+`nextCursor` when there's another page. `show` prints one correction, and
 `remove` prints its id with `"removed": true`.
 
-A judgment keeps copies of the run's input and output, so it outlives the
+A correction keeps copies of the run's input and output, so it outlives the
 run's own retention. The clients have the same: `judgments.list`,
 `judgments.get` and `judgments.unregister`.
 
-## Weight judges by class
+## Weight corrections by judge class
 
-Without a class, every judgment counts once. A **judge class** counts some
-judges more, for the tenant, a project, or an agent in a project.
+Without a class, every correction counts once. A **judge class** counts some
+people's corrections more, for the tenant, a project, or an agent in a
+project.
 
-Add a class, then judge as it:
+Add a class, then correct as it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
-kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+pnpm exec kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
+pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
 ```
 
-- `--name` names the class, and `--weight=3` counts its judgments three
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
+uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
+./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+```
+
+</TabItem>
+</Tabs>
+
+- `--name` names the class, and `--weight=3` counts its corrections three
   times.
 - `--project=<project-id>` is the project it applies to.
-  [Build the test set](../build-a-test-set/#build-the-test-set) shows how to
+  [Build the test cases](../build-a-test-set/#build-the-test-cases) shows how to
   find a project's id.
 - `--class=<judge-class-id>` is the class's `id`, which `add` printed. In the
   clients, it's `judgeClassId`.
 
-The judgment now counts with the class's weight.
+The correction now counts with the class's weight.
 
-### Restrict who may judge as a class
+### Restrict who may correct as a class
 
-A restricted class says who may judge as it, so the people using your app
+A restricted class says who may correct as it, so the people using your app
 can't move the figures that release a version.
 
-Add the class with a restriction, before your reviewers judge:
+Add the class with a restriction, before your reviewers correct runs:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
 
 ```sh
-kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+pnpm exec kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
 ```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+```
+
+</TabItem>
+</Tabs>
 
 - `--tenant` makes it the tenant's class.
 - `--min-reviewer-role=senior` lets only a
   [reviewer](../../approvals/decide-an-approval/#reviewers-and-roles) of that
-  role or above judge as it: `standard`, `senior` or `admin`.
+  role or above correct as it: `standard`, `senior` or `admin`.
 - `--description` says who it is for.
 - `--principal-kind=user|service` and `--principal-id=<id>`, which repeat,
   restrict it to people or service tokens, or to named ones.
@@ -257,19 +468,20 @@ Error [auth]: You can't judge as "expert": it needs a senior reviewer or above; 
 Error [auth]: You can't judge as "tokens": only service tokens may assert it.
 ```
 
-A judgment made under a restriction carries `"restricted": true`. It's
-decided when the judgment is made, so judgments recorded before the
+A correction made under a restriction carries `"restricted": true`. It's
+decided when the correction is made, so corrections recorded before the
 restriction don't count as restricted.
 [Judge classes](../judging-reference/#judge-classes) has the rest.
 
-## Queue the runs to judge
+## Queue the runs to correct
 
-**Judging rules** pick the project's runs that need a person's judgment, so
+**Judging rules** pick the project's runs that need a person's correction, so
 your experts don't pick runs one at a time. As a run of the project ends,
-each rule checks it. A run that any rule matches joins the project's
-**judging queue**, once.
+each rule checks it. A run that any rule matches joins the project's queue of
+answers waiting for a correction, **To correct** in the console, once.
 
-Make a rule:
+To make a rule, ask your coding agent: "Queue a sample of my agent's live runs
+for people to correct." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -413,8 +625,9 @@ has every field, and how to try a rule before you make it.
 
 ### Work through the queue
 
-The queue lists the runs waiting for a judgment, oldest first. List the ones
-you can close:
+The queue lists the runs waiting for a correction, oldest first. To list the
+ones you can close, ask your coding agent: "Show me the runs waiting for my
+correction." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -502,7 +715,7 @@ object JudgingQueue {
 </Tabs>
 
 `forMe: true` keeps the items you can close: those that want a class you
-may judge as, or any judgment. It prints how many such items wait in all,
+may correct as, or any correction. It prints how many such items wait in all,
 and how many are on this page. One item, as that rule queued it:
 
 ```json
@@ -535,18 +748,19 @@ and how many are on this page. One item, as that rule queued it:
 }
 ```
 
-Judge each item's run, as [Judge an item](#judge-an-item) shows. An item
-closes as `judged` once each rule that queued it has the judgment it wants.
-`judgingQueue.dismiss`, with an optional reason, takes a run not worth
-judging out of the queue. [The judging queue](../judging-reference/#the-judging-queue)
+Correct each item's run, as [Correct an item](#correct-an-item) shows. An
+item closes as `judged` once each rule that queued it has the correction it
+wants. `judgingQueue.dismiss`, with an optional reason, takes a run not worth
+correcting out of the queue.
+[Answers waiting for a correction](../judging-reference/#answers-waiting-for-a-correction)
 has every field and count.
 
 Reading the rules and the queue takes read access to the project. Changing a
-rule, and dismissing or reopening an item, take write access, as judging a
-run does.
+rule, and dismissing or reopening an item, take write access, as correcting
+a run does.
 
 ## Next
 
-- [Build a test set](../build-a-test-set/)
-- [Compare a version on a test set](../compare-an-agent-version/)
-- [Judging reference](../judging-reference/)
+- [Build test cases from corrections](../build-a-test-set/)
+- [Try a version on the test cases](../compare-an-agent-version/)
+- [Corrections reference](../judging-reference/)

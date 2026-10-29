@@ -55,9 +55,20 @@ export const SECTIONS = [
     paths: ['tutorials/'],
   },
   { slug: 'guides', label: 'Guides', description: 'how to do one thing', paths: ['guides/'] },
+  {
+    slug: 'sites',
+    label: 'Sites',
+    description: "Kindgi in your website's admin",
+    paths: ['sites/'],
+  },
   { slug: 'concepts', label: 'Concepts', paths: ['concepts/'] },
-  { slug: 'deploy', label: 'Deploy', paths: ['deploy/'] },
-  { slug: 'kindgi-cloud', label: 'Kindgi Cloud', paths: ['hosted/'] },
+  {
+    slug: 'deploy',
+    label: 'Deploy',
+    description: 'on Kindgi Cloud, or self-hosted',
+    paths: ['deploy/', 'hosted/'],
+  },
+  { slug: 'release-notes', label: 'Release notes', paths: ['releases/'] },
   { slug: 'cli-reference', label: 'CLI reference', paths: ['reference/cli/'] },
   { slug: 'python-sdk-reference', label: 'Python SDK reference', paths: ['reference/python/'] },
 ];

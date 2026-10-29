@@ -4,6 +4,7 @@
 package conformance.tools;
 
 import com.kindgi.pack.Tool;
+import com.kindgi.pack.ToolConnection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -32,6 +33,24 @@ public final class Context {
         if (!ctx.settings().isEmpty()) {
           out.put("settings", ctx.settings());
         }
+        if (!ctx.connections().isEmpty()) {
+          Map<String, Object> connections = new LinkedHashMap<>();
+          ctx.connections().forEach((name, c) -> connections.put(name, connection(c)));
+          out.put("connections", connections);
+        }
         return out;
       });
+
+  private static Map<String, Object> connection(ToolConnection c) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("connectionId", c.connectionId());
+    out.put("app", c.app());
+    out.put("appName", c.appName());
+    out.put("accessToken", c.accessToken());
+    out.put("account", Map.of("id", c.account().id(), "label", c.account().label()));
+    if (c.expiresAt() != null) {
+      out.put("expiresAt", c.expiresAt());
+    }
+    return out;
+  }
 }

@@ -67,7 +67,9 @@ describe('kindgi init in an sbt app', () => {
     // build.sbt isn't edited: the dependency is printed.
     expect(await readFile(join(app, 'build.sbt'), 'utf8')).toBe(BUILD);
     expect(out.stderr).toContain(kindgiPackScalaDependency(CLI_VERSION));
-    expect(out.stderr).toContain('resolvers += Resolver.mavenLocal');
+    expect(out.stderr).toContain(
+      'externalResolvers := Resolver.mavenLocal +: externalResolvers.value',
+    );
     expect(out.stderr).toContain('com.acme.app.kindgi.tools');
     expect(await readFile(join(app, 'kindgiw'), 'utf8')).toMatch(/^#!\/bin\/sh/);
     expect(out.stderr).toContain('./kindgiw dev');
@@ -100,6 +102,19 @@ describe('kindgi init in an sbt app', () => {
     const java = await init('--template=java', '--force');
     expect(java.exitCode).toBe(1);
     expect(java.stderr).toContain('An sbt app gets a Scala pack');
+  });
+
+  test('a one-line build.sbt: the name and version inside its .settings(…) name the pack', async () => {
+    await writeFile(
+      join(app, 'build.sbt'),
+      'lazy val root = (project in file(".")).settings(name := "Acme_Ledger", version := "1.2.0")\n',
+    );
+    const out = await init();
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(await readFile(join(app, 'kindgi.config.json'), 'utf8')).pack).toEqual({
+      id: 'acme-ledger',
+      version: '1.2.0',
+    });
   });
 
   test('a build that declares kindgi-pack-scala (here in project/*.scala): no dependency to print', async () => {
@@ -145,7 +160,7 @@ describe('kindgi init in an sbt app', () => {
     );
     expect(stderr).toContain('(cd /k/sdks/scala && sbt +publishLocal)');
     expect(stderr).toContain(
-      `${kindgiPackScalaDependency('0.1.5')}\n      resolvers += Resolver.mavenLocal`,
+      `${kindgiPackScalaDependency('0.1.5')}\n      externalResolvers := Resolver.mavenLocal +: externalResolvers.value`,
     );
   });
 });
@@ -154,5 +169,45 @@ describe("a build's identity", () => {
   test('its name and version, plain or ThisBuild-scoped', () => {
     expect(readSbtIdentity(BUILD)).toEqual({ name: 'Acme_Ledger', version: '2.4.0' });
     expect(readSbtIdentity('scalaVersion := "3.3.8"\n')).toEqual({});
+  });
+
+  test('inside a one-line .settings(…), first or after another setting', () => {
+    expect(
+      readSbtIdentity(
+        'lazy val root = (project in file(".")).settings(name := "acme-ledger", version := "1.2.0")\n',
+      ),
+    ).toEqual({ name: 'acme-ledger', version: '1.2.0' });
+    expect(
+      readSbtIdentity(
+        'lazy val root = project.settings(organization := "com.acme", name := "acme-ledger")\n',
+      ),
+    ).toEqual({ name: 'acme-ledger' });
+    expect(readSbtIdentity('inThisBuild(List(version := "3.1.0"))\n')).toEqual({
+      version: '3.1.0',
+    });
+  });
+
+  test('a key that only ends in name is not the name', () => {
+    expect(
+      readSbtIdentity('lazy val core = project.settings(moduleName := "acme-core")\n'),
+    ).toEqual({});
+  });
+
+  test("a commented-out setting isn't the build's; a // inside a string isn't a comment", () => {
+    expect(
+      readSbtIdentity(
+        [
+          '// lazy val old = project.settings(name := "acme-old")',
+          '/* name := "acme-older" */',
+          'lazy val root = project.settings(name := "acme-ledger")',
+          '',
+        ].join('\n'),
+      ),
+    ).toEqual({ name: 'acme-ledger' });
+    expect(
+      readSbtIdentity(
+        'lazy val root = project.settings(homepage := Some(url("https://acme.example")), name := "acme-ledger")\n',
+      ),
+    ).toEqual({ name: 'acme-ledger' });
   });
 });

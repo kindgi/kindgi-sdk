@@ -1,5 +1,315 @@
 # @kindgi/tools
 
+## 0.2.0
+
+### Patch Changes
+
+- 08dedca: **An agent's tool call gets the connections its tool declares, before it runs.** `InvokeAgentBindings.connections` is where it gets them: a runtime's `ConnectionResolver` and the env it serves.
+  - **Found once per call, and recorded without a token.** A person's connection that's missing, lacks a permission or needs reconnecting makes a connect request when a person started the run, and the call waits for them to connect (`waitingFor.connections`). In any other run it can't wait, and the call fails.
+  - **Asked fresh every time the tool runs,** never recorded: the tool reads its tokens in `ctx.connections`. When the app refuses one (`ConnectionRejectedError`, or a pack tool's `connection-rejected`), its token is renewed and the call runs once more. If the app refuses the renewed one too, the call fails with `connection-rejected`, as a call its connections stop does (below), and the connection stays as it is.
+  - **A token the tool echoes in what it throws goes no further.** The call's tokens are replaced by `[redacted]` in its error's message, stack and own strings, in the errors, arrays and plain objects it holds (a pack error's `issues`, a `details` object), down its causes, and in any other object it holds whose JSON form carries one (a request, a client's headers), which is written out redacted in its place, before the run's events, its record or the model see it. `withoutConnectionTokens` in `@kindgi/tools` does this for any runner.
+  - **A call its connections stop runs nothing.** It fails with `tool.failed` and a code: `connection-app-missing`, `connection-needs-a-person`, `connection-missing`, `connection-declined`, `connection-timed-out` or `connection-renew-failed`. The model reads why as the call's result, `{ status: 'failed', error: { code, message } }`, and the turn goes on.
+  - **A call that acts with a person's connection is theirs to approve.** When it asks for an approval, the approval names that person as its only `approver`, with the account it acts as (`connection`). The binding refuses one whose approver has no reviewer seat at the rank it needs, by throwing `approver-not-a-reviewer`, and the call fails with `connection-approver-not-a-reviewer`. Four eyes (`separateApprover`) on such a call can't be met, so it fails with `connection-approval-conflict` before anyone is asked to connect.
+  - **The approvals routes:** an approval addressed to one member is theirs alone to decide, and among the reviewers only they see it in the list, `GET /v1/approvals/{id}` and its audit bundle; to them it doesn't exist (`404 approval-not-found`). A person who is the tenant's admin still reads it, and `POST /v1/approvals/{id}/complete` tells them only its approver decides it (`403 named-approver-required`). A page of only someone else's approvals still continues to the next.
+  - **Without `connections`,** a call to a tool that declares one fails with `connection-app-missing`; no other call changes.
+- 08dedca: **Connections: tools can act with accounts at other apps,** a member's own Google account or the company's GitHub App. This is the contract; a runtime implements it.
+  - **New package: `@kindgi/connections`.** An app entry says how a person signs in at the app (OAuth 2.0 with PKCE, or a GitHub App's installation), who may own a connection (a member, the company), what each permission allows in plain words, whose account it is, how access is withdrawn, and the app's rate limit. An OAuth 2.0 sign-in's `refreshToken` says whether a connect needs a refresh token: `'required'` (the default) refuses one without, and `'optional'` is for an app that may give none, whose connections then work until one minute before their access token ends and then need reconnecting (a grant that gives neither a refresh token nor the token's `expires_in` is refused). `defineApp(entry)` checks one and returns it frozen; a wrong field throws a `TypeError` naming it. A permission's `grants` and each account scope is one scope, with no space or comma, since the scopes an app grants are read split on both. The Google entry is `@kindgi/connections/google` and the GitHub one `@kindgi/connections/github`.
+  - **`@kindgi/tools`:** a tool declares the connections it needs in `needsSpec.connections`, by its own name for each: `{ app, permissions, as: 'person' | 'company' }`. The runtime hands it each one's access token and account in `ctx.connections`. A declarative HTTP tool sends one with `authorization: { kind: 'connection', connection }`, as `Authorization: Bearer`, and a `401` answer fails the call with `ConnectionRejectedError` (a tool's own code throws it too, alone or as another error's `cause`), so the runtime renews the token once and runs the call again. `connectionRejectionOf(error)` finds it, up to three causes deep, for a runtime's dispatch and a pack service alike. When the app can't give a token just now, the call fails with `ConnectionRenewError` (`connection-renew-failed`) and the connection stays as it is; one it can't renew at all (no refresh token, or the grant withdrawn) needs reconnecting, and the call waits or is refused as for any such connection. A `connection` authorization must name a declared connection. `ConnectionResolver` is what a runtime's tool dispatch asks for a call's connections: ready, a connect to wait for, or refused.
+  - **`@kindgi/specs`:** `tool.schema.json` 1.3.0 has `needsSpec.connections` and the `connection` authorization.
+  - **`@kindgi/agents`:** `computeConnectWaitToken({ runId, callId, name })`, the waitpoint token of a call's wait for a connect, and `ConnectWaitResult`.
+  - **`@kindgi/api`:** `ConnectionBinding`, the store behind the connections routes, with its records (app registrations, connections, connect requests) and error codes; none carries a token. An approval can carry `approver`, the one member who may decide it, and `connection`, the person's account the call would use. A secret read for a connection names its caller `connections`, in `@kindgi/compliance` too.
+- 08dedca: **Connections on the wire.** A server with a `ConnectionBinding` (`createApp({ connections })`, which needs the env it serves) answers:
+  - **`GET /v1/connection-entries`:** the apps a company can connect, with what each permission allows in plain words.
+  - **`/v1/connection-apps`:** a tenant admin registers the company's own app at Google or GitHub, by secret reference, and lists (removed ones too with `includeRemoved=true`), reads, changes or removes it. A project uses one registration of an app, so two registrations of it can't serve the same project. A registration a connection still uses can't be removed, nor its client changed (its client id, or its GitHub App). Without an authorizer, the key's `tenant-admin` scope decides who's a tenant admin here, as on the other connections routes.
+  - **`/v1/connections`:** a member lists their own connections, a tenant admin every one. Removed ones are listed only with `state=removed`, or with the others under `includeRemoved=true`. `POST` starts a connect for the member's own account, or for the company's (a tenant admin only), and answers a connect request; its `start` gives the app's sign-in address, and `POST /v1/connections/finish` takes what the app sent back. `DELETE` disconnects. Someone else's connection or connect request answers the same `404` as one that doesn't exist.
+  - **A GitHub App's connect:** its `start` goes to the app's install page while the app has no installation, and otherwise to GitHub's authorization. The finish attaches an installation only if the person's GitHub account can reach it. When it reaches several, the finish answers `kind: 'pick-installation'`, the request lists them (`installations`), and the start takes the one picked (`installationId`); `newInstallation: true` installs the app on another account. When it reaches none, the finish answers `403 connection-installation-unreachable` with the request's id (`details.connectRequestId`), to start it again that way.
+  - **Why a connection needs reconnecting:** `stateReason` says `invalid-grant`, `no-refresh-token`, `token-missing`, `store-write-failed`, `installation-missing`, `installation-permissions`, `suspended`, `sessions-revoked` or `access-expired`, each described in the schema. Other values may be added; `state` says what to do. A connection the app gave no refresh token has `accessEndsAt`, when its access token ends; from one minute before then, it needs reconnecting (`access-expired`), and reads say so too.
+  - **`POST /v1/connection-notices/{tenantId}/{appId}`:** where an app tells the server a person withdrew access. It takes no key, answers `202`, and every refusal has the same body.
+  - **A paused run says what it waits for:** `waitingFor.connections` lists each connect it waits on (the app, the connection's name, and whether it's a reconnect). An approval names its addressee (`approver`) and the connection a send uses (`connection`).
+  - **The connect wait token takes the step:** `computeConnectWaitToken({ runId, stepScope, callId, name })`, so the same call id in two steps of a flow waits on two requests. `ResolveConnectionsInput.stepScope` carries it.
+  - **Clients:** `client.connectionEntries`, `client.connectionApps` and `client.connections` in the TypeScript client, and the same resources in the Python client.
+- b6e20ca: **`POST /v1/deployments` refuses a pack's tool whose version the runtime holds with another definition: `409 tool-already-registered`.** Before, a deploy kept the manifest the version already held and only moved its code pointer to the new image. So a tool changed under the same version, such as a new input schema, another `needsSpec` (whose account a connection uses, for one), `mutating` or its approvals, deployed "ok", and its new code ran under the old manifest. The deploy now checks each of the pack's tools before it writes anything, as it does the pack's data blocks:
+  
+  - A version the runtime doesn't hold is published, as before.
+  - One it holds in the deploy's project with the same definition is kept, active or unregistered, as before. A new image of the same tool is the same definition: what a deploy derives (the image and artifact version in the code pointer, the version's project and secret scopes) isn't compared.
+  - One it holds in the deploy's project with another definition, active or unregistered, is refused. `details.fields` names the fields of its definition that differ (the manifest's top-level fields, and `modulePath` for where its code lives in the pack), and the message says to give the tool a new version. Nothing is written.
+  - A version in another project, or an MCP endpoint's tool, is refused as before (`tool-project-mismatch`, `tool-kind-mismatch`). One the runtime takes from another project of the project's environment order, and one published with another definition while the deploy runs, are refused at the write, and the deploy rolls back what it wrote.
+  
+  A digest replay goes through the same check. So an image recorded before this release, whose tool the runtime kept with another definition, now gets `409 tool-already-registered` where it got `200`. Give the tool a new version and build again.
+  
+  `@kindgi/tools` exports what the deploy compares: `toolDefinition` (a tool's declared fields, and its module path), `changedToolFields` and `sameToolDefinition`. The classification of the manifest's fields is typed over every field, so one a later release adds fails the typecheck until it's classified. The tools in `@kindgi/connections` take a new version whenever what they declare changes, and their tests pin each one's definition at its version.
+- b6e20ca: **A tool's error says why it failed.** A tool whose fetch failed used to report only `fetch failed`. The reason was in the error's cause, which no run showed. Now the message names each cause, Node's way:
+  
+  ```text
+  Handler for tool "acme.list-orders" threw: TypeError: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)
+  ```
+  
+  - **Where:** a pack tool's handler, a check's `evaluate`, a pack file that fails to import, and a tool run in the server's own process. Every place a failure shows carries the message: the run's record, its events, the console, the model's retry and the CLI.
+  - **Three causes at most,** each on one line and cut at 500 characters, never inside a word. A cause the message already says is left out.
+  - **A refused connection names its addresses:** `AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:4000, connect ECONNREFUSED 127.0.0.1:4000`.
+  - **An error without a cause reads as it did.**
+  - **The message is masked, its causes and the error's own words alike.** A Kindgi token becomes `[redacted]` whole, a `Bearer` value is redacted, a URL's password becomes `***`, and a URL's secret query or fragment value becomes `[redacted]`. `?token=`, `#access_token=`, `X-Amz-Signature=`, a SAS `sig=` and `?key=` are covered. Log lines keep their form, a token's last four included.
+  - **A pack tool's own secrets and connection tokens are taken out first,** at any depth of the error, before the message is masked or cut. So the mask, the cut and the one-line step can't leave part of one, a connection string's host included.
+  - **`@kindgi/log`** exports `describeCauses(err)`, which gives the `; caused by …` text, and `scrubText(text, { fullMask: true })`, which is the mask for an error a run shows.
+- 68e0d57: **A pack tool can pause its run until another system answers (pack protocol 2.8.0).**
+  
+  - **Declaring it:** a tool declares `pauses: true`. Its handler gets `ctx.waitToken`, `{ id, url }`: it hands the `url` to the system that will answer, then returns `ctx.pause({ timeoutMs, name })`. That system `POST`s its answer to the link as JSON, with no `Authorization` header: the link is the credential. The answer, valid against the tool's output schema, becomes the call's result. The handler may also answer at once, as any tool does.
+  - **Re-runs:** the token's id is the same every time one attempt of the call runs; a retry of its step gets a new token, and waits afresh. A re-run after a crash gets a new link to the same wait, and either link completes it. Hand on the new one only if the old one never went out, and dedupe on `idempotencyKey`.
+  - **How long:** `timeoutMs` is from 1 ms to 24 days (`MAX_PAUSE_TIMEOUT_MS`), and 24 hours when not given (`DEFAULT_PAUSE_TIMEOUT_MS`). A pause never waits forever. `name` says what the run waits for, in 1 to 200 characters.
+  - **Refusals:**
+    - a tool with a declarative `spec` or an MCP transport can't declare `pauses`: `defineTool` answers `invalid-tool-definition`, and the indexer `manifest-validation-failed`;
+    - a pause outside those bounds is `handler-shape-invalid`;
+    - the new error `pause-not-available`: a call from a runtime that sends no wait token, or a pause from a tool that doesn't declare `pauses`. Reading `ctx.waitToken` throws then, so the tool fails before it hands anything on. Pausing needs a runtime that speaks pack protocol 2.8.0.
+  - **The protocol:** a tool's index entry carries `pauses: true` (pack index 1.6.0, tool manifest 1.2.0), and the call's context then carries `waitToken`. The pack service answers `{ v: 2, kind: 'pause', timeoutMs, name }`, each field only when the tool gave it. A tool that doesn't declare `pauses` never sees the token.
+  - **`@kindgi/handler-runtime`:** `runHandlerOrPause` returns a pause as a third outcome. `runHandler` keeps its two, and reports a pause as `pause-not-available`.
+  - **`@kindgi/tools`, for a runtime that calls tools:**
+    - `invokeToolOrPause` returns `{ kind: 'pause', pause: { tokenId, timeoutMs, name } }` when the tool's handler returns `pauseOutcome(...)`. `invokeTool` reports a pause as `tool-pause-unsupported`, and so does `invokeToolOrPause` for a tool that doesn't declare `pauses`;
+    - a runtime that won't run a pausing call again throws `ToolRerunsExhaustedError` from the handler, and the call fails with `wait-token-reruns-exhausted`;
+    - `wait-token-timed-out` is the error for an answer that didn't come in time;
+    - `ToolContext.attempt` counts the runs of the call's step;
+    - `toolOutputIssues(tool, output)` checks an answer that comes from outside the call, such as another system's answer to a paused call, against the tool's output schema, as a call's output is checked: `{ path, message }` per finding, or `undefined` when it fits;
+    - `PAUSE_TOKEN_PREFIX` (`pause:`) starts the waitpoint id of every pause. The runtime mints these ids, never a handler.
+  - **`@kindgi/handler`:** `NodeContext.attempt` counts the runs of a step, and `WAITPOINT_TIMEOUT_REASON` is the reason a wait that timed out resumes with.
+  - **`@kindgi/api`:** a tool's wire manifest (`Tool`) carries `pauses`.
+  - **Conformance:** the fixture pack gains `conformance.pause`, and targets gain a `pause` feature they may not support yet.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [d70c2a5]
+- Updated dependencies [b6e20ca]
+  - @kindgi/schema@0.2.0
+  - @kindgi/log@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **`POST /v1/deployments` refuses a pack's tool whose version the runtime holds with another definition: `409 tool-already-registered`.** Before, a deploy kept the manifest the version already held and only moved its code pointer to the new image. So a tool changed under the same version, such as a new input schema, another `needsSpec` (whose account a connection uses, for one), `mutating` or its approvals, deployed "ok", and its new code ran under the old manifest. The deploy now checks each of the pack's tools before it writes anything, as it does the pack's data blocks:
+  
+  - A version the runtime doesn't hold is published, as before.
+  - One it holds in the deploy's project with the same definition is kept, active or unregistered, as before. A new image of the same tool is the same definition: what a deploy derives (the image and artifact version in the code pointer, the version's project and secret scopes) isn't compared.
+  - One it holds in the deploy's project with another definition, active or unregistered, is refused. `details.fields` names the fields of its definition that differ (the manifest's top-level fields, and `modulePath` for where its code lives in the pack), and the message says to give the tool a new version. Nothing is written.
+  - A version in another project, or an MCP endpoint's tool, is refused as before (`tool-project-mismatch`, `tool-kind-mismatch`). One the runtime takes from another project of the project's environment order, and one published with another definition while the deploy runs, are refused at the write, and the deploy rolls back what it wrote.
+  
+  A digest replay goes through the same check. So an image recorded before this release, whose tool the runtime kept with another definition, now gets `409 tool-already-registered` where it got `200`. Give the tool a new version and build again.
+  
+  `@kindgi/tools` exports what the deploy compares: `toolDefinition` (a tool's declared fields, and its module path), `changedToolFields` and `sameToolDefinition`. The classification of the manifest's fields is typed over every field, so one a later release adds fails the typecheck until it's classified. The tools in `@kindgi/connections` take a new version whenever what they declare changes, and their tests pin each one's definition at its version.
+- b6e20ca: **A tool's error says why it failed.** A tool whose fetch failed used to report only `fetch failed`. The reason was in the error's cause, which no run showed. Now the message names each cause, Node's way:
+  
+  ```text
+  Handler for tool "acme.list-orders" threw: TypeError: fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: Connect Timeout Error (attempted address: shop.acme.example:443, timeout: 10000ms)
+  ```
+  
+  - **Where:** a pack tool's handler, a check's `evaluate`, a pack file that fails to import, and a tool run in the server's own process. Every place a failure shows carries the message: the run's record, its events, the console, the model's retry and the CLI.
+  - **Three causes at most,** each on one line and cut at 500 characters, never inside a word. A cause the message already says is left out.
+  - **A refused connection names its addresses:** `AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:4000, connect ECONNREFUSED 127.0.0.1:4000`.
+  - **An error without a cause reads as it did.**
+  - **The message is masked, its causes and the error's own words alike.** A Kindgi token becomes `[redacted]` whole, a `Bearer` value is redacted, a URL's password becomes `***`, and a URL's secret query or fragment value becomes `[redacted]`. `?token=`, `#access_token=`, `X-Amz-Signature=`, a SAS `sig=` and `?key=` are covered. Log lines keep their form, a token's last four included.
+  - **A pack tool's own secrets and connection tokens are taken out first,** at any depth of the error, before the message is masked or cut. So the mask, the cut and the one-line step can't leave part of one, a connection string's host included.
+  - **`@kindgi/log`** exports `describeCauses(err)`, which gives the `; caused by …` text, and `scrubText(text, { fullMask: true })`, which is the mask for an error a run shows.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [b6e20ca]
+  - @kindgi/log@0.2.0-rc.1
+  - @kindgi/schema@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- 08dedca: **An agent's tool call gets the connections its tool declares, before it runs.** `InvokeAgentBindings.connections` is where it gets them: a runtime's `ConnectionResolver` and the env it serves.
+  - **Found once per call, and recorded without a token.** A person's connection that's missing, lacks a permission or needs reconnecting makes a connect request when a person started the run, and the call waits for them to connect (`waitingFor.connections`). In any other run it can't wait, and the call fails.
+  - **Asked fresh every time the tool runs,** never recorded: the tool reads its tokens in `ctx.connections`. When the app refuses one (`ConnectionRejectedError`, or a pack tool's `connection-rejected`), its token is renewed and the call runs once more. If the app refuses the renewed one too, the call fails with `connection-rejected`, as a call its connections stop does (below), and the connection stays as it is.
+  - **A token the tool echoes in what it throws goes no further.** The call's tokens are replaced by `[redacted]` in its error's message, stack and own strings, in the errors, arrays and plain objects it holds (a pack error's `issues`, a `details` object), down its causes, and in any other object it holds whose JSON form carries one (a request, a client's headers), which is written out redacted in its place, before the run's events, its record or the model see it. `withoutConnectionTokens` in `@kindgi/tools` does this for any runner.
+  - **A call its connections stop runs nothing.** It fails with `tool.failed` and a code: `connection-app-missing`, `connection-needs-a-person`, `connection-missing`, `connection-declined`, `connection-timed-out` or `connection-renew-failed`. The model reads why as the call's result, `{ status: 'failed', error: { code, message } }`, and the turn goes on.
+  - **A call that acts with a person's connection is theirs to approve.** When it asks for an approval, the approval names that person as its only `approver`, with the account it acts as (`connection`). The binding refuses one whose approver has no reviewer seat at the rank it needs, by throwing `approver-not-a-reviewer`, and the call fails with `connection-approver-not-a-reviewer`. Four eyes (`separateApprover`) on such a call can't be met, so it fails with `connection-approval-conflict` before anyone is asked to connect.
+  - **The approvals routes:** an approval addressed to one member is theirs alone to decide, and among the reviewers only they see it in the list, `GET /v1/approvals/{id}` and its audit bundle; to them it doesn't exist (`404 approval-not-found`). A person who is the tenant's admin still reads it, and `POST /v1/approvals/{id}/complete` tells them only its approver decides it (`403 named-approver-required`). A page of only someone else's approvals still continues to the next.
+  - **Without `connections`,** a call to a tool that declares one fails with `connection-app-missing`; no other call changes.
+- 08dedca: **Connections: tools can act with accounts at other apps,** a member's own Google account or the company's GitHub App. This is the contract; a runtime implements it.
+  - **New package: `@kindgi/connections`.** An app entry says how a person signs in at the app (OAuth 2.0 with PKCE, or a GitHub App's installation), who may own a connection (a member, the company), what each permission allows in plain words, whose account it is, how access is withdrawn, and the app's rate limit. An OAuth 2.0 sign-in's `refreshToken` says whether a connect needs a refresh token: `'required'` (the default) refuses one without, and `'optional'` is for an app that may give none, whose connections then work until one minute before their access token ends and then need reconnecting (a grant that gives neither a refresh token nor the token's `expires_in` is refused). `defineApp(entry)` checks one and returns it frozen; a wrong field throws a `TypeError` naming it. A permission's `grants` and each account scope is one scope, with no space or comma, since the scopes an app grants are read split on both. The Google entry is `@kindgi/connections/google` and the GitHub one `@kindgi/connections/github`.
+  - **`@kindgi/tools`:** a tool declares the connections it needs in `needsSpec.connections`, by its own name for each: `{ app, permissions, as: 'person' | 'company' }`. The runtime hands it each one's access token and account in `ctx.connections`. A declarative HTTP tool sends one with `authorization: { kind: 'connection', connection }`, as `Authorization: Bearer`, and a `401` answer fails the call with `ConnectionRejectedError` (a tool's own code throws it too, alone or as another error's `cause`), so the runtime renews the token once and runs the call again. `connectionRejectionOf(error)` finds it, up to three causes deep, for a runtime's dispatch and a pack service alike. When the app can't give a token just now, the call fails with `ConnectionRenewError` (`connection-renew-failed`) and the connection stays as it is; one it can't renew at all (no refresh token, or the grant withdrawn) needs reconnecting, and the call waits or is refused as for any such connection. A `connection` authorization must name a declared connection. `ConnectionResolver` is what a runtime's tool dispatch asks for a call's connections: ready, a connect to wait for, or refused.
+  - **`@kindgi/specs`:** `tool.schema.json` 1.3.0 has `needsSpec.connections` and the `connection` authorization.
+  - **`@kindgi/agents`:** `computeConnectWaitToken({ runId, callId, name })`, the waitpoint token of a call's wait for a connect, and `ConnectWaitResult`.
+  - **`@kindgi/api`:** `ConnectionBinding`, the store behind the connections routes, with its records (app registrations, connections, connect requests) and error codes; none carries a token. An approval can carry `approver`, the one member who may decide it, and `connection`, the person's account the call would use. A secret read for a connection names its caller `connections`, in `@kindgi/compliance` too.
+- 08dedca: **Connections on the wire.** A server with a `ConnectionBinding` (`createApp({ connections })`, which needs the env it serves) answers:
+  - **`GET /v1/connection-entries`:** the apps a company can connect, with what each permission allows in plain words.
+  - **`/v1/connection-apps`:** a tenant admin registers the company's own app at Google or GitHub, by secret reference, and lists (removed ones too with `includeRemoved=true`), reads, changes or removes it. A project uses one registration of an app, so two registrations of it can't serve the same project. A registration a connection still uses can't be removed, nor its client changed (its client id, or its GitHub App). Without an authorizer, the key's `tenant-admin` scope decides who's a tenant admin here, as on the other connections routes.
+  - **`/v1/connections`:** a member lists their own connections, a tenant admin every one. Removed ones are listed only with `state=removed`, or with the others under `includeRemoved=true`. `POST` starts a connect for the member's own account, or for the company's (a tenant admin only), and answers a connect request; its `start` gives the app's sign-in address, and `POST /v1/connections/finish` takes what the app sent back. `DELETE` disconnects. Someone else's connection or connect request answers the same `404` as one that doesn't exist.
+  - **A GitHub App's connect:** its `start` goes to the app's install page while the app has no installation, and otherwise to GitHub's authorization. The finish attaches an installation only if the person's GitHub account can reach it. When it reaches several, the finish answers `kind: 'pick-installation'`, the request lists them (`installations`), and the start takes the one picked (`installationId`); `newInstallation: true` installs the app on another account. When it reaches none, the finish answers `403 connection-installation-unreachable` with the request's id (`details.connectRequestId`), to start it again that way.
+  - **Why a connection needs reconnecting:** `stateReason` says `invalid-grant`, `no-refresh-token`, `token-missing`, `store-write-failed`, `installation-missing`, `installation-permissions`, `suspended`, `sessions-revoked` or `access-expired`, each described in the schema. Other values may be added; `state` says what to do. A connection the app gave no refresh token has `accessEndsAt`, when its access token ends; from one minute before then, it needs reconnecting (`access-expired`), and reads say so too.
+  - **`POST /v1/connection-notices/{tenantId}/{appId}`:** where an app tells the server a person withdrew access. It takes no key, answers `202`, and every refusal has the same body.
+  - **A paused run says what it waits for:** `waitingFor.connections` lists each connect it waits on (the app, the connection's name, and whether it's a reconnect). An approval names its addressee (`approver`) and the connection a send uses (`connection`).
+  - **The connect wait token takes the step:** `computeConnectWaitToken({ runId, stepScope, callId, name })`, so the same call id in two steps of a flow waits on two requests. `ResolveConnectionsInput.stepScope` carries it.
+  - **Clients:** `client.connectionEntries`, `client.connectionApps` and `client.connections` in the TypeScript client, and the same resources in the Python client.
+- 68e0d57: **A pack tool can pause its run until another system answers (pack protocol 2.8.0).**
+  
+  - **Declaring it:** a tool declares `pauses: true`. Its handler gets `ctx.waitToken`, `{ id, url }`: it hands the `url` to the system that will answer, then returns `ctx.pause({ timeoutMs, name })`. That system `POST`s its answer to the link as JSON, with no `Authorization` header: the link is the credential. The answer, valid against the tool's output schema, becomes the call's result. The handler may also answer at once, as any tool does.
+  - **Re-runs:** the token's id is the same every time one attempt of the call runs; a retry of its step gets a new token, and waits afresh. A re-run after a crash gets a new link to the same wait, and either link completes it. Hand on the new one only if the old one never went out, and dedupe on `idempotencyKey`.
+  - **How long:** `timeoutMs` is from 1 ms to 24 days (`MAX_PAUSE_TIMEOUT_MS`), and 24 hours when not given (`DEFAULT_PAUSE_TIMEOUT_MS`). A pause never waits forever. `name` says what the run waits for, in 1 to 200 characters.
+  - **Refusals:**
+    - a tool with a declarative `spec` or an MCP transport can't declare `pauses`: `defineTool` answers `invalid-tool-definition`, and the indexer `manifest-validation-failed`;
+    - a pause outside those bounds is `handler-shape-invalid`;
+    - the new error `pause-not-available`: a call from a runtime that sends no wait token, or a pause from a tool that doesn't declare `pauses`. Reading `ctx.waitToken` throws then, so the tool fails before it hands anything on. Pausing needs a runtime that speaks pack protocol 2.8.0.
+  - **The protocol:** a tool's index entry carries `pauses: true` (pack index 1.6.0, tool manifest 1.2.0), and the call's context then carries `waitToken`. The pack service answers `{ v: 2, kind: 'pause', timeoutMs, name }`, each field only when the tool gave it. A tool that doesn't declare `pauses` never sees the token.
+  - **`@kindgi/handler-runtime`:** `runHandlerOrPause` returns a pause as a third outcome. `runHandler` keeps its two, and reports a pause as `pause-not-available`.
+  - **`@kindgi/tools`, for a runtime that calls tools:**
+    - `invokeToolOrPause` returns `{ kind: 'pause', pause: { tokenId, timeoutMs, name } }` when the tool's handler returns `pauseOutcome(...)`. `invokeTool` reports a pause as `tool-pause-unsupported`, and so does `invokeToolOrPause` for a tool that doesn't declare `pauses`;
+    - a runtime that won't run a pausing call again throws `ToolRerunsExhaustedError` from the handler, and the call fails with `wait-token-reruns-exhausted`;
+    - `wait-token-timed-out` is the error for an answer that didn't come in time;
+    - `ToolContext.attempt` counts the runs of the call's step;
+    - `toolOutputIssues(tool, output)` checks an answer that comes from outside the call, such as another system's answer to a paused call, against the tool's output schema, as a call's output is checked: `{ path, message }` per finding, or `undefined` when it fits;
+    - `PAUSE_TOKEN_PREFIX` (`pause:`) starts the waitpoint id of every pause. The runtime mints these ids, never a handler.
+  - **`@kindgi/handler`:** `NodeContext.attempt` counts the runs of a step, and `WAITPOINT_TIMEOUT_REASON` is the reason a wait that timed out resumes with.
+  - **`@kindgi/api`:** a tool's wire manifest (`Tool`) carries `pauses`.
+  - **Conformance:** the fixture pack gains `conformance.pause`, and targets gain a `pause` feature they may not support yet.
+- Updated dependencies [d70c2a5]
+  - @kindgi/schema@0.2.0-rc.0
+  - @kindgi/log@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
+## 0.1.10
+
+### Patch Changes
+
+- @kindgi/schema@0.1.10
+  - @kindgi/log@0.1.10
+  - @kindgi/types@0.1.10
+
+## 0.1.10-rc.1
+
+### Patch Changes
+
+- @kindgi/log@0.1.10-rc.1
+  - @kindgi/schema@0.1.10-rc.1
+  - @kindgi/types@0.1.10-rc.1
+
+## 0.1.10-rc.0
+
+### Patch Changes
+
+- @kindgi/schema@0.1.10-rc.0
+  - @kindgi/log@0.1.10-rc.0
+  - @kindgi/types@0.1.10-rc.0
+
+## 0.1.9
+
+### Patch Changes
+
+- d563887: **Promoting a build from one environment to the next.**
+  - `kindgi promote --from=<env> --to=<env>` moves a build to the next environment of its environment order: the same signed image, with the edits made since to its agents and flows. It finds the pack's one deployment serving in `--from` (or takes `--deployment`). It prints what moves, with the carried edits marked and the edits that stay behind, and then each value the build needs in `--to` that isn't set, with the command that sets it. It promotes only when every value is set, and exits 1 while one isn't. `--check` stops before moving anything. `--json` gives the deployment, the check and the promotion as one object.
+  - `POST /v1/deployments/{deploymentId}/promotions` promotes a deployment to the next environment of its order, `{ toProjectId, reason? }`. The target gets a deployment of its own, with the source's signed fields, contents and pack, and `promotedFromDeploymentId`. The edits of its agents and flows move with it, and each tool's secrets are read where the target reads them. Nothing is built, and no registry is written. It answers `201` with `{ deployment, created, moved, leftBehind? }`. A target that has the build already answers `200` with its deployment (`created: false`), and records the carried edits it lacked. The promoter needs read on the deployment's project and admin on the target. The deployment must still serve and its signer still be trusted, with the signature checked again. Every value the build needs in the target must be ready. The audit trail records `deployment-promoted`, with the reason.
+  - `POST /v1/deployments/{deploymentId}/promotions/check` answers what would move, the values not ready in the target, and the next environment. It writes nothing, and it refuses as the promotion would.
+  - New error codes: `409 promotion-not-next-environment` (the project named isn't the next environment of the order), `409 promotion-values-not-ready` (`details.values`), `409 deployment-superseded` (`details.environment`, `details.newerDeploymentId`) and `501 promotions-unsupported`. A promotion from or into a suspended project or pack answers `project-suspended` or `pack-suspended`, with `details.environment`.
+  - `GET /v1/deployments` takes `projectId` (one environment's deployments; the Default project also finds those that name no project) and `packId`. Each page names the filters it applied, so a client can tell a runtime that ignored them.
+  - A deployment record carries `promotedFromDeploymentId` and `packId` when they're set.
+  - `@kindgi/api`: `DeploymentRegistryBinding.promote` (optional) writes a promotion in one transaction. Without it, a promotion answers `501 promotions-unsupported`, and the check still answers. `createApp`'s `deploymentValues` supplies where a provider's model key is and the pack's own env, for the values check.
+  - `@kindgi/client`: `deployments.promote`, `deployments.promoteCheck`, and `projectId` and `packId` on `deployments.list`.
+  - `@kindgi/compliance`, `@kindgi/specs`: the audit event kind `deployment-promoted`.
+  - `kindgi deploy` refused with `409 environment-takes-promotions` names where the build enters its environment order and prints each `kindgi promote` to run from there, one environment at a time, naming each environment from the pack config. When the refusal leaves out the first environment, because the caller can't read it, the hint says the rule and points at `kindgi environments list`.
+  - `kindgi deploy` refused with `deployment-validation-failed` prints each issue again. They're in the refusal's `details.issues`, and the CLI looked for them elsewhere.
+  - `@kindgi/api`: `DeploymentValue` describes one value a deployment needs where it's promoted to: a tool's secret or env, an agent's model key, or the pack's env. It says where the value is set and why it isn't ready, never the value itself. `ModelKeyLookup` says where a run finds a provider's model key.
+  - `@kindgi/api`: `deploymentValues` lists every value a deployment needs in the project it's promoted to, each read where a run there reads it: each tool version's secrets at the scope a promotion records for them, its env values with no default, a model key for each agent version (its registered preferred provider's, else any registered provider's), and the pack's own env. `carriedVersions` gives the edits that move with a deployment to the next environment (an edit of a version it ships, reached where it serves) and the ones left behind. `findNamedSecretScope` gives the scope a secret is recorded at and the secret found there.
+  - `@kindgi/tools`: `toolRequiredEnvNames` gives the env values a tool declares with no default.
+  - `kindgi promote` outside a pack takes a project id or slug for `--from` and `--to` (a slug two projects share is refused), and lists every deployment serving in `--from`, with each one's pack when several serve. In a pack or outside one, the command it prints for a value sets it at the target project's scope (`--scope=project:<id>`), under the env the runtime serves. In a pack, it talks to the runtime `kindgi deploy` would use for `--from`, and refuses two environments whose `endpoint` or `tenantId` differ, naming both: an environment order lives in one tenant on one runtime.
+  - The promotion check answers `envName`, the env the runtime serves, which a run in the target reads its values under. It's absent when the runtime names none.
+  - A key or session limited to a project is refused promotions and their checks, `403 key-project-mismatch`, whether or not the runtime has an authorizer: a promotion reads one project and writes another.
+  - A tool secret whose schema names null and validates it is optional, as at run time: unset in the target, it isn't listed and doesn't hold a promotion back. Set or revoked, it's checked like any other. `@kindgi/tools`: `toolOptionalSecretNames` gives a tool's optional secrets.
+  - With no model provider registered in the tenant, each agent version that runs on any provider is listed as `any provider`, with the problem `no-provider`: a run there would have none to call. `kindgi promote` says to register one.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- Updated dependencies [3b90568]
+  - @kindgi/log@0.1.9
+  - @kindgi/schema@0.1.9
+  - @kindgi/types@0.1.9
+
+## 0.1.9-rc.1
+
+### Patch Changes
+
+- @kindgi/log@0.1.9-rc.1
+  - @kindgi/schema@0.1.9-rc.1
+  - @kindgi/types@0.1.9-rc.1
+
+## 0.1.9-rc.0
+
+### Patch Changes
+
+- d563887: **Promoting a build from one environment to the next.**
+  - `kindgi promote --from=<env> --to=<env>` moves a build to the next environment of its environment order: the same signed image, with the edits made since to its agents and flows. It finds the pack's one deployment serving in `--from` (or takes `--deployment`). It prints what moves, with the carried edits marked and the edits that stay behind, and then each value the build needs in `--to` that isn't set, with the command that sets it. It promotes only when every value is set, and exits 1 while one isn't. `--check` stops before moving anything. `--json` gives the deployment, the check and the promotion as one object.
+  - `POST /v1/deployments/{deploymentId}/promotions` promotes a deployment to the next environment of its order, `{ toProjectId, reason? }`. The target gets a deployment of its own, with the source's signed fields, contents and pack, and `promotedFromDeploymentId`. The edits of its agents and flows move with it, and each tool's secrets are read where the target reads them. Nothing is built, and no registry is written. It answers `201` with `{ deployment, created, moved, leftBehind? }`. A target that has the build already answers `200` with its deployment (`created: false`), and records the carried edits it lacked. The promoter needs read on the deployment's project and admin on the target. The deployment must still serve and its signer still be trusted, with the signature checked again. Every value the build needs in the target must be ready. The audit trail records `deployment-promoted`, with the reason.
+  - `POST /v1/deployments/{deploymentId}/promotions/check` answers what would move, the values not ready in the target, and the next environment. It writes nothing, and it refuses as the promotion would.
+  - New error codes: `409 promotion-not-next-environment` (the project named isn't the next environment of the order), `409 promotion-values-not-ready` (`details.values`), `409 deployment-superseded` (`details.environment`, `details.newerDeploymentId`) and `501 promotions-unsupported`. A promotion from or into a suspended project or pack answers `project-suspended` or `pack-suspended`, with `details.environment`.
+  - `GET /v1/deployments` takes `projectId` (one environment's deployments; the Default project also finds those that name no project) and `packId`. Each page names the filters it applied, so a client can tell a runtime that ignored them.
+  - A deployment record carries `promotedFromDeploymentId` and `packId` when they're set.
+  - `@kindgi/api`: `DeploymentRegistryBinding.promote` (optional) writes a promotion in one transaction. Without it, a promotion answers `501 promotions-unsupported`, and the check still answers. `createApp`'s `deploymentValues` supplies where a provider's model key is and the pack's own env, for the values check.
+  - `@kindgi/client`: `deployments.promote`, `deployments.promoteCheck`, and `projectId` and `packId` on `deployments.list`.
+  - `@kindgi/compliance`, `@kindgi/specs`: the audit event kind `deployment-promoted`.
+  - `kindgi deploy` refused with `409 environment-takes-promotions` names where the build enters its environment order and prints each `kindgi promote` to run from there, one environment at a time, naming each environment from the pack config. When the refusal leaves out the first environment, because the caller can't read it, the hint says the rule and points at `kindgi environments list`.
+  - `kindgi deploy` refused with `deployment-validation-failed` prints each issue again. They're in the refusal's `details.issues`, and the CLI looked for them elsewhere.
+  - `@kindgi/api`: `DeploymentValue` describes one value a deployment needs where it's promoted to: a tool's secret or env, an agent's model key, or the pack's env. It says where the value is set and why it isn't ready, never the value itself. `ModelKeyLookup` says where a run finds a provider's model key.
+  - `@kindgi/api`: `deploymentValues` lists every value a deployment needs in the project it's promoted to, each read where a run there reads it: each tool version's secrets at the scope a promotion records for them, its env values with no default, a model key for each agent version (its registered preferred provider's, else any registered provider's), and the pack's own env. `carriedVersions` gives the edits that move with a deployment to the next environment (an edit of a version it ships, reached where it serves) and the ones left behind. `findNamedSecretScope` gives the scope a secret is recorded at and the secret found there.
+  - `@kindgi/tools`: `toolRequiredEnvNames` gives the env values a tool declares with no default.
+  - `kindgi promote` outside a pack takes a project id or slug for `--from` and `--to` (a slug two projects share is refused), and lists every deployment serving in `--from`, with each one's pack when several serve. In a pack or outside one, the command it prints for a value sets it at the target project's scope (`--scope=project:<id>`), under the env the runtime serves. In a pack, it talks to the runtime `kindgi deploy` would use for `--from`, and refuses two environments whose `endpoint` or `tenantId` differ, naming both: an environment order lives in one tenant on one runtime.
+  - The promotion check answers `envName`, the env the runtime serves, which a run in the target reads its values under. It's absent when the runtime names none.
+  - A key or session limited to a project is refused promotions and their checks, `403 key-project-mismatch`, whether or not the runtime has an authorizer: a promotion reads one project and writes another.
+  - A tool secret whose schema names null and validates it is optional, as at run time: unset in the target, it isn't listed and doesn't hold a promotion back. Set or revoked, it's checked like any other. `@kindgi/tools`: `toolOptionalSecretNames` gives a tool's optional secrets.
+  - With no model provider registered in the tenant, each agent version that runs on any provider is listed as `any provider`, with the problem `no-provider`: a run there would have none to call. `kindgi promote` says to register one.
+- cf339d3: **A tool can ask for a person's yes on every call no person is there to see: `needsApprovalWhenUnattended`.** A tool manifest's new optional `needsApprovalWhenUnattended: true` declares it. In a run no person started:
+  - **An agent's call of the tool waits for a reviewer,** as `always_ask` does. Neither the agent's `conversationPolicy.hitl` nor the tenant's approval rules can lift it.
+  - **A flow's tool step that calls it fails,** with `needs-a-person: …` naming the tool, since a tool step can't wait. Call such a tool from an agent step.
+  - In a run a person started, the agent's own gates decide, as for any tool. A tool that doesn't declare it is unchanged.
+  
+  **A run says how it started: `startedBy`** on `GET /v1/runs` and `GET /v1/runs/{runId}`, and on `KernelRunRecord`. It's `person` (signed in, or with their own API key), `key` (a service account's key), or `schedule`, `webhook` or `event` (a trigger). Only `person` counts as attended (`runIsAttended`, `@kindgi/runtime`). It's set from the caller, never from the request body, and never changes: an approval doesn't make a run its approver's. A run that a run starts started the way its run did. A run from before a runtime recorded it has none, and counts as unattended.
+  - **A key acts as its person.** For automation, use a service account's key: its runs count as unattended. A request with a service account's key is `key` whoever else it names. A tenant's first admin key, the one `POST /v1/system/tenants` answers with when it names no `firstAdmin`, is a service account's too: for the work you start, add yourself as a person and use a key of your own.
+  - **The wire `Tool`** carries `needsApprovalWhenUnattended`, so `kindgi tools get` and the console show it. The pack indexer carries it into the pack's index.
+  - **The `woocommerce` template declares it** on `woo.refund`, `woo.refund-large`, `woo.set-price` and `woo.publish-product`. A staff member's refund in the store chat runs as the store agent says; one an order webhook's run asks for waits for a person.
+  - **The authoring skills** (`kindgi-authoring-tools` and the Java, Python and Scala ones) say when to declare it.
+- Updated dependencies [3b90568]
+  - @kindgi/log@0.1.9-rc.0
+  - @kindgi/schema@0.1.9-rc.0
+  - @kindgi/types@0.1.9-rc.0
+
 ## 0.1.8
 
 ### Patch Changes
