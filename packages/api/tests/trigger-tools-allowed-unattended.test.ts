@@ -99,17 +99,6 @@ const FLOWS: Record<string, Record<string, unknown>> = {
       { id: 'back', kind: 'subgraph', flowRef: { flowId: 'acme.orders', version: '1.0.0' } },
     ],
   },
-  // Sub-flow steps that name no version: one the version pins, one it doesn't.
-  'acme.pinned@1.0.0': {
-    pins: { tools: {}, agents: {}, flows: { 'acme.leaf': '1.0.0' } },
-    nodes: [
-      { id: 'leaf', kind: 'subgraph', flowRef: { flowId: 'acme.leaf' } },
-      { id: 'loose', kind: 'subgraph', flowRef: { flowId: 'acme.loose' } },
-    ],
-  },
-  'acme.leaf@1.0.0': { nodes: [leaf('t', 'tool', 'acme.leaf-tool')] },
-  'acme.leaf@2.0.0': { nodes: [leaf('t', 'tool', 'acme.leaf-newer')] },
-  'acme.loose@1.0.0': { nodes: [leaf('t', 'tool', 'acme.loose-tool')] },
 };
 
 const agentRegistry = {
@@ -228,15 +217,6 @@ describe('which tools a target calls', () => {
       'acme.refund',
       'acme.sub-tool',
     ]);
-  });
-
-  test("a sub-flow step that names no version: at the version the flow pins; with no pin, it's not followed", async () => {
-    const tools = await toolsTargetCanCall(
-      { agents: agentRegistry, flows: flowRegistry },
-      tenantId,
-      { kind: 'flow', flowId: 'acme.pinned', flowVersion: '1.0.0' } as never,
-    );
-    expect([...(tools ?? [])]).toEqual(['acme.leaf-tool']);
   });
 
   test('an agent: at its version, else its latest; an improvement pass: none; unreadable: undefined', async () => {

@@ -327,9 +327,6 @@ export interface SubflowCompletedPayload {
  *     resolver contract but journaled defensively).
  *   - `resolver-missing` → the run was started without a `flowResolver`
  *     dependency wired in, so the subgraph node cannot dispatch.
- *   - `subgraph-unbound` → the child flow's own steps can't be bound (its
- *     tools or agents aren't there, or reading them failed), so the child
- *     never started; `message` names the nodes. Written from runtime 0.3.0.
  */
 export interface SubflowFailedPayload {
   readonly subgraphNodeId: NodeId;
@@ -341,8 +338,7 @@ export interface SubflowFailedPayload {
     | 'subgraph-flow-not-found'
     | 'subgraph-depth-exceeded'
     | 'subgraph-cross-tenant'
-    | 'resolver-missing'
-    | 'subgraph-unbound';
+    | 'resolver-missing';
   readonly message: string;
   readonly schemaErrors?: readonly unknown[];
   /**

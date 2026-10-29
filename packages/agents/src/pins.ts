@@ -52,8 +52,7 @@ export type AgentDerivation = VersionDerivation;
 
 /** One pin that differs between two versions of an agent or a flow. */
 export interface PinChange {
-  /** `flow`: a flow's sub-flow (`FlowPins.flows`). */
-  readonly kind: 'tool' | 'prompt' | 'setting' | 'agent' | 'flow';
+  readonly kind: 'tool' | 'prompt' | 'setting' | 'agent';
   readonly id: string;
   /** The earlier version's pin; absent when it didn't pin this block. */
   readonly from?: string;
@@ -66,7 +65,6 @@ const PIN_KINDS = [
   ['prompts', 'prompt'],
   ['settings', 'setting'],
   ['agents', 'agent'],
-  ['flows', 'flow'],
 ] as const;
 
 /** A version's pins by kind: an agent's (`AgentPins`) or a flow's (`FlowPins`). */

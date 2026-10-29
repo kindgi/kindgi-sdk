@@ -17,7 +17,7 @@ import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
-import { type Flow, type FlowPins, flowRefs, flowSchemaProblems } from '@kindgi/flow';
+import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
 import {
   DEFAULT_CHECK_POINTS,
   GUARDRAIL_SPEC_KEYS,
@@ -76,14 +76,7 @@ import { environmentTakesPromotionsResponse, laterEnvironment } from '../environ
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
-import {
-  type FlowPinsLive,
-  type FlowPinsSubflows,
-  implicitSubflowVersion,
-  publishDeployedFlow,
-  resolveFlowPins,
-  unnamedSubflowIssues,
-} from '../flow-pins.js';
+import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
 import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
@@ -2700,7 +2693,7 @@ function unpinnableResponse(
     toWireError(
       {
         code: 'validation-failed',
-        message: `The deployment's agents or flows use tool, agent, block or sub-flow versions that can't be pinned (${issues.length} issue${issues.length === 1 ? '' : 's'}); nothing was deployed`,
+        message: `The deployment's agents or flows use tool, agent or block versions that aren't published (${issues.length} issue${issues.length === 1 ? '' : 's'}); nothing was deployed`,
         issues: issues as unknown as Record<string, unknown>[],
       },
       requestId,
@@ -2711,7 +2704,7 @@ function unpinnableResponse(
 /** A deploy whose agents or flows use a tool or agent with no published version in range. */
 class UnpinnableDeploy extends Error {
   constructor(readonly issues: readonly UnpinnableRef[]) {
-    super('the deployment uses tools, agents or sub-flows that can not be pinned');
+    super('the deployment uses tools or agents that are not published');
   }
 }
 
@@ -2843,20 +2836,10 @@ async function registerAgents(input: {
  * there, with `live`, else the latest (this deploy's, when it registered
  * one).
  *
- * A sub-flow step that names no version pins the newest version of its
- * flow the project reaches. A flow the deploy brings registers before
- * the flows that run it that way, so their pins see the version this
- * deploy registered, and a change cascades through a sub-flow into its
- * parent as it does through an agent. Flows of the deploy that run each
- * other that way have no such order, and are refused.
- *
- * With the tool and agent registries, every flow is pinned first, all
- * but its sub-flows from this deploy; one with something it can't pin
- * throws `UnpinnableDeploy` before any flow is written, and the deploy
- * rolls back. Without them, flows register unpinned, as before pins
- * existed, and a flow with a sub-flow step that names no version throws
- * `UnpinnableDeploy` first (`unnamedSubflowIssues`): nothing would fix its
- * child's version.
+ * With the tool and agent registries, every flow is pinned first; one
+ * that runs a tool or agent with no published version throws
+ * `UnpinnableDeploy` before any flow is written, and the deploy rolls
+ * back. Without them, flows register unpinned, as before pins existed.
  */
 async function registerFlows(input: {
   readonly flows: FlowRegistryBinding;
@@ -2870,7 +2853,7 @@ async function registerFlows(input: {
   readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
-  const { flows, tools, agents, live, referenceScope, tenantId, projectId, rolled } = input;
+  const { flows, tools, agents, live, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
@@ -2884,13 +2867,6 @@ async function registerFlows(input: {
     });
 
   if (tools === undefined || agents === undefined) {
-    const unnamed = input.defined.flatMap((flow, i) =>
-      unnamedSubflowIssues(flow).map((issue) => ({
-        path: `/flows/${i}${issue.path}`,
-        message: `flow "${flow.id as unknown as string}": ${issue.message}`,
-      })),
-    );
-    if (unnamed.length > 0) throw new UnpinnableDeploy(unnamed);
     for (const [index, flow] of input.defined.entries()) {
       const outcome = await flows.publish({ tenantId, projectId, flow, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.flowId, outcome.version as unknown as string);
@@ -2916,137 +2892,43 @@ async function registerFlows(input: {
     return input.defined.map(deployedPrimitive);
   }
 
-  const order = childrenFirst(input.defined);
-  if (order.kind === 'cycle') throw new UnpinnableDeploy([order.issue]);
-  const subflows: FlowPinsSubflows = {
-    flows,
-    ...(referenceScope !== undefined && { referenceScope }),
-    projectId,
-    deferred: new Set(input.defined.map((flow) => flow.id as unknown as string)),
-  };
   const pinsOf = await pinFlows(
     tools,
     agents,
     tenantId,
     input.defined,
     live !== undefined ? { binding: live, projectId } : undefined,
-    subflows,
   );
   const deployed: DeployedFlow[] = [];
-  for (const i of order.indices) {
-    const flow = input.defined[i] as Flow;
-    const pins = await withDeployedSubflows(subflows, tenantId, i, flow, pinsOf[i] as FlowPins);
+  for (const [i, flow] of input.defined.entries()) {
     const outcome = await publishDeployedFlow({
       flows,
       tenantId,
       projectId,
       flow,
-      pins,
+      pins: pinsOf[i] as FlowPins,
       enqueueTuples,
     });
     if (outcome.kind === 'registered' || outcome.kind === 'renumbered') {
       written(flow.id, outcome.version);
     }
-    deployed[i] = deployedVersion(flow, outcome);
+    deployed.push(deployedVersion(flow, outcome));
   }
   return deployed;
 }
 
-/**
- * The order to register a deploy's flows in: a flow after every flow of
- * the deploy it runs as a sub-flow at no named version (a named version
- * needs no order, and a flow running itself is `resolveFlowPins`'s to
- * refuse). Otherwise the deploy's own order. A cycle among them is
- * refused, naming it.
- */
-function childrenFirst(
-  defined: readonly Flow[],
-):
-  | { readonly kind: 'ok'; readonly indices: readonly number[] }
-  | { readonly kind: 'cycle'; readonly issue: UnpinnableRef } {
-  const at = new Map(defined.map((flow, i) => [flow.id as unknown as string, i]));
-  const children = defined.map((flow) =>
-    flowRefs(flow).flows.flatMap((id) => {
-      const child = at.get(id);
-      return child === undefined || id === (flow.id as unknown as string) ? [] : [child];
-    }),
-  );
-  const indices: number[] = [];
-  const state = new Map<number, 'visiting' | 'done'>();
-  const visit = (i: number, path: readonly number[]): readonly number[] | undefined => {
-    if (state.get(i) === 'done') return undefined;
-    if (state.get(i) === 'visiting') return [...path.slice(path.indexOf(i)), i];
-    state.set(i, 'visiting');
-    for (const child of children[i] ?? []) {
-      const cycle = visit(child, [...path, i]);
-      if (cycle !== undefined) return cycle;
-    }
-    state.set(i, 'done');
-    indices.push(i);
-    return undefined;
-  };
-  for (const i of defined.keys()) {
-    const cycle = visit(i, []);
-    if (cycle === undefined) continue;
-    const names = cycle.map((k) => `"${defined[k]?.id as unknown as string}"`).join(' → ');
-    return {
-      kind: 'cycle',
-      issue: {
-        path: `/flows/${cycle[0]}`,
-        message: `flows ${names} run each other as sub-flows with no version, so neither can be pinned first; name the version in one of them`,
-      },
-    };
-  }
-  return { kind: 'ok', indices };
-}
-
-/**
- * Flow `i`'s pins with its sub-flows from this deploy pinned, now that
- * the deploy has registered them (`childrenFirst`): the newest version of
- * each the project reaches, as at any publish. One the deploy registered
- * is reached, so this throws `UnpinnableDeploy` only when the registry
- * says otherwise.
- */
-async function withDeployedSubflows(
-  subflows: FlowPinsSubflows,
-  tenantId: TenantId,
-  i: number,
-  flow: Flow,
-  pins: FlowPins,
-): Promise<FlowPins> {
-  const own = flowRefs(flow).flows.filter(
-    (id) => subflows.deferred?.has(id) === true && id !== (flow.id as unknown as string),
-  );
-  if (own.length === 0) return pins;
-  const pinned: Record<string, string> = { ...(pins.flows ?? {}) };
-  for (const id of own) {
-    const version = await implicitSubflowVersion(subflows, tenantId, id);
-    if (version === undefined) {
-      throw new UnpinnableDeploy([
-        {
-          path: `/flows/${i}/nodes`,
-          message: `flow "${flow.id as unknown as string}": flow "${id}" has no published version this project runs; publish it first`,
-        },
-      ]);
-    }
-    pinned[id] = version;
-  }
-  return { ...pins, flows: pinned };
-}
-
-/** Each flow's pins, in order, all but its sub-flows from this deploy; throws `UnpinnableDeploy` naming everything it can't pin. */
+/** Each flow's pins, in order; throws `UnpinnableDeploy` naming every tool or agent with no published version. */
 async function pinFlows(
   tools: ToolRegistryBinding,
   agents: AgentRegistryBinding,
   tenantId: TenantId,
   defined: readonly Flow[],
   live: FlowPinsLive | undefined,
-  subflows: FlowPinsSubflows,
 ): Promise<FlowPins[]> {
   const pins: FlowPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
   for (const [i, flow] of defined.entries()) {
-    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live, subflows);
+    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live);
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
       continue;

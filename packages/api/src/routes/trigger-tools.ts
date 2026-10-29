@@ -3,14 +3,7 @@
 
 import type { Agent } from '@kindgi/agents';
 import { emitAuditEvent } from '@kindgi/compliance';
-import {
-  type Flow,
-  type FlowNode,
-  isFanoutNode,
-  isLoopNode,
-  isSubflowNode,
-  subflowVersion,
-} from '@kindgi/flow';
+import { type Flow, type FlowNode, isFanoutNode, isLoopNode, isSubflowNode } from '@kindgi/flow';
 import type { AgentId, FlowId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
@@ -127,7 +120,7 @@ export async function toolsTargetCanCall(
   const pending: Flow[] = [root];
   while (pending.length > 0) {
     const flow = pending.shift() as Flow;
-    for (const leaf of leaves(flow)) {
+    for (const leaf of leaves(flow.nodes)) {
       const sub = await visitLeaf(deps, tenantId, flow, leaf, walk);
       if (sub !== undefined) pending.push(sub);
     }
@@ -159,9 +152,6 @@ async function visitLeaf(
     for (const id of agent === undefined ? [] : agentToolIds(agent)) walk.tools.add(id);
     return undefined;
   }
-  // A step with no version runs the one the flow version pins; with
-  // neither, a run refuses it, so it calls nothing.
-  if (leaf.version === undefined) return undefined;
   const key = `${leaf.id}@${leaf.version}`;
   if (walk.seen.has(key) || walk.seen.size >= MAX_FLOWS) return undefined;
   walk.seen.add(key);
@@ -171,22 +161,17 @@ async function visitLeaf(
 type Leaf =
   | { readonly kind: 'tool'; readonly id: string }
   | { readonly kind: 'agent'; readonly id: string; readonly version?: string }
-  | { readonly kind: 'subflow'; readonly id: string; readonly version?: string };
+  | { readonly kind: 'subflow'; readonly id: string; readonly version: string };
 
-/** A flow's tools, agents and subflows (at the version each runs), in loop bodies too. */
-function leaves(flow: Flow, nodes: readonly FlowNode[] = flow.nodes): Leaf[] {
+/** A flow's tools, agents and subflows, in loop bodies too. */
+function leaves(nodes: readonly FlowNode[]): Leaf[] {
   const found: Leaf[] = [];
   for (const node of nodes) {
-    if (isLoopNode(node)) found.push(...leaves(flow, node.body.nodes));
+    if (isLoopNode(node)) found.push(...leaves(node.body.nodes));
     else if (isFanoutNode(node)) {
       for (const branch of node.branches) found.push({ kind: 'tool', id: branch.handler });
     } else if (isSubflowNode(node)) {
-      const version = subflowVersion(flow, node);
-      found.push({
-        kind: 'subflow',
-        id: node.flowRef.flowId,
-        ...(version !== undefined && { version }),
-      });
+      found.push({ kind: 'subflow', id: node.flowRef.flowId, version: node.flowRef.version });
     } else if (node.kind === 'tool') found.push({ kind: 'tool', id: node.ref });
     else {
       const version = node.config?.version;

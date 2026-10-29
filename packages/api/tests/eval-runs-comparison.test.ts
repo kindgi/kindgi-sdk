@@ -232,16 +232,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
       { id: 'look', kind: 'tool', ref: 'acme.lookup' },
       { id: 'draft', kind: 'agent', ref: 'acme.drafter' },
       { id: 'check', kind: 'agent', ref: 'acme.checker', config: { version: '0.1.0' } },
-      { id: 'grade', kind: 'subgraph', flowRef: { flowId: 'acme.grading' } },
     ],
-    edges: [],
-    pins: { tools: {}, agents: {}, flows: { 'acme.grading': '1.0.0' } },
-  };
-  // The sub-flow the flow version runs: what a run's versions reach too.
-  const grading = {
-    id: 'acme.grading',
-    version: '1.0.0',
-    nodes: [{ id: 'grade', kind: 'tool', ref: 'acme.grader' }],
     edges: [],
   };
   const agentVersions: Record<string, { unregisteredAt?: string }> = {
@@ -299,7 +290,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
       evalRunBinding: binding,
       flowRegistry: {
         getVersion: async ({ flowId, version }: { flowId: string; version: string }) =>
-          [flow, grading].find((f) => f.id === flowId && f.version === version) ?? null,
+          flowId === flow.id && version === flow.version ? flow : null,
       } as unknown as FlowRegistryBinding,
       agentRegistry: {
         getVersion: async ({ agentId, version }: { agentId: string; version: string }) => {
@@ -309,9 +300,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
       } as unknown as AgentRegistryBinding,
       toolRegistry: {
         getVersion: async ({ toolId, version }: { toolId: string; version: string }) =>
-          ['acme.lookup', 'acme.grader'].includes(toolId) && version === '2.0.0'
-            ? { id: toolId, version }
-            : null,
+          toolId === 'acme.lookup' && version === '2.0.0' ? { id: toolId, version } : null,
       } as unknown as ToolRegistryBinding,
     });
     const start = (body: Record<string, unknown>) =>
@@ -346,16 +335,6 @@ describe('a flow candidate with some of its agents or tools at other versions', 
       version: '1.0.0',
       versions,
     });
-  });
-
-  test('a tool only its sub-flow runs can be run at another version too', async () => {
-    const { binding, start, invoked } = await setupFlow();
-    const versions = { tools: { 'acme.grader': '2.0.0' } };
-    const res = await start({ versions });
-    expect(res.status, JSON.stringify(await res.clone().json())).toBe(201);
-    const { runId } = (await res.json()) as { runId: string };
-    await settled(binding, runId);
-    expect(invoked[0]?.versions).toEqual(versions);
   });
 
   test('without them, a flow replay is the flow version as published', async () => {

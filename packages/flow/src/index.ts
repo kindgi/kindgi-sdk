@@ -75,21 +75,8 @@ export type {
 
 export { GRAPH_SCHEMA_URI, flowSchemaProblems, loadFlow } from './loader.js';
 export type { FlowSchemaProblem } from './loader.js';
-export {
-  flowPinsDigest,
-  flowRefs,
-  overridableRefs,
-  overridableTreeRefs,
-  subflowVersion,
-  withVersions,
-} from './pins.js';
-export type {
-  FlowPins,
-  FlowRefs,
-  FlowVersionOverrides,
-  OverridableRefs,
-  SubflowReader,
-} from './pins.js';
+export { flowPinsDigest, flowRefs, overridableRefs, withVersions } from './pins.js';
+export type { FlowPins, FlowRefs, FlowVersionOverrides } from './pins.js';
 
 export { defineFlow } from './define.js';
 export type { FlowSpec } from './define.js';
