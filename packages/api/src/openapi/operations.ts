@@ -100,7 +100,7 @@ const IdempotencyKeyParam: ParameterSpec = {
   in: 'header',
   required: false,
   description:
-    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5).",
+    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0).",
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -807,6 +807,15 @@ const ProvenanceAgentIdQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const ProvenanceFlowIdQueryParam: ParameterSpec = {
+  name: 'flowId',
+  in: 'query',
+  required: false,
+  description:
+    "Only the records of this flow's runs, at any version (`flowRef.id`, exact match). An agent's turns aren't matched: use `agentId` for those.",
+  schema: { type: 'string', minLength: 1 },
+};
+
 const ProvenanceCreatedAfterQueryParam: ParameterSpec = {
   name: 'createdAfter',
   in: 'query',
@@ -1051,6 +1060,14 @@ const TriggerIdPathParam: ParameterSpec = {
   required: true,
   description: 'TriggerId — the trigger id (a UUID).',
   schema: { type: 'string', format: 'uuid' },
+};
+
+const TriggerVersionPathParam: ParameterSpec = {
+  name: 'version',
+  in: 'path',
+  required: true,
+  description: "The version's number: 1 for the trigger's first, one more for each after.",
+  schema: { type: 'integer', minimum: 1 },
 };
 
 const WebhookEndpointIdPathParam: ParameterSpec = {
@@ -1519,7 +1536,11 @@ const TenantAdminErrors: Readonly<Record<string, ResponseSpec>> = {
   '403': ErrorResponse(`Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN}`),
 };
 
-/** A secrets store's external provider (the router's), answering a read or a write: each at its own status. */
+/**
+ * A secrets store's external provider (the router's), answering a read or a
+ * write: each at its own status. Each operation that spreads it is a write
+ * that takes an `Idempotency-Key`, so its 503 names that store's too.
+ */
 const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
   '429': ErrorResponse(
     "`secret-provider-rate-limited`: the secrets store's external provider is limiting the runtime's requests.",
@@ -1528,7 +1549,7 @@ const SecretProviderErrors: Readonly<Record<string, ResponseSpec>> = {
     "`secret-provider-unauthorized`: the secrets store's external provider refused the runtime's credentials.",
   ),
   '503': ErrorResponse(
-    "`secret-provider-unavailable`: the secrets store's external provider can't be reached.",
+    "`secret-provider-unavailable`: the secrets store's external provider can't be reached. `idempotency-store-unavailable` (with `Retry-After`): the `Idempotency-Key` store couldn't be read before the request ran, so nothing was changed.",
   ),
 };
 
@@ -1562,6 +1583,46 @@ function conflictOrEnvNotServed(text: string): ResponseSpec {
 const ProviderChangeRefused: ResponseSpec = ErrorResponse(
   `Not a tenant admin (\`permission-denied\`). ${WITHOUT_STORE_ADMIN} Or this deployment's operator manages sign-in (\`identity-providers-operator-managed\`, \`KINDGI_AUTH_TENANT_PROVIDERS=off\`): only the deployment's own token can change its providers.`,
 );
+
+/**
+ * Reads that never reach the storage backend, so they can't answer
+ * `503 database-busy`: the liveness probe (`GET /health`) and the spec
+ * document (`GET /v1/openapi.json`). Every other served `GET`/`HEAD`
+ * declares the shared 503 — see `buildOperation` in `generate.ts`.
+ */
+export const READS_WITHOUT_STORAGE: ReadonlySet<string> = new Set([
+  'system.health',
+  'system.openapi',
+]);
+
+/**
+ * Whether a served operation can answer `503 database-busy`: a `GET` or
+ * `HEAD` that isn't one of the storage-free reads. The spec generator
+ * injects the 503 for these (unless the operation declares a 503 of its
+ * own), and a test holds every one of them to it, so a new read can't miss
+ * it.
+ */
+export function answersDatabaseBusy(op: OperationSpec): boolean {
+  return (
+    (op.method === 'get' || op.method === 'head') && !READS_WITHOUT_STORAGE.has(op.operationId)
+  );
+}
+
+/**
+ * Whether a served operation can answer `503 idempotency-store-unavailable`:
+ * a write that takes an `Idempotency-Key`, which `idempotencyMiddleware`
+ * answers so when the key's store fails before the write runs. The spec
+ * generator injects the 503 for these (unless the operation declares a 503
+ * of its own, which then names it too), and a test holds every one of them
+ * to it.
+ */
+export function answersIdempotencyStoreUnavailable(op: OperationSpec): boolean {
+  return (
+    op.method !== 'get' &&
+    op.method !== 'head' &&
+    (op.parameters ?? []).some((p) => p.in === 'header' && p.name === IdempotencyKeyParam.name)
+  );
+}
 
 /** Adding or changing a provider: the usual conflicts, or a deployment without a secrets store. */
 function providerChangeConflict(text: string): ResponseSpec {
@@ -1633,6 +1694,180 @@ function usageQueryParams(groupBy: string): ParameterSpec[] {
       required: false,
       description: "The previous page's `nextCursor`.",
       schema: { type: 'string' },
+    },
+  ];
+}
+
+// ---------------- pinned versions (flows, tools) ----------------
+
+const PinProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description:
+    "The project to resolve for; omit → only the org's pin (with `orgId`) and the tenant-wide pin apply.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const PinOrgQueryParam: ParameterSpec = {
+  name: 'orgId',
+  in: 'query',
+  required: false,
+  description:
+    "The project's org, when it has one. A runtime may look it up from `projectId` itself.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+/** What the pin operations say about one kind of item. */
+interface PinKindSpec {
+  /** `flow` or `tool`: the error codes' prefix, and the noun in the text. */
+  readonly noun: string;
+  readonly tag: string;
+  readonly idParam: ParameterSpec;
+  /** `/v1/flows/{flowId}` */
+  readonly openapiBase: string;
+  /** `/v1/flows/:flowId` */
+  readonly honoBase: string;
+  /** What a pin does, in a sentence. */
+  readonly acts: string;
+  /** What `…/pinned` answers when no pin covers. */
+  readonly latest: string;
+  /** The pin write's own 400s and 409s, after the shared ones. */
+  readonly pin400: string;
+  readonly pin409: string;
+}
+
+const FLOW_PINS: PinKindSpec = {
+  noun: 'flow',
+  tag: 'flows',
+  idParam: FlowIdPathParam,
+  openapiBase: '/v1/flows/{flowId}',
+  honoBase: '/v1/flows/:flowId',
+  acts: "A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version.",
+  latest:
+    "else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over.",
+  pin400: '',
+  pin409: '',
+};
+
+const TOOL_PINS: PinKindSpec = {
+  noun: 'tool',
+  tag: 'tools',
+  idParam: ToolIdPathParam,
+  openapiBase: '/v1/tools/{toolId}',
+  honoBase: '/v1/tools/:toolId',
+  acts: "An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version.",
+  latest:
+    'else the newest active version, the one a flow version made now would lock its tool step to.',
+  pin400:
+    " Or `tool-not-pinnable`: the tool follows its server (an MCP endpoint's catalog lists it; its metadata has the catalog's `kindgi.mcp` key) or the runtime (a tool the runtime ships), so a pin couldn't keep it still; reference it with a range.",
+  pin409:
+    " Or `environment-takes-promotions`: the project is a later environment of an environment order, where no agent or flow version is made, so a pin there would never act; pin the tool in the order's first environment (`details.firstProjectId`).",
+};
+
+/** The five pin operations of a flow or a tool (`routes/pinned-versions.ts`). */
+function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
+  const { noun, tag, idParam } = kind;
+  const notFound = `\`${noun}-not-found\`: no ${noun} with that id, or the version isn't registered or was unregistered.`;
+  const readOnly =
+    " Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.";
+  return [
+    {
+      method: 'get',
+      honoPath: `${kind.honoBase}/pinned`,
+      openapiPath: `${kind.openapiBase}/pinned`,
+      operationId: `${tag}.pinned.resolve`,
+      summary: 'The version in use for a project',
+      description: `Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, ${kind.latest} \`via\` says which; \`pinnedScope\` names the pin that matched.`,
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, PinProjectQueryParam, PinOrgQueryParam],
+      responses: {
+        '200': { description: 'The version in use.', schema: ref('PinnedVersionResolution') },
+        ...CommonAuthErrors,
+        '400': ErrorResponse('A malformed project or org id.'),
+        '404': ErrorResponse(
+          `\`${noun}-not-found\`: no ${noun} with that id, or no version of it for that project.`,
+        ),
+      },
+    },
+    {
+      method: 'get',
+      honoPath: `${kind.honoBase}/pinned-versions`,
+      openapiPath: `${kind.openapiBase}/pinned-versions`,
+      operationId: `${tag}.pinned.list`,
+      summary: `List a ${noun}'s pinned versions`,
+      description: 'Every scope with a version pinned, and the change that set it.',
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam],
+      responses: {
+        '200': { description: 'The pins.', schema: ref('PinnedVersionList') },
+        ...CommonAuthErrors,
+      },
+    },
+    {
+      method: 'post',
+      honoPath: `${kind.honoBase}/pinned/pin`,
+      openapiPath: `${kind.openapiBase}/pinned/pin`,
+      operationId: `${tag}.pinned.pin`,
+      summary: 'Pin a version for a scope',
+      description: `Pins \`version\` for \`scope\` (the tenant, an org or a project), or moves the scope's pin to it. ${kind.acts} The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs \`pin\` on the ${noun}.`,
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, IdempotencyKeyParam],
+      requestBody: { required: true, schema: ref('PinVersionBody') },
+      responses: {
+        '200': { description: 'Pinned.', schema: ref('PinnedVersionChange') },
+        ...CommonMutationErrors,
+        '400': ErrorResponse(
+          `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or tenant. Or \`reference-out-of-scope\`: a project scope whose project doesn't reach the ${noun === 'flow' ? 'version' : noun} (\`details.issues\`).${kind.pin400}`,
+        ),
+        '404': ErrorResponse(notFound),
+        '409': ErrorResponse(
+          `Idempotency-Key was reused with a different body. Or \`pin-scope-spans-environments\`: the ${noun} has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin it per project instead.${kind.pin409}${readOnly}`,
+        ),
+        '410': ErrorResponse(`\`${noun}-gone\`: the ${noun} has no active version left.`),
+      },
+    },
+    {
+      method: 'post',
+      honoPath: `${kind.honoBase}/pinned/unpin`,
+      openapiPath: `${kind.openapiBase}/pinned/unpin`,
+      operationId: `${tag}.pinned.unpin`,
+      summary: "Remove a scope's pin",
+      description: `Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs \`pin\` on the ${noun}.`,
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, IdempotencyKeyParam],
+      requestBody: { required: true, schema: ref('UnpinVersionBody') },
+      responses: {
+        '200': { description: 'Unpinned.', schema: ref('PinnedVersionChange') },
+        ...CommonMutationErrors,
+        '400': ErrorResponse(
+          `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or tenant.`,
+        ),
+        '404': ErrorResponse(`\`${noun}-not-found\`: no ${noun} with that id.`),
+        '409': ErrorResponse(
+          `Idempotency-Key was reused with a different body. Or \`not-pinned\`: the scope has no pin of its own.${readOnly}`,
+        ),
+      },
+    },
+    {
+      method: 'get',
+      honoPath: `${kind.honoBase}/pin-history`,
+      openapiPath: `${kind.openapiBase}/pin-history`,
+      operationId: `${tag}.pinned.history`,
+      summary: `List a ${noun}'s pin changes`,
+      description:
+        'Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.',
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, LimitQueryParam, CursorQueryParam],
+      responses: {
+        '200': { description: 'Page of pin changes.', schema: ref('PinnedVersionChangePage') },
+        ...CommonAuthErrors,
+      },
     },
   ];
 }
@@ -2188,7 +2423,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts.",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts. Or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`), so nothing was changed.",
       ),
     },
   },
@@ -2242,7 +2477,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2275,7 +2510,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Another tenant has the slug, or a create whose setup is pending holds it with another request (`tenant-slug-taken`); or its image prefix overlaps another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body; or that key's replay, when the first answer held the admin key (`idempotency-key-replay-withheld`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2361,7 +2596,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Another tenant has the slug (`tenant-slug-taken`); the server's verified sign-in domains name the tenant by its current slug, or name the new one (`tenant-slug-in-config`); the tenant is closing (`tenant-closing`); its setup hasn't finished (`tenant-setup-pending`); or an Idempotency-Key reused with another body.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2393,7 +2628,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2429,7 +2664,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2466,7 +2701,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The tenant is closing (`tenant-closing`); the prefix equals, holds or sits inside another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2512,7 +2747,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2588,7 +2823,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Deleting the tenant's authorization store failed (`authz-store-delete-failed`): the message says what that left. Run it again.",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2839,7 +3074,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The host isn't allowed (`endpoint-host-not-allowed`) or doesn't name the deployment's service (`endpoint-name-mismatch`, with `details.expected`); the pack service didn't answer (`endpoint-unreachable`) or answered as another pack or version (`endpoint-info-mismatch`, with `details.differs`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2897,7 +3132,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`). Or, with `secrets=values`, it has nowhere to audit a secret given out, so it gives none (`pack-env-secrets-unaudited`).",
       ),
       '503': ErrorResponse(
-        "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`).",
+        "With `secrets=values`: the secret store is out, a secret changed while it was read, twice, or the secrets' audit rows weren't written. Nothing is given: try again (`pack-env-unavailable`). Or the database was too busy to answer in time (`database-busy`, with `Retry-After`).",
       ),
     },
   },
@@ -2933,7 +3168,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The server doesn't give a pack service its declared env: its pack services take theirs from how they're run (`pack-env-unsupported`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2961,7 +3196,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -2994,7 +3229,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The deployment's endpoint isn't waiting for a pack service: `ready`, or `cleared` and not `waiting` (`endpoint-not-pending`, with `details.status`).",
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -3024,7 +3259,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.',
       ),
       '503': ErrorResponse(
-        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -4007,7 +4242,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterFlowResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `flow-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
     },
@@ -4035,6 +4270,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
     },
   },
+  ...pinnedVersionOperations(FLOW_PINS),
 
   // ---------- tools ----------
   {
@@ -4153,7 +4389,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterToolResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse('No tool at that (id, version) under this tenant.'),
     },
@@ -4181,6 +4417,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+
+  ...pinnedVersionOperations(TOOL_PINS),
 
   // ---------- guardrails ----------
   {
@@ -4229,7 +4467,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'guardrails.outcomes',
     summary: "What a guardrail's checks came to in a project",
     description:
-      "Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.",
+      "Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back; or a `retry` sent it back for a new one), `blocked` (a `halt` failed the turn, or a `retry` whose attempts had run out) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. A check is counted per answer it judged: a guardrail judges a turn's final answer, and, in a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.",
     tags: ['guardrails'],
     security: 'bearer',
     parameters: [
@@ -5083,7 +5321,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'provenance.list',
     summary: 'List provenance records',
     description:
-      "Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).",
+      "Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?flowId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).",
     tags: ['provenance'],
     security: 'bearer',
     parameters: [
@@ -5093,6 +5331,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeIdQueryParam,
       ProvenanceRunIdQueryParam,
       ProvenanceAgentIdQueryParam,
+      ProvenanceFlowIdQueryParam,
       ProvenanceCreatedAfterQueryParam,
     ],
     responses: {
@@ -5108,14 +5347,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'provenance.get',
     summary: 'Fetch the full provenance DAG for a run',
     description:
-      'Returns the full DAG (nodes + edges) plus record metadata. 404 when no provenance was emitted for the run (e.g. the deployment does not run the emitter, or the run was pre-provenance).',
+      "Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. From the run's end until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a run still running, a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.",
     tags: ['provenance'],
     security: 'bearer',
     parameters: [RunIdPathParam],
     responses: {
       '200': { description: 'Full provenance record.', schema: ref('ProvenanceRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No provenance record for that run under this tenant.'),
+      '404': ErrorResponse(
+        'No provenance record for that run under this tenant (`provenance-not-found`; `error.details.recordState` says when it is still being written, or failed).',
+      ),
     },
   },
   {
@@ -5125,7 +5366,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'license.get',
     summary: "Where the deployment's license key stands",
     description:
-      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
+      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.",
     tags: ['system'],
     security: 'bearer',
     responses: {
@@ -5134,6 +5375,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "Not the deployment's own token, a system key holding `system:license`, or an admin of the one tenant it serves (`license-operator-only`). On a runtime serving one tenant, a system key holding anything but `system:license` (`system-key-scope-not-served`).",
       ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/runtime',
+    openapiPath: '/v1/runtime',
+    operationId: 'runtime.get',
+    summary: 'Which runtime answers',
+    description:
+      "Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.",
+    tags: ['system'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'Which runtime answers.', schema: ref('RuntimeInfo') },
+      ...CommonAuthErrors,
     },
   },
   {
@@ -5493,7 +5749,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'providers.check',
     summary: "Check a provider's registration",
     description:
-      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.",
+      "Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `warnings` lists the `adapter_config` keys its adapter doesn't take: the runtime builds it without reading them. `checked` is false when this runtime has no check for the provider's adapter and the adapter declares no keys.",
     tags: ['providers'],
     security: 'bearer',
     parameters: [ProviderIdPathParam],
@@ -7414,7 +7670,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.me.permissions',
     summary: 'What I may do',
     description:
-      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
+      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Whether the deployment's license is held back from the caller whatever its role (`licenseOperatorOnly`), so a console doesn't ask `GET /v1/license`. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
     tags: ['identity'],
     security: 'bearer',
     responses: {
@@ -7424,7 +7680,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The runtime has no authorization store (`permissions-unsupported`): read whoami instead.',
       ),
       '503': ErrorResponse(
-        "The authorization store couldn't be read (`authz-backend-unavailable`): try again.",
+        "The authorization store couldn't be read (`authz-backend-unavailable`), or the database was too busy to answer in time (`database-busy`, with `Retry-After`): try again.",
       ),
     },
   },
@@ -9244,6 +9500,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/pinned-versions',
+    openapiPath: '/v1/projects/{projectId}/pinned-versions',
+    operationId: 'projects.pinnedVersions.list',
+    summary: 'List the pinned versions that cover a project',
+    description:
+      "Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of pinned versions.',
+        schema: ref('ProjectPinnedVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('A malformed project id or cursor.'),
+      '404': ErrorResponse('No project with that id under this tenant.'),
+      '501': ErrorResponse(
+        "The runtime can't list a project's pinned versions (`pinned-versions-not-supported`).",
+      ),
+    },
+  },
+  {
     method: 'put',
     honoPath: '/v1/projects/:projectId/production',
     openapiPath: '/v1/projects/{projectId}/production',
@@ -10151,7 +10431,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.update',
     summary: 'Update a cron schedule',
     description:
-      "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.",
+      "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10243,6 +10523,41 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/versions',
+    openapiPath: '/v1/schedules/{triggerId}/versions',
+    operationId: 'schedules.listVersions',
+    summary: "A schedule's versions",
+    description:
+      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.",
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of versions, newest first.', schema: ref('ScheduleVersionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/versions/:version',
+    openapiPath: '/v1/schedules/{triggerId}/versions/{version}',
+    operationId: 'schedules.getVersion',
+    summary: 'Fetch one version of a schedule',
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('ScheduleVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No cron trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/schedules/:triggerId/run-now',
     openapiPath: '/v1/schedules/{triggerId}/run-now',
@@ -10271,7 +10586,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.takeOwnership',
     summary: 'Take over a schedule',
     description:
-      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+      "The caller becomes the schedule's owner, so its runs act as the caller from the next run that starts. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`, naming the schedule's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10409,6 +10724,46 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
     },
   },
+  {
+    method: 'get',
+    honoPath: '/v1/event-triggers/:triggerId/versions',
+    openapiPath: '/v1/event-triggers/{triggerId}/versions',
+    operationId: 'eventTriggers.listVersions',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    summary: "An event trigger's versions",
+    description:
+      "Newest first: each version of the event trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next: a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). An event trigger from before versions has none until its next change or its first fire. The versions keep every input the event trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the event trigger can read its versions.",
+    tags: ['event-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('EventTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No event trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/event-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/event-triggers/{triggerId}/versions/{version}',
+    operationId: 'eventTriggers.getVersion',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    summary: 'Fetch one version of an event trigger',
+    tags: ['event-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('EventTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No event trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
 
   // ---------- webhooks (trigger surface) ----------
   {
@@ -10489,7 +10844,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.update',
     summary: 'Update a webhook trigger',
     description:
-      "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after), never their values.",
+      "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after) and the trigger's version after it, never their values.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10578,13 +10933,51 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/webhooks/:triggerId/versions',
+    openapiPath: '/v1/webhooks/{triggerId}/versions',
+    operationId: 'webhooks.listVersions',
+    summary: "A webhook trigger's versions",
+    description:
+      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.",
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('WebhookTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No webhook trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/webhooks/:triggerId/versions/:version',
+    openapiPath: '/v1/webhooks/{triggerId}/versions/{version}',
+    operationId: 'webhooks.getVersion',
+    summary: 'Fetch one version of a webhook trigger',
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('WebhookTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No webhook trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/webhooks/:triggerId/owner',
     openapiPath: '/v1/webhooks/{triggerId}/owner',
     operationId: 'webhooks.takeOwnership',
     summary: 'Take over a webhook trigger',
     description:
-      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`, naming the trigger's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10686,7 +11079,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.update',
     summary: 'Update a mail trigger',
     description:
-      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
+      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10770,6 +11163,44 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No mail trigger with that id.'),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no fire history.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId/versions',
+    openapiPath: '/v1/mail-triggers/{triggerId}/versions',
+    operationId: 'mailTriggers.listVersions',
+    summary: "A mail trigger's versions",
+    description:
+      "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('MailTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No mail trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/mail-triggers/{triggerId}/versions/{version}',
+    operationId: 'mailTriggers.getVersion',
+    summary: 'Fetch one version of a mail trigger',
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('MailTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No mail trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
@@ -11358,7 +11789,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The app wouldn't give a token for the code: its client id, secret or redirect URL (`connection-app-refused`).",
       ),
       '503': ErrorResponse(
-        "The connection couldn't be stored just now (`connection-store-failed`).",
+        "The connection couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },
@@ -11447,7 +11878,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "No connection with that id, or not the caller's (`connection-not-found`).",
       ),
-      '503': ErrorResponse("The removal couldn't be stored just now (`connection-store-failed`)."),
+      '503': ErrorResponse(
+        "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
     },
   },
   {

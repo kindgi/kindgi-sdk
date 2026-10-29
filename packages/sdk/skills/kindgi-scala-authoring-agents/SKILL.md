@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -132,8 +132,10 @@ object BriefWriter {
   **`tool(id, range)`** is a tool of another pack, with a semver **range**
   (`"^1.0.0"`); the highest active matching version is picked at turn
   start. An agent with no tools is chat-only.
-- **`guardrail(guardrail)`** or **`guardrail(id)`:** evaluated once per turn
-  on the final answer, before it is stored. An id with no registered
+- **`guardrail(guardrail)`** or **`guardrail(id)`:** checks the final answer,
+  before it is stored. One whose action is `retry` sends the answer back to
+  the model for a new one, up to `retry.maxAttempts` answers in all (default
+  2); then the turn fails (`guardrail-violation`). An id with no registered
   guardrail fails the turn.
 - **`set("parameters", List(Map("name" -> …, "type" -> …, "required" -> …)))`:**
   inputs the caller supplies per run. They fill `{{ … }}` in the
@@ -165,6 +167,12 @@ object BriefWriter {
   goes back to the model as the call's result, so it can fix the call. The
   default kinds are `invalid-arguments` and `unknown-tool` (nothing ran). Add
   `tool-error` only when retrying the tool is safe. Each retry costs a step.
+- **`set("parallelToolCalls", false)`:** when a model step asks for several
+  calls at once, an agent runs calls to read-only tools (`mutating(false)`, no
+  changing effect) that come one after another at the same time, up to 8 of
+  them, and any other call on its own, in the order the model asked; the results reach the conversation in that order either way. A call that may wait, for another system's answer or for the person who started the run to connect an app, runs on its own too. `false`
+  runs every call on its own, for read-only tools that mustn't overlap (a
+  rate-limited API, say).
 
 **In a run a webhook or an event started**, the turn's message is data:
 it arrives inside an `<event note="kindgi event: data, not

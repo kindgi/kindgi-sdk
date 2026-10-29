@@ -350,7 +350,7 @@ server_secret_env = {
   - **A key of the tenant** for anything that deploys or calls with `$N-api-token`: after the switch, that token no longer reaches the tenant.
   - **Its deployments' services:** the switch removes the one pack service, so each deployment needs a service and a recorded endpoint of its own, as any tenant's does.
   - Then, in one apply: `tenancy = "multi"`, without `seed_tenant_id`, `seed_user_id` and `pack_image`, with the settings above.
-- **After an upgrade that adds a step per tenant,** `kindgi-runtime tenants repair --all` has to run once: a server serving many tenants sets nothing up per tenant at boot. This module runs no such job.
+- **After an upgrade that adds a step per tenant,** `kindgi-runtime tenants repair --all` has to run once: a server serving many tenants sets nothing up per tenant at boot. This module runs no such job. It also takes away access a tenant's record doesn't back (runtime 0.3.0 or later): it finishes a removal that stopped part way, and revokes a service account's admin, membership or project role that its grants don't give. And it takes away the access an older runtime gave `00000000-0000-0000-0000-000000000000`, the id it named as the creator of what a key with no person behind it made; no person has that id. `--dry-run` shows what it would put back and take away, per tenant, and changes nothing.
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would seed a new tenant at every start, so upgrade the runtime first.
 - **`"single"`** sets no `KINDGI_TENANCY` and keeps the pack service: a deployment that keeps it plans no change (`moved.tf` gives the pack service, its account and the server's invoker grant their new addresses).
 
@@ -364,6 +364,7 @@ server_secret_env = {
 - **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
 - **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`). Its own calls to it are billed to the caller's project, but another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it on, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
 - **The instance gets a backstop for sessions left idle in a transaction** (`database_idle_in_transaction_timeout_ms`, 10 minutes by default; 0 turns it off). A deployment made with an earlier copy of the module gets it at its next apply: one flag added to the instance, changed in place. Cloud SQL lists `idle_in_transaction_session_timeout` as a flag that needs no restart ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
+- **The instance gets Google's deletion protection** (`settings.deletion_protection_enabled`) from `database_deletion_protection`, true by default, beside Terraform's own. Until now the variable set only Terraform's, which a delete from the console, gcloud or the Cloud SQL API ignores. A deployment made with an earlier copy of the module gets it at its next apply. Its plan shows the instance updated in place. Google lists the setting as changeable after creation and names no restart for it ([Cloud SQL: instance settings](https://docs.cloud.google.com/sql/docs/postgres/instance-settings)). If the plan says the instance `must be replaced`, stop: a replace deletes the database. With `database_deletion_protection = false`, Google's protection stays off.
 - **By hand**, for any deployment (and for `network_mode = "direct"` or `"connector"` with an `upgrade.sh` from before the `@kindgi/sdk@0.3.0` tag, which takes `"none"` only): staging first, with `gcloud` set to the deployment's project (`gcloud config set project <project_id>`). Copy the new image by digest (step 2), run the new version's checks as a Cloud Run job that reaches the database, back the database up, set `server_image` (and `pack_image`), `(umask 077 && terraform plan -var-file=<env>.tfvars -out=upgrade.tfplan)` (the plan holds your variables' values, secret ones too), read it, `terraform apply upgrade.tfplan`, delete the plan, and check the new revision serves. The steps, the commands and the way back: [Upgrade by hand](https://docs.kindgi.com/deploy/self-hosted/cloud-run/#upgrade-by-hand).
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
@@ -401,7 +402,11 @@ With `database_host_instance` set there is no instance of the module's own, so a
    gcloud sql instances clone $S $R --point-in-time='<yyyy-mm-ddThh:mm:ss.000Z>'
    ```
 
-   It needs a public IP, as the module's own has. The plan refuses an instance without one.
+   It needs a public IP, as the module's own has. The plan refuses an instance without one. The module doesn't manage this instance, so its deletion protection is yours to turn on, as the module does for its own. Do it before the instance serves:
+
+   ```sh
+   gcloud sql instances patch $R --deletion-protection
+   ```
 2. **Its URL, in a secret of its own,** with a new password for the database user. The restored user has the old one. The password goes through the Cloud SQL Admin API (`users.update`), as in "3. Secret values": the body on stdin and the token in a header from a pipe, never in a command's arguments. Each step runs only if the one before it worked.
 
    ```sh
@@ -463,5 +468,5 @@ terraform destroy -var-file=dev.tfvars
 gcloud kms keys versions destroy 1 --key=$N-secrets --keyring=$N --location=<region>   # scheduled, 30 days
 ```
 
-- Set `database_deletion_protection = false` first, for the instance to go.
+- Set `database_deletion_protection = false` and apply first, for the instance to go. The apply turns off Google's deletion protection, which would refuse the delete, and writes Terraform's own to its state.
 - In the `direct` shape the subnet can't be deleted until Cloud Run releases its `serverless-ipv4-cloudrun-*` addresses, some time after the services are gone (about 3 hours in our run). Run `terraform destroy` again later.

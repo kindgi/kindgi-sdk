@@ -93,6 +93,7 @@ export function evalSuitesRouter(
     });
     // A suite more than one project serves is checked on those projects
     // instead (`item-rights.ts`).
+    // '/:suiteId/*' matches '/:suiteId' too: this one gate decides both, once.
     r.use(
       '/:suiteId/*',
       itemMiddleware({
@@ -125,18 +126,6 @@ export function evalSuitesRouter(
           return c.req.method === 'GET' ? 'read' : 'admin';
         },
         check: suiteCheck,
-        versionNotFound: suiteVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:suiteId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'eval_suite',
-        id: (c) => c.req.param('suiteId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: suiteVersionNotFound,
       }),
     );

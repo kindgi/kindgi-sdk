@@ -14,8 +14,14 @@ import {
   type LanguageModelV4CallOptions,
   type LanguageModelV4Content,
   type LanguageModelV4Prompt,
+  type SharedV4Warning,
 } from '@ai-sdk/provider';
-import type { ModelInfo, ProviderMetadata } from '@kindgi/capabilities';
+import type {
+  ModelInfo,
+  ModelThinking,
+  ProviderMetadata,
+  ThinkingLevel,
+} from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -42,7 +48,11 @@ const METADATA = { id: 'acme', region: 'unspecified', models: [MODEL, OTHER] } a
 /** One planned answer per HTTP attempt: a status that fails, or content that answers. */
 type Step =
   | { status: number; body?: string; headers?: Record<string, string> }
-  | { content: LanguageModelV4Content[]; finish?: { unified: string; raw?: string } }
+  | {
+      content: LanguageModelV4Content[];
+      finish?: { unified: string; raw?: string };
+      warnings?: SharedV4Warning[];
+    }
   | { throws: unknown };
 
 function fakeModel(plan: Step[], seen: LanguageModelV4CallOptions[]) {
@@ -86,7 +96,7 @@ function fakeModel(plan: Step[], seen: LanguageModelV4CallOptions[]) {
             outputTokens: { total: 30, text: 22, reasoning: 8 },
             raw: { input_tokens: 120 },
           },
-          warnings: [],
+          warnings: step.warnings ?? [],
           response: {
             id: 'resp-1',
             modelId: `${name}-2026-09-29`,
@@ -898,5 +908,184 @@ describe('beforeAttempt’s result, per attempt (attemptPrepared)', () => {
       ['a', 'a'],
       ['b', 'b'],
     ]);
+  });
+});
+
+describe('thinking levels: the portable reasoning', () => {
+  /** One call to acme-large with this `thinking`: the reasoning handed over, and what it reported. */
+  async function call(
+    thinking: ModelThinking | undefined,
+    asked?: ThinkingLevel,
+    warnings: SharedV4Warning[] = [],
+  ) {
+    const seen: LanguageModelV4CallOptions[] = [];
+    const model = { ...noThinking, ...(thinking !== undefined && { thinking }) } as ModelInfo;
+    const result = await provider([{ ...ANSWER, warnings }], seen, {
+      metadata: { ...METADATA, models: [model] },
+    }).invoke({ ...ask, ...(asked !== undefined && { thinking: asked }) });
+    return { reasoning: seen[0]?.reasoning, thinking: result.thinking, warnings: result.warnings };
+  }
+  const sent = (level: ThinkingLevel, reasoning: string = level) => ({
+    reasoning,
+    thinking: { level, sent: { reasoning } },
+  });
+  const adjusted = (asked: string, level: string) => ({
+    code: 'thinking-level-adjusted',
+    message: `acme-large doesn't take thinking level ${asked}, so the call sent ${level}.`,
+  });
+  const EVERY: ModelThinking = {
+    mode: 'adaptive',
+    lowest: 'none',
+    levels: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  };
+
+  test.each(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const)(
+    '%s goes as the portable value of its name, and is reported',
+    async (level) => {
+      expect(await call(EVERY, level)).toEqual({ ...sent(level), warnings: undefined });
+    },
+  );
+
+  test.each([
+    ['disabled', 'none'],
+    ['between_tools', 'low'],
+    ['none', 'none'],
+    ['low', 'low'],
+  ] as const)('lowest, for a model whose lowest is %s, goes as %s', async (lowest, reasoning) => {
+    expect(await call({ mode: 'adaptive', lowest }, 'lowest')).toEqual({
+      ...sent('lowest', reasoning),
+      warnings: undefined,
+    });
+  });
+
+  test.each([
+    ['at the floor, no levels', { lowest: 'low' }, 'minimal', 'low'],
+    ['above the ceiling, no levels', { lowest: 'disabled' }, 'max', 'high'],
+    ['a lowest of medium, no levels', { lowest: 'medium' }, 'low', 'medium'],
+    ['in a gap, levels', { lowest: 'none', levels: ['low', 'high'] }, 'medium', 'high'],
+    ['above the ceiling, levels', { lowest: 'none', levels: ['low', 'medium'] }, 'xhigh', 'medium'],
+  ] as const)('rounding %s: asked %s, it hands over %s', async (_name, t, asked, level) => {
+    expect(await call({ mode: 'adaptive', ...t }, asked)).toEqual({
+      ...sent(level),
+      warnings: [adjusted(asked, level)],
+    });
+  });
+
+  test("mapped: the AI SDK's warning that it sent another effort goes with the result, and the level is reported", async () => {
+    const mapped: SharedV4Warning = {
+      type: 'compatibility',
+      feature: 'reasoning',
+      details:
+        'reasoning "xhigh" is not directly supported by this model. mapped to effort "high".',
+    };
+    expect(await call(EVERY, 'xhigh', [mapped])).toEqual({
+      ...sent('xhigh'),
+      warnings: [
+        {
+          code: 'sdk-compatibility',
+          message:
+            'reasoning: reasoning "xhigh" is not directly supported by this model. mapped to effort "high".',
+        },
+      ],
+    });
+  });
+
+  test.each([
+    [
+      'its portable mapping',
+      {
+        type: 'unsupported',
+        feature: 'reasoning',
+        details: 'reasoning "minimal" is not supported by this model.',
+      },
+    ],
+    [
+      "the OpenAI provider's efforts",
+      {
+        type: 'unsupported',
+        feature: 'reasoningEffort',
+        details: 'acme-large only supports the following reasoning efforts: low, high',
+      },
+    ],
+  ] as const)(
+    'dropped (%s): no level is reported, and the call says it sent none',
+    async (_name, dropped) => {
+      expect(await call(EVERY, 'minimal', [dropped])).toEqual({
+        reasoning: 'minimal',
+        thinking: undefined,
+        warnings: [
+          { code: 'sdk-unsupported', message: `${dropped.feature}: ${dropped.details}` },
+          {
+            code: 'thinking-unsupported',
+            message:
+              "acme-large doesn't take reasoning minimal through the AI SDK, so the call sent no level (it asked for minimal).",
+          },
+        ],
+      });
+    },
+  );
+
+  test('one the adapter says its AI SDK provider sends nothing for, without a warning: no level is reported, and the call says it sent none; another value still goes', async () => {
+    const result = (asked: ThinkingLevel) =>
+      provider([ANSWER], [], {
+        metadata: { ...METADATA, models: [{ ...noThinking, thinking: EVERY } as ModelInfo] },
+        sendsNoReasoning: (model, reasoning) => model.name === 'acme-large' && reasoning === 'none',
+      }).invoke({ ...ask, thinking: asked });
+    const lowest = await result('lowest');
+    expect({ thinking: lowest.thinking, warnings: lowest.warnings }).toEqual({
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message:
+            "acme-large doesn't take reasoning none through the AI SDK, so the call sent no level (it asked for lowest).",
+        },
+      ],
+    });
+    const low = await result('low');
+    expect({ thinking: low.thinking, warnings: low.warnings }).toEqual({
+      thinking: { level: 'low', sent: { reasoning: 'low' } },
+      warnings: undefined,
+    });
+  });
+
+  test("a warning on another feature doesn't drop the level", async () => {
+    const other: SharedV4Warning = { type: 'unsupported', feature: 'topK' };
+    expect(await call(EVERY, 'high', [other])).toEqual({
+      ...sent('high'),
+      warnings: [{ code: 'sdk-unsupported', message: 'topK' }],
+    });
+  });
+
+  test("the model's default goes when the call asks none, with no warning; the call's level beats it", async () => {
+    const thinking: ModelThinking = { mode: 'adaptive', lowest: 'low', default: 'medium' };
+    expect(await call(thinking)).toEqual({ ...sent('medium'), warnings: undefined });
+    expect(await call(thinking, 'high')).toEqual({ ...sent('high'), warnings: undefined });
+    expect(await call({ mode: 'adaptive', lowest: 'disabled', default: 'lowest' })).toEqual({
+      ...sent('lowest', 'none'),
+      warnings: undefined,
+    });
+  });
+
+  test('no level asked and no default: no reasoning', async () => {
+    expect(await call({ mode: 'adaptive', lowest: 'low' })).toEqual({
+      reasoning: undefined,
+      thinking: undefined,
+      warnings: undefined,
+    });
+  });
+
+  test('a model with no thinking is handed no reasoning, with a warning', async () => {
+    expect(await call(undefined, 'high')).toEqual({
+      reasoning: undefined,
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message:
+            "acme-large doesn't think, or how it thinks isn't known, so the call sent no level (it asked for high).",
+        },
+      ],
+    });
   });
 });

@@ -325,7 +325,7 @@ describe('kindgi deployments get', () => {
     );
   });
 
-  test("where its names are set can't be read: why and since when, without a line to run", async () => {
+  test("where its names are set can't be read: why and since when, then why it couldn't be read, without a line to run", async () => {
     const { out, asked } = await run(['deployments', 'get', 'dep-acme-1'], {
       get: async () => held('pack-env-update-failed'),
       packEnv: async () => {
@@ -341,8 +341,32 @@ describe('kindgi deployments get', () => {
         ...HEAD,
         HELD_SERVICE,
         "    ! Since 2026-10-18T10:02:00.000Z: its newest values were given to it, but it didn't start with them. It's tried again for an hour from then (pack-env-update-failed).",
+        "      Couldn't read where each value is set: Not allowed (forbidden)",
       ),
     );
+  });
+
+  test("a server that doesn't give pack services their env, or is older: nothing more is said", async () => {
+    for (const [body, status] of [
+      [{ code: 'pack-env-not-served', message: 'Not served', details: {} }, 501],
+      [{ code: 'route-not-found', message: 'No such route', details: {} }, 404],
+    ] as const) {
+      const { out, asked } = await run(['deployments', 'get', 'dep-acme-1'], {
+        get: async () => held('pack-env-update-failed'),
+        packEnv: async () => {
+          throw new KindgiApiError(fromWire(body, status));
+        },
+      });
+      expect(out.exitCode).toBe(0);
+      expect(asked.packEnv).toEqual(['dep-acme-1']);
+      expect(out.stdout).toBe(
+        lines(
+          ...HEAD,
+          HELD_SERVICE,
+          "    ! Since 2026-10-18T10:02:00.000Z: its newest values were given to it, but it didn't start with them. It's tried again for an hour from then (pack-env-update-failed).",
+        ),
+      );
+    }
   });
 
   test('a code a later runtime names: said by its code', async () => {

@@ -29,7 +29,12 @@ import type {
 
 export interface CreateOrgParams {
   readonly tenantId: TenantId;
-  readonly creatorUserId: UserId;
+  /**
+   * The person who creates it, made its admin. Absent when no person is
+   * behind the key (a service account's): no one is made
+   * its admin, and the tenant's admins reach it through its parent.
+   */
+  readonly creatorUserId?: UserId;
   readonly spec: OrgSpec;
 }
 
@@ -39,7 +44,12 @@ export type CreateOrgError =
 
 export interface CreateTeamParams {
   readonly tenantId: TenantId;
-  readonly creatorUserId: UserId;
+  /**
+   * The person who creates it, made its admin. Absent when no person is
+   * behind the key (a service account's): no one is made
+   * its admin, and the tenant's admins reach it through its parent.
+   */
+  readonly creatorUserId?: UserId;
   readonly spec: TeamSpec;
 }
 
@@ -58,7 +68,12 @@ export interface AddTeamMemberParams {
 
 export interface CreateProjectParams {
   readonly tenantId: TenantId;
-  readonly creatorUserId: UserId;
+  /**
+   * The person who creates it, made its owner. Absent when no person is
+   * behind the key (a service account's): no one is made
+   * its owner, and the tenant's admins reach it through its parent.
+   */
+  readonly creatorUserId?: UserId;
   readonly spec: ProjectSpec;
 }
 

@@ -182,6 +182,31 @@ describe('model settings name the model', () => {
   });
 });
 
+describe('model settings set how much the model thinks', () => {
+  test('a level from lowest to max is taken; anything else is refused at /thinking', () => {
+    for (const thinking of ['lowest', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']) {
+      expect(modelSettingsIssues({ thinking }), thinking).toEqual([]);
+    }
+    for (const thinking of ['none', 'HIGH', 3]) {
+      expect(
+        modelSettingsIssues({ thinking }).map((i) => i.path),
+        String(thinking),
+      ).toEqual(['/content/values/thinking']);
+    }
+  });
+
+  test('marked tunable, an improvement pass tries the levels its enum lists, and only those', () => {
+    const { keys } = modelSettingsTunableKeys(
+      {
+        type: 'object',
+        properties: { thinking: { enum: ['low', 'high', 'extreme'], 'x-kindgi-tunable': true } },
+      },
+      {},
+    );
+    expect(keys).toEqual([{ key: 'thinking', kind: 'enum', values: ['low', 'high'] }]);
+  });
+});
+
 describe("a model-settings block's tunable keys", () => {
   const schema = (properties: Record<string, unknown>) => ({ type: 'object', properties });
 

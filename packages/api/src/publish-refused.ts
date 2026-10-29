@@ -51,9 +51,9 @@ interface DeployRefusal {
  *
  * A primitive whose id belongs to another project answers
  * `<primitive>-project-mismatch`, as publishing it on its own does: a
- * deploy never moves it, and the message names the fix (a pack per client,
- * whose ids carry its own pack id). The project it belongs to (`projectId`)
- * is for the log, never the answer.
+ * deploy never moves it, and the route's answer names the fix the runtime
+ * has (`projectMismatchFix`). The project it belongs to (`projectId`) is
+ * for the log, never the answer.
  *
  * A tool whose id is of another kind (an MCP endpoint's tool, where the
  * pack's is published here, or the other way round) answers
@@ -111,8 +111,32 @@ function refusedBecause(outcome: RefusedOutcome | DeployRefusal): string {
       ? "its id is a tool published here, and this version is an MCP endpoint's"
       : `its id is MCP endpoint "${outcome.endpointId}"'s tool (give the pack's tool another name, or unregister the endpoint first)`;
   }
-  if (outcome.kind === 'project-mismatch') {
-    return 'it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id)';
-  }
+  if (outcome.kind === 'project-mismatch') return PROJECT_MISMATCH;
   return outcome.kind;
+}
+
+/** Why a deploy refuses a primitive whose id belongs to another project. */
+export const PROJECT_MISMATCH = 'it belongs to another project';
+
+/**
+ * The fix a deploy's `<primitive>-project-mismatch` names: a pack's items
+ * stay in the project they were first deployed to. Where each deployment
+ * runs its own pack service, a copy of the pack with its own pack id runs
+ * beside it. Where one pack service serves every deployment, a copy's
+ * image never runs, and another project gets the items through an
+ * environment order, which holds only projects with the same parent
+ * (one org, or none), and promotes a build only to the environment right
+ * after. With neither, there's no fix to name.
+ */
+export function projectMismatchFix(runtime: {
+  readonly perDeploymentPacks: boolean;
+  readonly environmentOrders: boolean;
+}): string | undefined {
+  if (runtime.perDeploymentPacks) {
+    return 'one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id';
+  }
+  if (runtime.environmentOrders) {
+    return "this runtime runs one pack service, so a copy of the pack wouldn't run: if both projects are in the same org, or neither is in an org, put them in one environment order (`kindgi environments set`), this one right after the one it belongs to, and `kindgi promote` the build to this one instead of deploying it; otherwise they can't share an order until both are in the same org, or neither is in an org (a project not in an order can move)";
+  }
+  return undefined;
 }

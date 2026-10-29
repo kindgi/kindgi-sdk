@@ -15,7 +15,14 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
-import type { Action, AuthzCheckBinding, Decision, Principal, ResourceRef } from '@kindgi/authz';
+import type {
+  Action,
+  AuthzCheckBinding,
+  Decision,
+  Principal,
+  ResourceRef,
+  TupleIntent,
+} from '@kindgi/authz';
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import type {
@@ -93,15 +100,23 @@ const SEGMENT_WIRE = { kind: 'segment', projectId, path: [{ key: 'company', valu
 const projectRef: ResourceRef = { type: 'project', id: projectId as unknown as string };
 const tenantRef: ResourceRef = { type: 'tenant', id: tenantId as unknown as string };
 
-const resolveToken: TokenResolver = async (token) =>
-  token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
+const ACCOUNT_TOKEN = 'proposals-account-token';
+const resolveToken: TokenResolver = async (token) => {
+  if (token === TOKEN) return { tenantId, userId: 'user-1' as UserId };
+  if (token === ACCOUNT_TOKEN) return { tenantId, serviceAccountId: 'sa-ci' };
+  return null;
+};
 
-/** The agent registry in memory, recording each version's project. */
-function agentBinding(unregistered: ReadonlySet<string> = new Set()): AgentRegistryBinding {
+/** The agent registry in memory, recording each version's project and the entries its publish wrote. */
+function agentBinding(
+  unregistered: ReadonlySet<string> = new Set(),
+): AgentRegistryBinding & { written: TupleIntent[] } {
   const registry = createAgentRegistry();
+  const written: TupleIntent[] = [];
   // Where a version was made, when it's not the agent's project (an environment order's first).
   const madeIn = new Map<string, ProjectId>();
   return {
+    written,
     async list() {
       return { data: [] };
     },
@@ -129,11 +144,12 @@ function agentBinding(unregistered: ReadonlySet<string> = new Set()): AgentRegis
         data: registry.list().filter((a) => (a.id as unknown as string) === agentId),
       };
     },
-    async publish({ agent, projectId: into }) {
+    async publish({ agent, projectId: into, enqueueTuples }) {
       if (registry.get(agent.id, agent.version as unknown as string).kind === 'ok') {
         return { kind: 'already-registered', agentId: agent.id, version: agent.version };
       }
       registry.register(agent);
+      written.push(...enqueueTuples(agent.id as unknown as string));
       if (into !== projectId) madeIn.set(agent.version as unknown as string, into);
       return { kind: 'ok', agentId: agent.id, version: agent.version };
     },
@@ -518,6 +534,8 @@ async function harness(
     suiteRecord?: EvalSuiteRecord | null;
     /** When true, `evalSuites.get` throws — the route must not read the suite. */
     suiteGetThrows?: boolean;
+    /** The key every call is made with: the person's unless given. */
+    token?: string;
   } = {},
 ) {
   const agents = agentBinding(new Set(opts.unregisteredVersions ?? []));
@@ -662,7 +680,7 @@ async function harness(
     const res = await app.request(path, {
       method,
       headers: {
-        authorization: `Bearer ${TOKEN}`,
+        authorization: `Bearer ${opts.token ?? TOKEN}`,
         ...(body !== undefined && { 'content-type': 'application/json' }),
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
@@ -705,6 +723,7 @@ async function drafted(
     referenceScope?: ReferenceScopeBinding;
     orders?: readonly (readonly ProjectId[])[];
     items?: ItemRow[];
+    token?: string;
   } = {},
 ) {
   const h = await harness(opts);
@@ -2947,6 +2966,25 @@ describe('improvement passes', () => {
     });
     expect((await h.call('GET', `/v1/improvement-passes/${pass.id}`)).status).toBe(404);
     expect((await h.call('GET', '/v1/improvement-passes')).body.data).toEqual([]);
+  });
+});
+
+describe("POST /v1/proposals/:id/evaluate: who is made the derived version's owner", () => {
+  const evaluate = async (token?: string) => {
+    const h = await drafted(token === undefined ? {} : { token });
+    const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    return h.agents.written.filter((t) => t.relation === 'owner').map((t) => t.user);
+  };
+
+  test("a person's key makes them its owner", async () => {
+    expect(await evaluate()).toEqual(['user:user-1']);
+  });
+
+  test("a service account's key makes no one its owner", async () => {
+    expect(await evaluate(ACCOUNT_TOKEN)).toEqual([]);
   });
 });
 

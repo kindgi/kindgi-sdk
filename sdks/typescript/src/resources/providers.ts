@@ -54,8 +54,10 @@ export interface ProvidersClient {
   /**
    * What would keep the runtime from building a registered provider, by its
    * adapter's own check of its stored registration (static: no network, no
-   * secret read). `checked: false` when the runtime has no check for its
-   * adapter. A runtime older than this route answers 404.
+   * secret read). `warnings` lists the `adapter_config` keys its adapter
+   * doesn't take, which it builds without reading. `checked: false` when
+   * the runtime has no check for its adapter and the adapter declares no
+   * keys. A runtime older than this route answers 404.
    */
   check(providerId: string): Promise<ProviderCheck>;
   /** @wire POST /v1/providers/:providerId/unregister */

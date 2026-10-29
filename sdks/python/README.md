@@ -188,10 +188,12 @@ type here — without it the check gets `{}`, its defaults. `RunTrace` holds the
 `tool_calls`, `tool_results`, `model_calls`, … (snake_case here, camelCase on
 the wire). `on_violation` names the action (`halt`, `retry`, `escalate`,
 `log-only`, `compensate`); `action=` takes the whole object
-(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`). In 0.1 the
-runtime acts only on `halt`: the turn fails with `guardrail-violation`. Any
-other action is recorded on the turn's violations and the turn completes;
-nothing runs it again, escalates or calls a compensating tool.
+(`{"on-violation": "retry", "retry": {"maxAttempts": 2}}`). The runtime acts
+on `halt`: the turn fails with `guardrail-violation`. It acts on `retry` too:
+the answer goes back to the model with the check's reason, for a new one,
+until the guardrail has failed `maxAttempts` answers, and then the turn fails
+the same way. Any other action is recorded on the turn's violations and the
+turn completes; in 0.1 nothing escalates or calls a compensating tool.
 
 ### Agents and flows
 
@@ -424,9 +426,12 @@ The vendored schemas in `src/kindgi/_specs` are copies of `@kindgi/specs`;
 `tests/test_client.py` fails while they are out of step. `scripts/model_names.json`
 holds where each model sits, and generation fails when a model's name would
 move to another schema or vanish: such a change is an edit to that file, and
-an entry in `CHANGELOG.md`. A union's member sits at its discriminator's
-value, or in a union without one at its properties, so a member that gains a
-property reads as moved too: check it, then edit its line.
+an entry in `CHANGELOG.md`. A name that goes keeps its line with no places
+(`[]`): it stays dropped, and generation fails if a model would take it again.
+A union's members are named by their discriminator (`ScopeTenant`,
+`MCPEndpointConfigStdio`); in a union without one, a member sits at its
+properties, so a member that gains a property reads as moved too: check it,
+then edit its line.
 `@kindgi/pack-conformance` runs its suite against this package's `.venv`.
 
 The version is the npm packages' (`scripts/sync-python-version.mjs`

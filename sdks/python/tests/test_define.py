@@ -10,7 +10,7 @@ from typing import Annotated, Any
 import pytest
 from pydantic import BaseModel, Field, StringConstraints
 
-from kindgi import CheckResult, DefinitionError, RunTrace, ToolContext, guardrail, tool
+from kindgi import Agent, CheckResult, DefinitionError, RunTrace, ToolContext, guardrail, tool
 
 
 class In(BaseModel):
@@ -313,3 +313,32 @@ def test_a_guardrail_check_and_its_config() -> None:
     }
     trace = RunTrace(run_id="r", tenant_id="t", output="hello world")
     assert says(Config(word="world"), trace).passed
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1])
+def test_an_agent_refuses_a_parallel_tool_calls_that_is_not_a_bool(value: Any) -> None:
+    with pytest.raises(DefinitionError, match="parallel_tool_calls must be True or False"):
+        Agent(
+            id="acme.desk",
+            version="1.0.0",
+            name="Desk",
+            instructions="Help.",
+            parallel_tool_calls=value,
+        )
+
+
+def test_an_agent_keeps_parallel_tool_calls() -> None:
+    off = Agent(
+        id="acme.desk",
+        version="1.0.0",
+        name="Desk",
+        instructions="Help.",
+        parallel_tool_calls=False,
+    )
+    assert off.parallel_tool_calls is False
+    assert (
+        Agent(
+            id="acme.desk", version="1.0.0", name="Desk", instructions="Help."
+        ).parallel_tool_calls
+        is None
+    )
