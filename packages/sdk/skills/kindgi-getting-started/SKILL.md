@@ -16,7 +16,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.19"
+version: "0.3.20"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -135,16 +135,20 @@ terminal, say), `kindgi dev` exits with code 3 and prints where it is
 (its pid, the console and the API): use that one. Don't start another,
 and don't stop theirs.
 
-Each linked git worktree runs its own `kindgi dev`, side by side. Its
-database, `kindgi_<project>__<worktree>`, gives it its own dev tenant,
-user and token, in its own `.kindgirc.json`. When port 4000 is taken
+Each linked git worktree runs its own `kindgi dev`, side by side, with its
+own dev tenant, user and token. In the bundled Postgres it has its own
+database too, `kindgi_<project>__<worktree>`, and its tenant and user are
+named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
+it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
+git, keeps the token, the tenant and the user. When port 4000 is taken
 (another worktree's `kindgi dev`), it takes the next free one and says so,
 `⚠ port 4000 is in use (another kindgi dev?): using 4001`; that
 worktree's `.kindgirc.json` records it, so the CLI there follows. Read the
 API URL from the banner or `.kindgirc.json`, never assume 4000. A
 `--port` that's taken is refused. The providers the config declares are
-registered in each worktree as it starts; one registered by hand, and the
-env files, belong to one worktree.
+registered in each worktree as it starts. One registered by hand belongs
+to one worktree, and so does an env file git doesn't track, such as
+`.env.local`: copy it into a new worktree.
 
 Give the person the console's address as the banner prints it (its
 `Console` line). Never guess a console URL: an approval's own link is

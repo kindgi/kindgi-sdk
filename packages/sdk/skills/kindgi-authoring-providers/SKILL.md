@@ -18,7 +18,7 @@ description: >
   steps are kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.10.1"
+version: "0.10.2"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:

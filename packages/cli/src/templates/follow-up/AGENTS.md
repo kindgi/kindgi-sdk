@@ -16,14 +16,15 @@ or `OPENROUTER_API_KEY`) and declare its preset
 `'openrouter'`) in `kindgi.config.ts`'s `providers`: `kindgi dev` then
 registers it on every boot, in every worktree. Other providers and
 per-agent model choice: the `kindgi-authoring-providers` skill.
-How much a model thinks: `thinking` in the agent's `modelSettings` block,
-else the model's registered `thinking.default` (runtime 0.3.0 or later),
-else its vendor's own.
+How much a model thinks (runtime 0.3.0 or later): `thinking` in the
+agent's `modelSettings` block, else the model's registered
+`thinking.default`, else its vendor's own.
 
-Each git worktree runs its own `kindgi dev`, with its own database, dev
-tenant and token. When port 4000 is taken (another worktree's, say), it
-takes the next free one, prints it and records it in `.kindgirc.json`.
-The getting-started skill has the details.
+Each git worktree runs its own `kindgi dev`, with its own dev tenant,
+user and token, and its own database in the bundled Postgres. When port
+4000 is taken (another worktree's, say), it takes the next free one,
+prints it and records it in `.kindgirc.json`. The getting-started skill
+has the details.
 
 ## This pack: follow-up mail
 
