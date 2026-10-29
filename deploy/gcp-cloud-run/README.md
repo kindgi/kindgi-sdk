@@ -350,7 +350,7 @@ server_secret_env = {
   - **A key of the tenant** for anything that deploys or calls with `$N-api-token`: after the switch, that token no longer reaches the tenant.
   - **Its deployments' services:** the switch removes the one pack service, so each deployment needs a service and a recorded endpoint of its own, as any tenant's does.
   - Then, in one apply: `tenancy = "multi"`, without `seed_tenant_id`, `seed_user_id` and `pack_image`, with the settings above.
-- **After an upgrade that adds a step per tenant,** `kindgi-runtime tenants repair --all` has to run once: a server serving many tenants sets nothing up per tenant at boot. This module runs no such job.
+- **After an upgrade that adds a step per tenant,** `kindgi-runtime tenants repair --all` has to run once: a server serving many tenants sets nothing up per tenant at boot. This module runs no such job. It also takes away access a tenant's record doesn't back (runtime 0.3.0 or later): it finishes a removal that stopped part way, and revokes a service account's admin, membership or project role that its grants don't give. And it takes away the access an older runtime gave `00000000-0000-0000-0000-000000000000`, the id it named as the creator of what a key with no person behind it made; no person has that id. `--dry-run` shows what it would put back and take away, per tenant, and changes nothing.
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would seed a new tenant at every start, so upgrade the runtime first.
 - **`"single"`** sets no `KINDGI_TENANCY` and keeps the pack service: a deployment that keeps it plans no change (`moved.tf` gives the pack service, its account and the server's invoker grant their new addresses).
 
