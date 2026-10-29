@@ -246,10 +246,13 @@ and a call to any other tool on its own, in the order the model asked (runtime
 0.3.0 or later; earlier ones run every call on its own). A call to a read-only
 tool that may wait, for [another system's answer](../wait-for-another-system/)
 or for the person who started the run to [connect an app](../../connections/),
-runs on its own too. Once a call needs an approval, the step's calls that
-haven't started run one at a time. Either way, the results reach the
-conversation and the model in the order the model asked for them, and each
-call's events carry its own duration.
+runs on its own too. A call that a `before-tool`
+[guardrail](../../guardrails/configure-a-guardrail/) judges doesn't start until
+the calls before it have finished, so its check sees them as calls that ran.
+The read-only calls after it can run alongside it. Once a call needs an
+approval, the step's calls that haven't started run one at a time. Either way,
+the results reach the conversation and the model in the order the model asked
+for them, and each call's events carry its own duration.
 
 To run every call on its own, set `parallelToolCalls: false` on the agent
 (`parallel_tool_calls=False` in Python, `set("parallelToolCalls", false)` in
