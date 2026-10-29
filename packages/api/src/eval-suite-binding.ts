@@ -72,21 +72,18 @@ export interface EvalSuiteRegistryBinding {
    * `(suiteId, version)` is re-published; the route maps that to `409`.
    * A version of an eval suite whose versions live in another project is
    * `project-mismatch` (suites never move between projects; `409 eval-suite-project-mismatch`).
-   * Rejects when its store fails for any other reason; the route answers 500.
    */
   publish(input: EvalSuitePublishInput): Promise<EvalSuitePublishOutcome>;
   /**
    * Soft-tombstone a specific `(suiteId, version)`. When this leaves
    * NO active versions, the suite has no latest version — derived
    * "retired" state (GET returns 410 gone). Publish reactivates.
-   * Rejects when its store fails; the route answers 500.
    */
   unregister(input: EvalSuiteUnregisterInput): Promise<EvalSuiteUnregisterOutcome>;
   /**
    * Un-tombstone a specific `(suiteId, version)`. Recomputes the
    * suite's latest version. Restores bytes verbatim (semver hygiene).
    * Idempotent.
-   * Rejects when its store fails; the route answers 500.
    */
   reinstateVersion(
     input: EvalSuiteReinstateVersionInput,

@@ -54,7 +54,6 @@ export interface ReviewerRegistryBinding {
    * historical decisions still resolve. Returns
    * `{ unregistered: false }` when the id is unknown; the route flips
    * that to `404`.
-   * Rejects when its store fails; the route answers 500.
    */
   unregister(input: ReviewerUnregisterInput): Promise<ReviewerUnregisterOutcome>;
 }
