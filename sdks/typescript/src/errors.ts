@@ -71,6 +71,12 @@ export interface NotFoundError {
   readonly serverCode?: string;
   readonly message: string;
   readonly resource: { readonly kind: string; readonly id: string };
+  /**
+   * The server's details (a run's `recordState` and `reason` for a
+   * `provenance-not-found` whose record isn't written yet, …), when it
+   * sent any.
+   */
+  readonly fields?: Readonly<Record<string, unknown>>;
 }
 
 export interface ConflictError {
@@ -453,6 +459,7 @@ function notFound(code: string, message: string, details: WireFields | undefined
           'id',
         ) ?? 'unknown',
     },
+    ...(details !== undefined && { fields: details }),
   };
 }
 

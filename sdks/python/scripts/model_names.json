@@ -838,6 +838,7 @@
   "StartRunBody2": ["StartRunBody.root{flow,flowVersion,input,options,projectId,segments}"],
   "StartRunOptions": ["StartRunOptions"],
   "Step": ["JudgedRunContextFlow.steps"],
+  "StepUsage": ["ProvenanceRecord.stepUsage"],
   "Stopped": ["ComparisonCaseResult.stopped"],
   "Subject": ["MemoryErasureSubjectSelector.subject"],
   "Subject1": ["ComplianceEvidence.subject"],

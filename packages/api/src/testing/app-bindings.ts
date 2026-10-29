@@ -95,6 +95,7 @@ export function createStubAppBindings(): StubAppBindings {
       listRecords: true,
       getByRunId: true,
       getCallUsage: true,
+      getStepUsage: true,
     }),
   };
 }

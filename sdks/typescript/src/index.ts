@@ -162,7 +162,11 @@ export type {
   MemoryClient,
   MemoryErasuresClient,
 } from './resources/memory.js';
-export type { ProvenanceClient, ProvenanceExportInput } from './resources/provenance.js';
+export type {
+  ProvenanceClient,
+  ProvenanceExportInput,
+  ProvenancePage,
+} from './resources/provenance.js';
 export type { RenameTenantInput, TenantClient, TenantConfigClient } from './resources/tenant.js';
 export type {
   BudgetsClient,

@@ -525,6 +525,7 @@ export const CLI_DEFAULTS = {
     agent: 'none',
     'created-after': 'none',
     cursor: 'none',
+    flow: 'none',
     limit: '`25` (at most `100`)',
     org: 'none',
     project: 'none',

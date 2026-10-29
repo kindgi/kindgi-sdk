@@ -6751,6 +6751,7 @@ export const ProvenanceNodeKindSchema: JsonSchema = {
     'memory-write',
     'wait',
     'resume',
+    'step',
   ],
 };
 
@@ -6885,6 +6886,21 @@ export const ProvenanceRecordSchema: JsonSchema = {
         },
       },
     },
+    stepUsage: {
+      type: 'object',
+      description:
+        "A flow record's model usage per step, by the `step` node's id: the model calls of the runs the step started (an agent step's turn, a sub-flow's run) and of the runs they started, from the cost ledger. A folded loop node sums its iterations'. A tool step's own model calls, made by its pack with its own key, aren't in it. Joined when read: not part of the signed DAG. A signed export includes it, as it stood when signed.",
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['calls', 'costUsd', 'tokens'],
+        properties: {
+          calls: { type: 'integer', minimum: 0 },
+          costUsd: { type: 'number', minimum: 0 },
+          tokens: { $ref: '#/components/schemas/CostTokenTotals' },
+        },
+      },
+    },
   },
 };
 
@@ -6896,6 +6912,11 @@ export const ProvenanceCollectionPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/ProvenanceRecordMetadata' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
+    flowId: {
+      type: 'string',
+      description:
+        "The flow, on every page of a list asked for with `?flowId=`, an empty one too: it holds only that flow's runs' records. Absent from a runtime that doesn't list records by flow, which ignores `flowId` and lists them all.",
+    },
   },
 };
 
@@ -6916,11 +6937,11 @@ export const ExportProvenanceBodySchema: JsonSchema = {
 
 export const ExportProvenanceResultSchema: JsonSchema = signedExportEnvelope({
   description:
-    "A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, as it stood when signed.",
+    "A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, stepUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, and `stepUsage` a flow record's usage per step, as they stood when signed.",
   kind: 'provenance',
   subject: ['runId', { type: 'string', format: 'uuid' }],
   versionDescription:
-    "The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`.",
+    "The body's version, semver. `1.3.0` adds `stepUsage`; `1.2.0` added `exportedAt` to the signed body; `1.1.0` added `callUsage`.",
 });
 
 // ---------------- registry (exported to the generator) ----------------

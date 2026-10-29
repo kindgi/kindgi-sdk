@@ -1415,6 +1415,16 @@ export const ERROR_ENTRIES = {
         key: 'runId',
         meaning: 'the run id that was looked up',
       },
+      {
+        key: 'recordState',
+        meaning:
+          "why the run has no record yet: `being-written` while it's being written, after a flow run ends; `failed` when writing it failed. Absent when the run has no record at all. More states may come",
+      },
+      {
+        key: 'reason',
+        meaning:
+          "with `recordState: failed`, why: `read-failed` (its journal couldn't be read), `build-failed` (the record couldn't be built from it) or `write-failed` (it couldn't be saved). More codes may come",
+      },
     ],
     seeAlso: ['GET /v1/provenance/{runId}'],
   },
