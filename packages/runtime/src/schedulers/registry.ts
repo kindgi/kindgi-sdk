@@ -465,11 +465,12 @@ export interface RegisterMailTriggerInput {
    * `mailbox.connectionId`: one of the project's company connections of
    * the app, the only one when none was named, or none when the project
    * has none. A stored id is the connection the poller reads with. With
-   * none stored, it reads with the project's one company connection of the
-   * app; with several, the trigger's `statusReason` is
-   * `connection-not-chosen` (the reason names them), and it doesn't poll
-   * until someone points it at one. A fire records the id of the
-   * connection its read opened in the run's `mailbox.connectionId`.
+   * none stored, its next read stores the project's one company connection
+   * of the app (a version, cause `pin`) and reads with it from then on;
+   * with several, the trigger's `statusReason` is `connection-not-chosen`
+   * (the reason names them), and it doesn't poll until someone points it
+   * at one. A run's `mailbox.connectionId` is its trigger version's, fixed
+   * when the fire starts it.
    */
   readonly config: MailTriggerConfig;
   readonly label?: string;
