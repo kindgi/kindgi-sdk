@@ -250,7 +250,7 @@ The pack's `kindgi.config.ts` has `environments.staging` and
 its tenant id. The CLI is a dev dependency of the pack, and `package.json`
 pins its pnpm version (`packageManager`), as `kindgi init` sets it.
 
-```yaml
+```yaml excerpt
 name: ship-pack
 on:
   pull_request:
