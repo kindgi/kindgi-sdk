@@ -2531,6 +2531,10 @@ export const ERROR_ENTRIES = {
     description: "This deployment doesn't record guardrail outcomes.",
     details: [],
   },
+  'pinned-versions-not-supported': {
+    description: "This deployment can't list a project's pinned versions.",
+    details: [],
+  },
   'eval-run-already-terminal': {
     description:
       "The eval run has already finished, failed or been cancelled, so it can't be cancelled.",

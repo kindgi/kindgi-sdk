@@ -740,6 +740,7 @@ export type {
 } from './block-binding.js';
 export type {
   AgentReleaseBindings,
+  ListCoveringPinsInput,
   ListPromotionsInput,
   LivePin,
   LiveResolution,

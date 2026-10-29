@@ -423,6 +423,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'authz-membership-unsupported': 501,
   // The guardrail registry keeps no outcome ledger.
   'guardrail-outcomes-not-supported': 501,
+  // The live-version binding can't list the pins that cover a project.
+  'pinned-versions-not-supported': 501,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,

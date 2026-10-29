@@ -591,6 +591,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from project-memberships, team-project-grants, orgs and users',
   '/v1/projects/default': 'one of projects',
   '/v1/projects/{projectId}/team-grants': 'the same records as team-project-grants',
+  '/v1/projects/{projectId}/pinned-versions': 'the same records as agent-live-versions',
   '/v1/environment-orders/tenant': 'the same records as environment-orders',
   '/v1/environment-orders/orgs/{orgId}': 'the same records as environment-orders',
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",
