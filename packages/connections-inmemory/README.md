@@ -52,4 +52,10 @@ run's connect finishes, as a server completes the run's wait.
 flows: pass `inProject`, which says whether an agent or a flow is one of a
 project's. Without it, none is, and every choice is refused.
 
+**Which company connection a call uses.** The resolver takes the run's
+mailbox's connection, else the agent's or flow's choice, else the only
+candidate, as a server does. Several and no choice is
+`connection-not-chosen`; a picked one that can't serve the call is
+`connection-missing`, naming it, never another one.
+
 Apache-2.0.

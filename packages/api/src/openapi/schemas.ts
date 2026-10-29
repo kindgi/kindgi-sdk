@@ -15217,13 +15217,18 @@ export const ApprovalConnectionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['app', 'appName', 'account'],
-  description: "The person's account the call would use.",
+  description:
+    "The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`).",
   properties: {
     app: { type: 'string', description: "The app's entry id." },
     appName: { type: 'string' },
     account: {
       type: 'string',
       description: "The account's label at the app: an email address, a login.",
+    },
+    name: {
+      type: 'string',
+      description: "The connection's name: its label, else the account's label.",
     },
   },
 };

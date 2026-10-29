@@ -383,7 +383,8 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       // The call's connections (`needsSpec.connections`), before any
       // approval: a person's missing connection waits for them to connect,
       // and four eyes on a call only that person may approve can't be met.
-      // A call they stop runs nothing; its result tells the model why.
+      // A call they stop runs nothing; its result tells the model why (but
+      // `connection-not-chosen` fails the turn).
       const conflict = connectionApprovalConflict(call, tool, gate?.separateApprover === true);
       const connected: ConnectionGate =
         conflict !== undefined
@@ -403,7 +404,8 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         const { argsHash, waitTokenId, timeoutMs } = gate;
         const asker = requestedBy(ctx.input.principal);
         const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
-        // A call that acts with a person's connection is theirs to decide.
+        // A call that acts with a person's connection is theirs to decide;
+        // the approval shows the connection, a company one's too.
         const approval =
           connected.kind === 'ready'
             ? connectionApprovalOf(
@@ -551,9 +553,11 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       // A replay's live call reads the env the past run's call saw.
       const replayEnv = replayed?.kind === 'live' ? replayed.env : undefined;
       // The call's tokens, asked fresh right before it runs and never
-      // recorded: a connection that lapsed while it waited fails it.
+      // recorded: a connection that lapsed while it waited fails it, and so
+      // does one that isn't the connection the gate decided on.
+      const decided = connected.kind === 'ready' ? connected.connections : undefined;
       const connect: Connect | undefined =
-        connected.kind === 'ready' ? () => freshConnections(ctx, kctx, call, tool) : undefined;
+        decided !== undefined ? () => freshConnections(ctx, kctx, call, tool, decided) : undefined;
       const first = await dispatchOne(ctx, tool, call, kctx, replayEnv, connect);
       if (first.kind === 'not-connected') {
         nextMessages = await appendConnectionFailure(ctx, partial.step, call, binding, {
@@ -568,7 +572,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       let dispatched = first;
       if (rejected !== undefined) {
         const renewed = await dispatchOne(ctx, tool, call, kctx, replayEnv, () =>
-          freshConnections(ctx, kctx, call, tool, [rejected]),
+          freshConnections(ctx, kctx, call, tool, decided ?? {}, [rejected]),
         );
         if (renewed.kind === 'not-connected') {
           nextMessages = await appendConnectionFailure(ctx, partial.step, call, binding, {

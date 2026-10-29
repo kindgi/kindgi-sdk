@@ -124,6 +124,12 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 export interface RunMailbox {
   readonly app: 'google' | 'microsoft';
   readonly as: 'company' | 'person';
+  /**
+   * The company connection the trigger reads the mailbox with, as its
+   * config named it when the run started. Only with `as: 'company'`; a run
+   * from before connections had names carries none.
+   */
+  readonly connectionId?: string;
 }
 
 /**

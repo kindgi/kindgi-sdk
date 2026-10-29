@@ -11398,7 +11398,7 @@ class ApprovalApprover(BaseModel):
 
 class ApprovalConnection(BaseModel):
     """
-    The person's account the call would use.
+    The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`).
     """
 
     model_config = ConfigDict(
@@ -11413,6 +11413,10 @@ class ApprovalConnection(BaseModel):
     account: str
     """
     The account's label at the app: an email address, a login.
+    """
+    name: str | None = None
+    """
+    The connection's name: its label, else the account's label.
     """
 
 

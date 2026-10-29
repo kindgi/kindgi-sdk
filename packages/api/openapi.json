@@ -613,6 +613,7 @@
           "connection-state-expired": 410,
           "connection-account-mismatch": 409,
           "connection-label-taken": 409,
+          "connection-not-chosen": 409,
           "connection-removing": 409,
           "connection-app-refused": 502,
           "connection-store-failed": 503,
@@ -25571,7 +25572,7 @@
           "appName",
           "account"
         ],
-        "description": "The person's account the call would use.",
+        "description": "The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`).",
         "properties": {
           "app": {
             "type": "string",
@@ -25583,6 +25584,10 @@
           "account": {
             "type": "string",
             "description": "The account's label at the app: an email address, a login."
+          },
+          "name": {
+            "type": "string",
+            "description": "The connection's name: its label, else the account's label."
           }
         }
       },

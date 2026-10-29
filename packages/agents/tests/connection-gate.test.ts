@@ -19,6 +19,7 @@ import type { NodeContext } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import type { RunMailbox, RunStartedBy } from '@kindgi/runtime';
 import {
+  type ConnectionAccount,
   type ConnectionNeed,
   ConnectionRejectedError,
   ConnectionRenewError,
@@ -99,6 +100,38 @@ function waitFor(name: string): ResolveConnectionsOutcome {
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
       },
     ],
+  };
+}
+
+/** Two company Acme connections, named. */
+const support = {
+  connectionId: 'conn-support',
+  name: 'support',
+  account: { id: 'acct-support', label: 'support@acme.example' },
+};
+const sales = {
+  connectionId: 'conn-sales',
+  name: 'sales',
+  account: { id: 'acct-sales', label: 'sales@acme.example' },
+};
+
+/** Each need ready on the connection given. */
+function readyOn(
+  on: Readonly<
+    Record<
+      string,
+      { readonly connectionId: string; readonly name?: string; readonly account: ConnectionAccount }
+    >
+  >,
+): ResolveConnectionsOutcome {
+  return {
+    kind: 'ready',
+    connections: Object.fromEntries(
+      Object.entries(on).map(([name, c]) => [
+        name,
+        { ...c, app: 'acme', appName: 'Acme', accessToken: `secret-token-${c.connectionId}` },
+      ]),
+    ),
   };
 }
 
@@ -881,10 +914,40 @@ describe("a call that acts with a person's connection is theirs to approve", () 
     expect(t.ran).toHaveLength(1);
   });
 
-  test('a company connection keeps the reviewers', async () => {
+  test('a company connection keeps the reviewers, and the approval shows it, named', async () => {
     const t = await turn({ policy: ask, needs: { shared } });
     expect(t.enqueued[0]).not.toHaveProperty('approver');
-    expect(t.enqueued[0]).not.toHaveProperty('connection');
+    expect(t.enqueued[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      account: 'owner@acme.example',
+    });
+
+    const named = await turn({
+      policy: ask,
+      needs: { shared, archive: shared },
+      answers: [readyOn({ shared: support, archive: sales })],
+    });
+    // The first company connection, by the tool's names for them, sorted.
+    expect(named.enqueued[0]?.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      account: 'sales@acme.example',
+      name: 'sales',
+    });
+    expect(named.ran).toHaveLength(1);
+  });
+
+  test("with a person's connection and a company one, the approval is the person's", async () => {
+    const t = await turn({
+      policy: ask,
+      needs: { mail, archive: shared },
+      answers: [readyOn({ mail: { ...support, name: 'mine' }, archive: sales })],
+    });
+    expect(t.enqueued[0]).toMatchObject({
+      approver: { kind: 'member', userId: OWNER },
+      connection: { account: 'support@acme.example', name: 'mine' },
+    });
   });
 
   test('the connect comes before the approval', async () => {
@@ -1020,4 +1083,158 @@ describe("in a run no person started, a read with a person's connection waits fo
       expect(t.failed[0]?.error.code).toBe('connection-needs-a-person');
     },
   );
+});
+
+describe('which company connection a call uses', () => {
+  const notChosen: ResolveConnectionsOutcome = {
+    kind: 'refused',
+    code: 'connection-not-chosen',
+    name: 'shared',
+    app: 'acme',
+    choices: [
+      { connectionId: 'conn-sales', name: 'sales' },
+      { connectionId: 'conn-support', name: 'support' },
+    ],
+    message:
+      'This project has 2 company Acme connections (sales, support), and agent pack.agent has no choice of one.',
+  };
+
+  test("every ask names the call's agent and the run's mailbox", async () => {
+    const mailbox: RunMailbox = { app: 'google', as: 'company', connectionId: 'conn-support' };
+    const t = await turn({ needs: { shared }, mailbox });
+    expect(t.asked).toHaveLength(2);
+    for (const asked of t.asked) {
+      expect(asked).toMatchObject({ target: { agentId: 'pack.agent' }, mailbox });
+    }
+    const none = await turn({ needs: { shared } });
+    expect(none.asked[0]).not.toHaveProperty('mailbox');
+  });
+
+  test.each([
+    ['the first ask', [notChosen], undefined],
+    ['the ask after a connect', [waitFor('mail'), notChosen], `connection-gate:${CALL}:connected`],
+    ['the fresh ask', [readyOn({ mail: support, shared: support }), notChosen], undefined],
+  ] as const)(
+    'none chosen, at %s: the turn fails, naming the choices, and the model never reads it',
+    async (_, answers, key) => {
+      const t = await turn({ needs: { mail, shared }, answers });
+      expect(t.ran).toEqual([]);
+      expect(t.results).toEqual([]);
+      expect(t.failed).toEqual([]);
+      expect(t.thrown).toBeInstanceOf(AgentTurnFailure);
+      expect((t.thrown as AgentTurnFailure).payload).toEqual({
+        code: 'connection-not-chosen',
+        message: notChosen.kind === 'refused' ? notChosen.message : '',
+        connection: 'shared',
+        choices: ['sales', 'support'],
+      });
+      expect(stringsOf(t.thrown).join(' ')).not.toContain('conn-');
+      if (key !== undefined) expect(t.records.get(key)).toEqual(notChosen);
+    },
+  );
+
+  test('the record keeps the choices, and a ready connection its name', async () => {
+    const refused = await turn({ needs: { shared }, answers: [notChosen] });
+    expect(refused.records.get(`connection-gate:${CALL}`)).toEqual(notChosen);
+
+    const ready = await turn({ needs: { shared }, answers: [readyOn({ shared: support })] });
+    expect(ready.records.get(`connection-gate:${CALL}`)).toEqual({
+      kind: 'ready',
+      connections: {
+        shared: { app: 'acme', appName: 'Acme', ...support },
+      },
+    });
+    expect(ready.ran[0]?.connections?.shared?.name).toBe('support');
+  });
+
+  test.each([
+    [
+      'a company connection',
+      { shared },
+      [readyOn({ shared: support }), readyOn({ shared: sales })],
+      'The connection "shared" changed while this call waited (support, support@acme.example, to sales, sales@acme.example), so it didn\'t run.',
+    ],
+    [
+      "a person's",
+      { mail },
+      [
+        readyOn({
+          mail: { connectionId: 'conn-mail', account: { id: 'a', label: 'owner@acme.example' } },
+        }),
+        readyOn({
+          mail: { connectionId: 'conn-ana', account: { id: 'b', label: 'ana@acme.example' } },
+        }),
+      ],
+      'The connection "mail" changed while this call waited (owner@acme.example, to ana@acme.example), so it didn\'t run.',
+    ],
+  ] as const)(
+    '%s that changed before the call first ran: it fails, naming both, and runs nothing',
+    async (_, needs, answers, message) => {
+      const t = await turn({ needs, answers });
+      expect(t.ran).toEqual([]);
+      expect(t.thrown).toBeUndefined();
+      expect(t.failed.map((e) => e.error)).toEqual([{ code: 'connection-changed', message }]);
+      expect(t.results).toEqual([
+        {
+          status: 'failed',
+          error: { code: 'connection-changed', message, connection: Object.keys(needs)[0] },
+        },
+      ]);
+    },
+  );
+
+  test.each([
+    ['a company connection', 'shared', { shared }],
+    ["a person's", 'mail', { mail }],
+  ] as const)(
+    '%s that changed by the renew after the app refused its token: it fails, run once',
+    async (_, name, needs) => {
+      const t = await turn({
+        needs,
+        answers: [
+          readyOn({ [name]: support }),
+          readyOn({ [name]: support }),
+          readyOn({ [name]: sales }),
+        ],
+        run: async (_ctx, attempt) => {
+          if (attempt === 1) throw new ConnectionRejectedError(name, 'Acme said 401.');
+          return { ok: true };
+        },
+      });
+      expect(t.ran).toHaveLength(1);
+      expect(t.asked[2]).toMatchObject({ renew: [name] });
+      expect(t.failed.map((e) => e.error.code)).toEqual(['connection-changed']);
+    },
+  );
+
+  test('after a connect, the connection the call waited for is the one it runs on', async () => {
+    const ran = await turn({
+      answers: [waitFor('mail'), readyOn({ mail: support }), readyOn({ mail: support })],
+    });
+    expect(ran.ran).toHaveLength(1);
+    expect(ran.failed).toEqual([]);
+
+    const changed = await turn({
+      answers: [waitFor('mail'), readyOn({ mail: support }), readyOn({ mail: sales })],
+    });
+    expect(changed.ran).toEqual([]);
+    expect(changed.failed[0]?.error).toEqual({
+      code: 'connection-changed',
+      message:
+        'The connection "mail" changed while this call waited (support, support@acme.example, to sales, sales@acme.example), so it didn\'t run.',
+    });
+  });
+
+  test('the same connection, renamed or with a new token, runs as before', async () => {
+    const t = await turn({
+      needs: { mail, shared },
+      answers: [
+        readyOn({ mail: support, shared: sales }),
+        readyOn({ mail: { ...support, name: 'help desk' }, shared: sales }),
+      ],
+    });
+    expect(t.failed).toEqual([]);
+    expect(t.ran).toHaveLength(1);
+    expect(t.ran[0]?.connections?.mail?.name).toBe('help desk');
+  });
 });

@@ -266,6 +266,13 @@ type Resolved =
   | { readonly kind: 'wait'; readonly wait: Wait }
   | Refused;
 
+/** Why a company connection picked for a need can't serve it, and whether reconnecting would. */
+interface Unserved {
+  readonly why: string;
+  readonly reconnect: boolean;
+  readonly lacks?: readonly string[];
+}
+
 /** Who a code signed in as, and through which GitHub App installation. */
 interface SignedIn {
   readonly account: ConnectionAccount;
@@ -1816,6 +1823,7 @@ export function createInMemoryConnections(
       appName: entries.get(c.app)?.name ?? c.app,
       accessToken: `fake-${c.connectionId}-${issued.n}`,
       account: c.account,
+      name: nameOf(c),
       expiresAt: iso(issued.expiresAtMs),
     };
   }
@@ -1880,6 +1888,176 @@ export function createInMemoryConnections(
     return { entry, app };
   }
 
+  /** A connection's name: its label, else its account's label. */
+  function nameOf(c: ConnectionRecord): string {
+    return c.label ?? c.account.label;
+  }
+
+  /** A connection as a refusal names it: its label and account, or the account alone. */
+  function named(c: ConnectionRecord): string {
+    return c.label !== undefined ? `${c.label} (${c.account.label})` : c.account.label;
+  }
+
+  /** The company's connections a need of the app may use in the project, in the env. */
+  function companyCandidates(app: string, input: ResolveConnectionsInput): ConnectionRecord[] {
+    return [...connections.values()]
+      .filter((s) => s.record.tenantId === input.tenantId && s.record.app === app)
+      .map(current)
+      .filter((c) => candidate(c, input.projectId, input.envName));
+  }
+
+  /**
+   * The connection the run's mailbox names for the app (the company's), else
+   * the one the call's agent or flow chose for it in the project and env.
+   */
+  function pickedFor(
+    app: string,
+    input: ResolveConnectionsInput,
+  ): { readonly by: 'mailbox' | 'choice'; readonly connectionId: string } | undefined {
+    const { mailbox, target } = input;
+    if (mailbox?.as === 'company' && mailbox.app === app && mailbox.connectionId !== undefined) {
+      return { by: 'mailbox', connectionId: mailbox.connectionId };
+    }
+    if (target === undefined) return undefined;
+    const wanted: ConnectionChoiceTarget =
+      'agentId' in target ? { agentId: target.agentId } : { flowId: target.flowId };
+    const chosen = [...choices.values()].find(
+      (c) =>
+        c.tenantId === input.tenantId &&
+        c.projectId === input.projectId &&
+        c.envName === input.envName &&
+        c.app === app &&
+        c.removedAt === undefined &&
+        sameTarget(c, wanted),
+    );
+    return chosen === undefined ? undefined : { by: 'choice', connectionId: chosen.connectionId };
+  }
+
+  /** Several company connections, and none chosen: the turn stops, listing them. */
+  function notChosen(
+    name: string,
+    entry: AppEntry,
+    candidates: readonly ConnectionRecord[],
+    input: ResolveConnectionsInput,
+  ): Refused {
+    const listed = candidates
+      .map((c) => ({ connectionId: c.connectionId, name: nameOf(c) }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.connectionId.localeCompare(b.connectionId));
+    const has = `This project has ${listed.length} company ${entry.name} connections (${listed.map((c) => c.name).join(', ')})`;
+    const target = input.target;
+    const [kind, id, page] =
+      target === undefined
+        ? []
+        : 'agentId' in target
+          ? ['agent', target.agentId, 'Agents']
+          : ['flow', target.flowId, 'Flows'];
+    return {
+      kind: 'refused',
+      code: 'connection-not-chosen',
+      name,
+      app: entry.id,
+      choices: listed,
+      message:
+        kind === undefined
+          ? `${has}, and this call is no agent's or flow's, so none can be chosen for it.`
+          : `${has}, and ${kind} ${id} has no choice of one. A project admin chooses it: Project, ${page}, ${id}, Connections, or kindgi connection-choices set.`,
+    };
+  }
+
+  /** Why the company's connection isn't a candidate any more. */
+  function notCandidate(
+    c: ConnectionRecord,
+    entry: AppEntry,
+    input: ResolveConnectionsInput,
+  ): string {
+    if (!LIVE.has(c.state)) return 'was disconnected';
+    if (c.envName !== input.envName) return `is in env ${c.envName}, not ${input.envName}`;
+    return `is on a ${entry.name} registration that no longer allows this project`;
+  }
+
+  /**
+   * A company need: the run's mailbox's connection, else the agent's or
+   * flow's choice, else the only candidate. One of those that can't serve
+   * the call refuses, naming it, and never falls back to another.
+   */
+  function resolveCompany(
+    name: string,
+    need: Need,
+    entry: AppEntry,
+    input: ResolveConnectionsInput,
+  ): Resolved {
+    const candidates = companyCandidates(need.app, input);
+    const picked = pickedFor(need.app, input);
+    if (picked === undefined && candidates.length > 1) {
+      return notChosen(name, entry, candidates, input);
+    }
+    const stored = companyOf(picked?.connectionId ?? candidates[0]?.connectionId, need, input);
+    // Only the company's connection of the app is named: any other id answers as none does.
+    if (stored === undefined) return missingRefusal(name, entry, undefined, need.permissions);
+    const answer = companyToken(stored, name, need, candidates, entry, input);
+    if (!('why' in answer)) return { kind: 'ready', connection: answer };
+    return companyRefusal(name, entry, stored.record, picked?.by ?? 'only', answer);
+  }
+
+  /** The tenant's company connection of the need's app with that id, if it's one. */
+  function companyOf(
+    id: string | undefined,
+    need: Need,
+    input: ResolveConnectionsInput,
+  ): StoredConnection | undefined {
+    const stored = id === undefined ? undefined : connections.get(id);
+    return stored?.record.tenantId === input.tenantId &&
+      stored.record.owner.kind === 'company' &&
+      stored.record.app === need.app
+      ? stored
+      : undefined;
+  }
+
+  /** The picked company connection's token, or why it can't serve the need. */
+  function companyToken(
+    stored: StoredConnection,
+    name: string,
+    need: Need,
+    candidates: readonly ConnectionRecord[],
+    entry: AppEntry,
+    input: ResolveConnectionsInput,
+  ): ToolConnection | Unserved {
+    const c = current(stored);
+    if (!candidates.some((k) => k.connectionId === c.connectionId)) {
+      return { why: notCandidate(c, entry, input), reconnect: false };
+    }
+    const lacks = need.permissions.filter((p) => !c.permissions.includes(p));
+    if (lacks.length > 0) return { why: `lacks ${lacks.join(', ')}`, reconnect: true, lacks };
+    const token =
+      c.state === 'working'
+        ? tokenFor(stored, name, input.renew?.includes(name) === true)
+        : 'needs-reconnecting';
+    return token === 'needs-reconnecting' ? { why: 'needs reconnecting', reconnect: true } : token;
+  }
+
+  /** The picked company connection can't serve the need: naming it, and how to fix it. */
+  function companyRefusal(
+    name: string,
+    entry: AppEntry,
+    c: ConnectionRecord,
+    by: 'mailbox' | 'choice' | 'only',
+    answer: Unserved,
+  ): Refused {
+    const subject = by === 'mailbox' ? `${named(c)}, the mailbox this run reads,` : named(c);
+    const fixes = [
+      ...(answer.reconnect ? ['reconnect it'] : []),
+      ...(by === 'choice' ? [answer.reconnect ? 'or choose another' : 'choose another'] : []),
+    ];
+    return {
+      kind: 'refused',
+      code: 'connection-missing',
+      name,
+      app: entry.id,
+      ...(answer.lacks !== undefined && { missing: answer.lacks }),
+      message: [`${subject} ${answer.why}`, fixes.join(', ')].filter((p) => p !== '').join('; '),
+    };
+  }
+
   /** One need: its token, a connect to wait for, or why it can't be met. */
   function resolveOne(name: string, need: Need, input: ResolveConnectionsInput): Resolved {
     const registration = registrationOf(name, need, input);
@@ -1887,6 +2065,7 @@ export function createInMemoryConnections(
     const { entry, app } = registration;
     const owner = ownerFor(name, need, entry, input);
     if (owner.kind === 'refused') return owner;
+    if (owner.kind === 'company') return resolveCompany(name, need, entry, input);
     const found = liveConnection(input.tenantId, app.appId, owner, input.envName);
     const lacks = need.permissions.filter((p) => !found?.record.permissions.includes(p));
     if (found?.record.state === 'working' && lacks.length === 0) {
@@ -1894,9 +2073,7 @@ export function createInMemoryConnections(
       if (token !== 'needs-reconnecting') return { kind: 'ready', connection: token };
     }
     const existing = liveConnection(input.tenantId, app.appId, owner, input.envName);
-    if (need.as === 'company' || input.waitMs <= 0) {
-      return missingRefusal(name, entry, existing, lacks);
-    }
+    if (input.waitMs <= 0) return missingRefusal(name, entry, existing, lacks);
     return {
       kind: 'wait',
       wait: {

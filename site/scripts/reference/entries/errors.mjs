@@ -3808,6 +3808,25 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'connection-not-chosen': {
+    description:
+      "A tool call needs a company connection of an app, the project has more than one in this environment, and the agent or flow has no choice of one. The turn's run fails rather than pick one: a project admin chooses the connection (`PUT /v1/connection-choices`), then the turn runs again.",
+    details: [
+      {
+        key: 'connection',
+        meaning: "the tool's name for the connection",
+      },
+      {
+        key: 'choices',
+        meaning: 'the names of the connections to choose from, sorted',
+      },
+      {
+        key: 'runId',
+        meaning: 'the run that failed',
+      },
+    ],
+    seeAlso: ['PUT /v1/connection-choices', 'GET /v1/connection-choices/candidates'],
+  },
   'connection-removing': {
     description:
       "A connect, or its finish, for a connection that's still being disconnected: an earlier disconnect didn't get to the end. Disconnect it again to finish, then connect.",

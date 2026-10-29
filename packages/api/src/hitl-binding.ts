@@ -86,7 +86,10 @@ export interface Approval {
    * Absent: any reviewer of the rank decides.
    */
   readonly approver?: ApprovalApprover;
-  /** The person's connection the call would use: shown as "as <account>". */
+  /**
+   * The connection the call would use, shown as "as <account>": the
+   * person's own, or else the company's the gate decided on.
+   */
   readonly connection?: ApprovalConnection;
 }
 
@@ -96,12 +99,14 @@ export interface ApprovalApprover {
   readonly userId: string;
 }
 
-/** The connection a gated call would use: the app, and whose account. */
+/** The connection a gated call would use: the app, whose account, and its name. */
 export interface ApprovalConnection {
   readonly app: string;
   readonly appName: string;
   /** The account's label at the app: an email address, a login. */
   readonly account: string;
+  /** The connection's name: its label, else the account's. */
+  readonly name?: string;
 }
 
 /**

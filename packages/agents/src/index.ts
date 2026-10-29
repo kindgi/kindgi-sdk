@@ -90,6 +90,7 @@ export type {
   RunSnapshotError,
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
+  ConnectionNotChosenError,
   ToolInvocationError,
   TurnMemoryBinding,
   TurnMemoryCharge,

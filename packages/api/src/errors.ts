@@ -663,6 +663,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
    */
   'connection-label-taken': 409,
   /**
+   * A call needs a company connection of an app, the project has several
+   * in the env, and the agent or flow has no choice of one: the turn
+   * fails. `details.choices` names them.
+   */
+  'connection-not-chosen': 409,
+  /**
    * A connect, or its finish, for a connection still being disconnected:
    * disconnect it again to finish, then connect.
    */
