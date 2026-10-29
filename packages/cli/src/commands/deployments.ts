@@ -19,6 +19,7 @@ import {
   packServiceRetiredText,
 } from '../deploy/pack-service-text.js';
 import { type PackEnvHintTarget, packEnvProblemLines } from '../env/pack-env-hint.js';
+import { extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
 import { resolveProjectRef } from '../project-ref.js';
 import {
@@ -154,8 +155,8 @@ const get: LeafCommand = {
       if (ctx.globals.formatRequested && ctx.globals.format !== 'table') {
         return renderJson(deployment, ctx.globals.format);
       }
-      const packEnv = namesInTheWay(deployment.endpoint) ? await readPackEnv(ctx, id) : undefined;
-      return { stdout: deploymentText(deployment, packEnv), stderr: '' };
+      const read = namesInTheWay(deployment.endpoint) ? await readPackEnv(ctx, id) : undefined;
+      return { stdout: deploymentText(deployment, read), stderr: '' };
     }),
 };
 
@@ -169,16 +170,37 @@ function namesInTheWay(endpoint: Endpoint | undefined): boolean {
   return endpoint.problem?.code.startsWith('pack-env-') === true;
 }
 
-/** Where each name the deployment's pack declares is set; `undefined` when it can't be read. */
-async function readPackEnv(ctx: CommandContext, id: string): Promise<PackEnvNames | undefined> {
+/** Where each name the deployment's pack declares is set, or why that couldn't be read. */
+type PackEnvRead =
+  | { readonly kind: 'ok'; readonly packEnv: PackEnvNames }
+  | { readonly kind: 'not-served' }
+  | { readonly kind: 'error'; readonly message: string };
+
+/**
+ * A server that doesn't give pack services their env (`501
+ * pack-env-not-served`), or is older (404), says nothing more. Any other
+ * failure is said, with why, as `kindgi deploy --hosted` says it.
+ */
+async function readPackEnv(ctx: CommandContext, id: string): Promise<PackEnvRead> {
   try {
-    return await ctx.client().deployments.packEnv(id);
-  } catch {
-    return undefined;
+    return { kind: 'ok', packEnv: await ctx.client().deployments.packEnv(id) };
+  } catch (thrown) {
+    const wire = extractKindgiError(thrown);
+    if (wire === null) {
+      return { kind: 'error', message: thrown instanceof Error ? thrown.message : String(thrown) };
+    }
+    const serverCode = (wire as { readonly serverCode?: unknown }).serverCode;
+    if (wire.code === 'not-found' || serverCode === 'pack-env-not-served') {
+      return { kind: 'not-served' };
+    }
+    const tag = typeof serverCode === 'string' && serverCode !== 'unknown' ? serverCode : wire.code;
+    return { kind: 'error', message: `${wire.message} (${tag})` };
   }
 }
 
-function deploymentText(d: Deployment, packEnv: PackEnvNames | undefined): string {
+function deploymentText(d: Deployment, read: PackEnvRead | undefined): string {
+  const packEnv = read?.kind === 'ok' ? read.packEnv : undefined;
+  const unread = read?.kind === 'error' ? read.message : undefined;
   // Where a value goes: the env the server reads them at, and the deployment's project.
   const target: PackEnvHintTarget | undefined = packEnv && {
     envName: packEnv.envName,
@@ -195,21 +217,27 @@ function deploymentText(d: Deployment, packEnv: PackEnvNames | undefined): strin
       counted(d.primitives.agents, 'agent'),
       counted(d.primitives.flows, 'flow'),
     ].join(', ')}`,
-    ...(d.endpoint !== undefined ? packServiceLines(d.endpoint, packEnv, target) : []),
+    ...(d.endpoint !== undefined ? packServiceLines(d.endpoint, packEnv, target, unread) : []),
   ];
   return `${lines.join('\n')}\n`;
 }
 
-/** Its pack service's state, why when there's a reason, and what to do when its env is in the way. */
+/**
+ * Its pack service's state, why when there's a reason, and what to do when
+ * its env is in the way, or why where each value is set couldn't be read.
+ */
 function packServiceLines(
   endpoint: Endpoint,
   packEnv: PackEnvNames | undefined,
   target: PackEnvHintTarget | undefined,
+  unread: string | undefined,
 ): string[] {
-  const fixes = (extra: (t: PackEnvHintTarget) => string[]): string[] =>
-    packEnv === undefined || target === undefined
+  const fixes = (extra: (t: PackEnvHintTarget) => string[]): string[] => {
+    if (unread !== undefined) return [`      Couldn't read where each value is set: ${unread}`];
+    return packEnv === undefined || target === undefined
       ? []
       : [...packEnvProblemLines(packEnv.data, target), ...extra(target)].map((l) => `      ${l}`);
+  };
   if (endpoint.status === 'ready') {
     const held = endpoint.packEnvProblem;
     if (held === undefined) return [`  Pack service: ready since ${endpoint.since}`];
