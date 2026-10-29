@@ -61,6 +61,8 @@ interface Download {
   readonly body: () => ReadableStream<Uint8Array>;
   readonly size: number;
   readonly hash: string;
+  /** Set, called as the download is asked for: the answer comes once it resolves, as a slow server's does. */
+  readonly answered?: () => Promise<void>;
 }
 
 const HELLO: Download = { body: () => new Response('hello').body!, size: 5, hash: sha256('hello') };
@@ -82,11 +84,15 @@ function cutShort(sent: string): () => ReadableStream<Uint8Array> {
   };
 }
 
-/** A body that sends `hel`, and `lo` only once `release` is called; `waiting` resolves once it is held. */
+/**
+ * A body that sends `hel`, and `lo` only once `release` is called; `waiting`
+ * resolves once it is held, `cancelled` once its reader cancels it.
+ */
 function held(): {
   body: () => ReadableStream<Uint8Array>;
   waiting: Promise<void>;
   release: () => void;
+  cancelled: Promise<void>;
 } {
   let release: () => void = () => {};
   const gate = new Promise<void>((resolve) => {
@@ -96,9 +102,14 @@ function held(): {
   const waiting = new Promise<void>((resolve) => {
     reached = resolve;
   });
+  let cancel: () => void = () => {};
+  const cancelled = new Promise<void>((resolve) => {
+    cancel = resolve;
+  });
   let sent = false;
   const body = () =>
     new ReadableStream<Uint8Array>({
+      cancel,
       async pull(controller) {
         if (!sent) {
           sent = true;
@@ -110,10 +121,10 @@ function held(): {
         controller.close();
       },
     });
-  return { body, waiting, release };
+  return { body, waiting, release, cancelled };
 }
 
-async function run(argv: readonly string[], download: Download = HELLO) {
+async function run(argv: readonly string[], download: Download = HELLO, stopSignal?: AbortSignal) {
   const calls: unknown[][] = [];
   const rec =
     (name: string, value: () => unknown) =>
@@ -138,13 +149,16 @@ async function run(argv: readonly string[], download: Download = HELLO) {
             hash: 'a'.repeat(64),
           })),
           upload: rec('artifacts.upload', () => META),
-          download: rec('artifacts.download', () => ({
-            name: download.name ?? 'report.pdf',
-            contentType: 'application/pdf',
-            size: download.size,
-            hash: download.hash,
-            body: download.body(),
-          })),
+          download: rec('artifacts.download', async () => {
+            await download.answered?.();
+            return {
+              name: download.name ?? 'report.pdf',
+              contentType: 'application/pdf',
+              size: download.size,
+              hash: download.hash,
+              body: download.body(),
+            };
+          }),
           delete: rec('artifacts.delete', () => ({ blobId: 'b-1', deleted: true })),
         },
         capabilities: {
@@ -168,6 +182,7 @@ async function run(argv: readonly string[], download: Download = HELLO) {
           get: rec('capabilities.get', () => ({ id: 'feature:vision' })),
         },
       }) as never,
+    ...(stopSignal !== undefined && { stopSignal }),
   });
   return { out, calls };
 }
@@ -240,6 +255,64 @@ describe('kindgi artifacts', () => {
     expect(forced.out.stderr).toContain('the download stopped part way');
     expect(await readFile(join(cwd, 'report.pdf'))).toEqual(OLD);
     expect(await readdir(cwd)).toEqual(['report.pdf']);
+  });
+
+  test('one Ctrl+C stops a download part way: exit 130, no file and no partial; with --force the old one as it was', async () => {
+    const stopped = 'kindgi artifacts download stopped: no file was written.\n';
+    for (const force of [false, true]) {
+      if (force) await writeFile(join(cwd, 'report.pdf'), OLD);
+      const body = held();
+      const stop = new AbortController();
+      const download = run(
+        ['artifacts', 'download', 'b-1', ...(force ? ['--force'] : [])],
+        { ...HELLO, body: body.body },
+        stop.signal,
+      );
+      await body.waiting;
+      stop.abort();
+      const { out } = await download;
+      expect(out.exitCode, out.stderr).toBe(130);
+      expect(out.stderr).toBe(stopped);
+      expect(out.stdout).toBe('');
+      // The read stops too: the body is cancelled, not left to arrive.
+      await body.cancelled;
+      expect(await readdir(cwd)).toEqual(force ? ['report.pdf'] : []);
+      if (force) expect(await readFile(join(cwd, 'report.pdf'))).toEqual(OLD);
+    }
+  });
+
+  test("one Ctrl+C stops a download still waiting for the server's answer; the body that comes later is cancelled", async () => {
+    let asked: () => void = () => {};
+    const askedFor = new Promise<void>((resolve) => {
+      asked = resolve;
+    });
+    let answer: () => void = () => {};
+    const answers = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const body = held();
+    const stop = new AbortController();
+    const download = run(
+      ['artifacts', 'download', 'b-1'],
+      {
+        ...HELLO,
+        body: body.body,
+        answered: () => {
+          asked();
+          return answers;
+        },
+      },
+      stop.signal,
+    );
+    await askedFor;
+    stop.abort();
+    const { out, calls } = await download;
+    expect(out.exitCode, out.stderr).toBe(130);
+    expect(out.stderr).toBe('kindgi artifacts download stopped: no file was written.\n');
+    expect(calls.map(([name]) => name)).toEqual(['artifacts.download']);
+    answer();
+    await body.cancelled;
+    expect(await readdir(cwd)).toEqual([]);
   });
 
   test('a rename over the target that fails leaves no partial file', async () => {

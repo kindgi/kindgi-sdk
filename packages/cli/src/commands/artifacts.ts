@@ -19,7 +19,7 @@ import {
   runSdk,
   stringFlag,
 } from './helpers.js';
-import type { Command, LeafCommand } from './types.js';
+import type { Command, CommandResult, LeafCommand } from './types.js';
 
 /**
  * `kindgi artifacts`: files runs and people keep in the runtime. Every
@@ -176,18 +176,45 @@ async function placeNew(partial: string, target: string): Promise<void> {
 }
 
 /**
+ * The download's answer, unless the stop comes first: then the stop's
+ * reason is thrown at once, and a body that still arrives is cancelled.
+ */
+async function unlessStopped(
+  answer: Promise<DownloadedArtifact>,
+  stop: AbortSignal | undefined,
+): Promise<DownloadedArtifact> {
+  if (stop === undefined) return answer;
+  let onStop = (): void => undefined;
+  const stopped = new Promise<never>((_, reject) => {
+    onStop = () => reject(stop.reason);
+  });
+  if (stop.aborted) onStop();
+  else stop.addEventListener('abort', onStop, { once: true });
+  try {
+    return await Promise.race([answer, stopped]);
+  } catch (err) {
+    if (stop.aborted) void answer.then((got) => got.body.cancel()).catch(() => undefined);
+    throw err;
+  } finally {
+    stop.removeEventListener('abort', onStop);
+  }
+}
+
+/**
  * The body written to a new file beside `target` (as `kindgi exports
  * create` writes its files), which takes `target`'s name only once the
  * whole body has arrived: the stream ended, with the sha256 the server
  * sent. With `force`, it is renamed over `target`; without, it takes the
  * name only while nothing has it (`placeNew`). Otherwise that file is
- * removed, and `target` is as it was. Returns the size and sha256 of the
+ * removed, and `target` is as it was: the stop (`stop`, a Ctrl+C) ends
+ * the stream as a cut connection does. Returns the size and sha256 of the
  * bytes written.
  */
 async function saveWhole(
   got: DownloadedArtifact,
   target: string,
   force: boolean,
+  stop: AbortSignal | undefined,
 ): Promise<{ size: number; hash: string }> {
   const partial = `${target}.${randomBytes(4).toString('hex')}.partial`;
   const file = await open(partial, 'wx').catch(async (err: unknown) => {
@@ -207,6 +234,7 @@ async function saveWhole(
         }
       },
       file.createWriteStream(),
+      { ...(stop !== undefined && { signal: stop }) },
     );
   } catch (err) {
     await rm(partial, { force: true });
@@ -249,19 +277,31 @@ const download: LeafCommand = {
     o: { type: 'string', description: 'Write it to this file.' },
     force: { type: 'boolean', description: 'Overwrite the file if it exists.' },
   },
-  run: (ctx) =>
-    runSdk(ctx, 'artifacts download', async () => {
+  run: async (ctx) => {
+    const stop = ctx.stopSignal;
+    const result = await runSdk(ctx, 'artifacts download', async () => {
       const blobId = requiredPositional(ctx, 0, 'blob-id');
-      const got = await ctx.client().artifacts.download(blobId as never);
+      const got = await unlessStopped(ctx.client().artifacts.download(blobId as never), stop);
       const target = resolve(ctx.cwd, stringFlag(ctx, 'o') ?? ownName(got.name, blobId));
       const force = ctx.options.force === true;
       if (!force && (await exists(target))) {
         await got.body.cancel();
         throw existsError(target);
       }
-      const saved = await saveWhole(got, target, force);
+      const saved = await saveWhole(got, target, force, stop);
       return { blobId, file: target, ...saved };
-    }),
+    });
+    // Ctrl+C (or SIGTERM) during the download: a stop, not a failure, said
+    // as `kindgi dev` says one while its runtime starts.
+    return result.kind === 'error' && stop?.aborted === true ? STOPPED : result;
+  },
+};
+
+/** A download the stop ended: no file written, and the exit code says so. */
+const STOPPED: CommandResult = {
+  kind: 'error',
+  stderr: 'kindgi artifacts download stopped: no file was written.\n',
+  exitCode: 130,
 };
 
 const del: LeafCommand = {

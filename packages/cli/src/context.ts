@@ -95,11 +95,11 @@ export interface CommandContext {
    */
   readonly devRunners: DevRunners | undefined;
   /**
-   * Optional signal that terminates long-lived commands (currently just
-   * `kindgi dev` — the watch loop). Tests pass an
+   * Optional signal that stops long-lived commands (`kindgi dev`'s watch
+   * loop, a download, a deploy's waits). Tests pass an
    * `AbortController.signal` so a graceful shutdown path can be
    * exercised without process signals. Production callers wire this to
-   * SIGINT/SIGTERM in `main.ts`.
+   * SIGINT/SIGTERM/SIGHUP in `cli.ts`.
    */
   readonly stopSignal: AbortSignal | undefined;
   /**
