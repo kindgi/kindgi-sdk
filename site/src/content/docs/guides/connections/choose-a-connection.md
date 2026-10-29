@@ -111,7 +111,9 @@ pnpm exec kindgi connection-choices set support --agent=acme.mail-helper
 Chose support at google for agent acme.mail-helper (choice 5d1c9e07-…).
 ```
 
-- **`--flow=<id>`** makes the choice for a flow instead of `--agent`.
+- **`--flow=<id>`** makes the choice for a flow instead of `--agent`. It's
+  for the tool steps the flow runs itself. An agent the flow runs uses
+  the agent's own choice.
 - **`--project=<project-id>`** is the project. Without it, it's the
   tenant's Default project.
 - **`--app=<app>`** narrows the name to one app's candidates. The choice is
@@ -121,9 +123,10 @@ Chose support at google for agent acme.mail-helper (choice 5d1c9e07-…).
   `Chose sales at google for agent acme.mail-helper (choice 8e2a4b13-…), in place of support (choice 5d1c9e07-…).`
   A choice is never edited: the old one is removed, and the next one has
   the next `version`. Choosing the one it already uses changes nothing.
-- **It's refused** for a person's own connection, `400 bad-input` ("A
-  person's own connection is used for them; choices are for the
-  company's."), for a connection that isn't a candidate,
+- **It's refused** for a person's own live connection in the
+  environment, `400 bad-input` ("A person's own connection is used for
+  them; choices are for the company's."), for any other connection that
+  isn't a candidate,
   `404 connection-not-found`, for an agent or a flow that isn't the
   project's, `404 agent-not-found` or `404 flow-not-found`, and for anyone
   but a project admin, `403 permission-denied` ("Choosing a connection
@@ -156,10 +159,10 @@ It asks first, unless you give `--yes`, then prints
 project's only candidate at the app, and stops with
 `connection-not-chosen` when there are several. Over HTTP, that's
 `DELETE /v1/connection-choices/{choiceId}`, and `connectionChoices.remove`
-in the clients. A removed or unknown choice is
-`404 connection-choice-not-found`, and anyone but a project admin is
-refused with `403 permission-denied` ("Removing a connection choice takes
-a project admin.").
+in the clients. A removed or unknown choice, or one in a project you
+can't read, is `404 connection-choice-not-found`. Anyone else but a
+project admin is refused with `403 permission-denied` ("Removing a
+connection choice takes a project admin.").
 
 Disconnecting a chosen connection leaves its choice in place. The agent's
 calls at that app then fail with `connection-missing`, naming the
@@ -209,8 +212,8 @@ then on:
 pnpm exec kindgi connection-choices set support --agent=acme.mail-helper
 ```
 
-A call that's no agent's or flow's can't have a choice, so it needs a
-project with one candidate of the app.
+A call that isn't an agent's or a flow's can't have a choice, so it
+needs a project with one candidate of the app.
 
 ## When the connection changes
 

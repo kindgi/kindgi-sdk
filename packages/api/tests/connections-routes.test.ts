@@ -1484,7 +1484,13 @@ describe('/v1/connection-choices', () => {
     expect(outsider.status).toBe(403);
     expect((await call(app, 'bot', 'PUT', '/v1/connection-choices', body)).status).toBe(403);
     const path = `/v1/connection-choices/${set.json.choiceId}`;
-    expect((await call(app, 'bot', 'DELETE', path)).status).toBe(403);
+    // One who can't read the project hears what an unknown id gets.
+    const unseen = await call(app, 'bot', 'DELETE', path);
+    expect(unseen.status).toBe(404);
+    expect(unseen.json.error).toMatchObject({
+      code: 'connection-choice-not-found',
+      details: { choiceId: set.json.choiceId },
+    });
 
     const notAdmin = await call(app, 'ben', 'DELETE', path);
     expect(notAdmin.status).toBe(403);

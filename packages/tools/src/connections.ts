@@ -69,8 +69,8 @@ export interface ConnectionRunMailbox {
   readonly app: string;
   readonly as: 'company' | 'person';
   /**
-   * The company connection the trigger reads the mailbox with, as its
-   * config named it when the run started. Only with `as: 'company'`.
+   * The company connection the fire read the mail with, written once at
+   * the fire. Only with `as: 'company'`.
    */
   readonly connectionId?: string;
 }

@@ -10627,7 +10627,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Mail trigger registered.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `mailbox`, `folder`, `pollSeconds` and `runsPerHour`, a service account named or calling or `runAsProject` for a person's mailbox, a `connectionId` for a person's mailbox or naming a person's connection, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
+        "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `mailbox`, `folder`, `pollSeconds` and `runsPerHour`, a service account named or calling or `runAsProject` for a person's mailbox, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
       ),
       '409': ErrorResponse(
         "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the company's mailbox names no connection and the project has several company connections of the app (`connection-not-chosen`: `details.choices` lists them, `{connectionId, name}` sorted by name, and `details.field` is `config.mailbox.connectionId`). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
@@ -10689,7 +10689,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.update',
     summary: 'Update a mail trigger',
     description:
-      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
+      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. The company's mailbox it reads now, sent again with no `connectionId`, is the same mailbox: it keeps the one it reads with, or stores the only one. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10698,7 +10698,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Updated mail trigger.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST …/owner`), a person's mailbox for a shared trigger, a `connectionId` for a person's mailbox or naming a person's connection, or a new target or mailbox without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
+        "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST …/owner`), a person's mailbox for a shared trigger, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or a new target or mailbox without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
       ),
       '404': ErrorResponse(
         "No mail trigger with that id. Or the new mailbox's `connectionId` isn't one of the project's company connections of the app (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
@@ -11558,7 +11558,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The choice.', schema: ref('ConnectionChoice') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A malformed body or unknown field; a `projectId` or `connectionId` that is not a UUID; both `agentId` and `flowId`, or neither; or a person's own connection, which is used for them (`bad-input`, `details.field`).",
+        "A malformed body or unknown field; a `projectId` or `connectionId` that is not a UUID; both `agentId` and `flowId`, or neither; or a person's own live connection in this environment, which is used for them (`bad-input`, `details.field`).",
       ),
       '403': ErrorResponse('Not an admin of the project (`permission-denied`).'),
       '404': ErrorResponse(
@@ -11591,9 +11591,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Delete outcome.', schema: ref('ConnectionChoiceDeleteResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('`choiceId` is not a UUID (`bad-input`).'),
-      '403': ErrorResponse('Not an admin of its project (`permission-denied`).'),
+      '403': ErrorResponse("Reads its project, but isn't an admin of it (`permission-denied`)."),
       '404': ErrorResponse(
-        'No live choice with that id in this environment: unknown, or already removed (`connection-choice-not-found`).',
+        "No live choice with that id in this environment: unknown, already removed, or in a project the caller can't read (`connection-choice-not-found`).",
       ),
       '503': ErrorResponse("The removal couldn't be stored just now (`connection-store-failed`)."),
     },

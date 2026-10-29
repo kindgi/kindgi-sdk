@@ -476,14 +476,23 @@ export function createInMemoryConnections(
     });
   }
 
-  /** The connection a choice names, when it's a candidate. */
+  /**
+   * The connection a choice names, when it's a candidate. A person's live
+   * connection in the env says why it can't be; any other that isn't a
+   * candidate is the same `connection-not-found` as an id that isn't there,
+   * so an id tells nothing more.
+   */
   function choosable(input: ConnectionChoiceSetInput): Outcome<ConnectionRecord> {
     const stored = connections.get(input.connectionId);
     const connection =
       stored !== undefined && stored.record.tenantId === input.tenantId
         ? current(stored)
         : undefined;
-    if (connection?.owner.kind === 'member') {
+    if (
+      connection?.owner.kind === 'member' &&
+      LIVE.has(connection.state) &&
+      connection.envName === input.envName
+    ) {
       return refuse(
         'bad-input',
         "A person's own connection is used for them; choices are for the company's.",
@@ -1306,8 +1315,9 @@ export function createInMemoryConnections(
   }
 
   /**
-   * The live connection a finish lands on: the one it reconnects, checked
-   * again; else a person's own, or the company's of the account signed in to.
+   * The live connection a finish lands on: the one it reconnects, while
+   * it's still live; else a person's own, or the company's of the account
+   * signed in to.
    */
   function landsOn(
     request: ConnectRequestRecord,

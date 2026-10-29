@@ -236,7 +236,7 @@ public static final Tool<Input, Output> TOOL = Tool.define("my-pack.send-mail")
     });
 ```
 
-- **Whose connection:** `"as", "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as", "company"` is the company's. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
+- **Whose connection:** `"as", "person"` is the connection of the person the run acts as (whoever started it, or the owner of the schedule or webhook that did); `"as", "company"` is the company's. With several company connections of one app, the mailbox the run's mail came to says which, else the agent's or flow's choice; with neither, the run fails with `connection-not-chosen`. The runtime picks it from the run, never from the input or the model. A run that acts as nobody (a service account's, an event's) fails a `"person"` call with `connection-needs-a-person`.
 - **The token:** `accessToken()` is current for this call only. Never keep, print, log or return it; it never reaches the journal. `account().label()` says whose account it is (`ana@acme.com`).
 - **A 401 from the app:** `throw new ConnectionRejectedException("mail")`, with the connection's name (a second argument can say what the app answered, never the token), or your own exception with it as the cause. The runtime renews the token once and runs the call again; refused again, the call fails with `connection-rejected`.
 - **An HTTP tool** sends the token with no code: `.authorization(new HttpAuthSpec.Connection("mail"))`.

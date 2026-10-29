@@ -10435,7 +10435,7 @@ class MailTriggerMailbox(BaseModel):
     as_: Annotated[Annotated[Literal["company", "person"] | str, _open.OPEN], Field(alias="as")]
     connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
     """
-    The company connection it reads the mailbox with: only with `as: company`, since a person's mailbox is read with its owner's own connection. Named, it must be one of the project's candidates of the app (`GET /v1/connection-choices/candidates`); a person's connection is `400 bad-input`, and any other `404 connection-not-found`. Not named, the project's only one is stored, so another connection added later doesn't change what the trigger reads; with several, it's `409 connection-not-chosen`, and with none, nothing is stored. Another `connectionId`, or one where there was none, is another mailbox. Absent from a trigger that names none.
+    The company connection it reads the mailbox with: only with `as: company`, since a person's mailbox is read with its owner's own connection. Named, it must be one of the project's candidates of the app (`GET /v1/connection-choices/candidates`); a person's own live connection of the app is `400 bad-input`, and any other `404 connection-not-found`. Not named, the project's only one is stored, so another connection added later doesn't change what the trigger reads; with several, it's `409 connection-not-chosen`, and with none, nothing is stored. Another `connectionId`, or one named where there was none, is another mailbox. The company's mailbox it reads now, sent again with none, is the same mailbox: it keeps the one it reads with, or stores the only one. Absent from a trigger that names none.
     """
 
 

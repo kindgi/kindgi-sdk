@@ -287,6 +287,28 @@ export function mailTriggersRouter(
       : { kind: 'ok', value: decided };
   }
 
+  /**
+   * An edit's mailbox, its company connection decided: the company's
+   * mailbox of the app it reads now, sent again with no `connectionId`,
+   * keeps the one it reads with, so the same mailbox never asks again.
+   */
+  async function mailboxAfterEdit(
+    c: Context<AppEnv>,
+    mailbox: MailTriggerMailbox,
+    before: MailTriggerMailbox,
+    project: string | undefined,
+  ): Promise<{ kind: 'ok'; value: MailTriggerMailbox } | { kind: 'err'; response: Response }> {
+    const same =
+      mailbox.as === 'company' &&
+      before.as === 'company' &&
+      mailbox.app === before.app &&
+      mailbox.connectionId === undefined &&
+      before.connectionId !== undefined;
+    return same
+      ? { kind: 'ok', value: { ...mailbox, connectionId: before.connectionId } }
+      : await decideConnection(c, mailbox, project);
+  }
+
   /** The company mailbox to store, its connection decided, else the refusal. */
   async function companyConnection(
     c: Context<AppEnv>,
@@ -546,18 +568,23 @@ export function mailTriggersRouter(
     if (rec.owner.kind === 'service' && mailboxAfter.as === 'person') {
       return bad(c, requestId, PERSON_MAILBOX_IS_A_PERSONS);
     }
-    // A new mailbox's company connection: the one named, else the only one.
+    // A mailbox's company connection: the one named; else, sent again, the
+    // one it reads with; else the only one.
     const decided =
       config.value.mailbox === undefined
         ? undefined
-        : await decideConnection(c, config.value.mailbox, project);
+        : await mailboxAfterEdit(c, config.value.mailbox, mailboxBefore, project);
     if (decided?.kind === 'err') return decided.response;
     const nextMailbox = decided?.value ?? mailboxBefore;
-    // Another company connection, or one named where none was, is another mailbox too.
+    // Another company connection, or one named where none was, is another
+    // mailbox too. The only one stored where none was, unnamed, is the one
+    // it reads with already.
+    const pinned =
+      mailboxBefore.connectionId === undefined && config.value.mailbox?.connectionId === undefined;
     const readsElsewhere =
       mailboxAfter.app !== mailboxBefore.app ||
       mailboxAfter.as !== mailboxBefore.as ||
-      nextMailbox.connectionId !== mailboxBefore.connectionId;
+      (nextMailbox.connectionId !== mailboxBefore.connectionId && !pinned);
     // What a personal trigger reads from a person's mailbox is its owner's
     // alone to choose: the mailbox, and the folder or label in it. Nobody
     // else, an admin included, points it at mail its owner didn't offer.
@@ -628,7 +655,14 @@ export function mailTriggersRouter(
       tenantId,
       triggerId,
       ...(Object.keys(config.value).length > 0 && {
-        config: { ...config.value, ...(decided !== undefined && { mailbox: decided.value }) },
+        config: {
+          ...config.value,
+          ...(decided !== undefined && { mailbox: decided.value }),
+          // The same mailbox keeps its folder, its connection just stored too.
+          ...(!readsElsewhere &&
+            config.value.folder === undefined &&
+            rec.config.folder !== undefined && { folder: rec.config.folder }),
+        },
       }),
       ...(target !== undefined && { target: target.value }),
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
@@ -847,9 +881,10 @@ async function candidatesOf(
 
 /**
  * Why a named company connection can't be stored, else nothing: one of
- * the project's candidates is stored; a person's connection is a 400; with
- * no project to check against, the tenant's live company connection of
- * the app in this env is stored; anything else is a 404.
+ * the project's candidates is stored; a person's live connection of the
+ * app in this env is a 400; with no project to check against, the
+ * tenant's live company connection of the app in this env is stored;
+ * anything else is a 404, the same as an id that isn't there.
  */
 async function namedRefusal(
   c: Context<AppEnv>,
@@ -861,17 +896,17 @@ async function namedRefusal(
   if (candidates?.some((x) => x.connectionId === named)) return undefined;
   const tenantId = c.get('tenantId') as TenantId;
   const connection = await connections.binding.get({ tenantId, connectionId: named });
-  if (connection?.owner.kind === 'member') {
+  const here =
+    connection !== null &&
+    LIVE_CONNECTION_STATES.has(connection.state) &&
+    connection.envName === connections.envName &&
+    connection.app === mailbox.app;
+  if (here && connection.owner.kind === 'member') {
     return answer(c, c.get('requestId'), 'bad-input', PERSON_CONNECTION_IS_THEIRS, {
       field: CONNECTION_FIELD,
     });
   }
-  const tenantsOwn =
-    candidates === undefined &&
-    connection?.owner.kind === 'company' &&
-    LIVE_CONNECTION_STATES.has(connection.state) &&
-    connection.envName === connections.envName &&
-    connection.app === mailbox.app;
+  const tenantsOwn = candidates === undefined && here && connection.owner.kind === 'company';
   return tenantsOwn ? undefined : notACandidate(c, named);
 }
 

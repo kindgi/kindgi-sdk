@@ -655,8 +655,11 @@ export function connectionChoicesRouter(
       return choiceNotFound(c, choiceId);
     }
     const projectId = choice.projectId as unknown as string;
-    const unreadable = await deniedBy(authorizer, c, 'read', ref('project', projectId));
-    if (unreadable !== undefined) return unreadable;
+    // One in a project the caller can't read isn't found either, so an id
+    // never tells it's there.
+    if ((await deniedBy(authorizer, c, 'read', ref('project', projectId))) !== undefined) {
+      return choiceNotFound(c, choiceId);
+    }
     const notAllowed = await notAdmin(c, projectId, 'Removing a connection choice');
     if (notAllowed !== undefined) return notAllowed;
     const outcome = await binding.removeChoice({ tenantId, choiceId, by });

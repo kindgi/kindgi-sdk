@@ -576,11 +576,12 @@ export interface ConnectionBinding {
    * account, compares what was granted with what was asked, stores the
    * connection, then completes and resumes a run that waits.
    *
-   * A reconnect's connection is checked again, and the same account is
-   * required (`connection-account-mismatch`). A person's request that
-   * isn't a reconnect, whose key gained a live connection after it was
-   * made, finishes as a reconnect of that connection, the same account
-   * required too. The company's that isn't lands on the company's live
+   * A reconnect's connection is looked up again: while it's live, the same
+   * account is required (`connection-account-mismatch`); one removed since
+   * the request isn't reconnected, and the finish lands as a connect that
+   * names none would. A person's request that isn't a reconnect, whose
+   * key gained a live connection after it was made, finishes as a
+   * reconnect of that connection, the same account required too. The company's that isn't lands on the company's live
    * connection of the account signed in to, when there is one, else makes
    * a new one: one account never has two. A reconnect's permissions are
    * both sets, and the outcome says `reconnected`.

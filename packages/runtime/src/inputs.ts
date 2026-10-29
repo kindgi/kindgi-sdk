@@ -125,9 +125,11 @@ export interface RunMailbox {
   readonly app: 'google' | 'microsoft';
   readonly as: 'company' | 'person';
   /**
-   * The company connection the trigger reads the mailbox with, as its
-   * config named it when the run started. Only with `as: 'company'`; a run
-   * from before connections had names carries none.
+   * The company connection the fire read the mail with: the one the
+   * trigger names, else the only one it read with. Written once, at the
+   * fire, so a trigger pointed elsewhere later doesn't move the run. Only
+   * with `as: 'company'`; a run from before connections had names carries
+   * none.
    */
   readonly connectionId?: string;
 }

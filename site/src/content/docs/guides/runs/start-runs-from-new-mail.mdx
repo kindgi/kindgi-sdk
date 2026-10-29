@@ -407,15 +407,18 @@ connections at the mailbox's app. Over HTTP, and in the clients, that's
 - **With none,** it stores none, and shows `connection-missing` until a
   tenant admin connects one.
 - **A connection that isn't one of them** is `404 connection-not-found`,
-  and a person's own connection is `400 bad-input` ("A person's own
-  connection is used for them; the company's mailbox is read with a
-  company connection."). On a person's mailbox, `--connection` is refused
+  except a person's own live connection of the app, which is
+  `400 bad-input` ("A person's own connection is used for them; the
+  company's mailbox is read with a company connection."). On a person's
+  mailbox, `--connection` is refused
   before anything is sent, and `config.mailbox.connectionId` is
   `400 bad-input`.
 - **A trigger that stores none,** such as one made before triggers stored
-  their connection, reads with the project's only company connection at
-  the app. When a second one is connected, it stops reading, with
-  `connection-not-chosen`, until a project admin points it at one.
+  their connection, is pointed at the project's only company connection
+  at the app when it next reads, and stores it from then on, so a second
+  one connected later doesn't move it. With several there already, it
+  doesn't read, and shows `connection-not-chosen`, until a project admin
+  points it at one.
 
 Point a trigger at another of the company's mailboxes with `update`:
 
@@ -437,6 +440,10 @@ That's a change of mailbox, as another app is:
 - **A project admin's change to a personal trigger is recorded** with the
   mailbox before and after, its connection included
   (`trigger-changed-for-owner`, [Shared or personal](#shared-or-personal)).
+
+The company's mailbox it reads now, sent again without `--connection`,
+isn't a change of mailbox. It keeps the connection it reads with, or
+stores the only one if it stores none, and keeps its folder.
 
 ## See what each mail did
 

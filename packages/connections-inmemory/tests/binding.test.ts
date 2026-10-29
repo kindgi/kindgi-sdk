@@ -2073,10 +2073,16 @@ describe('connection choices', () => {
     ).toEqual([made.c.github, made.c.reconnect]);
   });
 
-  test("a choice names a candidate, one that needs reconnecting too: a person's connection is bad-input, any other connection-not-found", async () => {
+  test("a choice names a candidate, one that needs reconnecting too: a person's live connection in the env is bad-input, any other connection-not-found", async () => {
     const made = choosing();
     await made.binding.disconnect({ tenantId, connectionId: made.c.removed, by: admin });
     const removing = made.company('leaving@acme.example', { state: 'removing' });
+    // A person's connection that couldn't be a candidate anyway says no more
+    // than an id that isn't there.
+    const anaStaging = made.company('ana@acme.example', {
+      owner: { kind: 'member', userId: ana.id },
+      envName: staging,
+    });
     expect(await set(made, made.c.ana)).toEqual({
       kind: 'err',
       error: {
@@ -2094,10 +2100,17 @@ describe('connection choices', () => {
       made.c.projectB,
       made.c.removed,
       removing,
+      anaStaging,
       '00000000-0000-4000-8000-00000000c0de',
     ]) {
       expect(await set(made, connectionId)).toEqual(notFound);
     }
+    expect(await set(made, anaStaging, { envName: staging })).toMatchObject({
+      kind: 'err',
+      error: { code: 'bad-input' },
+    });
+    await made.binding.disconnect({ tenantId, connectionId: made.c.ana, by: admin });
+    expect(await set(made, made.c.ana)).toEqual(notFound);
     expect(await set(made, made.c.reconnect)).toMatchObject({
       kind: 'ok',
       value: { connectionId: made.c.reconnect, version: 1 },
