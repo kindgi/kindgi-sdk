@@ -468,13 +468,13 @@ describe('a company need', () => {
       name: 'mail',
       app: 'google',
       missing: ['gmail.send'],
-      message: 'sales (sales@acme.example) lacks gmail.send; reconnect it, or choose another',
+      message: 'sales lacks gmail.send; reconnect it, or choose another',
     });
     const reconnect = made.add('old', 'old@acme.example', { state: 'needs-reconnecting' });
     await made.choose(reconnect);
     expect(await made.used({ target: agent })).toMatchObject({
       code: 'connection-missing',
-      message: 'old (old@acme.example) needs reconnecting; reconnect it, or choose another',
+      message: 'old needs reconnecting; reconnect it, or choose another',
     });
   });
 
@@ -488,7 +488,7 @@ describe('a company need', () => {
       code: 'connection-missing',
       name: 'mail',
       app: 'google',
-      message: 'support (support@acme.example) was disconnected; choose another',
+      message: 'support was disconnected; choose another',
     });
     const [first] = (await made.binding.listApps({ tenantId, limit: 10 })).data.filter(
       (a) => a.app === 'google',
@@ -517,7 +517,7 @@ describe('a company need', () => {
       name: 'mail',
       app: 'google',
       message:
-        'narrow (narrow@acme.example) is on a Google registration that no longer allows this project; choose another',
+        'narrow is on a Google registration that no longer allows this project; choose another',
     });
   });
 
@@ -532,19 +532,28 @@ describe('a company need', () => {
     await made.choose(made.support);
     expect(await made.used({ target: agent, mailbox: mailbox(staging) })).toMatchObject({
       code: 'connection-missing',
-      message:
-        'staging (staging@acme.example), the mailbox this run reads, is in env staging, not local',
+      message: 'staging, the mailbox this run reads, is in env staging, not local',
     });
     expect(await made.used({ target: agent, mailbox: mailbox(made.sales) })).toMatchObject({
       code: 'connection-missing',
       missing: ['gmail.send'],
-      message:
-        'sales (sales@acme.example), the mailbox this run reads, lacks gmail.send; reconnect it',
+      message: 'sales, the mailbox this run reads, lacks gmail.send; reconnect it',
     });
     await made.binding.disconnect({ tenantId, connectionId: made.sales, by: admin });
     expect(await made.used({ target: agent, mailbox: mailbox(made.sales) })).toMatchObject({
       code: 'connection-missing',
-      message: 'sales (sales@acme.example), the mailbox this run reads, was disconnected',
+      message: 'sales, the mailbox this run reads, was disconnected',
+    });
+  });
+
+  test("a refusal names a connection by its name alone, a name that is its account's label too", async () => {
+    const made = company();
+    const desk = made.add('desk@acme.example', 'desk@acme.example');
+    await made.choose(desk);
+    await made.binding.disconnect({ tenantId, connectionId: desk, by: admin });
+    expect(await made.used({ target: agent })).toMatchObject({
+      code: 'connection-missing',
+      message: 'desk@acme.example was disconnected; choose another',
     });
   });
 

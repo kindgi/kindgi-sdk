@@ -1903,11 +1903,6 @@ export function createInMemoryConnections(
     return c.label ?? c.account.label;
   }
 
-  /** A connection as a refusal names it: its label and account, or the account alone. */
-  function named(c: ConnectionRecord): string {
-    return c.label !== undefined ? `${c.label} (${c.account.label})` : c.account.label;
-  }
-
   /** The company's connections a need of the app may use in the project, in the env. */
   function companyCandidates(app: string, input: ResolveConnectionsInput): ConnectionRecord[] {
     return [...connections.values()]
@@ -2045,7 +2040,7 @@ export function createInMemoryConnections(
     return token === 'needs-reconnecting' ? { why: 'needs reconnecting', reconnect: true } : token;
   }
 
-  /** The picked company connection can't serve the need: naming it, and how to fix it. */
+  /** The picked company connection can't serve the need: naming it by its name, and how to fix it. */
   function companyRefusal(
     name: string,
     entry: AppEntry,
@@ -2053,7 +2048,7 @@ export function createInMemoryConnections(
     by: 'mailbox' | 'choice' | 'only',
     answer: Unserved,
   ): Refused {
-    const subject = by === 'mailbox' ? `${named(c)}, the mailbox this run reads,` : named(c);
+    const subject = by === 'mailbox' ? `${nameOf(c)}, the mailbox this run reads,` : nameOf(c);
     const fixes = [
       ...(answer.reconnect ? ['reconnect it'] : []),
       ...(by === 'choice' ? [answer.reconnect ? 'or choose another' : 'choose another'] : []),
