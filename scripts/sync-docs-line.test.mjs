@@ -44,11 +44,12 @@ describe('docsLineOf', () => {
 });
 
 describe('followsDocsLine', () => {
-  test('takes every SKILL.md, and what a package or SDK ships from its src/', () => {
+  test("takes every SKILL.md, the files beside a shipped skill's, and what a package or SDK ships from its src/", () => {
     for (const file of [
       ACME_SKILL,
       ACME_CONTRIBUTING,
       'SKILL.md',
+      md('packages/sdk/skills/acme-skill/reference'),
       'packages/cli/src/commands/init.ts',
       md('packages/cli/src/templates/AGENTS'),
       'sdks/python/src/kindgi/client.py',
@@ -64,7 +65,9 @@ describe('followsDocsLine', () => {
       'packages/cli/src/commands/init.test.ts',
       'sdks/java/kindgi-client/src/test/java/com/kindgi/client/DocsLinksTest.java',
       'packages/sdk/README.md',
-      md('packages/sdk/skills/acme-skill/reference'),
+      md('packages/sdk/skills/acme-skill/nested/reference'),
+      md('.claude/skills/acme-skill/reference'),
+      'packages/sdk/skills/acme-skill/diagram.png',
       md('docs/guides/acme'),
       'scripts/check-refs.mjs',
       'src/index.ts',
