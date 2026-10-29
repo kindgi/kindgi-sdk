@@ -37,7 +37,7 @@ import {
 } from '@kindgi/secrets-dotenv';
 
 import type { KindgiClient, McpEndpoint } from '@kindgi/client';
-import { type Cursor, isCredentialName } from '@kindgi/types';
+import type { Cursor } from '@kindgi/types';
 
 import { ownAddressKeyElsewhere } from '../api-address.js';
 import type { ResolvedConfig } from '../config.js';
@@ -124,7 +124,6 @@ export type DoctorCheckId =
   | 'console-sign-in'
   | 'license'
   | 'mcp-headers'
-  | 'mcp-env'
   | 'erasures';
 
 export interface DoctorCheck {
@@ -201,7 +200,6 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   'console-sign-in': 'Console sign-in',
   license: 'License key',
   'mcp-headers': 'MCP endpoint headers',
-  'mcp-env': 'MCP endpoint env',
   erasures: 'Erasures',
 };
 
@@ -269,9 +267,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   const keyElsewhere = apiKey.status === 'fail';
   checks.push(await consoleSignInCheck(ctx, keyElsewhere));
   checks.push(await licenseKeyCheck(ctx.env, dir, ctx.cwd, seam));
-  const mcpEndpoints = await listedMcpEndpoints(ctx, keyElsewhere);
-  checks.push(mcpHeadersCheck(mcpEndpoints));
-  checks.push(mcpEnvCheck(mcpEndpoints));
+  checks.push(await mcpHeadersCheck(ctx, keyElsewhere));
 
   if (config === undefined || language === undefined) {
     checks.push({
@@ -1265,40 +1261,6 @@ async function consoleSignInCheck(
  */
 const REDACTED_HEADER_VALUE = '[redacted]';
 
-/** The MCP endpoints on the runtime the CLI points at, or why they weren't listed. */
-type ListedMcpEndpoints =
-  | { readonly kind: 'listed'; readonly endpoints: readonly McpEndpoint[] }
-  | { readonly kind: 'skip'; readonly message: string };
-
-async function listedMcpEndpoints(
-  ctx: CommandContext,
-  keyElsewhere: boolean,
-): Promise<ListedMcpEndpoints> {
-  const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
-  const token = ctx.config.token;
-  if (keyElsewhere && apiUrl !== undefined) {
-    return {
-      kind: 'skip',
-      message: `Not checked: the API key isn't for ${apiUrl} (API key, above).`,
-    };
-  }
-  if (apiUrl === undefined || token === undefined) {
-    return {
-      kind: 'skip',
-      message:
-        'Not checked: no runtime to ask (set KINDGI_API_URL and KINDGI_API_TOKEN, or run kindgi auth login).',
-    };
-  }
-  try {
-    return { kind: 'listed', endpoints: await allMcpEndpoints(ctx.clientFor(apiUrl, token)) };
-  } catch (err) {
-    return {
-      kind: 'skip',
-      message: `Not checked: the MCP endpoints at ${apiUrl} couldn't be listed (${firstLine((err as Error).message)}).`,
-    };
-  }
-}
-
 /**
  * MCP endpoints, on the runtime the CLI points at, that keep a credential in
  * plaintext `config.headers`. They were registered before the API refused
@@ -1306,9 +1268,27 @@ async function listedMcpEndpoints(
  * secret. The API answers each such value as `[redacted]`, so its name is
  * all this reads (and a runtime that redacts never sends them on a redirect).
  */
-function mcpHeadersCheck(listed: ListedMcpEndpoints): DoctorCheck {
-  if (listed.kind === 'skip') return skip('mcp-headers', listed.message);
-  const { endpoints } = listed;
+async function mcpHeadersCheck(ctx: CommandContext, keyElsewhere: boolean): Promise<DoctorCheck> {
+  const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
+  const token = ctx.config.token;
+  if (keyElsewhere && apiUrl !== undefined) {
+    return skip('mcp-headers', `Not checked: the API key isn't for ${apiUrl} (API key, above).`);
+  }
+  if (apiUrl === undefined || token === undefined) {
+    return skip(
+      'mcp-headers',
+      'Not checked: no runtime to ask (set KINDGI_API_URL and KINDGI_API_TOKEN, or run kindgi auth login).',
+    );
+  }
+  let endpoints: readonly McpEndpoint[];
+  try {
+    endpoints = await allMcpEndpoints(ctx.clientFor(apiUrl, token));
+  } catch (err) {
+    return skip(
+      'mcp-headers',
+      `Not checked: the MCP endpoints at ${apiUrl} couldn't be listed (${firstLine((err as Error).message)}).`,
+    );
+  }
   const found = endpoints.flatMap((e) => {
     const headers = e.config.transport === 'stdio' ? undefined : e.config.headers;
     const names = Object.entries(headers ?? {})
@@ -1331,46 +1311,6 @@ function mcpHeadersCheck(listed: ListedMcpEndpoints): DoctorCheck {
         ? 'An MCP endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, but the value is stored as given, not as a secret.'
         : `${found.length} MCP endpoints keep a credential in plaintext config.headers, from before that was refused. They still work, but each value is stored as given, not as a secret.`,
       'Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the header in auth: { scheme: "header", headers: [{ name: "<header>", secretRef: { envName, name } }] }.',
-    ),
-    details: found,
-  };
-}
-
-/**
- * Stdio MCP endpoints, on the runtime the CLI points at, that keep a
- * credential in plaintext `config.env` (a name `isCredentialName` matches,
- * the rule the API refuses by), or a `secretRef`, which a stdio server is
- * never sent. They were registered before the API refused those, and they
- * keep working. The API answers every env value as `[redacted]`, so names
- * are all this reads.
- */
-function mcpEnvCheck(listed: ListedMcpEndpoints): DoctorCheck {
-  if (listed.kind === 'skip') return skip('mcp-env', listed.message);
-  const { endpoints } = listed;
-  const stdio = endpoints.filter((e) => e.config.transport === 'stdio');
-  const found = stdio.flatMap((e) => {
-    const env = e.config.transport === 'stdio' ? e.config.env : undefined;
-    const kept = [
-      ...Object.keys(env ?? {}).filter(isCredentialName),
-      ...(e.secretRef !== undefined ? ['secretRef (never sent)'] : []),
-    ];
-    return kept.length === 0 ? [] : [`${e.endpointId}: ${kept.join(', ')}`];
-  });
-  if (found.length === 0) {
-    return pass(
-      'mcp-env',
-      stdio.length === 0
-        ? 'No stdio MCP endpoint is registered.'
-        : `No stdio MCP endpoint keeps a credential in config.env (${stdio.length} checked).`,
-    );
-  }
-  return {
-    ...warn(
-      'mcp-env',
-      found.length === 1
-        ? "A stdio MCP endpoint keeps a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused. It still works, but a value in config.env is stored as given, not as a secret."
-        : `${found.length} stdio MCP endpoints keep a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused. They still work, but a value in config.env is stored as given, not as a secret.`,
-      'Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the variable in secretEnv: { <NAME>: { envName, name } }, and without secretRef.',
     ),
     details: found,
   };

@@ -283,13 +283,6 @@ describe('each kind reads its route as the route takes it', () => {
     expect(typesOf(fieldAt(me, ['projectId']))).toEqual(['string']);
   });
 
-  test('an MCP endpoint is read from the list route only, which answers each config.env value as [redacted]', () => {
-    // The redaction is the API's (`mcp-routes.test.ts`): the export reads no other endpoint route.
-    expect(
-      EXPORT_PLAN.filter((k) => k.route.startsWith('/v1/mcp/endpoints')).map((k) => k.route),
-    ).toEqual(['/v1/mcp/endpoints']);
-  });
-
   test.each(
     EXPORT_PLAN.flatMap((k) => (k.covers ?? []).map((route) => [k.name, route, k] as const)),
   )('%s: the list carries every field %s answers', (_name, route, kind: ExportKind) => {

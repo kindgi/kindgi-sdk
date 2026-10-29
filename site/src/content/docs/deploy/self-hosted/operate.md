@@ -76,7 +76,6 @@ Nothing starts and nothing is written, and they print names and ids, never a val
 | `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
 | `secret-scopes` | Each tool version, MCP endpoint and webhook trigger in a project or an org that reads a secret at the tenant, registered by an earlier runtime that didn't record where its secrets are read. They keep reading at the tenant. One a tenant admin registered can stay. Register each other one again so where its secrets are read is recorded: a tool, publish a new version; an MCP endpoint, unregister it and register it again; a webhook trigger, `kindgi webhooks update <trigger-id> --secret=<name>`. The check ends with what to do about each, and also lists an unregistered tool version a flow or agent version still pins. |
 | `mcp-header-credentials` | Each MCP endpoint that keeps a credential in plaintext `config.headers` (`X-Api-Key`, `Authorization`, …), registered by an earlier runtime that allowed it. They keep working, and their requests never follow a redirect. For each, store each header's value as a secret, and register the endpoint again with `auth` in place of the header. See [Not in `config.headers`](../../../guides/tools/mcp-servers/#not-in-configheaders). |
-| `mcp-env-credentials` | Runtime 0.3.0 or later. Each stdio MCP endpoint that keeps a credential in plaintext `config.env` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, …), or a `secretRef`, which a stdio server is never sent, registered by an earlier runtime that allowed it. They keep working. For each, store each variable's value as a secret, and register the endpoint again with `secretEnv` in place of the variable and without `secretRef`. See [Give a stdio server a secret](../../../guides/tools/mcp-servers/#give-a-stdio-server-a-secret). |
 | `stored-secrets` | Each live version of a stored secret that doesn't decrypt with the secrets' keys: the KMS key, the runtime's access to it, and the AAD key. Run it after a restore, before the runtime serves, since a restore brings back the database, not the keys. It needs `KINDGI_SECRETS_BACKEND=postgres`. See [Back up and restore](../back-up-and-restore/#restore-into-a-fresh-database). |
 | `purged-tenants` | Each tenant marked purged that still holds rows, with each table and its count: rows written after its mark, by work in flight then. Rows only, not the bytes under its prefix. Run it a day after a purge. For each tenant it lists, `kindgi-runtime tenants purge <tenant id> --confirm <its slug>`, with the server's `KINDGI_ARTIFACTS` and `KINDGI_OPENFGA_API_URL`, deletes them and leaves its mark and its record as they were. See [Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant). |
 
@@ -114,21 +113,6 @@ At every start, the runtime logs one `WARN` per such endpoint:
 
 ```json
 {"time":"2026-10-10T23:54:31.368Z","level":"warn","severity":"WARNING","subsystem":"mcp.headers","message":"mcp-header-credential tenant=… mcp-endpoint=inventory-legacy headers=X-Api-Key,X-Api-Secret: this endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, and its requests never follow a redirect. Store each value as a secret, then unregister the endpoint and register it again with auth: { scheme: \"header\", headers: [{ name: \"X-Api-Key\", secretRef: { envName, name } }, { name: \"X-Api-Secret\", secretRef: { envName, name } }] } in place of the header","tenantId":"…","endpointId":"inventory-legacy","headerNames":["X-Api-Key","X-Api-Secret"]}
-```
-
-Here `check mcp-env-credentials` (runtime 0.3.0 or later) runs on a database with two stdio endpoints registered by an earlier runtime, one with a token in `config.env` and one with a `secretRef` (exit `1`). Each line ends with the `secretEnv` that replaces it:
-
-```text
-mcp-env-credentials: 2 stdio MCP endpoints keep a credential in plaintext config.env, or a secretRef (1 tenant checked):
-  tenant=… mcp-endpoint=files-legacy secretRef=never-sent → secretEnv: { <NAME>: { envName, name } }, and without secretRef
-  tenant=… mcp-endpoint=inventory-legacy env=INVENTORY_TOKEN → secretEnv: { INVENTORY_TOKEN: { envName, name } }
-They still work, but each value in config.env is stored as given, and a stdio server is never sent its secretRef. For each, store each variable's value as a secret (kindgi secrets set <NAME> --env=<env> --scope=tenant), then unregister the endpoint and register it again with that secretEnv in place of the variable.
-```
-
-At every start, the runtime logs one `WARN` per such endpoint:
-
-```json
-{"time":"2026-10-20T12:35:16.428Z","level":"warn","severity":"WARNING","subsystem":"mcp.env","message":"mcp-env-credential tenant=… mcp-endpoint=inventory-legacy env=INVENTORY_TOKEN: this stdio endpoint keeps a credential in plaintext config.env, from before that was refused. It still works. Store each value as a secret, then unregister the endpoint and register it again with secretEnv: { INVENTORY_TOKEN: { envName, name } }","tenantId":"…","endpointId":"inventory-legacy","envNames":["INVENTORY_TOKEN"],"secretRef":false}
 ```
 
 ### From 0.1.6 to 0.1.7
