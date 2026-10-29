@@ -120,7 +120,10 @@ export interface ConnectionsClient {
   ): Promise<Connection>;
   /** @wire DELETE /v1/connections/:connectionId — withdraws access at the app where it can. */
   disconnect(connectionId: string, options?: MutationOptions): Promise<Connection>;
-  /** @wire POST /v1/connections — makes a connect request. */
+  /**
+   * @wire POST /v1/connections — makes a connect request. `reconnects` names
+   * the connection to connect again, which must be the same account.
+   */
   connect(input: ConnectInput, options?: MutationOptions): Promise<ConnectRequest>;
   /** @wire GET /v1/connections/requests/:requestId */
   getRequest(requestId: string): Promise<ConnectRequest>;
@@ -133,7 +136,11 @@ export interface ConnectionsClient {
     input?: StartConnectInput,
     options?: MutationOptions,
   ): Promise<ConnectionStartResult>;
-  /** @wire POST /v1/connections/finish — what the app sent back to the callback page. */
+  /**
+   * @wire POST /v1/connections/finish — what the app sent back to the callback page.
+   * The answer says whether it `reconnected` a connection already there, and
+   * `labelTaken` when the name it was to get was another's.
+   */
   finish(input: FinishConnectInput, options?: MutationOptions): Promise<ConnectFinish>;
 }
 

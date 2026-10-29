@@ -1,0 +1,7 @@
+---
+"@kindgi/api": patch
+"@kindgi/client": patch
+---
+
+**The company keeps one connection per account, and a connect can name the one it reconnects.** A person still keeps one connection per registration and environment, and their connect reconnects it. The company now keeps one per account: connecting support@acme.example and then sales@acme.example makes two connections, each named by its account, and connecting support@acme.example again reconnects its connection, which keeps its name and gains what was asked. The account is known only when the connect finishes, so that's where it's found. `POST /v1/connections` (`client.connections.connect`) takes an optional `reconnects`, the id of the connection to connect again: a live one of the connect's own owner, on the same registration and environment. Any other id, whether another owner's, another registration's or environment's, a removed one or one that doesn't exist, is `404 connection-not-found` with `details.field` `reconnects`, and one that isn't a UUID is `400 bad-input`. The same account is required at the finish (`connection-account-mismatch`). When a connect finishes, `reconnected` says whether it landed on a connection that was already there, and `labelTaken`, when a new connection's name was taken in the meantime, gives the name it was to get; the connection is named the first free `<name> 2`, `<name> 3` and so on, which `connection.label` holds. `ConnectionBinding`'s `createRequest` takes `reconnects`, and its connected finish carries `reconnected` and `labelTaken`.
+

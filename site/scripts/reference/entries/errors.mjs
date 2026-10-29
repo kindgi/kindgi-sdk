@@ -3701,11 +3701,15 @@ export const ERROR_ENTRIES = {
   },
   'connection-not-found': {
     description:
-      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected.",
+      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected. A connect's `reconnects` must name a live connection of the connect's own owner on the same registration and environment, and any other id is answered the same way.",
     details: [
       {
         key: 'connectionId',
         meaning: 'the connection id that was not found',
+      },
+      {
+        key: 'field',
+        meaning: "`reconnects`, when a connect named a connection it can't connect again",
       },
     ],
   },

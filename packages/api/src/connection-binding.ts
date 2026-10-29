@@ -292,6 +292,12 @@ export interface ConnectRequestCreateInput {
    * with no hidden characters (`hasHiddenCharacters`).
    */
   readonly label?: string;
+  /**
+   * The connection to connect again: a live one of this connect's own
+   * owner, on the same registration and environment. The same account is
+   * required at the finish.
+   */
+  readonly reconnects?: string;
   readonly by: PrincipalRef;
 }
 
@@ -313,6 +319,18 @@ export type ConnectFinishOutcome =
       readonly kind: 'connected';
       readonly request: ConnectRequestRecord;
       readonly connection: ConnectionRecord;
+      /**
+       * It landed on a connection that was already there: the one
+       * `reconnects` named, or the company's of the same account. That
+       * connection keeps its name.
+       */
+      readonly reconnected?: boolean;
+      /**
+       * The name the new connection was to get (the one asked for, else the
+       * account's label made to fit), when another connection had it: it's
+       * named the first free `<name> 2`, `<name> 3`, and so on instead.
+       */
+      readonly labelTaken?: string;
     }
   /** The person declined, or granted less than asked (`request.missing`). */
   | { readonly kind: 'declined'; readonly request: ConnectRequestRecord }
@@ -395,8 +413,13 @@ export interface ConnectionBinding {
 
   /**
    * A connect from outside a run (a Connect button, the CLI). A run's
-   * connects are the resolver's. A `label` another live connection of the
-   * same app, owner and env has, by `comparableName`, is
+   * connects are the resolver's. A person keeps one live connection per
+   * registration and env, and their connect reconnects it when there is
+   * one; the company keeps one per account, known only at the finish.
+   * `reconnects` naming anything but a live connection of the connect's own
+   * owner on that registration and env is `connection-not-found`, the same
+   * answer as for an id that doesn't exist. A `label` another live
+   * connection of the same app, owner and env has, by `comparableName`, is
    * `connection-label-taken`, unless the request reconnects: a reconnect
    * keeps the connection's label and doesn't check the one asked.
    */
@@ -439,18 +462,23 @@ export interface ConnectionBinding {
    * account, compares what was granted with what was asked, stores the
    * connection, then completes and resumes a run that waits.
    *
-   * A request that isn't a reconnect, whose key gained a live connection
-   * after it was made, finishes as a reconnect of that connection: the
-   * same account is required (`connection-account-mismatch`), and the
-   * permissions are both sets.
+   * A reconnect's connection is checked again, and the same account is
+   * required (`connection-account-mismatch`). A person's request that
+   * isn't a reconnect, whose key gained a live connection after it was
+   * made, finishes as a reconnect of that connection, the same account
+   * required too. The company's that isn't lands on the company's live
+   * connection of the account signed in to, when there is one, else makes
+   * a new one: one account never has two. A reconnect's permissions are
+   * both sets, and the outcome says `reconnected`.
    *
    * A new connection's `label` is the request's, else the account's label
    * made to fit in 100 characters by `fitName`: its hidden characters
    * removed, trimmed, and cut between the characters a person sees. When
    * another live connection of the same app, owner and env has it by then,
    * by `comparableName`, it's the first free `<label> 2`, `<label> 3`, and
-   * so on: the grant isn't wasted. A reconnect keeps the connection's label
-   * and ignores the request's.
+   * so on, and the outcome's `labelTaken` is the name it was to get: the
+   * grant isn't wasted. A reconnect keeps the connection's label and
+   * ignores the request's.
    *
    * A GitHub App's attaches an installation only if the person's GitHub
    * account reaches it: the one GitHub sent back, the one they picked, or

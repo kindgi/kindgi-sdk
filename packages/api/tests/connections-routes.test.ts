@@ -178,6 +178,9 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       if (input.label !== undefined && labelTaken(input, input.label)) {
         return refuse('connection-label-taken', 'Another connection has that name', 'label');
       }
+      if (input.reconnects !== undefined && !connections.has(input.reconnects)) {
+        return refuse('connection-not-found', 'No such connection to reconnect', 'reconnects');
+      }
       const requestId = randomUUID();
       const record: ConnectRequestRecord = {
         requestId,
@@ -189,6 +192,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
         permissions: input.permissions,
         says: input.permissions.map((p) => google.permissions[p]?.says ?? p),
         ...(input.label !== undefined && { label: input.label }),
+        ...(input.reconnects !== undefined && { reconnects: input.reconnects }),
         state: 'pending',
         connectUrl: `https://kindgi.acme.example/console/connect/requests/${requestId}`,
         expiresAt: '2026-10-22T13:00:00.000Z',
@@ -243,7 +247,11 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
           },
         };
       }
-      const connection = connectionOf(request.owner);
+      // `taken`: the name asked for was another connection's by the finish.
+      const connection = {
+        ...connectionOf(request.owner),
+        ...(input.code === 'taken' && { label: 'Work mail 2' }),
+      };
       connections.set(connection.connectionId, connection);
       return {
         kind: 'ok',
@@ -251,6 +259,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
           kind: 'connected',
           request: { ...request, state: 'connected', connectionId: connection.connectionId },
           connection,
+          ...(input.code === 'taken' && { reconnected: false, labelTaken: 'Work mail' }),
         },
       };
     },
@@ -654,6 +663,16 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
       'appId',
     ],
     [
+      'a reconnects that is not a connection id',
+      { app: 'google', permissions: ['gmail.send'], reconnects: 'x' },
+      'reconnects',
+    ],
+    [
+      'a reconnects that is not a string',
+      { app: 'google', permissions: ['gmail.send'], reconnects: 7 },
+      'reconnects',
+    ],
+    [
       'an owner other than me or company',
       { app: 'google', permissions: ['gmail.send'], for: 'team' },
       'for',
@@ -730,6 +749,35 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
     });
     expect(res.status).toBe(400);
     expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field: 'permissions' } });
+  });
+
+  test('takes the connection it reconnects; one the binding has no such connection for is a 404 naming the field', async () => {
+    const { app, calls } = makeApp();
+    const made = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+    });
+    await call(app, 'ana', 'POST', `/v1/connections/requests/${made.json.requestId}/start`);
+    const finished = await call(app, 'ana', 'POST', '/v1/connections/finish', { state: 's-1' });
+    const connectionId = finished.json.connection.connectionId as string;
+    const res = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.readonly'],
+      reconnects: connectionId,
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.reconnects).toBe(connectionId);
+    expect(calls.createRequest?.[1]).toMatchObject({ reconnects: connectionId });
+    const unknown = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      reconnects: '00000000-0000-4000-8000-000000000999',
+    });
+    expect(unknown.status).toBe(404);
+    expect(unknown.json.error).toMatchObject({
+      code: 'connection-not-found',
+      details: { field: 'reconnects' },
+    });
   });
 
   test('takes a label for the connection it makes, trimmed, of up to 100 characters', async () => {
@@ -897,9 +945,28 @@ describe('a connect request: read, start and finish', () => {
     // No approvals on this server: nothing said about a reviewer seat.
     expect(res.json.reviewerSeat).toBeUndefined();
     expect(calls.finishRequest?.[0]).toMatchObject({ state: 's-1', code: 'code-1' });
+    expect(res.json).not.toHaveProperty('reconnected');
+    expect(res.json).not.toHaveProperty('labelTaken');
     const other = await call(app, 'ben', 'POST', '/v1/connections/finish', { state: 's-1' });
     expect(other.status).toBe(403);
     expect(other.json.error.code).toBe('connection-not-yours');
+  });
+
+  test('a finish says whether it reconnected one already there, and the name it was to get when that was taken', async () => {
+    const { app } = makeApp();
+    const requestId = await requested(app, 'ana');
+    await call(app, 'ana', 'POST', `/v1/connections/requests/${requestId}/start`);
+    const res = await call(app, 'ana', 'POST', '/v1/connections/finish', {
+      state: 's-1',
+      code: 'taken',
+    });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({
+      kind: 'connected',
+      reconnected: false,
+      labelTaken: 'Work mail',
+      connection: { label: 'Work mail 2' },
+    });
   });
 
   test('a finish by someone else is refused, and the access audit records it', async () => {

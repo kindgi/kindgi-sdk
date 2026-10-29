@@ -325,7 +325,7 @@ export function connectionsRouter(
     if (body.kind === 'err') return badInput(c, body.message);
     const parsed = parseConnectBody(body.value);
     if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
-    const { app, appId, projectId, permissions, label } = parsed.value;
+    const { app, appId, projectId, permissions, label, reconnects } = parsed.value;
     const owner = await connectOwner(c, by, parsed.value.for);
     if (owner instanceof Response) return owner;
     const outcome = await binding.createRequest({
@@ -337,6 +337,7 @@ export function connectionsRouter(
       owner,
       permissions,
       ...(label !== undefined && { label }),
+      ...(reconnects !== undefined && { reconnects }),
       by,
     });
     if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
@@ -731,6 +732,7 @@ interface ConnectBody {
   readonly permissions: readonly string[];
   readonly for: 'me' | 'company';
   readonly label?: string;
+  readonly reconnects?: string;
 }
 
 const CONNECT_FIELDS: ReadonlySet<string> = new Set([
@@ -740,6 +742,7 @@ const CONNECT_FIELDS: ReadonlySet<string> = new Set([
   'permissions',
   'for',
   'label',
+  'reconnects',
 ]);
 
 function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
@@ -773,18 +776,26 @@ function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
   };
 }
 
-/** Whose connection a connect makes, and its name. */
+/** Whose connection a connect makes, the one it reconnects, and its name. */
 function parseConnectionMade(
   body: Record<string, unknown>,
-): Parsed<Pick<ConnectBody, 'for' | 'label'>> {
+): Parsed<Pick<ConnectBody, 'for' | 'label' | 'reconnects'>> {
   if (body.for !== undefined && body.for !== 'me' && body.for !== 'company') {
     return bad("`for` must be `'me'` or `'company'`", 'for');
+  }
+  const { reconnects } = body;
+  if (reconnects !== undefined && (typeof reconnects !== 'string' || !UUID_RE.test(reconnects))) {
+    return bad('`reconnects` must be a connection id (a UUID)', 'reconnects');
   }
   const label = body.label === undefined ? undefined : parseConnectionLabel(body.label);
   if (label?.kind === 'err') return label;
   return {
     kind: 'ok',
-    value: { for: body.for ?? 'me', ...(label !== undefined && { label: label.value }) },
+    value: {
+      for: body.for ?? 'me',
+      ...(typeof reconnects === 'string' && { reconnects }),
+      ...(label !== undefined && { label: label.value }),
+    },
   };
 }
 
@@ -1194,6 +1205,8 @@ function serializeFinish(outcome: ConnectFinishOutcome): Record<string, unknown>
         kind: 'connected',
         request: serializeRequest(outcome.request),
         connection: serializeConnection(outcome.connection),
+        ...(outcome.reconnected !== undefined && { reconnected: outcome.reconnected }),
+        ...(outcome.labelTaken !== undefined && { labelTaken: outcome.labelTaken }),
       }
     : { kind: outcome.kind, request: serializeRequest(outcome.request) };
 }

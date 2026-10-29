@@ -25173,6 +25173,11 @@
             "minLength": 1,
             "maxLength": 100,
             "description": "The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others."
+          },
+          "reconnects": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect reconnects their connection to the registration when they have one; the company's lands at the finish on its connection of the account signed in to, when there is one, else makes a new one."
           }
         }
       },
@@ -25275,6 +25280,14 @@
           "connection": {
             "$ref": "#/components/schemas/Connection",
             "description": "Present when `kind` is `connected`."
+          },
+          "reconnected": {
+            "type": "boolean",
+            "description": "Present when `kind` is `connected`. `true`: the finish landed on a connection that was already there, the one `reconnects` named or the company's connection of the same account, and that connection keeps its name. `false`: it made a new one."
+          },
+          "labelTaken": {
+            "type": "string",
+            "description": "Present when `kind` is `connected` and the name the new connection was to get (the one asked for, else the account's label after the name rules) was already another connection's by the finish. The connection is then named the first free `<name> 2`, `<name> 3` and so on, which `connection.label` holds."
           },
           "reviewerSeat": {
             "type": "boolean",
@@ -63964,7 +63977,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+            "description": "Malformed body, unknown field, a `reconnects` that isn't a UUID or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -63994,7 +64007,7 @@
             }
           },
           "404": {
-            "description": "No registration with that `appId` (`connection-app-not-found`).",
+            "description": "No registration with that `appId` (`connection-app-not-found`); or `reconnects` names no live connection of the connect's own owner on that registration and environment, whether another owner's, another registration's or environment's, removed or unknown (`connection-not-found`, `details.field` `reconnects`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -64034,7 +64047,7 @@
             }
           }
         },
-        "description": "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
+        "description": "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A person keeps one connection per registration and environment, and their connect reconnects it when they have one. The company keeps one per account: its connect lands on the company's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -64183,7 +64196,7 @@
             }
           }
         },
-        "description": "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).",
+        "description": "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).",
         "parameters": [
           {
             "name": "Idempotency-Key",

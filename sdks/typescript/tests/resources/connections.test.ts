@@ -86,3 +86,47 @@ describe('connections.update', () => {
     expect(req?.headers['idempotency-key']).toBe('idem-r');
   });
 });
+
+describe('connections.connect and finish', () => {
+  it('POSTs /v1/connections with the connection it reconnects', async () => {
+    const request = { requestId: 'r-1', reconnects: 'c-1', state: 'pending' };
+    const stub = jsonFetch(request, { status: 201 });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const made = await client.connections.connect(
+      { app: 'google', for: 'company', permissions: ['gmail.send'], reconnects: 'c-1' },
+      { idempotencyKey: 'idem-c' },
+    );
+    expect(made).toEqual(request);
+    const [req] = stub.calls;
+    expect(req?.method).toBe('POST');
+    expect(new URL(req?.url ?? '').pathname).toBe('/v1/connections');
+    expect(JSON.parse(req?.body ?? '{}')).toEqual({
+      app: 'google',
+      for: 'company',
+      permissions: ['gmail.send'],
+      reconnects: 'c-1',
+    });
+    expect(req?.headers['idempotency-key']).toBe('idem-c');
+  });
+
+  it("the finish answer says it reconnected, or the name it was to get when that was another's", async () => {
+    const stub = jsonFetch({
+      kind: 'connected',
+      reconnected: false,
+      labelTaken: 'support@acme.example',
+      connection: { connectionId: 'c-2', label: 'support@acme.example 2' },
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const finished = await client.connections.finish({ state: 's-1', code: 'x' });
+    expect(finished.reconnected).toBe(false);
+    expect(finished.labelTaken).toBe('support@acme.example');
+  });
+});

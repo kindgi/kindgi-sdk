@@ -14933,6 +14933,12 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       description:
         "The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.",
     },
+    reconnects: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect reconnects their connection to the registration when they have one; the company's lands at the finish on its connection of the account signed in to, when there is one, else makes a new one.",
+    },
   },
 };
 
@@ -15021,6 +15027,16 @@ export const ConnectFinishSchema: JsonSchema = {
     connection: {
       $ref: '#/components/schemas/Connection',
       description: 'Present when `kind` is `connected`.',
+    },
+    reconnected: {
+      type: 'boolean',
+      description:
+        "Present when `kind` is `connected`. `true`: the finish landed on a connection that was already there, the one `reconnects` named or the company's connection of the same account, and that connection keeps its name. `false`: it made a new one.",
+    },
+    labelTaken: {
+      type: 'string',
+      description:
+        "Present when `kind` is `connected` and the name the new connection was to get (the one asked for, else the account's label after the name rules) was already another connection's by the finish. The connection is then named the first free `<name> 2`, `<name> 3` and so on, which `connection.label` holds.",
     },
     reviewerSeat: {
       type: 'boolean',
