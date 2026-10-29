@@ -266,6 +266,18 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/flows/{flowId}/versions/{version}'],
   },
   {
+    name: 'flow-pinned-versions',
+    route: '/v1/flows/{flowId}/pinned-versions',
+    paging: whole,
+    parent: { kind: 'flows', params: { flowId: 'id' } },
+  },
+  {
+    name: 'flow-pin-history',
+    route: '/v1/flows/{flowId}/pin-history',
+    paging: cursor,
+    parent: { kind: 'flows', params: { flowId: 'id' } },
+  },
+  {
     name: 'tools',
     route: '/v1/tools',
     paging: cursor,
@@ -279,6 +291,18 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     parent: { kind: 'tools', params: { toolId: 'id' } },
     query: { includeTombstoned: 'true' },
     covers: ['/v1/tools/{toolId}/versions/{version}'],
+  },
+  {
+    name: 'tool-pinned-versions',
+    route: '/v1/tools/{toolId}/pinned-versions',
+    paging: whole,
+    parent: { kind: 'tools', params: { toolId: 'id' } },
+  },
+  {
+    name: 'tool-pin-history',
+    route: '/v1/tools/{toolId}/pin-history',
+    paging: cursor,
+    parent: { kind: 'tools', params: { toolId: 'id' } },
   },
   {
     name: 'guardrails',
@@ -605,6 +629,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/agents/{agentId}/live': 'computed from agent-live-versions',
   '/v1/agents/{agentId}/gate-policy': 'computed from gate-policies',
   '/v1/agents/{agentId}/projects': 'computed from agent-versions and deployments',
+  '/v1/flows/{flowId}/pinned': 'computed from flow-pinned-versions and flow-versions',
+  '/v1/tools/{toolId}/pinned': 'computed from tool-pinned-versions and tool-versions',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',
   '/v1/projects/{projectId}/judging-rules/preview': 'computed from judging-rules and runs',
   '/v1/projects/{projectId}/judging-rules/{ruleId}/results': 'computed from judgments',
