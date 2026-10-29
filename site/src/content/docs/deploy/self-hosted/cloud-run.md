@@ -582,13 +582,13 @@ server_secret_env = {
   `kindgi-runtime tenants repair --all` has to run once: a server serving
   many tenants sets nothing up per tenant at boot. This module runs no such
   job. It also takes away access a tenant's record doesn't back (runtime
-  0.1.9 or later): it finishes a removal that stopped part way, and revokes
+  0.3.0 or later): it finishes a removal that stopped part way, and revokes
   a service account's admin, membership or project role that its grants
   don't give. And it takes away the access an older runtime gave
   `00000000-0000-0000-0000-000000000000`, the id it named as the creator of
-  what a service account's key made; no person has that id. `--dry-run`
-  shows what it would put back and take away, per tenant, and changes
-  nothing.
+  what a key with no person behind it made; no person has that id.
+  `--dry-run` shows what it would put back and take away, per tenant, and
+  changes nothing.
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would
   seed a new tenant at every start, so upgrade the runtime first.
 
