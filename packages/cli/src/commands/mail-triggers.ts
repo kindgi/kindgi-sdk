@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { MailTriggersClient } from '@kindgi/client';
+import type { KindgiClient, MailTriggersClient } from '@kindgi/client';
 
+import {
+  candidatesListed,
+  listCandidateRows,
+  namedBy,
+  resolveConnectionRef,
+} from '../connection-ref.js';
 import type { CommandContext } from '../context.js';
-import { UsageError } from '../errors.js';
+import { UsageError, extractKindgiError } from '../errors.js';
 import { type Rendered, renderJson } from '../output.js';
 import {
   TRIGGER_VERSIONS_TABLE,
   type TableSpec,
   allowUnattendedField,
+  commandResultFromThrown,
+  givenFlag,
   integerFlag,
   requiredPositional,
   runAsFields,
@@ -19,7 +27,7 @@ import {
   stringFlag,
   triggerVersionPositional,
 } from './helpers.js';
-import type { Command, LeafCommand, ParseArgsOption } from './types.js';
+import type { Command, CommandResult, LeafCommand, ParseArgsOption } from './types.js';
 
 type MailTriggerPage = Awaited<ReturnType<MailTriggersClient['list']>>;
 type MailTrigger = MailTriggerPage['data'][number];
@@ -54,13 +62,44 @@ function runs(t: MailTrigger): string {
   return `flow ${t.flowId ?? '?'}@${t.flowVersion ?? '?'}`;
 }
 
-const TRIGGERS_TABLE: TableSpec<MailTriggerPage, MailTrigger> = {
+/**
+ * The mailbox, as one cell: `google company`, and the name of the connection
+ * it reads with when it names one (`google company support`).
+ */
+function mailboxCell(t: MailTrigger, names: ReadonlyMap<string, string>): string {
+  const id = t.mailbox.connectionId;
+  const named = id !== undefined ? ` ${names.get(id) ?? t.account?.label ?? id}` : '';
+  return `${t.mailbox.app} ${t.mailbox.as}${named}`;
+}
+
+/**
+ * The names of the connections the triggers' mailboxes name, read from each
+ * project's candidates at the mailbox's app. One it can't read stays unnamed.
+ */
+async function connectionNames(
+  client: KindgiClient,
+  triggers: readonly MailTrigger[],
+  names: Map<string, string>,
+): Promise<void> {
+  const read = new Set<string>();
+  for (const t of triggers) {
+    const key = `${t.projectId} ${t.mailbox.app}`;
+    if (t.mailbox.connectionId === undefined || read.has(key)) continue;
+    read.add(key);
+    const rows = await listCandidateRows(client, t.projectId, t.mailbox.app).catch(() => []);
+    for (const r of rows) names.set(r.connectionId, r.name);
+  }
+}
+
+const triggersTable = (
+  names: ReadonlyMap<string, string>,
+): TableSpec<MailTriggerPage, MailTrigger> => ({
   rows: (p) => p.data,
   columns: [
     { header: 'ID', get: (t) => t.triggerId },
     { header: 'VERSION', get: (t) => (t.version !== undefined ? String(t.version) : '') },
     { header: 'RUNS', get: runs },
-    { header: 'MAILBOX', get: (t) => `${t.mailbox.app} ${t.mailbox.as}` },
+    { header: 'MAILBOX', get: (t) => mailboxCell(t, names) },
     { header: 'ACCOUNT', get: (t) => t.account?.label ?? '' },
     {
       header: 'STATUS',
@@ -69,7 +108,7 @@ const TRIGGERS_TABLE: TableSpec<MailTriggerPage, MailTrigger> = {
     { header: 'RUNS AS', get: (t) => runsAsCell(t.owner) },
     { header: 'LABEL', get: (t) => t.label ?? '' },
   ],
-};
+});
 
 const FIRES_TABLE: TableSpec<FirePage, Fire> = {
   rows: (p) => p.data,
@@ -113,7 +152,106 @@ function mailFlags(on: 'register' | 'update'): Record<string, ParseArgsOption> {
       description: `The most runs its mail starts in an hour, 1 to 600${on === 'register' ? ' (default 60)' : ''}. Past it, a mail is refused, and doesn't run later.`,
     },
     label: { type: 'string', description: on === 'register' ? 'A short label.' : 'A new label.' },
+    connection: {
+      type: 'string',
+      description: `With --as=company: the company connection it reads the mailbox with, by id or name, one of the project's at the mailbox's app. Needed when the project has several there; with one, that one is stored.${again}`,
+    },
   };
+}
+
+/** The wire's words for `connectionId` on a person's mailbox, with the flag's name. */
+const PERSON_CONNECTION =
+  "A person's mailbox is read with its owner's own connection; --connection is for the company's (--as=company)";
+
+/** `--connection` as a connection id: a name is one of the project's company connections at `app`. */
+async function companyConnection(
+  ctx: CommandContext,
+  ref: string,
+  app: string,
+  projectId: () => Promise<string>,
+): Promise<string> {
+  const { id } = await resolveConnectionRef(ref, {
+    rows: async () => listCandidateRows(ctx.client(), await projectId(), app),
+    app,
+    appNarrows: false,
+    listed: candidatesListed,
+  });
+  return id;
+}
+
+/**
+ * The mailbox with `--connection`'s id, once a name is looked up among the
+ * project's company connections. A person's mailbox stops here, before any call.
+ */
+function withConnection(
+  ctx: CommandContext,
+  mailbox: Mailbox,
+): (projectId: () => Promise<string>) => Promise<Mailbox> {
+  const connection = givenFlag(ctx, 'connection');
+  if (connection === undefined) return async () => mailbox;
+  if (mailbox.as !== 'company') throw new UsageError(PERSON_CONNECTION);
+  return async (projectId) => ({
+    ...mailbox,
+    connectionId: await companyConnection(ctx, connection, mailbox.app, projectId),
+  });
+}
+
+/** A word as the shell reads it back: quoted unless it's plain. */
+function shellWord(word: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
+/** The command as it was run, its own flags only, with `--connection` naming `connection`. */
+function commandNaming(ctx: CommandContext, label: string, connection: string): string {
+  const words = [`kindgi ${label}`, ...ctx.positionals.map(shellWord)];
+  for (const [name, value] of Object.entries(ctx.options)) {
+    if (name === 'connection') continue;
+    for (const v of Array.isArray(value) ? value : [value]) {
+      if (v === true) words.push(`--${name}`);
+      else if (typeof v === 'string') words.push(`--${name}=${shellWord(v)}`);
+    }
+  }
+  words.push(`--connection=${shellWord(connection)}`);
+  return words.join(' ');
+}
+
+/**
+ * A `connection-not-chosen`'s next step: the project's company connections
+ * by name, each with the command again naming it (by id when two share a name).
+ */
+function chooseOne(ctx: CommandContext, label: string, err: unknown): string {
+  const wire = extractKindgiError(err);
+  if (wire?.code !== 'conflict' || wire.serverCode !== 'connection-not-chosen') return '';
+  const listed = wire.fields?.choices;
+  const choices = (Array.isArray(listed) ? listed : []).filter(
+    (c): c is { readonly connectionId: string; readonly name: string } =>
+      typeof c?.connectionId === 'string' && typeof c?.name === 'string',
+  );
+  if (choices.length === 0) return '';
+  const shared = (name: string): boolean => choices.filter((c) => c.name === name).length > 1;
+  const again = choices.map(
+    (c) => `  ${commandNaming(ctx, label, shared(c.name) ? c.connectionId : c.name)}`,
+  );
+  return `Its company connections there: ${choices.map((c) => c.name).join(', ')}. Name one:\n${again.join('\n')}\n`;
+}
+
+/**
+ * A create or update, its trigger as JSON. A `connection-not-found` says it's
+ * `--connection`'s; a `connection-not-chosen` says how to name one.
+ */
+async function sendTrigger(
+  ctx: CommandContext,
+  label: string,
+  send: () => Promise<unknown>,
+): Promise<CommandResult> {
+  try {
+    return { kind: 'ok', rendered: renderJson(await send(), ctx.globals.format) };
+  } catch (err) {
+    const named = ctx.options.connection !== undefined ? namedBy(err, 'connection') : err;
+    const result = commandResultFromThrown(named, ctx, label);
+    if (result.kind !== 'error') return result;
+    return { ...result, stderr: `${result.stderr}${chooseOne(ctx, label, err)}` };
+  }
 }
 
 /** `--allow-unattended`, as `create` and `update` each word it. */
@@ -175,8 +313,9 @@ const list: LeafCommand = {
     status: { type: 'string', description: 'Only `active` or only `paused` mail triggers.' },
     ...PAGE_FLAGS,
   },
-  run: (ctx) =>
-    runSdk(
+  run: (ctx) => {
+    const names = new Map<string, string>();
+    return runSdk(
       ctx,
       'mail-triggers list',
       async () => {
@@ -185,14 +324,18 @@ const list: LeafCommand = {
           throw new UsageError('--status must be `active` or `paused`');
         }
         const projectId = stringFlag(ctx, 'project');
-        return await ctx.client().mailTriggers.list({
+        const client = ctx.client();
+        const listed = await client.mailTriggers.list({
           ...page(ctx),
           ...(status !== undefined && { status }),
           ...(projectId !== undefined && { projectId }),
         });
+        if (ctx.globals.format === 'table') await connectionNames(client, listed.data, names);
+        return listed;
       },
-      TRIGGERS_TABLE,
-    ),
+      triggersTable(names),
+    );
+  },
 };
 
 /**
@@ -223,7 +366,7 @@ const create: LeafCommand = {
   description:
     "Start a run of an agent or a flow for each new mail in a mailbox, with the mail as its input. Its runs act as you (or, with --run-as, a service account or the project's own), with your connections; in them, every call that changes something, or uses the run's own mailbox, waits for a person's yes.",
   usage:
-    'kindgi mail-triggers create (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>) --mailbox=google|microsoft [--as=person|company] [--folder=<label-or-folder>] [--poll=<seconds>] [--runs-per-hour=<n>] [--label=<text>] [--project=<project-id>] [--run-as=<service-account-id>|project] [--allow-unattended=<tool-id>]…',
+    'kindgi mail-triggers create (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>) --mailbox=google|microsoft [--as=person|company [--connection=<connection>]] [--folder=<label-or-folder>] [--poll=<seconds>] [--runs-per-hour=<n>] [--label=<text>] [--project=<project-id>] [--run-as=<service-account-id>|project] [--allow-unattended=<tool-id>]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...mailFlags('register'),
@@ -235,24 +378,49 @@ const create: LeafCommand = {
     ...allowUnattendedFlag('register'),
   },
   run: (ctx) =>
-    runSdk(ctx, 'mail-triggers create', async () => {
+    sendTrigger(ctx, 'mail-triggers create', async () => {
       const app = stringFlag(ctx, 'mailbox');
       if (app === undefined) throw new UsageError('--mailbox=google|microsoft is required');
       const mailbox = mailboxOf(app, stringFlag(ctx, 'as') ?? 'person');
       const runAs = stringFlag(ctx, 'run-as');
       runAsOnPersonMailbox(runAs, mailbox.as);
+      const named = withConnection(ctx, mailbox);
       const project = stringFlag(ctx, 'project');
       const label = stringFlag(ctx, 'label');
-      return await ctx.client().mailTriggers.register({
+      const pace = paceFields(ctx);
+      const rest = {
         ...targetFields(ctx),
-        config: { mailbox, ...paceFields(ctx) },
         ...(project !== undefined && { projectId: project }),
         ...(label !== undefined && { label }),
         ...runAsFields(runAs),
         ...allowUnattendedField(ctx, 'register'),
-      });
+      };
+      const client = ctx.client();
+      const config = {
+        mailbox: await named(async () => project ?? (await client.projects.getDefault()).id),
+        ...pace,
+      };
+      return await client.mailTriggers.register({ ...rest, config });
     }),
 };
+
+/** `--mailbox` and `--as` on update, given together, and `--connection` only with them. */
+function mailboxOnUpdate(ctx: CommandContext): Mailbox | undefined {
+  const app = stringFlag(ctx, 'mailbox');
+  const as = stringFlag(ctx, 'as');
+  if ((app === undefined) !== (as === undefined)) {
+    throw new UsageError('--mailbox and --as go together on update: the mailbox is replaced whole');
+  }
+  if (app === undefined) {
+    if (ctx.options.connection !== undefined) {
+      throw new UsageError(
+        '--connection goes with --mailbox and --as on update: the mailbox is replaced whole',
+      );
+    }
+    return undefined;
+  }
+  return mailboxOf(app, as);
+}
 
 const update: LeafCommand = {
   kind: 'leaf',
@@ -260,34 +428,36 @@ const update: LeafCommand = {
   description:
     "Change a mail trigger: what it runs, its mailbox, folder, pace or label, or the tools its runs may call unattended. A flag left out keeps the trigger's value, and its owner stays. On a person's mailbox, only the trigger's owner points it at another of their mailboxes or folders: a project admin can move it to the company's, or take it over to watch their own.",
   usage:
-    'kindgi mail-triggers update <trigger-id> [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>] [--mailbox=google|microsoft --as=person|company] [--folder=<label-or-folder>] [--poll=<seconds>] [--runs-per-hour=<n>] [--label=<text>] [--allow-unattended=<tool-id>|none]…',
+    'kindgi mail-triggers update <trigger-id> [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v>] [--mailbox=google|microsoft --as=person|company [--connection=<connection>]] [--folder=<label-or-folder>] [--poll=<seconds>] [--runs-per-hour=<n>] [--label=<text>] [--allow-unattended=<tool-id>|none]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...mailFlags('update'),
     ...allowUnattendedFlag('update'),
   },
   run: (ctx) =>
-    runSdk(ctx, 'mail-triggers update', async () => {
+    sendTrigger(ctx, 'mail-triggers update', async () => {
       const id = requiredPositional(ctx, 0, 'trigger-id');
-      const app = stringFlag(ctx, 'mailbox');
-      const as = stringFlag(ctx, 'as');
-      if ((app === undefined) !== (as === undefined)) {
-        throw new UsageError(
-          '--mailbox and --as go together on update: the mailbox is replaced whole',
-        );
-      }
-      const config = {
-        ...(app !== undefined && { mailbox: mailboxOf(app, as) }),
-        ...paceFields(ctx),
-      };
+      const mailbox = mailboxOnUpdate(ctx);
+      const named = mailbox !== undefined ? withConnection(ctx, mailbox) : undefined;
+      const pace = paceFields(ctx);
       const label = stringFlag(ctx, 'label');
-      const input: UpdateInput = {
+      const rest = {
         ...targetFields(ctx),
-        ...(Object.keys(config).length > 0 && { config }),
         ...(label !== undefined && { label }),
         ...allowUnattendedField(ctx, 'update'),
       };
-      return await ctx.client().mailTriggers.update(id, input);
+      const client = ctx.client().mailTriggers;
+      const config = {
+        ...(named !== undefined && {
+          mailbox: await named(async () => (await client.get(id)).projectId),
+        }),
+        ...pace,
+      };
+      const input: UpdateInput = {
+        ...rest,
+        ...(Object.keys(config).length > 0 && { config }),
+      };
+      return await client.update(id, input);
     }),
 };
 

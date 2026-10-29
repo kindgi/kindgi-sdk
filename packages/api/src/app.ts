@@ -135,6 +135,7 @@ import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
 import {
   connectionAppsRouter,
+  connectionChoicesRouter,
   connectionEntriesRouter,
   connectionNoticesRouter,
   connectionsRouter,
@@ -2223,6 +2224,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.triggerOwnerNotices !== undefined && {
             ownerNotices: input.triggerOwnerNotices,
           }),
+          // The company connection a company mailbox reads with, checked
+          // against the project's candidates, as connection choices are.
+          ...(input.connections !== undefined &&
+            servedEnv !== undefined && {
+              connections: { binding: input.connections, envName: servedEnv },
+            }),
         }),
       );
     }
@@ -2257,6 +2264,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.reviewerBinding !== undefined &&
           input.hitlBinding !== undefined && { reviewers: input.reviewerBinding }),
       }),
+    );
+    v1.route(
+      '/connection-choices',
+      connectionChoicesRouter(input.connections, authorizer, { envName: servedEnv }),
     );
   }
   if (input.policyRegistry !== undefined) {

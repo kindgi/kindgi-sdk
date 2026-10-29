@@ -53,9 +53,12 @@ export {
 } from './connections.js';
 export type {
   ConnectionAccount,
+  ConnectionChoiceOption,
   ConnectionNeed,
   ConnectionRejection,
   ConnectionResolver,
+  ConnectionRunMailbox,
+  ConnectionTarget,
   ResolveConnectionsInput,
   ResolveConnectionsOutcome,
   ToolConnection,

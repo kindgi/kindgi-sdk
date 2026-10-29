@@ -35,6 +35,7 @@ import { type EffectiveHitlPolicy, separateApproverFor } from '../hitl-policy.js
 import {
   type ConnectionCallFailure,
   type ConnectionGate,
+  type ConnectionSeen,
   approverNotAReviewerOf,
   connectionApprovalConflict,
   connectionApprovalOf,
@@ -942,8 +943,9 @@ async function planCall(
   // The call's connections (`needsSpec.connections`), before any
   // approval: a person's missing connection waits for them to connect,
   // and four eyes on a call only that person may approve can't be met.
-  // A call they stop runs nothing; its result tells the model why. A
-  // call that may wait runs alone (`readsOnly`): nothing runs alongside.
+  // A call they stop runs nothing; its result tells the model why (but
+  // `connection-not-chosen` fails the turn). A call that may wait runs
+  // alone (`readsOnly`): nothing runs alongside.
   const conflict = connectionApprovalConflict(call, tool, gate?.separateApprover === true);
   const connected: ConnectionGate =
     conflict !== undefined
@@ -1025,7 +1027,8 @@ async function passGate(step: StepCalls, gated: GatedCall): Promise<DecidedCall>
   const { argsHash, waitTokenId, timeoutMs } = gate;
   const asker = requestedBy(ctx.input.principal);
   const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
-  // A call that acts with a person's connection is theirs to decide.
+  // A call that acts with a person's connection is theirs to decide;
+  // the approval shows the connection, a company one's too.
   const approval =
     gated.connected.kind === 'ready'
       ? connectionApprovalOf(
@@ -1175,13 +1178,23 @@ async function startCall(
   // A replay's live call reads the env the past run's call saw.
   const replayEnv = plan.replayed?.kind === 'live' ? plan.replayed.env : undefined;
   // The call's tokens, asked fresh right before it runs and never
-  // recorded: a connection that lapsed while it waited fails it.
+  // recorded: a connection that lapsed while it waited fails it, and so
+  // does one that isn't the connection the gate decided on.
   const { ctx, kctx } = step;
+  const decided = plan.connected.kind === 'ready' ? plan.connected.connections : undefined;
   const connect: Connect | undefined =
-    plan.connected.kind === 'ready'
-      ? () => freshConnections(ctx, kctx, call, binding.tool)
+    decided !== undefined
+      ? () => freshConnections(ctx, kctx, call, binding.tool, decided)
       : undefined;
-  const settled = invokeOne(step, binding.tool, call, abortSignal, replayEnv, connect).then(
+  const settled = invokeOne(
+    step,
+    binding.tool,
+    call,
+    abortSignal,
+    replayEnv,
+    connect,
+    decided,
+  ).then(
     (invoked) => ({ at: Date.now(), invoked }),
     (threw: unknown) => ({ at: Date.now(), threw }),
   );
@@ -1518,6 +1531,7 @@ async function invokeOne(
   abortSignal: AbortSignal,
   replayEnv: Readonly<Record<string, string>> | undefined,
   connect: Connect | undefined,
+  decided: Readonly<Record<string, ConnectionSeen>> | undefined,
 ): Promise<Invoked> {
   const { ctx, kctx } = step;
   const first = await dispatchOne(step, tool, call, abortSignal, replayEnv, connect);
@@ -1527,7 +1541,7 @@ async function invokeOne(
     return { kind: 'err', error: withoutConnectionTokens(first.error, [first.connections]) };
   }
   const renewed = await dispatchOne(step, tool, call, abortSignal, replayEnv, () =>
-    freshConnections(ctx, kctx, call, tool, [rejected]),
+    freshConnections(ctx, kctx, call, tool, decided ?? {}, [rejected]),
   );
   if (renewed.kind !== 'err') return renewed;
   const again = refusedAgain(first, renewed, tool);

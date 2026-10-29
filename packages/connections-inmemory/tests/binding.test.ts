@@ -1179,7 +1179,11 @@ describe('names', () => {
     if (finished.kind !== 'ok' || finished.value.kind !== 'connected') {
       throw new Error('expected a connection');
     }
-    return { request: created.value, connection: finished.value.connection };
+    return {
+      request: created.value,
+      connection: finished.value.connection,
+      finished: finished.value,
+    };
   }
 
   test("a new connection is named as asked at the connect, else by its account's label, cut to 100 characters", async () => {
@@ -1255,10 +1259,15 @@ describe('names', () => {
     const [a, b, c] = made.appIds as [string, string, string];
     const first = await connect(made.binding, { appId: a });
     expect(first.connection.label).toBe('ana@acme.example');
+    expect(first.finished).toMatchObject({ reconnected: false });
+    expect(first.finished).not.toHaveProperty('labelTaken');
+    // The answer says the name it was to get.
     const second = await connect(made.binding, { appId: b, code: 'ANA@acme.example' });
     expect(second.connection.label).toBe('ANA@acme.example 2');
+    expect(second.finished).toMatchObject({ reconnected: false, labelTaken: 'ANA@acme.example' });
     const third = await connect(made.binding, { appId: c });
     expect(third.connection.label).toBe('ana@acme.example 3');
+    expect(third.finished.labelTaken).toBe('ana@acme.example');
     // A removed one's name is free again.
     await made.binding.disconnect({
       tenantId,
@@ -1302,7 +1311,11 @@ describe('names', () => {
     const finished = await made.binding.finishRequest({ tenantId, caller: ana, state, code: 'x' });
     expect(finished).toMatchObject({
       kind: 'ok',
-      value: { kind: 'connected', connection: { label: `${'a'.repeat(98)} 2` } },
+      value: {
+        kind: 'connected',
+        connection: { label: `${'a'.repeat(98)} 2` },
+        labelTaken: name,
+      },
     });
   });
 
@@ -1402,6 +1415,7 @@ describe('names', () => {
       label: 'Work mail',
       account: { label: 'ana.new@acme.example' },
     });
+    expect(reconnected.finished.reconnected).toBe(true);
     // One made before connections had names stays without one.
     const unnamed = made.seed.connection({
       tenantId,
@@ -1566,5 +1580,712 @@ describe('names', () => {
       });
     expect(seed(a).label).toBe('Work mail');
     expect(() => seed(b)).toThrow(/named "Work mail"/);
+  });
+});
+
+describe("the company's connections, one per account", () => {
+  /**
+   * Google through two registrations; the code is the account signed in to.
+   * As at Google, a grant holds what the account gave before too.
+   */
+  function accounts(granted = ['gmail.send', 'gmail.readonly']) {
+    const made = createInMemoryConnections({
+      entries: [google],
+      publicUrl: 'https://kindgi.acme.example/',
+      app: { exchange: ({ code }) => ({ account: { id: code, label: code }, granted }) },
+    });
+    const appIds = ['proj-a', 'proj-b'].map(
+      (project) =>
+        made.seed.app({
+          tenantId,
+          app: 'google',
+          oauth2: { clientId: `${project}.apps.googleusercontent.com`, clientSecret: SECRET },
+          projects: [project as ProjectId],
+          by: admin,
+        }).appId,
+    );
+    return { ...made, appIds };
+  }
+
+  type Binding = ReturnType<typeof createInMemoryConnections>['binding'];
+
+  interface Ask {
+    readonly appId: string;
+    readonly owner?: 'ana';
+    readonly reconnects?: string;
+    readonly label?: string;
+    readonly permissions?: string[];
+  }
+
+  /** A connect, the company's unless it's Ana's. */
+  function ask(binding: Binding, input: Ask) {
+    return binding.createRequest({
+      tenantId,
+      envName,
+      app: 'google',
+      appId: input.appId,
+      owner: input.owner === 'ana' ? { kind: 'member', userId: ana.id } : { kind: 'company' },
+      permissions: input.permissions ?? ['gmail.send'],
+      ...(input.reconnects !== undefined && { reconnects: input.reconnects }),
+      ...(input.label !== undefined && { label: input.label }),
+      by: input.owner === 'ana' ? ana : admin,
+    });
+  }
+
+  /** A started connect; its finish signs in to the account it's given. */
+  async function begin(binding: Binding, input: Ask) {
+    const created = await ask(binding, input);
+    if (created.kind !== 'ok') throw new Error(created.error.message);
+    const caller = input.owner === 'ana' ? ana : admin;
+    const started = await binding.startRequest({
+      tenantId,
+      requestId: created.value.requestId,
+      caller,
+    });
+    if (started.kind !== 'ok') throw new Error(started.error.message);
+    const state = new URL(started.value.authorizeUrl).searchParams.get('state') as string;
+    return (code: string) => binding.finishRequest({ tenantId, caller, state, code });
+  }
+
+  async function connect(binding: Binding, input: Ask & { readonly code: string }) {
+    const finished = await (await begin(binding, input))(input.code);
+    if (finished.kind !== 'ok' || finished.value.kind !== 'connected') {
+      throw new Error('expected a connection');
+    }
+    return finished.value;
+  }
+
+  const connectionOf = (finished: Awaited<ReturnType<Binding['finishRequest']>>) =>
+    finished.kind === 'ok' && finished.value.kind === 'connected'
+      ? finished.value.connection.connectionId
+      : undefined;
+
+  test('support@ then sales@ make two connections named by their accounts; support@ again reconnects its own, which keeps its name', async () => {
+    const made = accounts();
+    const [a] = made.appIds as [string];
+    const support = await connect(made.binding, { appId: a, code: 'support@acme.example' });
+    expect(support).toMatchObject({
+      reconnected: false,
+      connection: { label: 'support@acme.example' },
+    });
+    const sales = await connect(made.binding, { appId: a, code: 'sales@acme.example' });
+    expect(sales).toMatchObject({
+      reconnected: false,
+      connection: { label: 'sales@acme.example' },
+    });
+    expect(sales.connection.connectionId).not.toBe(support.connection.connectionId);
+    // The account is known only at the finish, which lands on its connection.
+    const again = await connect(made.binding, {
+      appId: a,
+      label: 'Help desk',
+      permissions: ['gmail.readonly'],
+      code: 'support@acme.example',
+    });
+    expect(again.request).not.toHaveProperty('reconnects');
+    expect(again).toMatchObject({
+      reconnected: true,
+      connection: {
+        connectionId: support.connection.connectionId,
+        label: 'support@acme.example',
+        permissions: ['gmail.send', 'gmail.readonly'],
+      },
+    });
+    expect(again).not.toHaveProperty('labelTaken');
+    const listed = await made.binding.list({ tenantId, limit: 10 });
+    expect(listed.data.map((c) => c.label).sort()).toEqual([
+      'sales@acme.example',
+      'support@acme.example',
+    ]);
+  });
+
+  test("a grant lacking some of what the account's connection holds leaves it as it was, connected when it holds all asked", async () => {
+    const made = accounts(['gmail.send']);
+    const [a] = made.appIds as [string];
+    const held = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      appId: a,
+      owner: { kind: 'company' },
+      account: { id: 'support@acme.example', label: 'support@acme.example' },
+      label: 'Support',
+      permissions: ['gmail.send', 'gmail.readonly'],
+    });
+    const again = await connect(made.binding, { appId: a, code: 'support@acme.example' });
+    expect(again).toMatchObject({
+      reconnected: true,
+      connection: {
+        connectionId: held.connectionId,
+        label: 'Support',
+        permissions: ['gmail.send', 'gmail.readonly'],
+      },
+    });
+  });
+
+  test('two first connects of one account, finished at once, make one connection', async () => {
+    const made = accounts();
+    const [a] = made.appIds as [string];
+    const first = await begin(made.binding, { appId: a });
+    const second = await begin(made.binding, { appId: a });
+    const [one, two] = await Promise.all([
+      first('support@acme.example'),
+      second('support@acme.example'),
+    ]);
+    expect(one).toMatchObject({ kind: 'ok', value: { kind: 'connected', reconnected: false } });
+    expect(two).toMatchObject({ kind: 'ok', value: { kind: 'connected', reconnected: true } });
+    expect(connectionOf(two)).toBe(connectionOf(one));
+    expect((await made.binding.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+  });
+
+  test("`reconnects` names a live connection of the connect's own owner, registration and env; any other is answered as an unknown id", async () => {
+    const made = accounts();
+    const [a, b] = made.appIds as [string, string];
+    const own = await connect(made.binding, {
+      appId: a,
+      label: 'Support',
+      code: 'support@acme.example',
+    });
+    const anas = await connect(made.binding, { appId: a, owner: 'ana', code: 'ana@acme.example' });
+    const bens = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      appId: a,
+      owner: { kind: 'member', userId: ben.id },
+      account: { id: 'ben@acme.example', label: 'ben@acme.example' },
+      permissions: ['gmail.send'],
+    });
+    const otherRegistration = await connect(made.binding, {
+      appId: b,
+      code: 'support@acme.example',
+    });
+    const otherEnv = made.seed.connection({
+      tenantId,
+      envName: 'staging' as EnvName,
+      app: 'google',
+      appId: a,
+      owner: { kind: 'company' },
+      account: { id: 'support@acme.example', label: 'support@acme.example' },
+      permissions: ['gmail.send'],
+    });
+    const removed = await connect(made.binding, { appId: a, code: 'sales@acme.example' });
+    await made.binding.disconnect({
+      tenantId,
+      connectionId: removed.connection.connectionId,
+      by: admin,
+    });
+    const unknown = await ask(made.binding, {
+      appId: a,
+      reconnects: '00000000-0000-4000-8000-000000000999',
+    });
+    expect(unknown).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-not-found', field: 'reconnects' },
+    });
+    for (const reconnects of [
+      anas.connection.connectionId,
+      bens.connectionId,
+      otherRegistration.connection.connectionId,
+      otherEnv.connectionId,
+      removed.connection.connectionId,
+    ]) {
+      expect(await ask(made.binding, { appId: a, reconnects })).toEqual(unknown);
+    }
+    // A person's connect may name only their own.
+    for (const reconnects of [own.connection.connectionId, bens.connectionId]) {
+      expect(await ask(made.binding, { appId: a, owner: 'ana', reconnects })).toEqual(unknown);
+    }
+    expect(
+      await ask(made.binding, { appId: a, owner: 'ana', reconnects: anas.connection.connectionId }),
+    ).toMatchObject({ kind: 'ok', value: { reconnects: anas.connection.connectionId } });
+    // The company's own: it asks for what the connection has too, and keeps its name.
+    const asked = await ask(made.binding, {
+      appId: a,
+      reconnects: own.connection.connectionId,
+      permissions: ['gmail.readonly'],
+    });
+    expect(asked).toMatchObject({
+      kind: 'ok',
+      value: {
+        reconnects: own.connection.connectionId,
+        permissions: ['gmail.readonly', 'gmail.send'],
+      },
+    });
+    const again = await connect(made.binding, {
+      appId: a,
+      reconnects: own.connection.connectionId,
+      label: 'Other',
+      code: 'support@acme.example',
+    });
+    expect(again).toMatchObject({
+      reconnected: true,
+      connection: { connectionId: own.connection.connectionId, label: 'Support' },
+    });
+  });
+
+  test('a reconnect needs the same account at the finish, and one whose connection was removed meanwhile makes a new one', async () => {
+    const made = accounts();
+    const [a] = made.appIds as [string];
+    const own = await connect(made.binding, { appId: a, code: 'support@acme.example' });
+    const other = await begin(made.binding, { appId: a, reconnects: own.connection.connectionId });
+    expect(await other('sales@acme.example')).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-account-mismatch' },
+    });
+    expect(
+      await made.binding.get({ tenantId, connectionId: own.connection.connectionId }),
+    ).toMatchObject({ account: { id: 'support@acme.example' }, state: 'working' });
+    expect((await made.binding.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+
+    const late = await begin(made.binding, { appId: a, reconnects: own.connection.connectionId });
+    await made.binding.disconnect({
+      tenantId,
+      connectionId: own.connection.connectionId,
+      by: admin,
+    });
+    const finished = await late('support@acme.example');
+    expect(finished).toMatchObject({
+      kind: 'ok',
+      value: { kind: 'connected', reconnected: false },
+    });
+    expect(connectionOf(finished)).not.toBe(own.connection.connectionId);
+    expect(
+      await made.binding.get({ tenantId, connectionId: own.connection.connectionId }),
+    ).toMatchObject({ state: 'removed' });
+  });
+
+  test('a name taken by the finish is numbered, and the answer says the name it was to get', async () => {
+    const made = accounts();
+    const [a] = made.appIds as [string];
+    // Three connects ask for the same free name, each finished signed in to an account of its own.
+    const finishes = [];
+    for (let i = 0; i < 3; i += 1) {
+      finishes.push(await begin(made.binding, { appId: a, label: 'Help desk' }));
+    }
+    const [first, second, third] = finishes as [
+      (typeof finishes)[number],
+      (typeof finishes)[number],
+      (typeof finishes)[number],
+    ];
+    const one = await first('support@acme.example');
+    expect(one).toMatchObject({ kind: 'ok', value: { connection: { label: 'Help desk' } } });
+    expect(one.kind === 'ok' && one.value).not.toHaveProperty('labelTaken');
+    expect(await second('sales@acme.example')).toMatchObject({
+      kind: 'ok',
+      value: { connection: { label: 'Help desk 2' }, labelTaken: 'Help desk' },
+    });
+    expect(await third('billing@acme.example')).toMatchObject({
+      kind: 'ok',
+      value: { connection: { label: 'Help desk 3' }, labelTaken: 'Help desk' },
+    });
+  });
+
+  test('the company is seeded one connection per account', () => {
+    const made = accounts();
+    const [a] = made.appIds as [string];
+    const seed = (account: string) =>
+      made.seed.connection({
+        tenantId,
+        envName,
+        app: 'google',
+        appId: a,
+        owner: { kind: 'company' },
+        account: { id: account, label: account },
+        permissions: ['gmail.send'],
+      });
+    seed('support@acme.example');
+    expect(seed('sales@acme.example').account.id).toBe('sales@acme.example');
+    expect(() => seed('support@acme.example')).toThrow(/already has a connection/);
+  });
+});
+
+describe('connection choices', () => {
+  const projA = 'proj-a' as ProjectId;
+  const projB = 'proj-b' as ProjectId;
+  const staging = 'staging' as EnvName;
+
+  /**
+   * Google through a registration for project A and one for project B, and
+   * GitHub for every project. Project A has the agent `triage` and the flow
+   * `triage`; project B the agent `triage` only.
+   */
+  function choosing(inProject = true) {
+    let at = START;
+    const made = createInMemoryConnections({
+      entries: [google, github],
+      publicUrl: 'https://kindgi.acme.example/',
+      now: () => at,
+      ...(inProject && {
+        inProject: ({ projectId, kind, id }) =>
+          id === 'triage' && (projectId === projA || kind === 'agent'),
+      }),
+    });
+    const [googleA, googleB] = [projA, projB].map(
+      (project) =>
+        made.seed.app({
+          tenantId,
+          app: 'google',
+          oauth2: { clientId: `${project}.apps.googleusercontent.com`, clientSecret: SECRET },
+          projects: [project],
+          by: admin,
+        }).appId,
+    ) as [string, string];
+    const githubApp = made.seed.app({
+      tenantId,
+      app: 'github',
+      githubApp: {
+        appNumber: 7,
+        slug: 'acme-kindgi',
+        clientId: 'Iv1.acme',
+        clientSecret: SECRET,
+        privateKey: SECRET,
+        webhookSecret: SECRET,
+      },
+      by: admin,
+    }).appId;
+    const seed = (
+      account: string,
+      more: Partial<Parameters<typeof made.seed.connection>[0]> = {},
+    ): string => {
+      at += 1000;
+      return made.seed.connection({
+        tenantId,
+        envName,
+        app: 'google',
+        appId: googleA,
+        owner: { kind: 'company' },
+        account: { id: account, label: account },
+        permissions: ['gmail.send'],
+        ...more,
+      }).connectionId;
+    };
+    const c = {
+      support: seed('support@acme.example', { label: 'Support' }),
+      sales: seed('sales@acme.example'),
+      github: seed('acme', { app: 'github', appId: githubApp }),
+      ana: seed('ana@acme.example', { owner: { kind: 'member', userId: ana.id } }),
+      staging: seed('staging@acme.example', { envName: staging }),
+      projectB: seed('b@acme.example', { appId: googleB }),
+      reconnect: seed('old@acme.example', { state: 'needs-reconnecting' }),
+      removed: seed('gone@acme.example'),
+    };
+    const later = () => {
+      at += 1000;
+    };
+    return { ...made, c, later, company: seed };
+  }
+
+  type Choosing = ReturnType<typeof choosing>;
+
+  async function set(
+    made: Choosing,
+    connectionId: string,
+    more: { agentId?: string; flowId?: string; projectId?: ProjectId; envName?: EnvName } = {},
+  ) {
+    made.later();
+    const { agentId, flowId, ...rest } = more;
+    return made.binding.setChoice({
+      tenantId,
+      projectId: projA,
+      envName,
+      connectionId,
+      by: admin,
+      ...(flowId !== undefined ? { flowId } : { agentId: agentId ?? 'triage' }),
+      ...rest,
+    });
+  }
+
+  async function chosen(
+    made: Choosing,
+    connectionId: string,
+    more: Parameters<typeof set>[2] = {},
+  ) {
+    const answer = await set(made, connectionId, more);
+    if (answer.kind !== 'ok') throw new Error(answer.error.message);
+    return answer.value;
+  }
+
+  const listed = async (
+    made: Choosing,
+    more: { agentId?: string; flowId?: string; app?: string } = {},
+  ) =>
+    (await made.binding.listChoices({ tenantId, projectId: projA, envName, limit: 25, ...more }))
+      .data;
+
+  test("candidates: the project's live company connections in the env, one that needs reconnecting too, named by their label, else their account's", async () => {
+    const made = choosing();
+    await made.binding.disconnect({ tenantId, connectionId: made.c.removed, by: admin });
+    made.company('leaving@acme.example', { state: 'removing' });
+    const candidates = await made.binding.listCandidates({
+      tenantId,
+      projectId: projA,
+      envName,
+      limit: 25,
+    });
+    expect(candidates.data).toEqual([
+      {
+        connectionId: made.c.support,
+        name: 'Support',
+        app: 'google',
+        accountLabel: 'support@acme.example',
+        state: 'working',
+      },
+      {
+        connectionId: made.c.sales,
+        name: 'sales@acme.example',
+        app: 'google',
+        accountLabel: 'sales@acme.example',
+        state: 'working',
+      },
+      {
+        connectionId: made.c.github,
+        name: 'acme',
+        app: 'github',
+        accountLabel: 'acme',
+        state: 'working',
+      },
+      {
+        connectionId: made.c.reconnect,
+        name: 'old@acme.example',
+        app: 'google',
+        accountLabel: 'old@acme.example',
+        state: 'needs-reconnecting',
+      },
+    ]);
+    const ids = async (input: { projectId: ProjectId; envName?: EnvName; app?: string }) =>
+      (await made.binding.listCandidates({ tenantId, envName, limit: 25, ...input })).data.map(
+        (candidate) => candidate.connectionId,
+      );
+    expect(await ids({ projectId: projA, app: 'github' })).toEqual([made.c.github]);
+    expect(await ids({ projectId: projB })).toEqual([made.c.github, made.c.projectB]);
+    expect(await ids({ projectId: projA, envName: staging })).toEqual([made.c.staging]);
+    const first = await made.binding.listCandidates({
+      tenantId,
+      projectId: projA,
+      envName,
+      limit: 2,
+    });
+    expect(first.data.map((candidate) => candidate.connectionId)).toEqual([
+      made.c.support,
+      made.c.sales,
+    ]);
+    expect(
+      (
+        await made.binding.listCandidates({
+          tenantId,
+          projectId: projA,
+          envName,
+          limit: 2,
+          ...(first.nextCursor !== undefined && { cursor: first.nextCursor }),
+        })
+      ).data.map((candidate) => candidate.connectionId),
+    ).toEqual([made.c.github, made.c.reconnect]);
+  });
+
+  test("a choice names a candidate, one that needs reconnecting too: a person's live connection in the env is bad-input, any other connection-not-found", async () => {
+    const made = choosing();
+    await made.binding.disconnect({ tenantId, connectionId: made.c.removed, by: admin });
+    const removing = made.company('leaving@acme.example', { state: 'removing' });
+    // A person's connection that couldn't be a candidate anyway says no more
+    // than an id that isn't there.
+    const anaStaging = made.company('ana@acme.example', {
+      owner: { kind: 'member', userId: ana.id },
+      envName: staging,
+    });
+    expect(await set(made, made.c.ana)).toEqual({
+      kind: 'err',
+      error: {
+        code: 'bad-input',
+        message: "A person's own connection is used for them; choices are for the company's.",
+        field: 'connectionId',
+      },
+    });
+    const notFound = {
+      kind: 'err',
+      error: { code: 'connection-not-found', message: 'No such connection', field: 'connectionId' },
+    };
+    for (const connectionId of [
+      made.c.staging,
+      made.c.projectB,
+      made.c.removed,
+      removing,
+      anaStaging,
+      '00000000-0000-4000-8000-00000000c0de',
+    ]) {
+      expect(await set(made, connectionId)).toEqual(notFound);
+    }
+    expect(await set(made, anaStaging, { envName: staging })).toMatchObject({
+      kind: 'err',
+      error: { code: 'bad-input' },
+    });
+    await made.binding.disconnect({ tenantId, connectionId: made.c.ana, by: admin });
+    expect(await set(made, made.c.ana)).toEqual(notFound);
+    expect(await set(made, made.c.reconnect)).toMatchObject({
+      kind: 'ok',
+      value: { connectionId: made.c.reconnect, version: 1 },
+    });
+    expect(await set(made, made.c.staging, { envName: staging })).toMatchObject({ kind: 'ok' });
+    expect(await set(made, made.c.projectB, { projectId: projB })).toMatchObject({ kind: 'ok' });
+    expect(
+      await made.binding.setChoice({
+        tenantId: '00000000-0000-4000-8000-0000000000bb' as TenantId,
+        projectId: projA,
+        envName,
+        agentId: 'triage',
+        connectionId: made.c.support,
+        by: admin,
+      }),
+    ).toEqual(notFound);
+  });
+
+  test("the agent or the flow must be one of the project's; without `inProject`, none is", async () => {
+    const made = choosing();
+    expect(await set(made, made.c.support, { agentId: 'billing' })).toEqual({
+      kind: 'err',
+      error: {
+        code: 'agent-not-found',
+        message: 'No agent "billing" in the project',
+        field: 'agentId',
+      },
+    });
+    expect(await set(made, made.c.projectB, { flowId: 'triage', projectId: projB })).toEqual({
+      kind: 'err',
+      error: {
+        code: 'flow-not-found',
+        message: 'No flow "triage" in the project',
+        field: 'flowId',
+      },
+    });
+    expect(await set(made, made.c.support, { flowId: 'triage' })).toMatchObject({ kind: 'ok' });
+    expect(await set(choosing(false), made.c.support)).toMatchObject({
+      kind: 'err',
+      error: { code: 'agent-not-found' },
+    });
+  });
+
+  test('the first choice is version 1; the same connection again answers it; another removes it and makes version 2, in one step', async () => {
+    const made = choosing();
+    const first = await chosen(made, made.c.support);
+    expect(first).toEqual({
+      agentId: 'triage',
+      choiceId: expect.any(String),
+      tenantId,
+      projectId: projA,
+      envName,
+      app: 'google',
+      connectionId: made.c.support,
+      version: 1,
+      createdAt: '2026-10-22T12:00:09.000Z',
+      createdBy: 'user:user-admin',
+    });
+    expect(await chosen(made, made.c.support)).toEqual(first);
+    expect(await listed(made)).toEqual([first]);
+    const second = await chosen(made, made.c.sales);
+    expect(second).toMatchObject({
+      connectionId: made.c.sales,
+      version: 2,
+      createdAt: '2026-10-22T12:00:11.000Z',
+    });
+    expect(second.choiceId).not.toBe(first.choiceId);
+    expect(await made.binding.getChoice({ tenantId, choiceId: first.choiceId })).toEqual({
+      ...first,
+      removedAt: second.createdAt,
+      removedBy: 'user:user-admin',
+    });
+    expect(await listed(made)).toEqual([second]);
+    const history = await made.binding.listChoices({
+      tenantId,
+      projectId: projA,
+      envName,
+      includeRemoved: true,
+      limit: 25,
+    });
+    expect(history.data).toEqual([
+      { ...first, removedAt: second.createdAt, removedBy: 'user:user-admin' },
+      second,
+    ]);
+  });
+
+  test('versions count per project, env, agent or flow, and app', async () => {
+    const made = choosing();
+    await chosen(made, made.c.support);
+    await chosen(made, made.c.sales);
+    const versions = [
+      await chosen(made, made.c.github),
+      await chosen(made, made.c.support, { flowId: 'triage' }),
+      await chosen(made, made.c.staging, { envName: staging }),
+      await chosen(made, made.c.projectB, { projectId: projB }),
+    ].map((choice) => choice.version);
+    expect(versions).toEqual([1, 1, 1, 1]);
+    expect((await chosen(made, made.c.support)).version).toBe(3);
+  });
+
+  test('a removed choice is kept, with who removed it; removing it again is connection-choice-not-found; a new one takes the next version', async () => {
+    const made = choosing();
+    const first = await chosen(made, made.c.support);
+    made.later();
+    const removed = await made.binding.removeChoice({
+      tenantId,
+      choiceId: first.choiceId,
+      by: ben,
+    });
+    expect(removed).toEqual({
+      kind: 'ok',
+      value: { ...first, removedAt: '2026-10-22T12:00:10.000Z', removedBy: 'user:user-ben' },
+    });
+    expect(await listed(made)).toEqual([]);
+    expect(await made.binding.getChoice({ tenantId, choiceId: first.choiceId })).toEqual(
+      removed.kind === 'ok' ? removed.value : undefined,
+    );
+    const notFound = {
+      kind: 'err',
+      error: { code: 'connection-choice-not-found', message: 'No such connection choice' },
+    };
+    expect(
+      await made.binding.removeChoice({ tenantId, choiceId: first.choiceId, by: ben }),
+    ).toEqual(notFound);
+    const again = await chosen(made, made.c.support);
+    expect(again.version).toBe(2);
+    const other = '00000000-0000-4000-8000-0000000000bb' as TenantId;
+    expect(
+      await made.binding.removeChoice({ tenantId: other, choiceId: again.choiceId, by: ben }),
+    ).toEqual(notFound);
+    expect(await made.binding.getChoice({ tenantId: other, choiceId: again.choiceId })).toBeNull();
+    expect(await made.binding.removeChoice({ tenantId, choiceId: 'unknown', by: ben })).toEqual(
+      notFound,
+    );
+  });
+
+  test("a removed connection's choice stays listed until it's set again or removed", async () => {
+    const made = choosing();
+    const choice = await chosen(made, made.c.sales);
+    await made.binding.disconnect({ tenantId, connectionId: made.c.sales, by: admin });
+    expect(await listed(made)).toEqual([choice]);
+    expect(await set(made, made.c.sales)).toMatchObject({
+      kind: 'err',
+      error: { code: 'connection-not-found' },
+    });
+    expect(await listed(made)).toEqual([choice]);
+    const next = await chosen(made, made.c.support);
+    expect(next.version).toBe(2);
+    expect(await listed(made)).toEqual([next]);
+  });
+
+  test('lists narrow by agent, flow and app, and page', async () => {
+    const made = choosing();
+    const agentGoogle = await chosen(made, made.c.support);
+    const agentGithub = await chosen(made, made.c.github);
+    const flowGoogle = await chosen(made, made.c.sales, { flowId: 'triage' });
+    await chosen(made, made.c.staging, { envName: staging });
+    expect(await listed(made)).toEqual([agentGoogle, agentGithub, flowGoogle]);
+    expect(await listed(made, { agentId: 'triage' })).toEqual([agentGoogle, agentGithub]);
+    expect(await listed(made, { flowId: 'triage' })).toEqual([flowGoogle]);
+    expect(await listed(made, { app: 'google' })).toEqual([agentGoogle, flowGoogle]);
+    const first = await made.binding.listChoices({ tenantId, projectId: projA, envName, limit: 2 });
+    expect(first.data).toEqual([agentGoogle, agentGithub]);
+    expect(first.nextCursor).toBeDefined();
+    expect(
+      await made.binding.listChoices({ tenantId, projectId: projB, envName, limit: 25 }),
+    ).toEqual({ data: [] });
   });
 });

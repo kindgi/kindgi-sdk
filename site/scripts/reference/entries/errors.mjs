@@ -365,7 +365,7 @@ export const ERROR_ENTRIES = {
   },
   'flow-not-found': {
     description:
-      "The flow, or the flow version, isn't registered. Check the id and version; a run can't start on an unregistered flow version.",
+      "The flow, or the flow version, isn't registered. Check the id and version; a run can't start on an unregistered flow version. A connection choice's flow must be one of the choice's project's.",
     details: [
       {
         key: 'flowId',
@@ -3819,13 +3819,29 @@ export const ERROR_ENTRIES = {
   },
   'connection-not-found': {
     description:
-      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected.",
+      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected. A connect's `reconnects` must name a live connection of the connect's own owner on the same registration and environment, and any other id is answered the same way. So must a connection choice's `connectionId`: a working company connection, in this server's environment, on a registration that allows the project (`GET /v1/connection-choices/candidates` lists them).",
     details: [
       {
         key: 'connectionId',
         meaning: 'the connection id that was not found',
       },
+      {
+        key: 'field',
+        meaning:
+          "`reconnects`, when a connect named a connection it can't connect again; `connectionId`, when a choice named a connection it can't choose",
+      },
     ],
+  },
+  'connection-choice-not-found': {
+    description:
+      "No live connection choice with that id in this server's environment: it may have been removed, or changed (a change removes the old choice and makes a new one). `GET /v1/connection-choices` lists a project's live choices.",
+    details: [
+      {
+        key: 'choiceId',
+        meaning: 'the choice id that was not found',
+      },
+    ],
+    seeAlso: ['GET /v1/connection-choices'],
   },
   'connection-request-not-found': {
     description:
@@ -3897,7 +3913,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-account-mismatch': {
     description:
-      "A reconnect signed in to an account other than the connection's. Sign in with the same account; to connect another account instead, disconnect, then connect again.",
+      "A reconnect signed in to an account other than the connection's. Sign in with the same account. To connect another account instead, a person disconnects, then connects again; the company connects again, not as a reconnect, since it keeps a connection of its own for each account.",
     details: [],
   },
   'connection-label-taken': {
@@ -3908,6 +3924,35 @@ export const ERROR_ENTRIES = {
         key: 'field',
         meaning: 'the input field at fault (`label`)',
       },
+    ],
+  },
+  'connection-not-chosen': {
+    description:
+      "A tool call needs a company connection of an app, the project has more than one in this environment, and the agent or flow has no choice of one. The turn's run fails rather than pick one: a project admin chooses the connection (`PUT /v1/connection-choices`), then the turn runs again. Or a mail trigger's create or update puts it on the company's mailbox without `config.mailbox.connectionId`, and the project has more than one company connection of the app: nothing changes; name one of `details.choices` and send it again.",
+    details: [
+      {
+        key: 'connection',
+        meaning: "the tool's name for the connection (a turn's run only)",
+      },
+      {
+        key: 'choices',
+        meaning:
+          "the connections to choose from: for a turn's run, their names, sorted; for a mail trigger, `{connectionId, name}` objects sorted by name",
+      },
+      {
+        key: 'runId',
+        meaning: "the run that failed (a turn's run only)",
+      },
+      {
+        key: 'field',
+        meaning: 'the input field to fill (`config.mailbox.connectionId`; a mail trigger only)',
+      },
+    ],
+    seeAlso: [
+      'PUT /v1/connection-choices',
+      'GET /v1/connection-choices/candidates',
+      'POST /v1/mail-triggers',
+      'PATCH /v1/mail-triggers/{triggerId}',
     ],
   },
   'connection-removing': {

@@ -37,6 +37,8 @@ export interface ToolConnection {
   readonly appName: string;
   readonly accessToken: string;
   readonly account: ConnectionAccount;
+  /** The connection's name: its label, else its account's label. */
+  readonly name?: string;
   readonly expiresAt?: string;
 }
 
@@ -57,6 +59,29 @@ export interface WaitingForConnection {
   readonly expiresAt: string;
   /** The person connected this app before, and connects it again. */
   readonly reconnects?: boolean;
+}
+
+/**
+ * The mailbox a run reads, as the run records it (a runtime's `RunMailbox`):
+ * the mail trigger that started it watches this app's mailbox.
+ */
+export interface ConnectionRunMailbox {
+  readonly app: string;
+  readonly as: 'company' | 'person';
+  /**
+   * The company connection the run's mail was read with, fixed when the
+   * fire starts the run. Only with `as: 'company'`.
+   */
+  readonly connectionId?: string;
+}
+
+/** The agent or the flow a call belongs to. */
+export type ConnectionTarget = { readonly agentId: string } | { readonly flowId: string };
+
+/** A company connection a project admin can choose for a target. */
+export interface ConnectionChoiceOption {
+  readonly connectionId: string;
+  readonly name: string;
 }
 
 export interface ResolveConnectionsInput {
@@ -84,6 +109,14 @@ export interface ResolveConnectionsInput {
   readonly waitMs: number;
   /** Names whose token to renew first, ignoring any cached one (after the app refused it). */
   readonly renew?: readonly string[];
+  /**
+   * The agent or flow the call belongs to, whose choice of a company
+   * connection applies. A runtime checks it against the run's own record
+   * and never takes it on trust.
+   */
+  readonly target?: ConnectionTarget;
+  /** The run's mailbox, from the run's own record, when a mail trigger started it. */
+  readonly mailbox?: ConnectionRunMailbox;
 }
 
 export type ResolveConnectionsOutcome =
@@ -92,11 +125,17 @@ export type ResolveConnectionsOutcome =
   | { readonly kind: 'wait'; readonly requests: readonly WaitingForConnection[] }
   | {
       readonly kind: 'refused';
-      readonly code: 'connection-app-missing' | 'connection-needs-a-person' | 'connection-missing';
+      readonly code:
+        | 'connection-app-missing'
+        | 'connection-needs-a-person'
+        | 'connection-missing'
+        | 'connection-not-chosen';
       readonly name: string;
       readonly app: string;
       /** The permissions a connection lacks. */
       readonly missing?: readonly string[];
+      /** With `connection-not-chosen`: the connections to choose from, sorted by name. */
+      readonly choices?: readonly ConnectionChoiceOption[];
       readonly message: string;
     };
 
@@ -107,6 +146,23 @@ export type ResolveConnectionsOutcome =
  * company), and that owner's live connection with every permission the
  * need lists, in the served env.
  *
+ * A company need's candidates are the company's live connections of the
+ * app (working or needing reconnecting) on any registration that allows
+ * the project, in the served env. It takes, in order:
+ *
+ * 1. the run's mailbox's connection, when `mailbox` is the company's for
+ *    this app and names one;
+ * 2. the target's choice for the app in this project and env;
+ * 3. the only candidate;
+ * 4. with none, `connection-missing`;
+ * 5. with several and no choice, `connection-not-chosen`, listing them.
+ *
+ * A connection step 1 or 2 picks must still be a candidate, be working and
+ * hold the need's permissions; if not, the need is `connection-missing`,
+ * naming it, and never another connection. An id that isn't the company's
+ * connection of the app answers as no connection does. Candidates are
+ * counted before permissions, so one that lacks a permission still counts.
+ *
  * - **`ready`:** every need has a token.
  * - **`wait`:** a person's connection is missing, lacks a permission, or
  *   needs reconnecting, and the call may wait: one connect request per
@@ -114,8 +170,9 @@ export type ResolveConnectionsOutcome =
  *   the same connection share one request, for all their permissions.
  * - **`refused`:** no registration allows the project
  *   (`connection-app-missing`), a person's connection in a run with no
- *   person (`connection-needs-a-person`), or a missing one the call can't
- *   wait for (`connection-missing`).
+ *   person (`connection-needs-a-person`), a missing one the call can't
+ *   wait for (`connection-missing`), or several company connections and
+ *   no choice of one (`connection-not-chosen`).
  *
  * When the app can't give a token just now, it throws
  * `ConnectionRenewError` and the connection stays as it is. One the app

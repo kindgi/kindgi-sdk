@@ -14,6 +14,9 @@ import type {
   ConnectRequestRecord,
   ConnectionAppRecord,
   ConnectionBinding,
+  ConnectionCandidateRecord,
+  ConnectionChoiceRecord,
+  ConnectionChoiceTarget,
   ConnectionError,
   ConnectionOwner,
   ConnectionPage,
@@ -35,12 +38,13 @@ import type { ReviewerBinding } from '../reviewer-binding.js';
 import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { WEBHOOK_BODY_LIMITS } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
-import { refused } from './denied.js';
+import { deniedBy, refused } from './denied.js';
 import { WEBHOOK_REFUSALS_PER_CLIENT_PER_MINUTE } from './hooks.js';
 import { clampLimit } from './pagination.js';
 import { parseSecretRef } from './secret-ref.js';
 import { hasHiddenCharacters } from './sites.js';
 import { tenantAdminAccess } from './tenant-access.js';
+import { isTriggerAdmin } from './trigger-owners.js';
 import { UUID_RE, refuseMalformedUuidParam } from './uuid-param.js';
 
 const MAX_LABEL_LENGTH = 200;
@@ -325,7 +329,7 @@ export function connectionsRouter(
     if (body.kind === 'err') return badInput(c, body.message);
     const parsed = parseConnectBody(body.value);
     if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
-    const { app, appId, projectId, permissions, label } = parsed.value;
+    const { app, appId, projectId, permissions, label, reconnects } = parsed.value;
     const owner = await connectOwner(c, by, parsed.value.for);
     if (owner instanceof Response) return owner;
     const outcome = await binding.createRequest({
@@ -337,6 +341,7 @@ export function connectionsRouter(
       owner,
       permissions,
       ...(label !== undefined && { label }),
+      ...(reconnects !== undefined && { reconnects }),
       by,
     });
     if (outcome.kind !== 'ok') return bindingRefused(c, authorizer, outcome.error);
@@ -541,6 +546,133 @@ export function connectionNoticesRouter(
   return r;
 }
 
+/**
+ * The connection choices (`/v1/connection-choices`): which company
+ * connection an agent or a flow uses for an app in a project, in the env
+ * this server serves. The project's members read its choices, and its
+ * candidates' names; its admins set and remove choices, and read its
+ * candidates in full.
+ */
+export function connectionChoicesRouter(
+  binding: ConnectionBinding,
+  authorizer: Authorizer | undefined,
+  options: {
+    /** The env this server serves: the choices read and made are its. */
+    readonly envName: EnvName;
+  },
+): Hono<AppEnv> {
+  const r = new Hono<AppEnv>();
+
+  /** Nothing, when the caller is an admin of the project; else a 403 that says what `doing` takes. */
+  const notAdmin = async (
+    c: Context<AppEnv>,
+    projectId: string,
+    doing: string,
+  ): Promise<Response | undefined> => {
+    if (await isTriggerAdmin(c, authorizer, projectId)) return undefined;
+    return refused(c, authorizer, {
+      action: 'admin',
+      resource: ref('project', projectId),
+      message: `${doing} takes a project admin.`,
+      failing: 'actor',
+    });
+  };
+
+  r.get('/', async (c) => {
+    const query = parseChoiceQuery(c);
+    if (query.kind === 'err') return badInput(c, query.message, query.field);
+    const { projectId, agentId, flowId, app } = query.value;
+    const includeRemoved = parseIncludeRemoved(c);
+    if (includeRemoved.kind === 'err') {
+      return badInput(c, includeRemoved.message, includeRemoved.field);
+    }
+    const unreadable = await deniedBy(authorizer, c, 'read', ref('project', projectId));
+    if (unreadable !== undefined) return unreadable;
+    const cursor = c.req.query('cursor');
+    const page = await binding.listChoices({
+      tenantId: c.get('tenantId') as TenantId,
+      projectId,
+      envName: options.envName,
+      ...(agentId !== undefined && { agentId }),
+      ...(flowId !== undefined && { flowId }),
+      ...(app !== undefined && { app }),
+      ...(includeRemoved.value && { includeRemoved: true }),
+      limit: clampLimit(c.req.query('limit')),
+      ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+    });
+    return c.json(serializePage(page, serializeChoice));
+  });
+
+  r.get('/candidates', async (c) => {
+    const query = parseChoiceQuery(c, { targets: false });
+    if (query.kind === 'err') return badInput(c, query.message, query.field);
+    const { projectId, app } = query.value;
+    const unreadable = await deniedBy(authorizer, c, 'read', ref('project', projectId));
+    if (unreadable !== undefined) return unreadable;
+    const full = await isTriggerAdmin(c, authorizer, projectId);
+    const cursor = c.req.query('cursor');
+    const page = await binding.listCandidates({
+      tenantId: c.get('tenantId') as TenantId,
+      projectId,
+      envName: options.envName,
+      ...(app !== undefined && { app }),
+      limit: clampLimit(c.req.query('limit')),
+      ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+    });
+    return c.json(serializePage(page, (candidate) => serializeCandidate(candidate, full)));
+  });
+
+  r.put('/', async (c) => {
+    const by = principalRef(c);
+    if (by === undefined) return noPrincipal(c, authorizer);
+    const body = await readJsonObject(c);
+    if (body.kind === 'err') return badInput(c, body.message);
+    const parsed = parseChoiceBody(body.value);
+    if (parsed.kind === 'err') return badInput(c, parsed.message, parsed.field);
+    const notAllowed = await notAdmin(c, parsed.value.projectId, 'Choosing a connection');
+    if (notAllowed !== undefined) return notAllowed;
+    const outcome = await binding.setChoice({
+      ...parsed.value,
+      tenantId: c.get('tenantId') as TenantId,
+      envName: options.envName,
+      by,
+    });
+    if (outcome.kind !== 'ok') {
+      const named = choiceNamed(parsed.value, outcome.error.code);
+      return bindingRefused(c, authorizer, outcome.error, named);
+    }
+    return c.json(serializeChoice(outcome.value));
+  });
+
+  r.delete('/:choiceId', refuseMalformedUuidParam('choiceId', 'a choice id'), async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const by = principalRef(c);
+    if (by === undefined) return noPrincipal(c, authorizer);
+    const choiceId = c.req.param('choiceId');
+    const choice = await binding.getChoice({ tenantId, choiceId });
+    // A removed one, or another env's, isn't found here.
+    if (choice === null || choice.removedAt !== undefined || choice.envName !== options.envName) {
+      return choiceNotFound(c, choiceId);
+    }
+    const projectId = choice.projectId as unknown as string;
+    // One in a project the caller can't read isn't found either, so an id
+    // never tells it's there.
+    if ((await deniedBy(authorizer, c, 'read', ref('project', projectId))) !== undefined) {
+      return choiceNotFound(c, choiceId);
+    }
+    const notAllowed = await notAdmin(c, projectId, 'Removing a connection choice');
+    if (notAllowed !== undefined) return notAllowed;
+    const outcome = await binding.removeChoice({ tenantId, choiceId, by });
+    if (outcome.kind !== 'ok') {
+      return bindingRefused(c, authorizer, outcome.error, {
+        ...(outcome.error.code === 'connection-choice-not-found' && { choiceId }),
+      });
+    }
+    return c.json({ deleted: true });
+  });
+  return r;
+}
+
 // ================ parsing ================
 
 type Parsed<T> =
@@ -731,6 +863,7 @@ interface ConnectBody {
   readonly permissions: readonly string[];
   readonly for: 'me' | 'company';
   readonly label?: string;
+  readonly reconnects?: string;
 }
 
 const CONNECT_FIELDS: ReadonlySet<string> = new Set([
@@ -740,6 +873,7 @@ const CONNECT_FIELDS: ReadonlySet<string> = new Set([
   'permissions',
   'for',
   'label',
+  'reconnects',
 ]);
 
 function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
@@ -773,18 +907,26 @@ function parseConnectBody(body: Record<string, unknown>): Parsed<ConnectBody> {
   };
 }
 
-/** Whose connection a connect makes, and its name. */
+/** Whose connection a connect makes, the one it reconnects, and its name. */
 function parseConnectionMade(
   body: Record<string, unknown>,
-): Parsed<Pick<ConnectBody, 'for' | 'label'>> {
+): Parsed<Pick<ConnectBody, 'for' | 'label' | 'reconnects'>> {
   if (body.for !== undefined && body.for !== 'me' && body.for !== 'company') {
     return bad("`for` must be `'me'` or `'company'`", 'for');
+  }
+  const { reconnects } = body;
+  if (reconnects !== undefined && (typeof reconnects !== 'string' || !UUID_RE.test(reconnects))) {
+    return bad('`reconnects` must be a connection id (a UUID)', 'reconnects');
   }
   const label = body.label === undefined ? undefined : parseConnectionLabel(body.label);
   if (label?.kind === 'err') return label;
   return {
     kind: 'ok',
-    value: { for: body.for ?? 'me', ...(label !== undefined && { label: label.value }) },
+    value: {
+      for: body.for ?? 'me',
+      ...(typeof reconnects === 'string' && { reconnects }),
+      ...(label !== undefined && { label: label.value }),
+    },
   };
 }
 
@@ -1014,6 +1156,81 @@ async function readJsonObject(
   return { kind: 'ok', value: body };
 }
 
+interface ChoiceQuery {
+  readonly projectId: ProjectId;
+  readonly agentId?: string;
+  readonly flowId?: string;
+  readonly app?: string;
+}
+
+/** `projectId` (required), `app`, and with `targets`, `agentId` or `flowId`. */
+function parseChoiceQuery(
+  c: Context<AppEnv>,
+  opts: { readonly targets?: boolean } = {},
+): Parsed<ChoiceQuery> {
+  const projectId = c.req.query('projectId');
+  const app = c.req.query('app');
+  const agentId = opts.targets === false ? undefined : nonEmpty(c.req.query('agentId'));
+  const flowId = opts.targets === false ? undefined : nonEmpty(c.req.query('flowId'));
+  if (projectId === undefined || !UUID_RE.test(projectId)) {
+    return bad('`projectId` is required: a project id (a UUID)', 'projectId');
+  }
+  if (app !== undefined && !APP_ID_PATTERN.test(app)) {
+    return bad('`app` must be an entry id', 'app');
+  }
+  if (agentId !== undefined && flowId !== undefined) {
+    return bad('`agentId` or `flowId`, not both: a choice is for one of them');
+  }
+  return {
+    kind: 'ok',
+    value: {
+      projectId: projectId as ProjectId,
+      ...(agentId !== undefined && { agentId }),
+      ...(flowId !== undefined && { flowId }),
+      ...(app !== undefined && { app }),
+    },
+  };
+}
+
+function nonEmpty(raw: string | undefined): string | undefined {
+  return raw === undefined || raw.length === 0 ? undefined : raw;
+}
+
+const CHOICE_BODY_FIELDS: ReadonlySet<string> = new Set([
+  'projectId',
+  'agentId',
+  'flowId',
+  'connectionId',
+]);
+
+type ChoiceBody = ConnectionChoiceTarget & {
+  readonly projectId: ProjectId;
+  readonly connectionId: string;
+};
+
+/** `{projectId, agentId | flowId, connectionId}`, nothing else. */
+function parseChoiceBody(body: Record<string, unknown>): Parsed<ChoiceBody> {
+  const unknown = unknownField(body, CHOICE_BODY_FIELDS, '');
+  if (unknown !== undefined) return unknown;
+  const { projectId, agentId, flowId, connectionId } = body;
+  if (typeof projectId !== 'string' || !UUID_RE.test(projectId)) {
+    return bad('`projectId` is required: a project id (a UUID)', 'projectId');
+  }
+  if ((agentId === undefined) === (flowId === undefined)) {
+    return bad('Name what the choice is for: `agentId` or `flowId`, one of them');
+  }
+  const field = agentId !== undefined ? 'agentId' : 'flowId';
+  const id = agentId ?? flowId;
+  if (typeof id !== 'string' || id.length === 0) {
+    return bad(`\`${field}\` must be a non-empty string`, field);
+  }
+  if (typeof connectionId !== 'string' || !UUID_RE.test(connectionId)) {
+    return bad('`connectionId` is required: a connection id (a UUID)', 'connectionId');
+  }
+  const target: ConnectionChoiceTarget = field === 'agentId' ? { agentId: id } : { flowId: id };
+  return { kind: 'ok', value: { ...target, projectId: projectId as ProjectId, connectionId } };
+}
+
 // ================ the caller ================
 
 /** The caller as the binding records it. */
@@ -1194,8 +1411,51 @@ function serializeFinish(outcome: ConnectFinishOutcome): Record<string, unknown>
         kind: 'connected',
         request: serializeRequest(outcome.request),
         connection: serializeConnection(outcome.connection),
+        ...(outcome.reconnected !== undefined && { reconnected: outcome.reconnected }),
+        ...(outcome.labelTaken !== undefined && { labelTaken: outcome.labelTaken }),
       }
     : { kind: outcome.kind, request: serializeRequest(outcome.request) };
+}
+
+/** A choice, with its removal when it's been removed. */
+function serializeChoice(choice: ConnectionChoiceRecord): Record<string, unknown> {
+  return {
+    choiceId: choice.choiceId,
+    projectId: choice.projectId as unknown as string,
+    envName: choice.envName as unknown as string,
+    ...(choice.agentId !== undefined && { agentId: choice.agentId }),
+    ...(choice.flowId !== undefined && { flowId: choice.flowId }),
+    app: choice.app,
+    connectionId: choice.connectionId,
+    version: choice.version,
+    createdAt: choice.createdAt,
+    createdBy: choice.createdBy,
+    ...(choice.removedAt !== undefined && { removedAt: choice.removedAt }),
+    ...(choice.removedBy !== undefined && { removedBy: choice.removedBy }),
+  };
+}
+
+/** What a refused choice names: the agent, the flow or the connection not found. */
+function choiceNamed(body: ChoiceBody, code: string): Readonly<Record<string, string>> {
+  if (code === 'agent-not-found' && body.agentId !== undefined) return { agentId: body.agentId };
+  if (code === 'flow-not-found' && body.flowId !== undefined) return { flowId: body.flowId };
+  return code === 'connection-not-found' ? { connectionId: body.connectionId } : {};
+}
+
+/** A candidate: in full for a project admin, its id and name for anyone else. */
+function serializeCandidate(
+  candidate: ConnectionCandidateRecord,
+  full: boolean,
+): Record<string, unknown> {
+  return {
+    connectionId: candidate.connectionId,
+    name: candidate.name,
+    ...(full && {
+      app: candidate.app,
+      accountLabel: candidate.accountLabel,
+      state: candidate.state,
+    }),
+  };
 }
 
 // ================ answers ================
@@ -1225,8 +1485,11 @@ function bindingRefused(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
   error: ConnectionError,
+  /** What the request named that the refusal is about (`connectionId`, `choiceId`). */
+  named: Readonly<Record<string, string>> = {},
 ): Response {
   const details = {
+    ...named,
     ...(error.field !== undefined && { field: error.field }),
     ...(error.connectRequestId !== undefined && { connectRequestId: error.connectRequestId }),
   };
@@ -1250,6 +1513,12 @@ function appNotFound(c: Context<AppEnv>, appId: string): Response {
 function connectionNotFound(c: Context<AppEnv>, connectionId: string): Response {
   return answer(c, 'connection-not-found', `No connection with id "${connectionId}"`, {
     connectionId,
+  });
+}
+
+function choiceNotFound(c: Context<AppEnv>, choiceId: string): Response {
+  return answer(c, 'connection-choice-not-found', `No connection choice with id "${choiceId}"`, {
+    choiceId,
   });
 }
 

@@ -10,6 +10,7 @@ import { blocksCommand } from './blocks.js';
 import { buildCommand } from './build.js';
 import { capabilitiesCommand } from './capabilities.js';
 import { connectionAppsCommand } from './connection-apps.js';
+import { connectionChoicesCommand } from './connection-choices.js';
 import { connectionsCommand } from './connections.js';
 import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
@@ -80,6 +81,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   secretsCommand,
   connectionsCommand,
   connectionAppsCommand,
+  connectionChoicesCommand,
   ssoCommand,
   signInCommand,
   sitesCommand,

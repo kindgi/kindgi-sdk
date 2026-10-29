@@ -643,9 +643,10 @@ function updatedMail(
 
 /**
  * A mail trigger's config after an update, as a runtime merges it. A folder
- * or label id belongs to one mailbox, so another mailbox (the other app, or
- * the other `as`) with no `folder` drops it: the trigger watches the new
- * mailbox's inbox. The same mailbox sent again keeps it.
+ * or label id belongs to one mailbox, so another mailbox (the other app, the
+ * other `as`, or another company connection, one where there was none too)
+ * with no `folder` drops it: the trigger watches the new mailbox's inbox.
+ * The same mailbox sent again keeps it.
  */
 function mailConfigAfter(
   config: MailTriggerRecord['config'],
@@ -654,7 +655,9 @@ function mailConfigAfter(
   const merged = { ...config, ...edit };
   const moved =
     edit?.mailbox !== undefined &&
-    (edit.mailbox.app !== config.mailbox.app || edit.mailbox.as !== config.mailbox.as);
+    (edit.mailbox.app !== config.mailbox.app ||
+      edit.mailbox.as !== config.mailbox.as ||
+      edit.mailbox.connectionId !== config.mailbox.connectionId);
   if (!moved || edit?.folder !== undefined) return merged;
   const { folder: _, ...inbox } = merged;
   return inbox;

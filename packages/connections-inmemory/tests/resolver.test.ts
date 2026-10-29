@@ -7,7 +7,12 @@ import { computeConnectWaitToken } from '@kindgi/agents';
 import type { PrincipalRef } from '@kindgi/authz';
 import { github } from '@kindgi/connections/github';
 import { google } from '@kindgi/connections/google';
-import { type ConnectionNeed, isConnectionRenewError } from '@kindgi/tools';
+import {
+  type ConnectionNeed,
+  type ConnectionRunMailbox,
+  type ConnectionTarget,
+  isConnectionRenewError,
+} from '@kindgi/tools';
 import type { EnvName, ProjectId, TenantId } from '@kindgi/types';
 
 import { type FakeApp, createInMemoryConnections } from '../src/index.js';
@@ -31,6 +36,7 @@ function setup(app: FakeApp = {}) {
     now: () => at,
     app,
     onConnectComplete,
+    inProject: () => true,
   });
   made.seed.app({
     tenantId,
@@ -63,7 +69,14 @@ function setup(app: FakeApp = {}) {
     });
   const resolve = (
     needs: Record<string, ConnectionNeed>,
-    more: { waitMs?: number; person?: string | null; renew?: string[]; callId?: string } = {},
+    more: {
+      waitMs?: number;
+      person?: string | null;
+      renew?: string[];
+      callId?: string;
+      target?: ConnectionTarget;
+      mailbox?: ConnectionRunMailbox;
+    } = {},
   ) =>
     made.resolver.resolveConnections({
       tenantId,
@@ -76,6 +89,8 @@ function setup(app: FakeApp = {}) {
       ...(more.person !== null && { person: { userId: more.person ?? 'user-ana' } }),
       waitMs: more.waitMs ?? 15 * 60_000,
       ...(more.renew !== undefined && { renew: more.renew }),
+      ...(more.target !== undefined && { target: more.target }),
+      ...(more.mailbox !== undefined && { mailbox: more.mailbox }),
     });
   return {
     ...made,
@@ -102,6 +117,7 @@ describe('ready', () => {
           appName: 'Google',
           accessToken: `fake-${connection.connectionId}-1`,
           account: { id: 'g-ana', label: 'ana@acme.example' },
+          name: 'ana@acme.example',
           expiresAt: '2026-10-22T13:00:00.000Z',
         },
         inbox: expect.objectContaining({ accessToken: `fake-${connection.connectionId}-1` }),
@@ -269,5 +285,300 @@ describe('refused', () => {
       missing: ['issues.read'],
     });
     expect(await made.binding.requestsForRun({ tenantId, runId: 'run-1' })).toEqual([]);
+  });
+});
+
+describe('a company need', () => {
+  const send: ConnectionNeed = { app: 'google', permissions: ['gmail.send'], as: 'company' };
+  const agent: ConnectionTarget = { agentId: 'mail-helper' };
+  const other = '00000000-0000-4000-8000-0000000000b2' as ProjectId;
+
+  /** Two company Google connections: support (sends) and, made later, sales (reads only). */
+  function company() {
+    const made = setup();
+    const add = (
+      label: string | undefined,
+      account: string,
+      more: Partial<Parameters<typeof made.seed.connection>[0]> = {},
+    ) =>
+      made.seed.connection({
+        tenantId,
+        envName,
+        app: 'google',
+        owner: { kind: 'company' },
+        account: { id: account, label: account },
+        ...(label !== undefined && { label }),
+        permissions: ['gmail.send'],
+        ...more,
+      }).connectionId;
+    const support = add('support', 'support@acme.example', {
+      permissions: ['gmail.send', 'gmail.readonly'],
+    });
+    const sales = add('sales', 'sales@acme.example', { permissions: ['gmail.readonly'] });
+    const choose = async (connectionId: string, target: ConnectionTarget = agent) => {
+      const set = await made.binding.setChoice({
+        tenantId,
+        projectId,
+        envName,
+        connectionId,
+        by: admin,
+        ...target,
+      });
+      if (set.kind !== 'ok') throw new Error(set.error.message);
+      return set.value;
+    };
+    const used = async (more: Parameters<typeof made.resolve>[1] = {}) => {
+      const answer = await made.resolve({ mail: send }, { person: null, ...more });
+      return answer.kind === 'ready' ? answer.connections.mail?.connectionId : answer;
+    };
+    return { ...made, add, support, sales, choose, used };
+  }
+
+  const none = {
+    kind: 'refused',
+    code: 'connection-missing',
+    name: 'mail',
+    app: 'google',
+    missing: ['gmail.send'],
+    message: `"mail" needs a Google connection, and there's none`,
+  };
+
+  test('the only candidate, named; a person’s, another env’s or a removed one doesn’t count', async () => {
+    const made = setup();
+    made.seedMail();
+    made.seed.connection({
+      tenantId,
+      envName: 'staging' as EnvName,
+      app: 'google',
+      owner: { kind: 'company' },
+      account: { id: 'staging@acme.example', label: 'staging@acme.example' },
+      permissions: ['gmail.send'],
+    });
+    made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      owner: { kind: 'company' },
+      account: { id: 'gone@acme.example', label: 'gone@acme.example' },
+      permissions: ['gmail.send'],
+      state: 'removed',
+    });
+    expect(await made.resolve({ mail: send }, { target: agent })).toEqual(none);
+    const only = made.seed.connection({
+      tenantId,
+      envName,
+      app: 'google',
+      owner: { kind: 'company' },
+      account: { id: 'support@acme.example', label: 'support@acme.example' },
+      label: 'support',
+      permissions: ['gmail.send'],
+    });
+    expect(await made.resolve({ mail: send }, { target: agent })).toMatchObject({
+      kind: 'ready',
+      connections: { mail: { connectionId: only.connectionId, name: 'support' } },
+    });
+  });
+
+  test('several and no choice: connection-not-chosen, sorted by name, counted before permissions', async () => {
+    const made = company();
+    const refused = {
+      kind: 'refused',
+      code: 'connection-not-chosen',
+      name: 'mail',
+      app: 'google',
+      choices: [
+        { connectionId: made.sales, name: 'sales' },
+        { connectionId: made.support, name: 'support' },
+      ],
+    };
+    // Only support holds gmail.send, and it still isn't picked.
+    expect(await made.used({ target: agent })).toEqual({
+      ...refused,
+      message:
+        'This project has 2 company Google connections (sales, support), and agent mail-helper has no choice of one. A project admin chooses it: Project, Agents, mail-helper, Connections, or kindgi connection-choices set.',
+    });
+    expect(await made.used({ target: { flowId: 'triage' } })).toEqual({
+      ...refused,
+      message:
+        'This project has 2 company Google connections (sales, support), and flow triage has no choice of one. A project admin chooses it: Project, Flows, triage, Connections, or kindgi connection-choices set.',
+    });
+    expect(await made.used()).toMatchObject({ code: 'connection-not-chosen' });
+    // Another agent's choice, a flow's of the same id, or one in another project isn't this one's.
+    await made.choose(made.support, { agentId: 'other-agent' });
+    await made.choose(made.support, { flowId: 'mail-helper' });
+    expect(await made.used({ target: agent })).toMatchObject({ code: 'connection-not-chosen' });
+  });
+
+  test('a candidate that needs reconnecting still counts, so the other is never a silent pick', async () => {
+    const made = setup();
+    for (const [account, state] of [
+      ['support@acme.example', 'working'],
+      ['old@acme.example', 'needs-reconnecting'],
+    ] as const) {
+      made.seed.connection({
+        tenantId,
+        envName,
+        app: 'google',
+        owner: { kind: 'company' },
+        account: { id: account, label: account },
+        permissions: ['gmail.send'],
+        state,
+      });
+    }
+    expect(await made.resolve({ mail: send }, { target: agent })).toMatchObject({
+      code: 'connection-not-chosen',
+      choices: [{ name: 'old@acme.example' }, { name: 'support@acme.example' }],
+    });
+  });
+
+  test("the agent's choice, and a flow's", async () => {
+    const made = company();
+    await made.choose(made.support);
+    expect(await made.used({ target: agent })).toBe(made.support);
+    const salesHelper = made.add('sales-2', 'sales2@acme.example');
+    await made.choose(salesHelper, { flowId: 'triage' });
+    expect(await made.used({ target: { flowId: 'triage' } })).toBe(salesHelper);
+    expect(await made.used({ target: agent })).toBe(made.support);
+  });
+
+  test("the run's mailbox beats a choice; a person's mailbox, another app's or one with no id doesn't", async () => {
+    const made = company();
+    const inbox: ConnectionNeed = { app: 'google', permissions: ['gmail.readonly'], as: 'company' };
+    await made.choose(made.support);
+    const read = async (mailbox: ConnectionRunMailbox) => {
+      const answer = await made.resolve({ inbox }, { person: null, target: agent, mailbox });
+      return answer.kind === 'ready' ? answer.connections.inbox?.connectionId : answer;
+    };
+    expect(await read({ app: 'google', as: 'company', connectionId: made.sales })).toBe(made.sales);
+    expect(await read({ app: 'google', as: 'person', connectionId: made.sales })).toBe(
+      made.support,
+    );
+    expect(await read({ app: 'microsoft', as: 'company', connectionId: made.sales })).toBe(
+      made.support,
+    );
+    expect(await read({ app: 'google', as: 'company' })).toBe(made.support);
+  });
+
+  test('a choice that lacks the permission, or needs reconnecting, never falls back to the only other', async () => {
+    const made = company();
+    await made.choose(made.sales);
+    expect(await made.used({ target: agent })).toEqual({
+      kind: 'refused',
+      code: 'connection-missing',
+      name: 'mail',
+      app: 'google',
+      missing: ['gmail.send'],
+      message: 'sales lacks gmail.send; reconnect it, or choose another',
+    });
+    const reconnect = made.add('old', 'old@acme.example', { state: 'needs-reconnecting' });
+    await made.choose(reconnect);
+    expect(await made.used({ target: agent })).toMatchObject({
+      code: 'connection-missing',
+      message: 'old needs reconnecting; reconnect it, or choose another',
+    });
+  });
+
+  test('a choice disconnected, or on a registration that no longer allows the project, never falls back to the only other', async () => {
+    const made = company();
+    await made.choose(made.support);
+    await made.binding.disconnect({ tenantId, connectionId: made.support, by: admin });
+    // sales is now the only candidate, and still isn't taken.
+    expect(await made.used({ target: agent })).toEqual({
+      kind: 'refused',
+      code: 'connection-missing',
+      name: 'mail',
+      app: 'google',
+      message: 'support was disconnected; choose another',
+    });
+    const [first] = (await made.binding.listApps({ tenantId, limit: 10 })).data.filter(
+      (a) => a.app === 'google',
+    );
+    const narrow = made.add('narrow', 'narrow@acme.example');
+    await made.choose(narrow);
+    expect(await made.used({ target: agent })).toBe(narrow);
+    await made.binding.updateApp({
+      tenantId,
+      appId: first?.appId as string,
+      projects: [other],
+      by: admin,
+    });
+    const next = made.seed.app({
+      tenantId,
+      app: 'google',
+      oauth2: { clientId: 'next.apps.googleusercontent.com', clientSecret: SECRET },
+      projects: [projectId],
+      by: admin,
+    });
+    const billing = made.add('billing', 'billing@acme.example', { appId: next.appId });
+    expect(await made.used()).toBe(billing);
+    expect(await made.used({ target: agent })).toEqual({
+      kind: 'refused',
+      code: 'connection-missing',
+      name: 'mail',
+      app: 'google',
+      message:
+        'narrow is on a Google registration that no longer allows this project; choose another',
+    });
+  });
+
+  test("the mailbox's connection in another env, removed or lacking, refuses naming it", async () => {
+    const made = company();
+    const staging = made.add('staging', 'staging@acme.example', { envName: 'staging' as EnvName });
+    const mailbox = (connectionId: string): ConnectionRunMailbox => ({
+      app: 'google',
+      as: 'company',
+      connectionId,
+    });
+    await made.choose(made.support);
+    expect(await made.used({ target: agent, mailbox: mailbox(staging) })).toMatchObject({
+      code: 'connection-missing',
+      message: 'staging, the mailbox this run reads, is in env staging, not local',
+    });
+    expect(await made.used({ target: agent, mailbox: mailbox(made.sales) })).toMatchObject({
+      code: 'connection-missing',
+      missing: ['gmail.send'],
+      message: 'sales, the mailbox this run reads, lacks gmail.send; reconnect it',
+    });
+    await made.binding.disconnect({ tenantId, connectionId: made.sales, by: admin });
+    expect(await made.used({ target: agent, mailbox: mailbox(made.sales) })).toMatchObject({
+      code: 'connection-missing',
+      message: 'sales, the mailbox this run reads, was disconnected',
+    });
+  });
+
+  test("a refusal names a connection by its name alone, a name that is its account's label too", async () => {
+    const made = company();
+    const desk = made.add('desk@acme.example', 'desk@acme.example');
+    await made.choose(desk);
+    await made.binding.disconnect({ tenantId, connectionId: desk, by: admin });
+    expect(await made.used({ target: agent })).toMatchObject({
+      code: 'connection-missing',
+      message: 'desk@acme.example was disconnected; choose another',
+    });
+  });
+
+  test("an id that isn't the company's connection of the app answers as no connection does", async () => {
+    const made = company();
+    const ana = made.seedMail();
+    const github = made.add(undefined, 'acme', { app: 'github', permissions: ['issues.read'] });
+    for (const connectionId of ['00000000-0000-4000-8000-00000000dead', ana.connectionId, github]) {
+      expect(
+        await made.used({
+          target: agent,
+          mailbox: { app: 'google', as: 'company', connectionId },
+        }),
+      ).toEqual(none);
+    }
+  });
+
+  test("a person's need is unchanged by a mailbox or a choice", async () => {
+    const made = company();
+    const ana = made.seedMail();
+    await made.choose(made.support);
+    const answer = await made.resolve(
+      { mail },
+      { target: agent, mailbox: { app: 'google', as: 'company', connectionId: made.support } },
+    );
+    expect(answer.kind === 'ready' && answer.connections.mail?.connectionId).toBe(ana.connectionId);
   });
 });

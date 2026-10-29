@@ -305,6 +305,7 @@ export type {
   RunSnapshotError,
   SemanticUnavailableError,
   ApprovalsPendingLimitError,
+  ConnectionNotChosenError,
   ToolInvocationError,
   TurnMemoryLimitReachedError,
   UnresolvedToolError,

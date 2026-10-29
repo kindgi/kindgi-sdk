@@ -15,9 +15,15 @@ sidebar:
 - **Removed:** its token is withdrawn and destroyed. The record stays, with
   who removed it, when and why.
 
-Each person or company has one live connection per registration and
-environment. A person's connection serves every project the registration
-allows.
+A person keeps one live connection per registration and environment, which
+serves every project the registration allows. The company keeps one per
+account, registration and environment, so it can have several of one app,
+such as `support@acme.example`
+and `sales@acme.example` at Google, each with its own name. A company
+connect that lands on an account the company already has reconnects that
+connection, which keeps its name and gains what was allowed. When the
+company has several, the run or a project admin's choice says which one a
+call uses ([Choose a connection](../choose-a-connection/)).
 
 Each connection has a name, its `label`, that people know it by. It's the
 name given at the connect, or else the account's, such as an email address.
@@ -36,7 +42,10 @@ keeps the name. A connection made before connections had names has none,
 and shows its account.
 
 Only a connection's owner and your workspace's admins can see, rename or
-remove it. Registering an app is for workspace admins only.
+remove it. A project's members see the names of the company's connections
+it can use, so they can tell them apart
+([Who sees what](../choose-a-connection/#who-sees-what)). Registering an app
+is for workspace admins only.
 
 ## Where the token is kept
 
@@ -171,7 +180,17 @@ already gone at the app, so Kindgi only destroys the stored token.
   and the run acts as nobody: a service account's run, or an event's.
 - **`connection-missing`:** the connection isn't there, lacks a
   permission, or needs reconnecting, and the run can't wait for its owner.
-  The error names the app and what's missing.
+  The error names the app and what's missing. A company connection that's
+  there but can't serve the call is named too, and the call never falls
+  back to another one.
+- **`connection-not-chosen`:** the call needs a company connection, the
+  project has several of the app, and the agent or flow has no choice of
+  one. The run fails, naming them
+  ([When none is chosen](../choose-a-connection/#when-none-is-chosen)).
+- **`connection-changed`:** the call's connection changed while it waited,
+  such as for its approval, so it didn't run. The model reads that, and
+  the turn goes on
+  ([When the connection changes](../choose-a-connection/#when-the-connection-changes)).
 - **`connection-declined`:** the person declined, or didn't allow a
   permission the call needs.
 - **`connection-timed-out`:** nobody connected before the wait ran out.

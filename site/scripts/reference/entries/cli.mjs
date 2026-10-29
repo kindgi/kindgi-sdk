@@ -688,6 +688,8 @@ export const CLI_DEFAULTS = {
     'agent-version': 'none (its live version, else the latest)',
     'allow-unattended': 'none (a tool that waits for a person still waits)',
     as: '`person` (your own mailbox)',
+    connection:
+      "none: with `--as=company`, the project's only company connection at the app; required when it has several",
     flow: 'none',
     'flow-version': 'required with `--flow`',
     folder: 'none (the inbox)',
@@ -704,6 +706,8 @@ export const CLI_DEFAULTS = {
     'allow-unattended':
       'unchanged; a trigger that has a list and moves to another flow, agent or mailbox must name it again, or `none`',
     as: 'unchanged (given with `--mailbox`)',
+    connection:
+      "unchanged; with a new `--mailbox` and `--as=company`, the project's only company connection at the app",
     flow: 'unchanged',
     'flow-version': 'unchanged',
     folder: 'unchanged',
@@ -1058,9 +1062,29 @@ export const CLI_DEFAULTS = {
   },
   'connections connect': {
     'app-id': "none: the app's one registration",
+    label: "none: named by its account's label",
     permissions:
       "none picked: at a terminal it asks about each one the app's entry offers; required without one",
     project: 'none',
+    reconnect: 'none (a new connection)',
+  },
+  'connections update': {
+    app: 'none',
+    label: 'required',
+  },
+  'connection-choices set': {
+    agent: 'none (`--agent` or `--flow` is required)',
+    app: 'none',
+    flow: 'none (`--agent` or `--flow` is required)',
+    project: "the tenant's Default project",
+  },
+  'connection-choices list': {
+    agent: 'none',
+    app: 'none',
+    cursor: 'none',
+    flow: 'none',
+    limit: '`25` (at most `100`)',
+    project: "the tenant's Default project",
   },
   'connection-apps list': {
     cursor: 'none',
@@ -1834,6 +1858,11 @@ export const CLI_EXAMPLES = {
         "Run a flow for each new mail in a folder of the company's Outlook mailbox, looking every two minutes.",
       line: 'kindgi mail-triggers create --flow=acme.triage --flow-version=1.0.0 --mailbox=microsoft --as=company --folder=<folder-id> --poll=120',
     },
+    {
+      purpose:
+        "Run an agent for each new mail in the company's Gmail mailbox, read through the company connection named `support`.",
+      line: 'kindgi mail-triggers create --agent=acme.order-desk --mailbox=google --as=company --connection=support',
+    },
   ],
   'mail-triggers update': [
     {
@@ -1843,6 +1872,10 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Watch the inbox again, on a trigger of your own Gmail.',
       line: 'kindgi mail-triggers update <trigger-id> --folder=INBOX',
+    },
+    {
+      purpose: "Read the company's Gmail mailbox through another company connection.",
+      line: 'kindgi mail-triggers update <trigger-id> --mailbox=google --as=company --connection=sales',
     },
   ],
   'mail-triggers pause': [
@@ -2301,6 +2334,25 @@ export const CLI_EXAMPLES = {
       purpose: "Connect the company's GitHub installation for a project (tenant admins).",
       line: 'kindgi connections connect github --project=<project-id> --for-company',
     },
+    {
+      purpose: "Connect another of the company's Google accounts, named `support`.",
+      line: 'kindgi connections connect google --permissions=gmail.readonly --for-company --label=support',
+    },
+    {
+      purpose: 'Reconnect the connection named `support`, signing in again.',
+      line: 'kindgi connections connect google --permissions=gmail.readonly --for-company --reconnect=support',
+    },
+  ],
+  'connections update': [
+    {
+      purpose: 'Rename a connection.',
+      line: 'kindgi connections update support --label=helpdesk',
+    },
+    {
+      purpose:
+        'Rename the Google connection named `support`, when another app has one named so too.',
+      line: 'kindgi connections update support --app=google --label=helpdesk',
+    },
   ],
   'connections disconnect': [
     {
@@ -2348,6 +2400,32 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Remove a registration and disconnect every connection through it.',
       line: 'kindgi connection-apps remove <app-id> --with-connections',
+    },
+  ],
+  'connection-choices set': [
+    {
+      purpose: 'Have an agent use the company connection named `support`, in the Default project.',
+      line: 'kindgi connection-choices set support --agent=acme.order-desk',
+    },
+    {
+      purpose: "Have a flow of a project use one of the project's company Google connections.",
+      line: 'kindgi connection-choices set sales --flow=acme.triage --project=<project-id> --app=google',
+    },
+  ],
+  'connection-choices list': [
+    {
+      purpose: "List a project's connection choices, as a table.",
+      line: 'kindgi connection-choices list --project=<project-id> --table',
+    },
+    {
+      purpose: "List an agent's choices, removed and replaced ones too.",
+      line: 'kindgi connection-choices list --agent=acme.order-desk --include-removed --table',
+    },
+  ],
+  'connection-choices unset': [
+    {
+      purpose: 'Remove a connection choice without being asked (for scripts).',
+      line: 'kindgi connection-choices unset <choice-id> --yes',
     },
   ],
   'people add': [
@@ -2533,6 +2611,7 @@ export const CLI_GROUP_SEE_ALSO = {
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
   connections: ['deploy/people-and-keys'],
+  'connection-choices': ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
   environments: ['guides/projects/organize-by-org-and-project'],

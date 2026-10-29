@@ -324,11 +324,15 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * - **Every time the tool runs,** the tokens are asked for fresh and never
    *   recorded (`ToolContext.connections`). When the app refuses one
    *   (`ConnectionRejectedError`), it's renewed and the call runs once more.
+   *   A need that comes to another connection than the first ask's fails
+   *   the call with `connection-changed`.
    * - **A call it stops runs nothing:** its result tells the model why
    *   (`{ status: 'failed', error: { code, message } }`, a `connection-*`
-   *   code), and the turn goes on.
+   *   code), and the turn goes on. Several company connections of an app
+   *   and no choice of one fails the turn instead (`connection-not-chosen`).
    * - **Approvals:** a call that acts with a person's connection and asks
    *   for an approval asks that person alone (`HitlEnqueueInput.approver`).
+   *   The approval shows the connection, a company one's too.
    *
    * Absent: a call to a tool that declares a connection fails with
    * `connection-app-missing`; no other call changes.
@@ -399,13 +403,16 @@ export interface HitlEnqueueInput {
   readonly approver?: { readonly kind: 'member'; readonly userId: string };
   /**
    * The account the call acts as, shown to its reviewer: the app's id and
-   * name, and the account as people know it (`owner@acme.example`). Set
-   * with `approver`.
+   * name, the account as people know it (`owner@acme.example`), and the
+   * connection's name. A person's connection, or else the company's the
+   * gate decided on.
    */
   readonly connection?: {
     readonly app: string;
     readonly appName: string;
     readonly account: string;
+    /** The connection's name: its label, else its account's label. */
+    readonly name?: string;
   };
   readonly title?: string;
   readonly description?: string;

@@ -20,8 +20,11 @@ import { describe, expect, test } from 'vitest';
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
-import type { ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
+import { google } from '@kindgi/connections/google';
+import { microsoft } from '@kindgi/connections/microsoft';
+import type { Cursor, EnvName, ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
 
+import type { ConnectionBinding, ConnectionRecord } from '../src/connection-binding.js';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
 import { validateAgainst } from './support/openapi-schema.js';
 
@@ -99,7 +102,63 @@ const serviceAccountBinding = {
       : null,
 } as unknown as ServiceAccountBinding;
 
-function harness(opts: { store?: boolean } = {}) {
+/** A connection the fake binding keeps: the company's, unless a member's. */
+interface FakeConnection {
+  readonly connectionId: string;
+  readonly app: 'google' | 'microsoft';
+  readonly name: string;
+  readonly member?: UserId;
+  /** The company's, live, but on a registration that doesn't allow the project. */
+  readonly elsewhere?: boolean;
+}
+
+/**
+ * A connection binding over `list` (which a test may add to), in the
+ * `local` env. It gives one candidate a page, so a route reads them all.
+ */
+function fakeConnections(list: readonly FakeConnection[]): ConnectionBinding {
+  const binding: Pick<ConnectionBinding, 'entries' | 'get' | 'listCandidates'> = {
+    entries: () => [google, microsoft],
+    async get(input) {
+      const c = list.find((x) => x.connectionId === input.connectionId);
+      if (c === undefined || input.tenantId !== tenantId) return null;
+      return {
+        connectionId: c.connectionId,
+        tenantId,
+        envName: 'local',
+        app: c.app,
+        owner: c.member === undefined ? { kind: 'company' } : { kind: 'member', userId: c.member },
+        state: 'working',
+        label: c.name,
+      } as unknown as ConnectionRecord;
+    },
+    async listCandidates(input) {
+      const all = list.filter(
+        (c) =>
+          input.tenantId === tenantId &&
+          input.projectId === PROJECT &&
+          input.envName === 'local' &&
+          c.member === undefined &&
+          c.elsewhere !== true &&
+          (input.app === undefined || c.app === input.app),
+      );
+      const at = input.cursor === undefined ? 0 : Number(input.cursor);
+      return {
+        data: all.slice(at, at + 1).map((c) => ({
+          connectionId: c.connectionId,
+          name: c.name,
+          app: c.app,
+          accountLabel: `${c.name}@acme.example`,
+          state: 'working' as const,
+        })),
+        ...(at + 1 < all.length && { nextCursor: String(at + 1) as Cursor }),
+      };
+    },
+  };
+  return binding as ConnectionBinding;
+}
+
+function harness(opts: { store?: boolean; connections?: readonly FakeConnection[] } = {}) {
   const written: AuditEvent[] = [];
   const store = createInMemoryAuditEventBinding();
   const auditEvents: typeof store = {
@@ -121,6 +180,10 @@ function harness(opts: { store?: boolean } = {}) {
     serviceAccountBinding,
     auditEvents,
     triggerOwnerNotices: { tell: (notice) => void told.push(notice) },
+    ...(opts.connections !== undefined && {
+      connections: fakeConnections(opts.connections),
+      envName: 'local' as EnvName,
+    }),
     ...(opts.store !== false && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -145,7 +208,7 @@ function harness(opts: { store?: boolean } = {}) {
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
   const events = (kind: string): AuditEvent[] => written.filter((e) => e.kind === kind);
-  return { call, events, told, triggerRegistry };
+  return { call, events, written, told, triggerRegistry };
 }
 
 const docOf = (e: AuditEvent | undefined) =>
@@ -516,6 +579,317 @@ describe('a move to another mailbox', () => {
     expect(again.body.folder).toBe('SENT');
     const paced = await h.call('PATCH', `${BASE}/${id}`, { config: { pollSeconds: 300 } });
     expect(paced.body).toMatchObject({ folder: 'SENT', pollSeconds: 300 });
+  });
+});
+
+const SUPPORT_GMAIL: FakeConnection = {
+  connectionId: randomUUID(),
+  app: 'google',
+  name: 'support',
+};
+const SALES_GMAIL: FakeConnection = { connectionId: randomUUID(), app: 'google', name: 'sales' };
+const OPS_OUTLOOK: FakeConnection = { connectionId: randomUUID(), app: 'microsoft', name: 'ops' };
+const WRENS_GMAIL: FakeConnection = {
+  connectionId: randomUUID(),
+  app: 'google',
+  name: 'wren',
+  member: WREN,
+};
+const WRENS_OUTLOOK: FakeConnection = {
+  connectionId: randomUUID(),
+  app: 'microsoft',
+  name: 'wren',
+  member: WREN,
+};
+const BILLING_GMAIL: FakeConnection = {
+  connectionId: randomUUID(),
+  app: 'google',
+  name: 'billing',
+  elsewhere: true,
+};
+const FIELD = 'config.mailbox.connectionId';
+
+/** The company's Gmail, through `connectionId` when given. */
+const gmail = (connectionId?: string) => ({
+  app: 'google',
+  as: 'company',
+  ...(connectionId !== undefined && { connectionId }),
+});
+/** A trigger on the company's Gmail. */
+const companyGmail = (connectionId?: string, over: Record<string, unknown> = {}) =>
+  company({ config: { mailbox: gmail(connectionId) }, ...over });
+
+describe('the company connection it reads with', () => {
+  test('a named candidate is stored, and every answer carries it', async () => {
+    const h = harness({ connections: [SUPPORT_GMAIL, SALES_GMAIL] });
+    const made = await h.call('POST', BASE, companyGmail(SALES_GMAIL.connectionId));
+    expect(made.status).toBe(201);
+    const mailbox = gmail(SALES_GMAIL.connectionId);
+    expect(made.body.mailbox).toEqual(mailbox);
+    expect(validateAgainst('MailTriggerRecord', made.body)).toEqual([]);
+    const id = made.body.triggerId as string;
+    const stored = await h.triggerRegistry.get({ tenantId, triggerId: id as TriggerId });
+    expect((stored?.config as { mailbox?: unknown } | undefined)?.mailbox).toEqual(mailbox);
+    expect((await h.call('GET', `${BASE}/${id}`)).body.mailbox).toEqual(mailbox);
+    expect((await h.call('GET', BASE)).body.data[0].mailbox).toEqual(mailbox);
+    const paced = await h.call('PATCH', `${BASE}/${id}`, { config: { pollSeconds: 300 } });
+    expect(paced.body.mailbox).toEqual(mailbox);
+  });
+
+  test("a named id that isn't one of the project's candidates of the app is a 404 naming the field; a person's live connection of the app is a 400", async () => {
+    const h = harness({
+      connections: [SUPPORT_GMAIL, OPS_OUTLOOK, WRENS_GMAIL, WRENS_OUTLOOK, BILLING_GMAIL],
+    });
+    // A person's connection of another app couldn't be read with anyway, so
+    // it says no more than an id that isn't there.
+    for (const named of [
+      BILLING_GMAIL.connectionId,
+      OPS_OUTLOOK.connectionId,
+      WRENS_OUTLOOK.connectionId,
+      randomUUID(),
+    ]) {
+      const res = await h.call('POST', BASE, companyGmail(named));
+      expect(res.status, named).toBe(404);
+      expect(res.body.error).toMatchObject({
+        code: 'connection-not-found',
+        details: { connectionId: named, field: FIELD },
+      });
+    }
+    const persons = await h.call('POST', BASE, companyGmail(WRENS_GMAIL.connectionId));
+    expect(persons.status).toBe(400);
+    expect(persons.body.error).toMatchObject({
+      code: 'bad-input',
+      message:
+        "A person's own connection is used for them; the company's mailbox is read with a company connection.",
+      details: { field: FIELD },
+    });
+    expect((await h.call('GET', BASE)).body.data).toEqual([]);
+  });
+
+  test("a person's mailbox names no connection, and an id is a UUID", async () => {
+    const h = harness({ connections: [WRENS_GMAIL] });
+    const mailbox = { app: 'google', as: 'person', connectionId: WRENS_GMAIL.connectionId };
+    const res = await h.call('POST', BASE, personal({ config: { mailbox } }), 'wren');
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe(
+      "A person's mailbox is read with its owner's own connection; `connectionId` is for the company's.",
+    );
+    const notAnId = await h.call('POST', BASE, companyGmail('support'));
+    expect(notAnId.status).toBe(400);
+    expect(notAnId.body.error.message).toMatch(/a UUID/);
+  });
+
+  test('none named: the only candidate is stored, and with none, nothing is', async () => {
+    const h = harness({ connections: [SUPPORT_GMAIL, BILLING_GMAIL, WRENS_GMAIL] });
+    const only = await h.call('POST', BASE, companyGmail());
+    expect(only.status).toBe(201);
+    expect(only.body.mailbox).toEqual(gmail(SUPPORT_GMAIL.connectionId));
+    const none = await h.call('POST', BASE, company());
+    expect(none.status).toBe(201);
+    expect(none.body.mailbox).toEqual({ app: 'microsoft', as: 'company' });
+  });
+
+  test('none named and several is a 409 that lists them by name, and registers nothing', async () => {
+    const h = harness({ connections: [SUPPORT_GMAIL, SALES_GMAIL, OPS_OUTLOOK] });
+    const res = await h.call('POST', BASE, companyGmail());
+    expect(res.status).toBe(409);
+    expect(res.body.error).toEqual({
+      code: 'connection-not-chosen',
+      message:
+        'This project has 2 company Google connections (sales, support); name one in config.mailbox.connectionId.',
+      details: {
+        choices: [
+          { connectionId: SALES_GMAIL.connectionId, name: 'sales' },
+          { connectionId: SUPPORT_GMAIL.connectionId, name: 'support' },
+        ],
+        field: FIELD,
+      },
+      requestId: 'req-mail',
+    });
+    expect((await h.call('GET', BASE)).body.data).toEqual([]);
+  });
+
+  test("with no project to check against, a named id is the tenant's live company connection of the app, and none named stores none", async () => {
+    const h = harness({
+      connections: [SUPPORT_GMAIL, SALES_GMAIL, BILLING_GMAIL, WRENS_GMAIL, OPS_OUTLOOK],
+    });
+    const noProject = (connectionId?: string) => {
+      const { projectId: _, ...body } = companyGmail(connectionId);
+      return body;
+    };
+    const named = await h.call('POST', BASE, noProject(BILLING_GMAIL.connectionId));
+    expect(named.status).toBe(201);
+    expect(named.body.mailbox).toEqual(gmail(BILLING_GMAIL.connectionId));
+    expect((await h.call('POST', BASE, noProject(OPS_OUTLOOK.connectionId))).status).toBe(404);
+    expect((await h.call('POST', BASE, noProject(randomUUID()))).status).toBe(404);
+    expect((await h.call('POST', BASE, noProject(WRENS_GMAIL.connectionId))).status).toBe(400);
+    const unnamed = await h.call('POST', BASE, noProject());
+    expect(unnamed.status).toBe(201);
+    expect(unnamed.body.mailbox).toEqual(gmail());
+  });
+
+  test('pointing it at another connection is another mailbox: an admin names the list again, and the folder goes', async () => {
+    const h = harness({ connections: [SUPPORT_GMAIL, SALES_GMAIL] });
+    const made = await h.call(
+      'POST',
+      BASE,
+      company({
+        config: { mailbox: gmail(SUPPORT_GMAIL.connectionId), folder: 'Label_9' },
+        toolsAllowedUnattended: ['acme.lookup'],
+      }),
+    );
+    expect(made.status).toBe(201);
+    const id = made.body.triggerId as string;
+    const to = { config: { mailbox: gmail(SALES_GMAIL.connectionId) } };
+    const bare = await h.call('PATCH', `${BASE}/${id}`, to);
+    expect(bare.status).toBe(400);
+    expect(bare.body.error.message).toMatch(/must name it again/);
+    const restated = { ...to, toolsAllowedUnattended: ['acme.lookup'] };
+    expect((await h.call('PATCH', `${BASE}/${id}`, restated, 'wren')).status).toBe(403);
+    const set = h.events('trigger-tools-allowed-unattended-set').length;
+    const moved = await h.call('PATCH', `${BASE}/${id}`, restated);
+    expect(moved.status).toBe(200);
+    expect(moved.body.mailbox).toEqual(gmail(SALES_GMAIL.connectionId));
+    expect(moved.body).not.toHaveProperty('folder');
+    // The list named again for another mailbox is audited, as for another app.
+    expect(h.events('trigger-tools-allowed-unattended-set')).toHaveLength(set + 1);
+    // The same connection again is the same mailbox: no list, and the folder stays.
+    await h.call('PATCH', `${BASE}/${id}`, { config: { folder: 'Label_3' } });
+    const again = await h.call('PATCH', `${BASE}/${id}`, to);
+    expect(again.status).toBe(200);
+    expect(again.body.folder).toBe('Label_3');
+    // So is the company's mailbox sent again with no connection: it keeps
+    // the one it reads with, though the project has two.
+    const resent = await h.call('PATCH', `${BASE}/${id}`, { config: { mailbox: gmail() } });
+    expect(resent.status).toBe(200);
+    expect(resent.body.mailbox).toEqual(gmail(SALES_GMAIL.connectionId));
+    expect(resent.body.folder).toBe('Label_3');
+  });
+
+  test('where it named none, the only one taken when none is named is the mailbox it reads already, and with several none is taken; one named is another mailbox', async () => {
+    const list: FakeConnection[] = [];
+    const h = harness({ connections: list });
+    const make = async (more: Record<string, unknown> = {}) => {
+      const made = await h.call(
+        'POST',
+        BASE,
+        company({ config: { mailbox: gmail(), folder: 'Label_9' }, ...more }),
+      );
+      expect(made.body.mailbox).toEqual(gmail());
+      return made.body.triggerId as string;
+    };
+    const plain = await make();
+    const listed = await make({ toolsAllowedUnattended: ['acme.lookup'] });
+    const other = await make({ toolsAllowedUnattended: ['acme.lookup'] });
+    const unstored = await make();
+    list.push(SUPPORT_GMAIL);
+    // It already reads with the only one: storing it keeps the folder, and
+    // the list needs no naming again.
+    for (const id of [plain, listed]) {
+      const pinned = await h.call('PATCH', `${BASE}/${id}`, { config: { mailbox: gmail() } });
+      expect(pinned.status, id).toBe(200);
+      expect(pinned.body.mailbox).toEqual(gmail(SUPPORT_GMAIL.connectionId));
+      expect(pinned.body.folder).toBe('Label_9');
+    }
+    // With two there, there's no only one to take: the mailbox sent again
+    // is refused, and the trigger stays as it was.
+    list.push(SALES_GMAIL);
+    const several = await h.call('PATCH', `${BASE}/${unstored}`, { config: { mailbox: gmail() } });
+    expect(several.status).toBe(409);
+    expect(several.body.error.code).toBe('connection-not-chosen');
+    expect(several.body.error.details.choices).toHaveLength(2);
+    const kept = await h.call('GET', `${BASE}/${unstored}`);
+    expect(kept.body.mailbox).toEqual(gmail());
+    expect(kept.body.folder).toBe('Label_9');
+    // One named where none was is another mailbox: the list is named again,
+    // and it watches that mailbox's inbox.
+    const to = { config: { mailbox: gmail(SUPPORT_GMAIL.connectionId) } };
+    const bare = await h.call('PATCH', `${BASE}/${other}`, to);
+    expect(bare.status).toBe(400);
+    expect(bare.body.error.message).toMatch(/must name it again/);
+    const named = await h.call('PATCH', `${BASE}/${other}`, {
+      ...to,
+      toolsAllowedUnattended: ['acme.lookup'],
+    });
+    expect(named.status).toBe(200);
+    expect(named.body.mailbox).toEqual(gmail(SUPPORT_GMAIL.connectionId));
+    expect(named.body).not.toHaveProperty('folder');
+  });
+
+  test('the same mailbox sent again: with its connection stored, no change, so no version; with none stored, taking the only one is a version, and the folder stays', async () => {
+    const list: FakeConnection[] = [];
+    const h = harness({ connections: list });
+    const made = await h.call(
+      'POST',
+      BASE,
+      company({ config: { mailbox: gmail(), folder: 'Label_9' } }),
+    );
+    expect(made.body.mailbox).toEqual(gmail());
+    const unstored = made.body.triggerId as string;
+    list.push(SUPPORT_GMAIL);
+    const pinned = await h.call('POST', BASE, companyGmail(SUPPORT_GMAIL.connectionId));
+    const stored = pinned.body.triggerId as string;
+    const before = pinned.body.version as number;
+    expect(before).toBeGreaterThan(0);
+    const audited = h.written.length;
+    const again = await h.call('PATCH', `${BASE}/${stored}`, { config: { mailbox: gmail() } });
+    expect(again.status).toBe(200);
+    expect(again.body.mailbox).toEqual(gmail(SUPPORT_GMAIL.connectionId));
+    expect(again.body.version).toBe(before);
+    expect(h.written).toHaveLength(audited);
+    const taken = await h.call('PATCH', `${BASE}/${unstored}`, { config: { mailbox: gmail() } });
+    expect(taken.status).toBe(200);
+    expect(taken.body.version).toBe((made.body.version as number) + 1);
+    expect(taken.body.folder).toBe('Label_9');
+    const version = await h.triggerRegistry.getVersion({
+      tenantId,
+      triggerId: unstored as TriggerId,
+      version: taken.body.version as number,
+    });
+    expect(version).toMatchObject({ cause: 'edit', createdBy: `user:${ADA}` });
+    expect(version?.definition.config).toMatchObject({
+      mailbox: gmail(SUPPORT_GMAIL.connectionId),
+      folder: 'Label_9',
+    });
+  });
+
+  test("a new mailbox takes the same rule, nothing changes when it's refused, and a move to a person's mailbox drops the id", async () => {
+    const h = harness({ connections: [SUPPORT_GMAIL, SALES_GMAIL, WRENS_GMAIL] });
+    const made = await h.call('POST', BASE, companyGmail(SUPPORT_GMAIL.connectionId));
+    const id = made.body.triggerId as string;
+    const other = randomUUID();
+    const notOne = await h.call('PATCH', `${BASE}/${id}`, { config: { mailbox: gmail(other) } });
+    expect(notOne.status).toBe(404);
+    expect(notOne.body.error).toMatchObject({
+      code: 'connection-not-found',
+      details: { connectionId: other, field: FIELD },
+    });
+    const persons = await h.call('PATCH', `${BASE}/${id}`, {
+      config: { mailbox: gmail(WRENS_GMAIL.connectionId) },
+    });
+    expect(persons.status).toBe(400);
+    expect((await h.call('GET', `${BASE}/${id}`)).body.mailbox).toEqual(
+      gmail(SUPPORT_GMAIL.connectionId),
+    );
+    const toPerson = await h.call('PATCH', `${BASE}/${id}`, {
+      config: { mailbox: { app: 'google', as: 'person' } },
+    });
+    expect(toPerson.status).toBe(200);
+    expect(toPerson.body.mailbox).toEqual({ app: 'google', as: 'person' });
+    const stored = await h.triggerRegistry.get({ tenantId, triggerId: id as TriggerId });
+    expect((stored?.config as { mailbox?: unknown } | undefined)?.mailbox).toEqual({
+      app: 'google',
+      as: 'person',
+    });
+    // Back to the company's mailbox, a new one again: two there and none named.
+    const several = await h.call('PATCH', `${BASE}/${id}`, { config: { mailbox: gmail() } });
+    expect(several.status).toBe(409);
+    expect(several.body.error.code).toBe('connection-not-chosen');
+    expect(several.body.error.details.choices).toHaveLength(2);
+    expect((await h.call('GET', `${BASE}/${id}`)).body.mailbox).toEqual({
+      app: 'google',
+      as: 'person',
+    });
   });
 });
 

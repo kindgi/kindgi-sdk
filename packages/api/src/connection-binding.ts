@@ -205,11 +205,50 @@ export interface ConnectRequestRecord {
   readonly createdBy: string;
 }
 
+/** What a choice is for: an agent, or a flow. */
+export type ConnectionChoiceTarget =
+  | { readonly agentId: string; readonly flowId?: never }
+  | { readonly flowId: string; readonly agentId?: never };
+
+/**
+ * Which company connection an agent (or a flow) uses for an app in a
+ * project, in one env. Never changed: a change removes it and makes a new
+ * one at the next version.
+ */
+export type ConnectionChoiceRecord = ConnectionChoiceTarget & {
+  readonly choiceId: string;
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  /** The app's entry id (`google`): the connection's. */
+  readonly app: string;
+  readonly connectionId: string;
+  /** From 1, per project, env, agent or flow, and app. */
+  readonly version: number;
+  readonly createdAt: string;
+  readonly createdBy: string;
+  readonly removedAt?: string;
+  readonly removedBy?: string;
+};
+
+/** A company connection a choice in a project may name. */
+export interface ConnectionCandidateRecord {
+  readonly connectionId: string;
+  /** Its label, else its account's label. */
+  readonly name: string;
+  readonly app: string;
+  readonly accountLabel: string;
+  readonly state: ConnectionState;
+}
+
 /** The codes a `ConnectionBinding` refuses with. The routes answer them in the error body's `code`. */
 export type ConnectionErrorCode =
   | 'connection-app-not-found'
   | 'connection-not-found'
   | 'connection-request-not-found'
+  | 'connection-choice-not-found'
+  | 'agent-not-found'
+  | 'flow-not-found'
   | 'connection-app-invalid'
   | 'connection-app-unknown-entry'
   | 'connection-app-in-use'
@@ -277,6 +316,36 @@ export interface ConnectionListInput {
   readonly cursor?: Cursor;
 }
 
+export interface ConnectionChoiceListInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  readonly agentId?: string;
+  readonly flowId?: string;
+  readonly app?: string;
+  /** Removed choices too: a choice's history. */
+  readonly includeRemoved?: boolean;
+  readonly limit: number;
+  readonly cursor?: Cursor;
+}
+
+export type ConnectionChoiceSetInput = ConnectionChoiceTarget & {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  readonly connectionId: string;
+  readonly by: PrincipalRef;
+};
+
+export interface ConnectionCandidateListInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  readonly app?: string;
+  readonly limit: number;
+  readonly cursor?: Cursor;
+}
+
 export interface ConnectRequestCreateInput {
   readonly tenantId: TenantId;
   readonly envName: EnvName;
@@ -292,6 +361,12 @@ export interface ConnectRequestCreateInput {
    * with no hidden characters (`hasHiddenCharacters`).
    */
   readonly label?: string;
+  /**
+   * The connection to connect again: a live one of this connect's own
+   * owner, on the same registration and environment. The same account is
+   * required at the finish.
+   */
+  readonly reconnects?: string;
   readonly by: PrincipalRef;
 }
 
@@ -313,6 +388,18 @@ export type ConnectFinishOutcome =
       readonly kind: 'connected';
       readonly request: ConnectRequestRecord;
       readonly connection: ConnectionRecord;
+      /**
+       * It landed on a connection that was already there: the one
+       * `reconnects` named, or the company's of the same account. That
+       * connection keeps its name.
+       */
+      readonly reconnected?: boolean;
+      /**
+       * The name the new connection was to get (the one asked for, else the
+       * account's label made to fit), when another connection had it: it's
+       * named the first free `<name> 2`, `<name> 3`, and so on instead.
+       */
+      readonly labelTaken?: string;
     }
   /** The person declined, or granted less than asked (`request.missing`). */
   | { readonly kind: 'declined'; readonly request: ConnectRequestRecord }
@@ -394,9 +481,59 @@ export interface ConnectionBinding {
   }): Promise<Result<ConnectionRecord, ConnectionError>>;
 
   /**
+   * The project's live choices in the env, oldest first, and with
+   * `includeRemoved` the removed ones too. `agentId`, `flowId` and `app`
+   * narrow it. A choice of a removed connection stays listed until it's
+   * set again or removed.
+   */
+  listChoices(input: ConnectionChoiceListInput): Promise<ConnectionPage<ConnectionChoiceRecord>>;
+  /** A choice by id, a removed one too. */
+  getChoice(input: {
+    readonly tenantId: TenantId;
+    readonly choiceId: string;
+  }): Promise<ConnectionChoiceRecord | null>;
+  /**
+   * Chooses a company connection for the agent or flow, for the
+   * connection's app, in the project and env. The agent or flow must be
+   * one of the project's (`agent-not-found`, `flow-not-found`). The
+   * connection must be a candidate (`listCandidates`): a person's is
+   * `bad-input`, and anything else that isn't one is
+   * `connection-not-found`, the same answer as for an id that doesn't
+   * exist. One that needs reconnecting may be chosen. The connection
+   * already chosen answers the live choice as it
+   * is. Another removes the live choice and makes a new one at the next
+   * version, in one step.
+   */
+  setChoice(
+    input: ConnectionChoiceSetInput,
+  ): Promise<Result<ConnectionChoiceRecord, ConnectionError>>;
+  /**
+   * Removes a live choice; it's kept, with `removedAt` and `removedBy`.
+   * An unknown or removed one is `connection-choice-not-found`.
+   */
+  removeChoice(input: {
+    readonly tenantId: TenantId;
+    readonly choiceId: string;
+    readonly by: PrincipalRef;
+  }): Promise<Result<ConnectionChoiceRecord, ConnectionError>>;
+  /**
+   * The company connections a choice in the project may name: live
+   * (working, or needing a reconnect), in the env, on a live registration
+   * that allows the project. `app` narrows it.
+   */
+  listCandidates(
+    input: ConnectionCandidateListInput,
+  ): Promise<ConnectionPage<ConnectionCandidateRecord>>;
+
+  /**
    * A connect from outside a run (a Connect button, the CLI). A run's
-   * connects are the resolver's. A `label` another live connection of the
-   * same app, owner and env has, by `comparableName`, is
+   * connects are the resolver's. A person keeps one live connection per
+   * registration and env, and their connect reconnects it when there is
+   * one; the company keeps one per account, known only at the finish.
+   * `reconnects` naming anything but a live connection of the connect's own
+   * owner on that registration and env is `connection-not-found`, the same
+   * answer as for an id that doesn't exist. A `label` another live
+   * connection of the same app, owner and env has, by `comparableName`, is
    * `connection-label-taken`, unless the request reconnects: a reconnect
    * keeps the connection's label and doesn't check the one asked.
    */
@@ -439,18 +576,24 @@ export interface ConnectionBinding {
    * account, compares what was granted with what was asked, stores the
    * connection, then completes and resumes a run that waits.
    *
-   * A request that isn't a reconnect, whose key gained a live connection
-   * after it was made, finishes as a reconnect of that connection: the
-   * same account is required (`connection-account-mismatch`), and the
-   * permissions are both sets.
+   * A reconnect's connection is looked up again: while it's live, the same
+   * account is required (`connection-account-mismatch`); one removed since
+   * the request isn't reconnected, and the finish lands as a connect that
+   * names none would. A person's request that isn't a reconnect, whose
+   * key gained a live connection after it was made, finishes as a
+   * reconnect of that connection, the same account required too. The company's that isn't lands on the company's live
+   * connection of the account signed in to, when there is one, else makes
+   * a new one: one account never has two. A reconnect's permissions are
+   * both sets, and the outcome says `reconnected`.
    *
    * A new connection's `label` is the request's, else the account's label
    * made to fit in 100 characters by `fitName`: its hidden characters
    * removed, trimmed, and cut between the characters a person sees. When
    * another live connection of the same app, owner and env has it by then,
    * by `comparableName`, it's the first free `<label> 2`, `<label> 3`, and
-   * so on: the grant isn't wasted. A reconnect keeps the connection's label
-   * and ignores the request's.
+   * so on, and the outcome's `labelTaken` is the name it was to get: the
+   * grant isn't wasted. A reconnect keeps the connection's label and
+   * ignores the request's.
    *
    * A GitHub App's attaches an installation only if the person's GitHub
    * account reaches it: the one GitHub sent back, the one they picked, or

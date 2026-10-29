@@ -14453,10 +14453,16 @@ export const MailTriggerMailboxSchema: JsonSchema = {
   additionalProperties: false,
   required: ['app', 'as'],
   description:
-    "The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company's connection of that app; `person`: the trigger owner's own, through their connection).",
+    "The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company connection of that app `connectionId` names; `person`: the trigger owner's own, through their connection).",
   properties: {
     app: { type: 'string', enum: ['google', 'microsoft'] },
     as: { type: 'string', enum: ['company', 'person'] },
+    connectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The company connection it reads the mailbox with: only with `as: company`, since a person's mailbox is read with its owner's own connection. Named, it must be one of the project's candidates of the app (`GET /v1/connection-choices/candidates`); a person's own live connection of the app is `400 bad-input`, and any other `404 connection-not-found`. Not named, the project's only one is stored, so another connection added later doesn't change what the trigger reads; with several, it's `409 connection-not-chosen`, and with none, nothing is stored. Another `connectionId`, or one named where there was none, is another mailbox. The company's mailbox it reads now, sent again with none, is the same mailbox: it keeps the one it reads with, or stores the only one. Absent from a trigger that names none.",
+    },
   },
 };
 
@@ -14532,7 +14538,7 @@ export const MailTriggerRecordSchema: JsonSchema = {
     statusReason: {
       type: 'string',
       description:
-        "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
+        "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `connection-not-chosen` (it names no company connection and the project has several of the app, which the reason names; it doesn't poll until its `config.mailbox.connectionId` names one), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
     },
     version: {
       type: 'integer',
@@ -14582,7 +14588,7 @@ export const PatchMailTriggerBodyConfigSchema: JsonSchema = {
     folder: {
       ...MAIL_TRIGGER_CONFIG_PROPERTIES.folder,
       description:
-        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes; then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
+        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes (another app, `as` or `connectionId`); then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
     },
   },
 };
@@ -15399,6 +15405,122 @@ export const ConnectionPageSchema: JsonSchema = {
   },
 };
 
+export const ConnectionChoiceSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'choiceId',
+    'projectId',
+    'envName',
+    'app',
+    'connectionId',
+    'version',
+    'createdAt',
+    'createdBy',
+  ],
+  description:
+    'Which company connection an agent or a flow uses for an app in a project, in one env: `agentId` or `flowId`, one of them. A choice is never changed: changing it removes it and makes a new one at the next version.',
+  properties: {
+    choiceId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+    envName: { type: 'string' },
+    agentId: { type: 'string' },
+    flowId: { type: 'string' },
+    app: { type: 'string', description: "The app's entry id (`google`): the connection's." },
+    connectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The chosen connection. A choice of a connection that's since been disconnected stays until it's set again or removed.",
+    },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description: 'From 1, per project, env, agent or flow, and app.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+    removedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it was removed, or replaced by a new choice. Only a removed choice has it.',
+    },
+    removedBy: { type: 'string' },
+  },
+};
+
+export const ConnectionChoicePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionChoice' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const SetConnectionChoiceBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'connectionId'],
+  description: 'Name what the choice is for: `agentId` or `flowId`, one of them.',
+  properties: {
+    projectId: { type: 'string', format: 'uuid' },
+    agentId: { type: 'string', minLength: 1, description: "One of the project's agents." },
+    flowId: { type: 'string', minLength: 1, description: "One of the project's flows." },
+    connectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "One of the project's candidates (`GET /v1/connection-choices/candidates`). The choice is for its app.",
+    },
+  },
+};
+
+export const ConnectionChoiceDeleteResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['deleted'],
+  properties: {
+    deleted: { type: 'boolean' },
+  },
+};
+
+export const ConnectionCandidateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['connectionId', 'name'],
+  description:
+    "A company connection a choice in the project may name. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of it; a project member, only `connectionId` and `name`.",
+  properties: {
+    connectionId: { type: 'string', format: 'uuid' },
+    name: {
+      type: 'string',
+      description:
+        "Its label, else its account's label (a connection made before connections had names).",
+    },
+    app: { type: 'string', description: "The app's entry id." },
+    accountLabel: {
+      type: 'string',
+      description: "Its account's label: an email address, a login.",
+    },
+    state: { $ref: '#/components/schemas/ConnectionState' },
+  },
+};
+
+export const ConnectionCandidatePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionCandidate' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
 export const ConnectRequestSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -15514,6 +15636,12 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       description:
         "The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.",
     },
+    reconnects: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect reconnects their connection to the registration when they have one; the company's lands at the finish on its connection of the account signed in to, when there is one, else makes a new one.",
+    },
   },
 };
 
@@ -15603,6 +15731,16 @@ export const ConnectFinishSchema: JsonSchema = {
       $ref: '#/components/schemas/Connection',
       description: 'Present when `kind` is `connected`.',
     },
+    reconnected: {
+      type: 'boolean',
+      description:
+        "Present when `kind` is `connected`. `true`: the finish landed on a connection that was already there, the one `reconnects` named or the company's connection of the same account, and that connection keeps its name. `false`: it made a new one.",
+    },
+    labelTaken: {
+      type: 'string',
+      description:
+        "Present when `kind` is `connected` and the name the new connection was to get (the one asked for, else the account's label after the name rules) was already another connection's by the finish. The connection is then named the first free `<name> 2`, `<name> 3` and so on, which `connection.label` holds.",
+    },
     reviewerSeat: {
       type: 'boolean',
       description:
@@ -15666,13 +15804,18 @@ export const ApprovalConnectionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['app', 'appName', 'account'],
-  description: "The person's account the call would use.",
+  description:
+    "The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`).",
   properties: {
     app: { type: 'string', description: "The app's entry id." },
     appName: { type: 'string' },
     account: {
       type: 'string',
       description: "The account's label at the app: an email address, a login.",
+    },
+    name: {
+      type: 'string',
+      description: "The connection's name: its label, else the account's label.",
     },
   },
 };
@@ -16723,6 +16866,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['Connection', ConnectionSchema],
   ['UpdateConnectionBody', UpdateConnectionBodySchema],
   ['ConnectionPage', ConnectionPageSchema],
+  ['ConnectionChoice', ConnectionChoiceSchema],
+  ['ConnectionChoicePage', ConnectionChoicePageSchema],
+  ['SetConnectionChoiceBody', SetConnectionChoiceBodySchema],
+  ['ConnectionChoiceDeleteResult', ConnectionChoiceDeleteResultSchema],
+  ['ConnectionCandidate', ConnectionCandidateSchema],
+  ['ConnectionCandidatePage', ConnectionCandidatePageSchema],
   ['ConnectRequest', ConnectRequestSchema],
   ['CreateConnectRequestBody', CreateConnectRequestBodySchema],
   ['ConnectRequestInstallation', ConnectRequestInstallationSchema],

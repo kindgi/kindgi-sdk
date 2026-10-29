@@ -47,7 +47,14 @@ function approval(id: string, approver?: UserId, createdAt = '2026-10-22T08:00:0
     }),
   } as unknown as Approval;
 }
-const APPROVALS = [approval('appr-open'), approval('appr-owner', OWNER)];
+// The open one acts with a company connection: shown, and anyone of the rank decides it.
+const APPROVALS = [
+  {
+    ...approval('appr-open'),
+    connection: { app: 'acme', appName: 'Acme', account: 'support@acme.example', name: 'support' },
+  },
+  approval('appr-owner', OWNER),
+];
 /** Each approval's exact `createdAt`, as the binding gives it for a cursor. */
 const exactOf = (rows: readonly Approval[]) =>
   Object.fromEntries(
@@ -208,6 +215,23 @@ describe('one approval, and its audit bundle: its approver and the tenant admin'
     if (status === 404) expect(answer.json.error).toMatchObject({ code: 'approval-not-found' });
     // One addressed to no one reads as before.
     expect((await h.call(who, 'GET', '/v1/approvals/appr-open')).status).toBe(200);
+  });
+
+  test('one with a company connection shows it, named, addressed to no one', async () => {
+    const answer = await harness().call(OTHER, 'GET', '/v1/approvals/appr-open');
+    expect(answer.json).not.toHaveProperty('approver');
+    expect(answer.json.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      account: 'support@acme.example',
+      name: 'support',
+    });
+    const owners = await harness().call(OWNER, 'GET', '/v1/approvals/appr-owner');
+    expect(owners.json.connection).toEqual({
+      app: 'acme',
+      appName: 'Acme',
+      account: 'owner@acme.example',
+    });
   });
 
   test('its audit bundle: not found for another reviewer; past that check for its approver', async () => {

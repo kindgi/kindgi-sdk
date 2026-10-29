@@ -24,7 +24,22 @@ A connection has one owner, and the owner decides which runs can use it:
   it, scheduled runs included.
 
 The model never picks a connection or an account. Kindgi picks the
-connection from the run, before the call.
+connection from the run, before the call. A person's is the one connection
+of the person the run acts as. The company can have several of one app,
+such as `support@acme.example` and `sales@acme.example`, so a call that
+needs the company's takes, in this order:
+
+1. **The mailbox the run's mail came to,** for a run a company mail
+   trigger started, when the call is at the mailbox's app.
+2. **Else the agent's or flow's choice** for that app, which a project
+   admin makes.
+3. **Else the only company connection of that app** the project can use.
+
+With none, the call fails with `connection-missing`. With several and no
+choice, the run fails with `connection-not-chosen`, naming them. A mailbox
+or chosen connection that's gone, or can't serve the call, is refused,
+naming it: Kindgi never falls back to another one
+([Choose a connection](choose-a-connection/)).
 
 A schedule or a webhook runs as its owner. A personal one uses its owner's
 connections, and only they or a project admin can change it. A shared one
@@ -118,6 +133,8 @@ npx --yes @kindgi/cli@0.2 connections connect google --permissions=gmail.send
   a profile to post as.
 - [Use a connection in a tool](use-a-connection/): declare what a tool
   needs, and read the token in its handler.
+- [Choose a connection](choose-a-connection/): name connections, and say
+  which of the company's an agent or a flow uses.
 - [Add an app](add-an-app/): what an app's entry describes, for an app
   Kindgi doesn't have yet.
 - [How connections work](reference/): a connection's states, renewal, what

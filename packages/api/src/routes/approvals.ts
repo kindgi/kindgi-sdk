@@ -989,9 +989,14 @@ function serializeApproval(a: Approval): Record<string, unknown> {
   };
 }
 
-/** The person's account the call would use, field by field. */
+/** The connection the call would use, field by field. */
 function approvalConnection(connection: ApprovalConnection): Record<string, unknown> {
-  return { app: connection.app, appName: connection.appName, account: connection.account };
+  return {
+    app: connection.app,
+    appName: connection.appName,
+    account: connection.account,
+    ...(connection.name !== undefined && { name: connection.name }),
+  };
 }
 
 function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unknown> {

@@ -11011,7 +11011,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.register',
     summary: 'Register a mail trigger',
     description:
-      "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+      "Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11020,10 +11020,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Mail trigger registered.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `mailbox`, `folder`, `pollSeconds` and `runsPerHour`, a service account named or calling or `runAsProject` for a person's mailbox, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
+        "A body that fails validation (`bad-input`): no target or two, a `config` with anything but `mailbox`, `folder`, `pollSeconds` and `runsPerHour`, a service account named or calling or `runAsProject` for a person's mailbox, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or `runAsProject` with `runAsServiceAccountId` or with no project. Or `reference-out-of-scope`: what it runs isn't the project's to reach (`details.issues`, at `/target`), and nothing is registered.",
       ),
       '409': ErrorResponse(
-        "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+        "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the trigger runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the trigger runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or the company's mailbox names no connection and the project has several company connections of the app (`connection-not-chosen`: `details.choices` lists them, `{connectionId, name}` sorted by name, and `details.field` is `config.mailbox.connectionId`). Or the Idempotency-Key was reused with a different body, or a resource-state conflict.",
+      ),
+      '404': ErrorResponse(
+        "`config.mailbox.connectionId` isn't one of the project's company connections of the app, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
       ),
       '501': ErrorResponse(
         "`trigger-operation-unsupported`: `runAsProject` on a runtime that can't make a project's own account.",
@@ -11079,7 +11082,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.update',
     summary: 'Update a mail trigger',
     description:
-      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
+      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. The company's mailbox it reads now, sent again with no `connectionId`, is the same mailbox: it keeps the one it reads with, or stores the only one. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -11088,11 +11091,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Updated mail trigger.', schema: ref('MailTriggerRecord') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST …/owner`), a person's mailbox for a shared trigger, or a new target or mailbox without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
+        "A body that fails validation (`bad-input`): `runAsServiceAccountId` or `runAsProject` (the owner changes only by `POST …/owner`), a person's mailbox for a shared trigger, a `connectionId` for a person's mailbox or naming a person's own live connection of the app, or a new target or mailbox without the list it holds. Or `reference-out-of-scope`: the new target isn't the project's to reach. Nothing changes.",
       ),
-      '404': ErrorResponse('No mail trigger with that id.'),
+      '404': ErrorResponse(
+        "No mail trigger with that id. Or the new mailbox's `connectionId` isn't one of the project's company connections of the app (`connection-not-found`, `details.field` `config.mailbox.connectionId`).",
+      ),
       '409': ErrorResponse(
-        "A new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
+        "A new target the trigger's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or a new company mailbox names no connection and the project has several of the app (`connection-not-chosen`, with `details.choices` and `details.field` as at registration). Or an Idempotency-Key reused with a different body.",
       ),
     },
   },
@@ -11737,7 +11742,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.connect',
     summary: 'Start a connect',
     description:
-      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
+      "Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A person keeps one connection per registration and environment, and their connect reconnects it when they have one. The company keeps one per account: its connect lands on the company's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11746,12 +11751,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Connect request made.', schema: ref('ConnectRequest') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+        "Malformed body, unknown field, a `reconnects` that isn't a UUID or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
       ),
       '403': ErrorResponse(
         "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
       ),
-      '404': ErrorResponse('No registration with that `appId` (`connection-app-not-found`).'),
+      '404': ErrorResponse(
+        "No registration with that `appId` (`connection-app-not-found`); or `reconnects` names no live connection of the connect's own owner on that registration and environment, whether another owner's, another registration's or environment's, removed or unknown (`connection-not-found`, `details.field` `reconnects`).",
+      ),
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
       ),
@@ -11764,7 +11771,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.finish',
     summary: 'Finish a connect',
     description:
-      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).",
+      "Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).",
     tags: ['connections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -11847,7 +11854,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connections.get',
     summary: 'Fetch a connection',
     description:
-      "A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.",
+      "A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [ConnectionIdPathParam],
@@ -11910,6 +11917,161 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '503': ErrorResponse(
         "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-choices',
+    openapiPath: '/v1/connection-choices',
+    operationId: 'connectionChoices.list',
+    summary: 'List connection choices',
+    description:
+      "The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'agentId',
+        in: 'query',
+        required: false,
+        description: "Only this agent's.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'flowId',
+        in: 'query',
+        required: false,
+        description: "Only this flow's.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'app',
+        in: 'query',
+        required: false,
+        description: "Only this app's (its entry id).",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'includeRemoved',
+        in: 'query',
+        required: false,
+        description: '`true` lists removed choices too.',
+        schema: { type: 'boolean', default: false },
+      },
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of choices.', schema: ref('ConnectionChoicePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; both `agentId` and `flowId`; or an `includeRemoved` other than `true` or `false` (`bad-input`).',
+      ),
+      '403': ErrorResponse('Not a member of the project (`permission-denied`).'),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/connection-choices',
+    openapiPath: '/v1/connection-choices',
+    operationId: 'connectionChoices.set',
+    summary: 'Choose a connection',
+    description:
+      "Chooses which company connection an agent or a flow uses, in the project and this server's environment, for the connection's app. The project's admins only (`admin` on the project). The connection must be one of the project's candidates (`GET /v1/connection-choices/candidates`). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('SetConnectionChoiceBody') },
+    responses: {
+      '200': { description: 'The choice.', schema: ref('ConnectionChoice') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A malformed body or unknown field; a `projectId` or `connectionId` that is not a UUID; both `agentId` and `flowId`, or neither; or a person's own live connection in this environment, which is used for them (`bad-input`, `details.field`).",
+      ),
+      '403': ErrorResponse('Not an admin of the project (`permission-denied`).'),
+      '404': ErrorResponse(
+        "No such project (`project-not-found`); the agent or flow isn't one of the project's (`agent-not-found`, `flow-not-found`); or the connection isn't one of the project's candidates, the same answer as for one that doesn't exist (`connection-not-found`, `details.field` `connectionId`).",
+      ),
+      '503': ErrorResponse(
+        "The choice couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/connection-choices/:choiceId',
+    openapiPath: '/v1/connection-choices/{choiceId}',
+    operationId: 'connectionChoices.remove',
+    summary: 'Remove a connection choice',
+    description:
+      "Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'choiceId',
+        in: 'path',
+        required: true,
+        description: 'The choice id (a UUID).',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Delete outcome.', schema: ref('ConnectionChoiceDeleteResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`choiceId` is not a UUID (`bad-input`).'),
+      '403': ErrorResponse("Reads its project, but isn't an admin of it (`permission-denied`)."),
+      '404': ErrorResponse(
+        "No live choice with that id in this environment: unknown, already removed, or in a project the caller can't read (`connection-choice-not-found`).",
+      ),
+      '503': ErrorResponse(
+        "The removal couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/connection-choices/candidates',
+    openapiPath: '/v1/connection-choices/candidates',
+    operationId: 'connectionChoices.candidates',
+    summary: 'List connection candidates',
+    description:
+      "The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).",
+    tags: ['connections'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'app',
+        in: 'query',
+        required: false,
+        description: "Only this app's (its entry id).",
+        schema: { type: 'string' },
+      },
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of candidates.', schema: ref('ConnectionCandidatePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'No `projectId`, or one that is not a UUID; or an `app` that is not an entry id (`bad-input`).',
+      ),
+      '403': ErrorResponse('Not a member of the project (`permission-denied`).'),
     },
   },
   {

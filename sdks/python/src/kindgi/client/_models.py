@@ -10400,7 +10400,7 @@ class WebhookTriggerUnregisterResult(BaseModel):
 
 class MailTriggerMailbox(BaseModel):
     """
-    The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company's connection of that app; `person`: the trigger owner's own, through their connection).
+    The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company connection of that app `connectionId` names; `person`: the trigger owner's own, through their connection).
     """
 
     model_config = ConfigDict(
@@ -10409,6 +10409,10 @@ class MailTriggerMailbox(BaseModel):
     )
     app: Annotated[Literal["google", "microsoft"] | str, _open.OPEN]
     as_: Annotated[Annotated[Literal["company", "person"] | str, _open.OPEN], Field(alias="as")]
+    connection_id: Annotated[UUID | None, Field(alias="connectionId")] = None
+    """
+    The company connection it reads the mailbox with: only with `as: company`, since a person's mailbox is read with its owner's own connection. Named, it must be one of the project's candidates of the app (`GET /v1/connection-choices/candidates`); a person's own live connection of the app is `400 bad-input`, and any other `404 connection-not-found`. Not named, the project's only one is stored, so another connection added later doesn't change what the trigger reads; with several, it's `409 connection-not-chosen`, and with none, nothing is stored. Another `connectionId`, or one named where there was none, is another mailbox. The company's mailbox it reads now, sent again with none, is the same mailbox: it keeps the one it reads with, or stores the only one. Absent from a trigger that names none.
+    """
 
 
 class Account(BaseModel):
@@ -10472,7 +10476,7 @@ class MailTriggerRecord(BaseModel):
     """
     status_reason: Annotated[str | None, Field(alias="statusReason")] = None
     """
-    Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.
+    Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `connection-not-chosen` (it names no company connection and the project has several of the app, which the reason names; it doesn't poll until its `config.mailbox.connectionId` names one), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.
     """
     version: Annotated[int | None, Field(ge=1)] = None
     """
@@ -10534,7 +10538,7 @@ class PatchMailTriggerBodyConfig(BaseModel):
     mailbox: MailTriggerMailbox | None = None
     folder: Annotated[str | None, Field(max_length=512, min_length=1)] = None
     """
-    The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes; then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.
+    The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes (another app, `as` or `connectionId`); then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.
     """
     poll_seconds: Annotated[int | None, Field(alias="pollSeconds", ge=30, le=3600)] = None
     """
@@ -11201,6 +11205,124 @@ class ConnectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class ConnectionChoice(BaseModel):
+    """
+    Which company connection an agent or a flow uses for an app in a project, in one env: `agentId` or `flowId`, one of them. A choice is never changed: changing it removes it and makes a new one at the next version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    choice_id: Annotated[UUID, Field(alias="choiceId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    app: str
+    """
+    The app's entry id (`google`): the connection's.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The chosen connection. A choice of a connection that's since been disconnected stays until it's set again or removed.
+    """
+    version: Annotated[int, Field(ge=1)]
+    """
+    From 1, per project, env, agent or flow, and app.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
+    """
+    When it was removed, or replaced by a new choice. Only a removed choice has it.
+    """
+    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
+
+
+class ConnectionChoicePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionChoice]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class SetConnectionChoiceBody(BaseModel):
+    """
+    Name what the choice is for: `agentId` or `flowId`, one of them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    One of the project's agents.
+    """
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    One of the project's flows.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    One of the project's candidates (`GET /v1/connection-choices/candidates`). The choice is for its app.
+    """
+
+
+class ConnectionChoiceDeleteResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    deleted: bool
+
+
+class ConnectionCandidate(BaseModel):
+    """
+    A company connection a choice in the project may name. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of it; a project member, only `connectionId` and `name`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    name: str
+    """
+    Its label, else its account's label (a connection made before connections had names).
+    """
+    app: str | None = None
+    """
+    The app's entry id.
+    """
+    account_label: Annotated[str | None, Field(alias="accountLabel")] = None
+    """
+    Its account's label: an email address, a login.
+    """
+    state: (
+        Annotated[Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN]
+        | None
+    ) = None
+    """
+    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
+    """
+
+
+class ConnectionCandidatePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionCandidate]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class CreateConnectRequestBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -11229,6 +11351,10 @@ class CreateConnectRequestBody(BaseModel):
     label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
     """
     The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.
+    """
+    reconnects: UUID | None = None
+    """
+    The connection to connect again: a live one of this connect's own owner (the caller's for `for: 'me'`, the company's for `for: 'company'`), on the same registration and environment. Any other id is `404 connection-not-found`, the same answer as for one that doesn't exist. The same account is required at the finish, and the connection keeps its name. Absent: a person's connect reconnects their connection to the registration when they have one; the company's lands at the finish on its connection of the account signed in to, when there is one, else makes a new one.
     """
 
 
@@ -11353,7 +11479,7 @@ class ApprovalApprover(BaseModel):
 
 class ApprovalConnection(BaseModel):
     """
-    The person's account the call would use.
+    The connection the call would use: the person's own, or else the company's connection the call was gated on, which it then runs with or doesn't run (`connection-changed`).
     """
 
     model_config = ConfigDict(
@@ -11368,6 +11494,10 @@ class ApprovalConnection(BaseModel):
     account: str
     """
     The account's label at the app: an email address, a login.
+    """
+    name: str | None = None
+    """
+    The connection's name: its label, else the account's label.
     """
 
 
@@ -16776,6 +16906,14 @@ class ConnectFinish(BaseModel):
     connection: Connection | None = None
     """
     Present when `kind` is `connected`.
+    """
+    reconnected: bool | None = None
+    """
+    Present when `kind` is `connected`. `true`: the finish landed on a connection that was already there, the one `reconnects` named or the company's connection of the same account, and that connection keeps its name. `false`: it made a new one.
+    """
+    label_taken: Annotated[str | None, Field(alias="labelTaken")] = None
+    """
+    Present when `kind` is `connected` and the name the new connection was to get (the one asked for, else the account's label after the name rules) was already another connection's by the finish. The connection is then named the first free `<name> 2`, `<name> 3` and so on, which `connection.label` holds.
     """
     reviewer_seat: Annotated[bool | None, Field(alias="reviewerSeat")] = None
     """

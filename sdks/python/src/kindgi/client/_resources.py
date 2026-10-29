@@ -1255,6 +1255,18 @@ OPERATIONS: dict[str, Operation] = {
     "connections.disconnect": Operation(
         "connections.disconnect", "DELETE", "/v1/connections/{connectionId}", "json", True
     ),
+    "connectionChoices.list": Operation(
+        "connectionChoices.list", "GET", "/v1/connection-choices", "json", False
+    ),
+    "connectionChoices.set": Operation(
+        "connectionChoices.set", "PUT", "/v1/connection-choices", "json", True
+    ),
+    "connectionChoices.remove": Operation(
+        "connectionChoices.remove", "DELETE", "/v1/connection-choices/{choiceId}", "json", True
+    ),
+    "connectionChoices.candidates": Operation(
+        "connectionChoices.candidates", "GET", "/v1/connection-choices/candidates", "json", False
+    ),
     "projects.sites.list": Operation(
         "projects.sites.list", "GET", "/v1/projects/{projectId}/sites", "json", False
     ),
@@ -10383,7 +10395,7 @@ class MailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Register a mail trigger. `POST /v1/mail-triggers`
 
-        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.register"],
@@ -10420,7 +10432,7 @@ class MailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
 
-        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. The company's mailbox it reads now, sent again with no `connectionId`, is the same mailbox: it keeps the one it reads with, or stores the only one. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.update"],
@@ -10994,7 +11006,7 @@ class ConnectionsResource:
     ) -> _models.ConnectRequest:
         """Start a connect. `POST /v1/connections`
 
-        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A person keeps one connection per registration and environment, and their connect reconnects it when they have one. The company keeps one per account: its connect lands on the company's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
         """
         return self._client._request(
             _OPERATIONS["connections.connect"],
@@ -11017,7 +11029,7 @@ class ConnectionsResource:
     ) -> _models.ConnectFinish:
         """Finish a connect. `POST /v1/connections/finish`
 
-        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
         """
         return self._client._request(
             _OPERATIONS["connections.finish"],
@@ -11034,7 +11046,7 @@ class ConnectionsResource:
     ) -> _models.Connection:
         """Fetch a connection. `GET /v1/connections/{connectionId}`
 
-        A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.
+        A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.
         """
         return self._client._request(
             _OPERATIONS["connections.get"],
@@ -11087,6 +11099,114 @@ class ConnectionsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.Connection,
+            timeout=timeout,
+        )
+
+
+class ConnectionChoicesResource:
+    """`client.connection_choices` — the `connectionChoices` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        app: str | None = None,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoicePage:
+        """List connection choices. `GET /v1/connection-choices`
+
+        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionChoices.list"],
+            path={},
+            query={
+                "projectId": project_id,
+                "agentId": agent_id,
+                "flowId": flow_id,
+                "app": app,
+                "includeRemoved": include_removed,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.ConnectionChoicePage,
+            timeout=timeout,
+        )
+
+    def set(
+        self,
+        body: _models.SetConnectionChoiceBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionChoice:
+        """Choose a connection. `PUT /v1/connection-choices`
+
+        Chooses which company connection an agent or a flow uses, in the project and this server's environment, for the connection's app. The project's admins only (`admin` on the project). The connection must be one of the project's candidates (`GET /v1/connection-choices/candidates`). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionChoices.set"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetConnectionChoiceBody, body, fields),
+            response=_models.ConnectionChoice,
+            timeout=timeout,
+        )
+
+    def remove(
+        self,
+        choice_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoiceDeleteResult:
+        """Remove a connection choice. `DELETE /v1/connection-choices/{choiceId}`
+
+        Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).
+        """
+        return self._client._request(
+            _OPERATIONS["connectionChoices.remove"],
+            path={"choiceId": choice_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ConnectionChoiceDeleteResult,
+            timeout=timeout,
+        )
+
+    def candidates(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        app: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionCandidatePage:
+        """List connection candidates. `GET /v1/connection-choices/candidates`
+
+        The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
+        """
+        return self._client._request(
+            _OPERATIONS["connectionChoices.candidates"],
+            path={},
+            query={"projectId": project_id, "app": app, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionCandidatePage,
             timeout=timeout,
         )
 
@@ -20170,7 +20290,7 @@ class AsyncMailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Register a mail trigger. `POST /v1/mail-triggers`
 
-        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through a company connection of the app and needs `admin` on the project: `config.mailbox.connectionId` names one of the project's candidates (`GET /v1/connection-choices/candidates`), and with none named the project's only one is stored, several are `409 connection-not-chosen`, and none stores nothing; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's Default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.register"],
@@ -20207,7 +20327,7 @@ class AsyncMailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
 
-        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. The company's mailbox it reads now, sent again with no `connectionId`, is the same mailbox: it keeps the one it reads with, or stores the only one. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.update"],
@@ -20785,7 +20905,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectRequest:
         """Start a connect. `POST /v1/connections`
 
-        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
+        Makes a connect request for the caller's own account (`for: 'me'`, the default; signed in as a person) or the company's (`for: 'company'`; a tenant admin only). Send the person to the request's `connectUrl`, or call `POST /v1/connections/requests/{requestId}/start` for the app's consent page. A person keeps one connection per registration and environment, and their connect reconnects it when they have one. The company keeps one per account: its connect lands on the company's connection of the account signed in to, which is known only at the finish, or makes a new one. To connect a given connection again, name it in `reconnects`; the same account is required at the finish. A run that needs a connection it lacks makes its own request and waits for it (`waitingFor.connections` on the run).
         """
         return await self._client._request(
             _OPERATIONS["connections.connect"],
@@ -20808,7 +20928,7 @@ class AsyncConnectionsResource:
     ) -> _models.ConnectFinish:
         """Finish a connect. `POST /v1/connections/finish`
 
-        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
+        Takes what the app sent back to the callback page (`state` and `code`, with `installationId` and `setupAction` from a GitHub App; or `error`). Only whoever started the request may finish it. Exchanges the code, learns the account, compares what was granted with what was asked and stores the connection; a run that waits goes on. A company connect that doesn't name `reconnects` lands on the company's connection of the account signed in to, when there is one, so one account never has two. `reconnected` says whether it landed on a connection that was already there, which keeps its name. A new connection whose name another connection took meanwhile is named the first free `<name> 2`, `<name> 3` and so on, and `labelTaken` gives the name it was to get. A person who declined, or who granted less than asked, gets `kind: 'declined'` and the request's `missing` permissions. A GitHub App's attaches an installation only if the person's GitHub account reaches it: the one GitHub sent back, the one they picked at the start, or the only one they reach. When they reach several and picked none, it answers `kind: 'pick-installation'`: the request stays `pending` with its `installations` to pick from (start it again with `installationId`, or `newInstallation`).
         """
         return await self._client._request(
             _OPERATIONS["connections.finish"],
@@ -20825,7 +20945,7 @@ class AsyncConnectionsResource:
     ) -> _models.Connection:
         """Fetch a connection. `GET /v1/connections/{connectionId}`
 
-        A member's connection is its owner's or a tenant admin's. Anyone else gets the `404` of a connection that doesn't exist.
+        A member's connection is its owner's or a tenant admin's; the company's is a tenant admin's alone. Anyone else gets the `404` of a connection that doesn't exist.
         """
         return await self._client._request(
             _OPERATIONS["connections.get"],
@@ -20878,6 +20998,114 @@ class AsyncConnectionsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.Connection,
+            timeout=timeout,
+        )
+
+
+class AsyncConnectionChoicesResource:
+    """`client.connection_choices` — the `connectionChoices` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        app: str | None = None,
+        include_removed: bool | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoicePage:
+        """List connection choices. `GET /v1/connection-choices`
+
+        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionChoices.list"],
+            path={},
+            query={
+                "projectId": project_id,
+                "agentId": agent_id,
+                "flowId": flow_id,
+                "app": app,
+                "includeRemoved": include_removed,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.ConnectionChoicePage,
+            timeout=timeout,
+        )
+
+    async def set(
+        self,
+        body: _models.SetConnectionChoiceBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionChoice:
+        """Choose a connection. `PUT /v1/connection-choices`
+
+        Chooses which company connection an agent or a flow uses, in the project and this server's environment, for the connection's app. The project's admins only (`admin` on the project). The connection must be one of the project's candidates (`GET /v1/connection-choices/candidates`). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionChoices.set"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetConnectionChoiceBody, body, fields),
+            response=_models.ConnectionChoice,
+            timeout=timeout,
+        )
+
+    async def remove(
+        self,
+        choice_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoiceDeleteResult:
+        """Remove a connection choice. `DELETE /v1/connection-choices/{choiceId}`
+
+        Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionChoices.remove"],
+            path={"choiceId": choice_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ConnectionChoiceDeleteResult,
+            timeout=timeout,
+        )
+
+    async def candidates(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        app: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionCandidatePage:
+        """List connection candidates. `GET /v1/connection-choices/candidates`
+
+        The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionChoices.candidates"],
+            path={},
+            query={"projectId": project_id, "app": app, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionCandidatePage,
             timeout=timeout,
         )
 
@@ -20943,6 +21171,7 @@ class Resources:
     connection_entries: ConnectionEntriesResource
     connection_apps: ConnectionAppsResource
     connections: ConnectionsResource
+    connection_choices: ConnectionChoicesResource
 
     def __init__(self) -> None:
         client = cast(SyncClientBase, self)
@@ -21004,6 +21233,7 @@ class Resources:
         self.connection_entries = ConnectionEntriesResource(client)
         self.connection_apps = ConnectionAppsResource(client)
         self.connections = ConnectionsResource(client)
+        self.connection_choices = ConnectionChoicesResource(client)
 
 
 class AsyncResources:
@@ -21067,6 +21297,7 @@ class AsyncResources:
     connection_entries: AsyncConnectionEntriesResource
     connection_apps: AsyncConnectionAppsResource
     connections: AsyncConnectionsResource
+    connection_choices: AsyncConnectionChoicesResource
 
     def __init__(self) -> None:
         client = cast(AsyncClientBase, self)
@@ -21128,3 +21359,4 @@ class AsyncResources:
         self.connection_entries = AsyncConnectionEntriesResource(client)
         self.connection_apps = AsyncConnectionAppsResource(client)
         self.connections = AsyncConnectionsResource(client)
+        self.connection_choices = AsyncConnectionChoicesResource(client)

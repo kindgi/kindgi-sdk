@@ -7,6 +7,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { KindgiApiError, fromWire } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runCli } from '../src/main.js';
@@ -68,10 +69,16 @@ const VERSIONS = {
   nextCursor: 'c-2',
 };
 
+type Record_ = (name: string, result: unknown) => (...args: unknown[]) => Promise<unknown>;
+
+/**
+ * `kindgi mail-triggers …` against a recording client; `more` adds to it or
+ * replaces some of `mailTriggers`'s methods.
+ */
 async function mailTriggers(
   argv: readonly string[],
   taken: Record<string, unknown> = TRIGGER,
-  listed: readonly Record<string, unknown>[] = [TRIGGER],
+  more: (record: Record_) => Record<string, Record<string, unknown>> = () => ({}),
 ) {
   const calls: unknown[][] = [];
   const record =
@@ -85,10 +92,12 @@ async function mailTriggers(
     env: {},
     cwd,
     home,
-    clientFactory: () =>
-      ({
+    clientFactory: () => {
+      const extra = more(record);
+      return {
+        ...extra,
         mailTriggers: {
-          list: record('list', { data: listed, hasMore: false }),
+          list: record('list', { data: [TRIGGER], hasMore: false }),
           get: record('get', TRIGGER),
           getVersion: record('getVersion', VERSIONS.data[0]),
           versions: record('versions', VERSIONS),
@@ -99,8 +108,10 @@ async function mailTriggers(
           unregister: record('unregister', { triggerId: ID, unregistered: true }),
           fires: record('fires', { data: [FIRE], hasMore: false }),
           takeOwnership: record('takeOwnership', taken),
+          ...extra.mailTriggers,
         },
-      }) as never,
+      } as never;
+    },
   });
   return { out, calls };
 }
@@ -373,9 +384,11 @@ describe('kindgi mail-triggers', () => {
   });
 
   test("list --table: the VERSION column is the trigger's current version, empty before its first", async () => {
-    const versioned = await mailTriggers(['list', '--table'], TRIGGER, [
-      { ...TRIGGER, version: 3 },
-    ]);
+    const versioned = await mailTriggers(['list', '--table'], TRIGGER, (record) => ({
+      mailTriggers: {
+        list: record('list', { data: [{ ...TRIGGER, version: 3 }], hasMore: false }),
+      },
+    }));
     expect(versioned.out.exitCode, versioned.out.stderr).toBe(0);
     expect(versioned.out.stdout).toMatch(/^ID\s+VERSION\s+RUNS/);
     expect(versioned.out.stdout).toMatch(new RegExp(`${ID}\\s+3\\s+agent acme\\.support`));
@@ -386,5 +399,259 @@ describe('kindgi mail-triggers', () => {
   test('help lists versions', async () => {
     const { out } = await mailTriggers(['--help']);
     expect(out.stdout).toMatch(/^ {2}versions /m);
+  });
+});
+
+describe('kindgi mail-triggers --connection', () => {
+  const SUPPORT_ID = '5e6f7a88-5555-4e7f-8a81-000000000005';
+  const SALES_ID = '3f1a9b77-3333-4c5d-8e6f-000000000003';
+  const CANDIDATES = [
+    { connectionId: SUPPORT_ID, name: 'support', app: 'google', accountLabel: 'help@acme.example' },
+    { connectionId: SALES_ID, name: 'sales', app: 'google', accountLabel: 'sales@acme.example' },
+  ];
+  /** The project's company connections, and its Default project's id. */
+  const lookups = (record: Record_) => ({
+    projects: { getDefault: record('getDefault', { id: 'p-default' }) },
+    connectionChoices: {
+      candidates: record('candidates', { data: CANDIDATES, hasMore: false }),
+    },
+  });
+  const company = ['--agent=acme.support', '--mailbox=google', '--as=company'];
+  const atSupport = { app: 'google', as: 'company', connectionId: SUPPORT_ID };
+
+  test("create: a name is one of the project's company connections at the mailbox's app", async () => {
+    const named = await mailTriggers(
+      ['create', ...company, '--project=p-1', '--connection=Support'],
+      TRIGGER,
+      lookups,
+    );
+    expect(named.out.exitCode, named.out.stderr).toBe(0);
+    expect(named.calls).toEqual([
+      ['candidates', { projectId: 'p-1', app: 'google' }],
+      ['register', { agentId: 'acme.support', config: { mailbox: atSupport }, projectId: 'p-1' }],
+    ]);
+
+    // Left out, the project is the tenant's Default project, as the server reads it.
+    const byDefault = await mailTriggers(
+      ['create', ...company, '--connection=support'],
+      TRIGGER,
+      lookups,
+    );
+    expect(byDefault.out.exitCode, byDefault.out.stderr).toBe(0);
+    expect(byDefault.calls).toEqual([
+      ['getDefault'],
+      ['candidates', { projectId: 'p-default', app: 'google' }],
+      ['register', { agentId: 'acme.support', config: { mailbox: atSupport } }],
+    ]);
+
+    const byId = await mailTriggers(
+      ['create', ...company, `--connection=${SUPPORT_ID}`],
+      TRIGGER,
+      lookups,
+    );
+    expect(byId.calls).toEqual([
+      ['register', { agentId: 'acme.support', config: { mailbox: atSupport } }],
+    ]);
+  });
+
+  test("update: a name is looked up in the trigger's own project", async () => {
+    const { out, calls } = await mailTriggers(
+      ['update', ID, '--mailbox=google', '--as=company', '--connection=support'],
+      TRIGGER,
+      lookups,
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['get', ID],
+      ['candidates', { projectId: 'p-1', app: 'google' }],
+      ['update', ID, { config: { mailbox: atSupport } }],
+    ]);
+  });
+
+  test("a name the project's connections don't have, or have twice, is refused before the create", async () => {
+    const none = await mailTriggers(
+      ['create', ...company, '--project=p-1', '--connection=billing'],
+      TRIGGER,
+      lookups,
+    );
+    expect(none.out.exitCode).toBe(2);
+    expect(none.out.stderr).toContain(
+      `No connection at google is named "billing". This project's company connections: support, sales.`,
+    );
+    expect(none.calls.map(([name]) => name)).toEqual(['candidates']);
+
+    const twice = await mailTriggers(
+      ['create', ...company, '--project=p-1', '--connection=support'],
+      TRIGGER,
+      (record) => ({
+        connectionChoices: {
+          candidates: record('candidates', {
+            data: [...CANDIDATES, { ...CANDIDATES[1], name: 'support' }],
+            hasMore: false,
+          }),
+        },
+      }),
+    );
+    expect(twice.out.exitCode).toBe(2);
+    expect(twice.out.stderr).toContain('"support" names 2 connections:');
+    expect(twice.out.stderr).toContain('Pass the connection id instead.');
+    expect(twice.calls.map(([name]) => name)).toEqual(['candidates']);
+  });
+
+  test("a person's mailbox is refused before any call, in the wire's words", async () => {
+    for (const argv of [
+      ['create', '--agent=acme.support', '--mailbox=google', '--connection=support'],
+      ['create', '--agent=acme.support', '--mailbox=google', '--as=person', '--connection=support'],
+      ['update', ID, '--mailbox=google', '--as=person', '--connection=support'],
+    ]) {
+      const { out, calls } = await mailTriggers(argv, TRIGGER, lookups);
+      expect(out.exitCode, argv.join(' ')).toBe(2);
+      expect(out.stderr).toContain(
+        "A person's mailbox is read with its owner's own connection; --connection is for the company's (--as=company)",
+      );
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test('update: --connection goes with --mailbox and --as, since the mailbox is replaced whole', async () => {
+    const { out, calls } = await mailTriggers(
+      ['update', ID, '--connection=support'],
+      TRIGGER,
+      lookups,
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('--connection goes with --mailbox and --as on update');
+    expect(calls).toEqual([]);
+  });
+
+  /** The server's 409 when the project has several company connections at the app and none is named. */
+  const notChosen = (choices: readonly { connectionId: string; name: string }[]) => async () => {
+    throw new KindgiApiError(
+      fromWire(
+        {
+          code: 'connection-not-chosen',
+          message: 'The project has several company connections at google; name one',
+          details: { field: 'config.mailbox.connectionId', choices },
+        },
+        409,
+      ),
+    );
+  };
+
+  test('a connection-not-chosen names the choices and the command again with each', async () => {
+    const create = await mailTriggers(
+      ['create', ...company, '--label=support inbox'],
+      TRIGGER,
+      (record) => ({
+        ...lookups(record),
+        mailTriggers: {
+          register: notChosen([
+            { connectionId: SUPPORT_ID, name: 'support' },
+            { connectionId: SALES_ID, name: 'sales' },
+          ]),
+        },
+      }),
+    );
+    expect(create.out.exitCode).toBe(1);
+    expect(create.out.stderr).toContain(
+      'The project has several company connections at google; name one\n' +
+        'Its company connections there: support, sales. Name one:\n' +
+        "  kindgi mail-triggers create --agent=acme.support --mailbox=google --as=company --label='support inbox' --connection=support\n" +
+        "  kindgi mail-triggers create --agent=acme.support --mailbox=google --as=company --label='support inbox' --connection=sales\n",
+    );
+
+    // On update, a name two share is given by id.
+    const update = await mailTriggers(
+      ['update', ID, '--mailbox=google', '--as=company'],
+      TRIGGER,
+      (record) => ({
+        ...lookups(record),
+        mailTriggers: {
+          update: notChosen([
+            { connectionId: SUPPORT_ID, name: 'support' },
+            { connectionId: SALES_ID, name: 'support' },
+          ]),
+        },
+      }),
+    );
+    expect(update.out.exitCode).toBe(1);
+    expect(update.out.stderr).toContain(
+      [
+        'Its company connections there: support, support. Name one:',
+        `  kindgi mail-triggers update ${ID} --mailbox=google --as=company --connection=${SUPPORT_ID}`,
+        `  kindgi mail-triggers update ${ID} --mailbox=google --as=company --connection=${SALES_ID}`,
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('a connection-not-found names --connection, when it was given', async () => {
+    const gone = (record: Record_) => ({
+      ...lookups(record),
+      mailTriggers: {
+        register: async () => {
+          throw new KindgiApiError(
+            fromWire(
+              {
+                code: 'connection-not-found',
+                message: 'No such company connection in the project',
+                details: { field: 'config.mailbox.connectionId' },
+              },
+              404,
+            ),
+          );
+        },
+      },
+    });
+    const named = await mailTriggers(
+      ['create', ...company, `--connection=${SUPPORT_ID}`],
+      TRIGGER,
+      gone,
+    );
+    expect(named.out.exitCode).toBe(1);
+    expect(named.out.stderr).toBe(
+      'Error [not-found]: --connection: No such company connection in the project\n',
+    );
+    const unnamed = await mailTriggers(['create', ...company], TRIGGER, gone);
+    expect(unnamed.out.stderr).toBe(
+      'Error [not-found]: No such company connection in the project\n',
+    );
+  });
+
+  test("the MAILBOX column names the connection it reads with: its name, else its account's", async () => {
+    const reads = { ...TRIGGER, mailbox: atSupport };
+    const page = {
+      data: [reads, { ...reads, triggerId: BOT }, TRIGGER],
+      hasMore: false,
+    };
+    const listed = await mailTriggers(['list', '--table'], TRIGGER, (record) => ({
+      ...lookups(record),
+      mailTriggers: { list: record('list', page) },
+    }));
+    expect(listed.out.exitCode, listed.out.stderr).toBe(0);
+    // One lookup per project and app.
+    expect(listed.calls).toEqual([
+      ['list', {}],
+      ['candidates', { projectId: 'p-1', app: 'google' }],
+    ]);
+    expect(listed.out.stdout).toMatch(/google company support\s/);
+    expect(listed.out.stdout).toMatch(/google person\s/);
+
+    const unread = await mailTriggers(['list', '--table'], TRIGGER, (record) => ({
+      connectionChoices: {
+        candidates: async () => {
+          throw new Error('not allowed');
+        },
+      },
+      mailTriggers: { list: record('list', { data: [reads], hasMore: false }) },
+    }));
+    expect(unread.out.exitCode, unread.out.stderr).toBe(0);
+    expect(unread.out.stdout).toMatch(/google company support@acme\.example\s/);
+
+    const json = await mailTriggers(['list'], TRIGGER, (record) => ({
+      ...lookups(record),
+      mailTriggers: { list: record('list', page) },
+    }));
+    expect(json.calls).toEqual([['list', {}]]);
   });
 });

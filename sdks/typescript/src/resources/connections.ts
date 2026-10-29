@@ -5,14 +5,16 @@
  * Connections: accounts at other apps (a member's Google account, the
  * company's GitHub App) that tools act with.
  *
- * @wire /v1/connection-entries, /v1/connection-apps/*, /v1/connections/*  (packages/api/src/routes/connections.ts)
+ * @wire /v1/connection-entries, /v1/connection-apps/*, /v1/connections/*, /v1/connection-choices/*  (packages/api/src/routes/connections.ts)
  * @generated Wire shapes imported from `../generated/api.js`.
  *
- * Three clients:
+ * Four clients:
  * - `client.connectionEntries`: the apps this server can connect to.
  * - `client.connectionApps`: the tenant's own registration of its client at
  *   an app (a tenant admin's; secrets are referenced by name, never sent).
  * - `client.connections`: the connected accounts, and the connect that makes one.
+ * - `client.connectionChoices`: which company connection an agent or a flow
+ *   uses for an app in a project (a project admin's to set).
  *
  * A connection's token never leaves the server. To connect, `connect()` makes
  * a request; send the person to its `connectUrl`, or call `startRequest()` for
@@ -30,6 +32,11 @@ import type {
   ConnectionAppPage as ConnectionAppPageWire,
   ConnectionAppRemoved,
   ConnectionApp as ConnectionAppWire,
+  ConnectionCandidatePage as ConnectionCandidatePageWire,
+  ConnectionCandidate as ConnectionCandidateWire,
+  ConnectionChoiceDeleteResult,
+  ConnectionChoicePage as ConnectionChoicePageWire,
+  ConnectionChoice as ConnectionChoiceWire,
   ConnectionEntryList,
   ConnectionEntry as ConnectionEntryWire,
   ConnectionPage as ConnectionPageWire,
@@ -37,6 +44,7 @@ import type {
   CreateConnectRequestBody,
   CreateConnectionAppBody,
   FinishConnectBody,
+  SetConnectionChoiceBody,
   StartConnectBody,
   UpdateConnectionAppBody,
   UpdateConnectionBody,
@@ -58,6 +66,12 @@ export type StartConnectInput = StartConnectBody;
 export type FinishConnectInput = FinishConnectBody;
 export type ConnectFinish = ConnectFinishWire;
 export type ConnectionStartResult = ConnectStart;
+export type ConnectionChoice = ConnectionChoiceWire;
+export type ConnectionChoicePage = ConnectionChoicePageWire;
+export type SetConnectionChoiceInput = SetConnectionChoiceBody;
+export type RemoveConnectionChoiceResult = ConnectionChoiceDeleteResult;
+export type ConnectionCandidate = ConnectionCandidateWire;
+export type ConnectionCandidatePage = ConnectionCandidatePageWire;
 
 export interface ListConnectionAppsFilter {
   /** Removed registrations too, with their `removedAt`. */
@@ -76,6 +90,26 @@ export interface ListConnectionsFilter {
   readonly state?: Connection['state'];
   /** Removed connections too, with the others. */
   readonly includeRemoved?: boolean;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface ListConnectionChoicesInput {
+  readonly projectId: string;
+  readonly agentId?: string;
+  readonly flowId?: string;
+  /** An app's entry id: `'google'`. */
+  readonly app?: string;
+  /** Removed choices too, with their `removedAt` and `removedBy`: a choice's history. */
+  readonly includeRemoved?: boolean;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface ListConnectionCandidatesInput {
+  readonly projectId: string;
+  /** An app's entry id: `'google'`. */
+  readonly app?: string;
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -120,7 +154,10 @@ export interface ConnectionsClient {
   ): Promise<Connection>;
   /** @wire DELETE /v1/connections/:connectionId — withdraws access at the app where it can. */
   disconnect(connectionId: string, options?: MutationOptions): Promise<Connection>;
-  /** @wire POST /v1/connections — makes a connect request. */
+  /**
+   * @wire POST /v1/connections — makes a connect request. `reconnects` names
+   * the connection to connect again, which must be the same account.
+   */
   connect(input: ConnectInput, options?: MutationOptions): Promise<ConnectRequest>;
   /** @wire GET /v1/connections/requests/:requestId */
   getRequest(requestId: string): Promise<ConnectRequest>;
@@ -133,8 +170,36 @@ export interface ConnectionsClient {
     input?: StartConnectInput,
     options?: MutationOptions,
   ): Promise<ConnectionStartResult>;
-  /** @wire POST /v1/connections/finish — what the app sent back to the callback page. */
+  /**
+   * @wire POST /v1/connections/finish — what the app sent back to the callback page.
+   * The answer says whether it `reconnected` a connection already there, and
+   * `labelTaken` when the name it was to get was another's.
+   */
   finish(input: FinishConnectInput, options?: MutationOptions): Promise<ConnectFinish>;
+}
+
+export interface ConnectionChoicesClient {
+  /**
+   * @wire GET /v1/connection-choices — the project's live choices, and with
+   * `includeRemoved` the removed ones too; its members may read them. A
+   * choice of a connection removed since stays listed until it's set or removed.
+   */
+  list(input: ListConnectionChoicesInput): Promise<ConnectionChoicePage>;
+  /**
+   * @wire PUT /v1/connection-choices — chooses a company connection for an
+   * agent or a flow, for the connection's app (a project admin's). The
+   * connection already chosen answers its choice as it is; another one
+   * replaces it with the next version.
+   */
+  set(input: SetConnectionChoiceInput, options?: MutationOptions): Promise<ConnectionChoice>;
+  /** @wire DELETE /v1/connection-choices/{choiceId} — a project admin's. */
+  remove(choiceId: string, options?: MutationOptions): Promise<RemoveConnectionChoiceResult>;
+  /**
+   * @wire GET /v1/connection-choices/candidates — the company connections a
+   * choice in the project may name. A member who isn't an admin gets only
+   * `connectionId` and `name`.
+   */
+  candidates(input: ListConnectionCandidatesInput): Promise<ConnectionCandidatePage>;
 }
 
 interface MutationOptions {
@@ -271,6 +336,53 @@ export function makeConnectionsClient(transport: Transport): ConnectionsClient {
         path: '/v1/connections/finish',
         body: input,
         ...idempotency(options),
+      });
+    },
+  };
+}
+
+export function makeConnectionChoicesClient(transport: Transport): ConnectionChoicesClient {
+  return {
+    async list(input) {
+      return transport.request<ConnectionChoicePage>({
+        method: 'GET',
+        path: '/v1/connection-choices',
+        query: {
+          projectId: input.projectId,
+          ...(input.agentId !== undefined && { agentId: input.agentId }),
+          ...(input.flowId !== undefined && { flowId: input.flowId }),
+          ...(input.app !== undefined && { app: input.app }),
+          ...(input.includeRemoved === true && { includeRemoved: true }),
+          ...(input.limit !== undefined && { limit: input.limit }),
+          ...(input.cursor !== undefined && { cursor: input.cursor }),
+        },
+      });
+    },
+    async set(input, options) {
+      return transport.request<ConnectionChoice>({
+        method: 'PUT',
+        path: '/v1/connection-choices',
+        body: input,
+        ...idempotency(options),
+      });
+    },
+    async remove(choiceId, options) {
+      return transport.request<RemoveConnectionChoiceResult>({
+        method: 'DELETE',
+        path: `/v1/connection-choices/${encodeURIComponent(choiceId)}`,
+        ...idempotency(options),
+      });
+    },
+    async candidates(input) {
+      return transport.request<ConnectionCandidatePage>({
+        method: 'GET',
+        path: '/v1/connection-choices/candidates',
+        query: {
+          projectId: input.projectId,
+          ...(input.app !== undefined && { app: input.app }),
+          ...(input.limit !== undefined && { limit: input.limit }),
+          ...(input.cursor !== undefined && { cursor: input.cursor }),
+        },
       });
     },
   };

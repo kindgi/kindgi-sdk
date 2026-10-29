@@ -403,7 +403,7 @@ function linesOf(
     : childLines(ctx, kind, kind.parent, tally);
 }
 
-/** A child kind's lines: for each parent record, its children, each with its parent. */
+/** A child kind's lines: for each parent record, its children, each with what the parent filled. */
 async function* childLines(
   ctx: KindContext,
   kind: ExportKind,
@@ -411,14 +411,16 @@ async function* childLines(
   tally: { gone: number },
 ): AsyncGenerator<string> {
   for await (const record of recordsOf(ctx, parent.kind)) {
-    const params = fieldsOf(record, parent.params, parent.kind);
+    const params = fieldsOf(record, parent.params ?? {}, parent.kind);
+    const filled = fieldsOf(record, parent.query ?? {}, parent.kind);
     const query = {
       ...kind.query,
+      ...filled,
       ...(kind.envScoped === true ? envScopeOf(record, parent.kind) : {}),
     };
     try {
       for await (const item of read(ctx.reader, kind, fillRoute(kind.route, params), query)) {
-        yield `${JSON.stringify({ parent: params, item })}\n`;
+        yield `${JSON.stringify({ parent: { ...params, ...filled }, item })}\n`;
       }
     } catch (err) {
       throwIfNotServed(err, kind.route);
