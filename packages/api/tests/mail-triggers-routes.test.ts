@@ -208,7 +208,7 @@ function harness(opts: { store?: boolean; connections?: readonly FakeConnection[
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
   const events = (kind: string): AuditEvent[] => written.filter((e) => e.kind === kind);
-  return { call, events, told, triggerRegistry };
+  return { call, events, written, told, triggerRegistry };
 }
 
 const docOf = (e: AuditEvent | undefined) =>
@@ -814,6 +814,43 @@ describe('the company connection it reads with', () => {
     expect(named.status).toBe(200);
     expect(named.body.mailbox).toEqual(gmail(SUPPORT_GMAIL.connectionId));
     expect(named.body).not.toHaveProperty('folder');
+  });
+
+  test('the same mailbox sent again: with its connection stored, no change, so no version; with none stored, taking the only one is a version, and the folder stays', async () => {
+    const list: FakeConnection[] = [];
+    const h = harness({ connections: list });
+    const made = await h.call(
+      'POST',
+      BASE,
+      company({ config: { mailbox: gmail(), folder: 'Label_9' } }),
+    );
+    expect(made.body.mailbox).toEqual(gmail());
+    const unstored = made.body.triggerId as string;
+    list.push(SUPPORT_GMAIL);
+    const pinned = await h.call('POST', BASE, companyGmail(SUPPORT_GMAIL.connectionId));
+    const stored = pinned.body.triggerId as string;
+    const before = pinned.body.version as number;
+    expect(before).toBeGreaterThan(0);
+    const audited = h.written.length;
+    const again = await h.call('PATCH', `${BASE}/${stored}`, { config: { mailbox: gmail() } });
+    expect(again.status).toBe(200);
+    expect(again.body.mailbox).toEqual(gmail(SUPPORT_GMAIL.connectionId));
+    expect(again.body.version).toBe(before);
+    expect(h.written).toHaveLength(audited);
+    const taken = await h.call('PATCH', `${BASE}/${unstored}`, { config: { mailbox: gmail() } });
+    expect(taken.status).toBe(200);
+    expect(taken.body.version).toBe((made.body.version as number) + 1);
+    expect(taken.body.folder).toBe('Label_9');
+    const version = await h.triggerRegistry.getVersion({
+      tenantId,
+      triggerId: unstored as TriggerId,
+      version: taken.body.version as number,
+    });
+    expect(version).toMatchObject({ cause: 'edit', createdBy: `user:${ADA}` });
+    expect(version?.definition.config).toMatchObject({
+      mailbox: gmail(SUPPORT_GMAIL.connectionId),
+      folder: 'Label_9',
+    });
   });
 
   test("a new mailbox takes the same rule, nothing changes when it's refused, and a move to a person's mailbox drops the id", async () => {
