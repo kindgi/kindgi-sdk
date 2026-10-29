@@ -4686,7 +4686,7 @@ class ProvenanceResource:
     ) -> _models.ProvenanceRecord:
         """Fetch the full provenance DAG for a run. `GET /v1/provenance/{runId}`
 
-        Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. Until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.
+        Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. From the run's end until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a run still running, a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.
         """
         return self._client._request(
             _OPERATIONS["provenance.get"],
@@ -14049,7 +14049,7 @@ class AsyncProvenanceResource:
     ) -> _models.ProvenanceRecord:
         """Fetch the full provenance DAG for a run. `GET /v1/provenance/{runId}`
 
-        Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. Until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.
+        Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. From the run's end until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a run still running, a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.
         """
         return await self._client._request(
             _OPERATIONS["provenance.get"],
