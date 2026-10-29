@@ -446,6 +446,7 @@ OPERATIONS: dict[str, Operation] = {
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
     "license.get": Operation("license.get", "GET", "/v1/license", "json", False),
+    "runtime.get": Operation("runtime.get", "GET", "/v1/runtime", "json", False),
     "license.usage": Operation("license.usage", "GET", "/v1/license/usage", "json", False),
     "exportSigningKeys.list": Operation(
         "exportSigningKeys.list", "GET", "/v1/export-signing-keys", "json", False
@@ -4751,6 +4752,27 @@ class LicenseResource:
             query={"since": since},
             headers={},
             response=_models.LicenseUsage,
+            timeout=timeout,
+        )
+
+
+class RuntimeResource:
+    """`client.runtime` — the `runtime` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
+        """Which runtime answers. `GET /v1/runtime`
+
+        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["runtime.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.RuntimeInfo,
             timeout=timeout,
         )
 
@@ -14116,6 +14138,27 @@ class AsyncLicenseResource:
         )
 
 
+class AsyncRuntimeResource:
+    """`client.runtime` — the `runtime` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
+        """Which runtime answers. `GET /v1/runtime`
+
+        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["runtime.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.RuntimeInfo,
+            timeout=timeout,
+        )
+
+
 class AsyncExportSigningKeysResource:
     """`client.export_signing_keys` — the `exportSigningKeys` operations."""
 
@@ -20016,6 +20059,7 @@ class Resources:
     improvement_passes: ImprovementPassesResource
     provenance: ProvenanceResource
     license: LicenseResource
+    runtime: RuntimeResource
     export_signing_keys: ExportSigningKeysResource
     artifacts: ArtifactsResource
     observations: ObservationsResource
@@ -20076,6 +20120,7 @@ class Resources:
         self.improvement_passes = ImprovementPassesResource(client)
         self.provenance = ProvenanceResource(client)
         self.license = LicenseResource(client)
+        self.runtime = RuntimeResource(client)
         self.export_signing_keys = ExportSigningKeysResource(client)
         self.artifacts = ArtifactsResource(client)
         self.observations = ObservationsResource(client)
@@ -20138,6 +20183,7 @@ class AsyncResources:
     improvement_passes: AsyncImprovementPassesResource
     provenance: AsyncProvenanceResource
     license: AsyncLicenseResource
+    runtime: AsyncRuntimeResource
     export_signing_keys: AsyncExportSigningKeysResource
     artifacts: AsyncArtifactsResource
     observations: AsyncObservationsResource
@@ -20198,6 +20244,7 @@ class AsyncResources:
         self.improvement_passes = AsyncImprovementPassesResource(client)
         self.provenance = AsyncProvenanceResource(client)
         self.license = AsyncLicenseResource(client)
+        self.runtime = AsyncRuntimeResource(client)
         self.export_signing_keys = AsyncExportSigningKeysResource(client)
         self.artifacts = AsyncArtifactsResource(client)
         self.observations = AsyncObservationsResource(client)

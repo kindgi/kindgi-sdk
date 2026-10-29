@@ -5215,6 +5215,34 @@
           }
         }
       },
+      "RuntimeInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "tenancy",
+          "development"
+        ],
+        "description": "Which runtime answers: what a client says about the runtime it's connected to.",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The runtime's version: its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none)."
+          },
+          "tenancy": {
+            "type": "string",
+            "enum": [
+              "single",
+              "multi"
+            ],
+            "description": "`single` when the runtime serves one tenant, `multi` when it serves many."
+          },
+          "development": {
+            "type": "boolean",
+            "description": "The runtime runs in development mode, which allows development-only settings."
+          }
+        }
+      },
       "UsageGroup": {
         "type": "object",
         "additionalProperties": false,
@@ -42289,6 +42317,53 @@
           }
         },
         "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/runtime": {
+      "get": {
+        "operationId": "runtime.get",
+        "summary": "Which runtime answers",
+        "tags": [
+          "system"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which runtime answers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.",
         "security": [
           {
             "bearerAuth": []
