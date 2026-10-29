@@ -363,8 +363,17 @@ export interface IndexedGuardrail {
   readonly action: Readonly<Record<string, unknown>>;
   readonly severity?: string;
   readonly scope?: Readonly<Record<string, unknown>>;
+  /** Where in the agent's turn it runs (`Guardrail.at`). Absent: the final answer. */
+  readonly at?: string;
+  /** What its check sees of the conversation (`Guardrail.sees`). Absent: the turn. */
+  readonly sees?: string;
   readonly checkModulePath: string;
   readonly checkId?: string;
+  /**
+   * The points the pack's check runs at (its `points`, or the final answer when it names
+   * none). Absent for a built-in check, whose points the runtime knows.
+   */
+  readonly checkPoints?: readonly string[];
   /**
    * The guardrail names a built-in check (`checkId`) without shipping a check of its own:
    * `checkModulePath` is only its file. A runtime warns about one without it (an older CLI's).
@@ -755,7 +764,7 @@ export async function runIndexer(
         break;
       }
       case 'guardrail': {
-        const built = buildGuardrail(unwrapped, relPath, zodConverter);
+        const built = buildGuardrail(unwrapped, module_, relPath, zodConverter);
         if (built.kind === 'err') {
           fileErrors.push(built.error);
           continue;
@@ -1736,8 +1745,91 @@ function unprefixedChecksIn(
   }));
 }
 
+/**
+ * The points a guardrail may run at (`GUARDRAIL_POINTS` in `@kindgi/guardrails`; a test holds
+ * the two equal).
+ */
+export const GUARDRAIL_POINTS: readonly string[] = [
+  'before-tool',
+  'after-tool',
+  'model-step',
+  'final-answer',
+];
+
+/**
+ * A `scope.tools` entry: a tool id, or a prefix with a trailing `*` (the guardrail schema's
+ * pattern; a test holds the two equal).
+ */
+export const SCOPE_TOOL = /^[^*]*\*?$/;
+
+/**
+ * What the guardrail asks for that its point can't do, in `guardrailPointIssues`'s words and
+ * paths (`@kindgi/guardrails`; a test holds the two equal), so a pack a deploy would refuse
+ * fails its build first: `'escalate'` and `'compensate'` away from the final answer, and
+ * `scope.tools` away from the tool points.
+ */
+export function guardrailPointIssues(
+  rec: Readonly<Record<string, unknown>>,
+): readonly { readonly path: string; readonly message: string }[] {
+  const at = (rec.at as string | undefined) ?? 'final-answer';
+  const action = isObject(rec.action) ? rec.action['on-violation'] : undefined;
+  const issues: { path: string; message: string }[] = [];
+  if ((action === 'escalate' || action === 'compensate') && at !== 'final-answer') {
+    issues.push({
+      path: '/action/on-violation',
+      message: `"${action}" is recorded at the final answer only, not at "${at}"`,
+    });
+  }
+  if (
+    isObject(rec.scope) &&
+    rec.scope.tools !== undefined &&
+    at !== 'before-tool' &&
+    at !== 'after-tool'
+  ) {
+    issues.push({
+      path: '/scope/tools',
+      message: `scope.tools is for "before-tool" and "after-tool", not "${at}"`,
+    });
+  }
+  return issues;
+}
+
+/**
+ * The points the guardrail's own check runs at: the check object it names, or the one its
+ * module exports under its `check` id. Undefined when the module ships none (a built-in).
+ */
+function packCheckPoints(
+  rec: Readonly<Record<string, unknown>>,
+  module_: unknown,
+  checkId: string,
+): Result<readonly string[] | undefined, string> {
+  const candidates: unknown[] = [
+    rec.check,
+    ...(isObject(module_) ? Object.values(module_ as Record<string, unknown>) : []),
+  ];
+  const check = candidates.find(
+    (c) => isObject(c) && c.id === checkId && typeof c.evaluate === 'function',
+  ) as Readonly<Record<string, unknown>> | undefined;
+  if (check === undefined) return { kind: 'ok', value: undefined };
+  if (check.points === undefined) return { kind: 'ok', value: ['final-answer'] };
+  const points = check.points;
+  if (
+    !Array.isArray(points) ||
+    points.length === 0 ||
+    !points.every((p) => typeof p === 'string' && GUARDRAIL_POINTS.includes(p)) ||
+    new Set(points).size !== points.length
+  ) {
+    return {
+      kind: 'err',
+      error: `check "${checkId}" 'points' must name one or more of ${GUARDRAIL_POINTS.join(', ')}, each once`,
+    };
+  }
+  return { kind: 'ok', value: points as string[] };
+}
+
 function buildGuardrail(
   raw: unknown,
+  module_: unknown,
   relPath: string,
   converter: ZodConverter | undefined,
 ): Result<IndexedGuardrail, IndexerError> {
@@ -1797,6 +1889,44 @@ function buildGuardrail(
         ? check.id
         : undefined;
 
+  // Where it runs, and where its check can.
+  if (rec.at !== undefined && !GUARDRAIL_POINTS.includes(rec.at as string)) {
+    return manifestErr(relPath, `'at' must be one of ${GUARDRAIL_POINTS.join(', ')}`);
+  }
+  if (rec.sees !== undefined && rec.sees !== 'turn' && rec.sees !== 'conversation') {
+    return manifestErr(relPath, `'sees' must be 'turn' or 'conversation'`);
+  }
+  const scopeTools = isObject(rec.scope) ? rec.scope.tools : undefined;
+  if (
+    scopeTools !== undefined &&
+    !(
+      Array.isArray(scopeTools) &&
+      scopeTools.length > 0 &&
+      scopeTools.every((t) => typeof t === 'string' && t.length > 0 && SCOPE_TOOL.test(t))
+    )
+  ) {
+    return manifestErr(
+      relPath,
+      `'scope.tools' must name one or more tool ids, each with at most a trailing '*'`,
+    );
+  }
+  const pointIssues = guardrailPointIssues(rec);
+  if (pointIssues.length > 0) {
+    return manifestErr(
+      relPath,
+      `guardrail ${rec.id}: ${pointIssues.map((i) => `${i.path}: ${i.message}`).join('; ')}`,
+    );
+  }
+  const points = packCheckPoints(rec, module_, checkId ?? rec.id);
+  if (points.kind === 'err') return manifestErr(relPath, points.error);
+  const at = (rec.at as string | undefined) ?? 'final-answer';
+  if (points.value !== undefined && !points.value.includes(at)) {
+    return manifestErr(
+      relPath,
+      `guardrail ${rec.id} runs at '${at}', which isn't one of its check's points (${points.value.join(', ')})`,
+    );
+  }
+
   const guardrail: IndexedGuardrail = {
     id: rec.id,
     ...(typeof rec.name === 'string' && { name: rec.name }),
@@ -1806,8 +1936,11 @@ function buildGuardrail(
     ...(isObject(rec.scope) && {
       scope: rec.scope as Readonly<Record<string, unknown>>,
     }),
+    ...(rec.at !== undefined && { at }),
+    ...(typeof rec.sees === 'string' && { sees: rec.sees }),
     checkModulePath: normalizeModulePath(relPath),
     ...(checkId !== undefined && { checkId }),
+    ...(points.value !== undefined && { checkPoints: points.value }),
     // Naming a built-in is all it can do: shipping a check of its own under a built-in's id is
     // refused before this (`reserved-check-id`).
     ...(RESERVED_CHECK_IDS.includes(checkId ?? rec.id) && { checkBuiltIn: true as const }),

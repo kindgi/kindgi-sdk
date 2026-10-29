@@ -4217,6 +4217,14 @@ export const GuardrailActionSchema: JsonSchema = {
   },
 };
 
+export const GuardrailToolMatchSchema: JsonSchema = {
+  type: 'string',
+  minLength: 1,
+  pattern: '^[^*]*\\*?$',
+  description:
+    'A tool id, or a prefix of one followed by `*`, which matches every id that starts with it.',
+};
+
 export const GuardrailScopeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4225,6 +4233,13 @@ export const GuardrailScopeSchema: JsonSchema = {
     agents: { type: 'array', items: { type: 'string' } },
     flows: { type: 'array', items: { type: 'string' } },
     tenants: { type: 'array', items: { type: 'string' } },
+    tools: {
+      type: 'array',
+      minItems: 1,
+      items: { $ref: '#/components/schemas/GuardrailToolMatch' },
+      description:
+        'At `before-tool` and `after-tool`: the tools whose calls it checks, by id. A trailing `*` matches every id with that prefix, and a `*` anywhere else is refused. Absent: every tool.',
+    },
   },
 };
 
@@ -4253,6 +4268,19 @@ export const GuardrailSchema: JsonSchema = {
     action: { $ref: '#/components/schemas/GuardrailAction' },
     severity: { type: 'string', enum: ['info', 'warn', 'error', 'critical'] },
     scope: { $ref: '#/components/schemas/GuardrailScope' },
+    at: {
+      type: 'string',
+      enum: ['before-tool', 'after-tool', 'model-step', 'final-answer'],
+      default: 'final-answer',
+      description:
+        "Where in the agent's turn the check runs: before a tool call runs, after it runs, on each model reply, or on the final answer. It must be one of the check's points.",
+    },
+    sees: {
+      type: 'string',
+      enum: ['turn', 'conversation'],
+      default: 'turn',
+      description: "What the check sees: this turn, or the conversation's earlier turns too.",
+    },
     budget: {
       type: 'object',
       additionalProperties: false,
@@ -15723,6 +15751,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ToolVersionRow', ToolVersionRowSchema],
   ['ToolVersionCollectionPage', ToolVersionCollectionPageSchema],
   ['GuardrailAction', GuardrailActionSchema],
+  ['GuardrailToolMatch', GuardrailToolMatchSchema],
   ['GuardrailScope', GuardrailScopeSchema],
   ['Guardrail', GuardrailSchema],
   ['RegisterGuardrailBody', RegisterGuardrailBodySchema],

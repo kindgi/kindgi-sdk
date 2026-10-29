@@ -7,8 +7,10 @@ import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import {
   type Guardrail,
   type GuardrailConfigProblem,
+  checkPoints,
   createCheckRegistry,
   describeGuardrailConfigProblems,
+  guardrailCheckPointProblems,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import type { Cursor, GuardrailId, ProjectId, TenantId, UserId } from '@kindgi/types';
@@ -69,7 +71,10 @@ export type GuardrailWriteHook = (params: {
  * (`details.issues`). Absent, or nothing to check against (an unknown
  * check, a check without a schema): no problems. A guardrail naming a
  * built-in check is checked by the route itself, against the built-in's
- * schema, whatever the runtime passes here.
+ * schema, whatever the runtime passes here. The runtime checks a pack
+ * check's points here too: a guardrail `at` a point the check doesn't
+ * run at is a problem at `/at` (`guardrailCheckPointProblems`); the route
+ * checks a built-in's.
  */
 export type GuardrailConfigCheck = (input: {
   readonly tenantId: TenantId;
@@ -310,14 +315,18 @@ export function guardrailsRouter(
       if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
-    // A built-in check's config is the route's to check (its schema ships with
-    // `@kindgi/guardrails`); any other check's, the runtime's.
+    // A built-in check's config and points are the route's to check (they
+    // ship with `@kindgi/guardrails`); any other check's, the runtime's.
     const builtIn = builtInChecks.get(validated.value.check);
-    const problems =
-      builtIn?.configProblems !== undefined
+    const problems = [
+      ...((builtIn?.configProblems !== undefined
         ? builtIn.configProblems(validated.value.config)
-        : await checkConfig?.({ tenantId, guardrail: validated.value });
-    if (problems !== undefined && problems.length > 0) {
+        : await checkConfig?.({ tenantId, guardrail: validated.value })) ?? []),
+      ...(builtIn !== undefined
+        ? guardrailCheckPointProblems(validated.value, checkPoints(builtIn))
+        : []),
+    ];
+    if (problems.length > 0) {
       c.status(statusFor('guardrail-config-invalid') as never);
       return c.json(
         toWireError(

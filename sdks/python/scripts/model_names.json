@@ -319,6 +319,7 @@
   "GuardrailOutcomes": ["GuardrailOutcomes"],
   "GuardrailOutcomesByAgentVersion": ["GuardrailOutcomesByAgentVersion"],
   "GuardrailScope": ["GuardrailScope"],
+  "GuardrailToolMatch": ["GuardrailToolMatch"],
   "HealthResult": ["HealthResult"],
   "HoldOut": ["ImprovementPassOutcome.holdOut"],
   "Host": [
