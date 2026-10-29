@@ -2835,7 +2835,10 @@ class PinChange(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["tool", "prompt", "setting", "agent"] | str, _open.OPEN]
+    kind: Annotated[Literal["tool", "prompt", "setting", "agent", "flow"] | str, _open.OPEN]
+    """
+    `flow`: a flow's sub-flow (`FlowPins.flows`). Not sent by older servers.
+    """
     id: str
     from_: Annotated[str | None, Field(alias="from")] = None
     """
@@ -2901,7 +2904,7 @@ class AgentPinSwaps(BaseModel):
 
 class FlowPins(BaseModel):
     """
-    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).
+    The exact tool, agent and sub-flow versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, each agent it runs at no named version, and each sub-flow it runs at no named version, resolves once then, and every run of that flow version uses those versions. Absent on a version published before pins existed (it binds the latest versions per run).
     """
 
     model_config = ConfigDict(
@@ -2916,11 +2919,15 @@ class FlowPins(BaseModel):
     """
     Agent id → exact version, for agent nodes that name no version.
     """
+    flows: dict[str, str] | None = None
+    """
+    Flow id → exact version, for sub-flow steps that name no version. Absent when there are none, and from older servers.
+    """
 
 
 class FlowVersionOverrides(BaseModel):
     """
-    Agents and tools a flow runs at other exact versions than the flow version's pins ("this flow, with `acme.scorer` at 0.4.0"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.
+    Agents and tools a flow runs at other exact versions than the flow version's pins ("this flow, with `acme.scorer` at 0.4.0"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow or one of its sub-flows uses.
     """
 
     model_config = ConfigDict(
@@ -6962,7 +6969,7 @@ class EvalRunCollectionPage(BaseModel):
 
 class StartEvalRunBody(BaseModel):
     """
-    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
+    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id that neither the flow nor one of its sub-flows uses, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
     """
 
     model_config = ConfigDict(

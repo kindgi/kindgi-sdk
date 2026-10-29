@@ -125,9 +125,9 @@ const SEMANTIC_CHECKS: readonly ((flow: Flow) => FlowError | undefined)[] = [
  *       per-branch `outputSchema`).
  *   13. Subgraph node rules (`flowRef`, `inputMapping`, `outputSchema`,
  *       `convergence`).
- *   14. Data-flow mappings (1.8.0): every leaf `inputMapping` and the
- *       flow's `output.mapping` names only nodes of the flow, never the
- *       node's own output, and no loop-only root.
+ *   14. Data-flow mappings (1.8.0): every leaf's and subgraph node's
+ *       `inputMapping` and the flow's `output.mapping` names only nodes
+ *       of the flow, never the node's own output, and no loop-only root.
  *   15. The flow's `output.schema` compiles.
  *   16. Outer flow must have at least one $start-rooted edge.
  *   17. Outer flow cycle detection (Kahn's algorithm on the outer DAG).
@@ -1018,15 +1018,17 @@ function checkSubflowNode(flow: Flow, subgraph: SubflowNode): InvalidSubflowNode
   if (typeof flowRef.flowId !== 'string' || flowRef.flowId.length === 0) {
     return subgraphErr(flow, subgraph.id, 'flowRef.flowId', 'must be a non-empty string');
   }
-  if (typeof flowRef.version !== 'string' || flowRef.version.length === 0) {
-    return subgraphErr(flow, subgraph.id, 'flowRef.version', 'must be a non-empty string');
+  // No version: the runtime locks the child's when the parent is published.
+  const version = flowRef.version;
+  if (version !== undefined && typeof version !== 'string') {
+    return subgraphErr(flow, subgraph.id, 'flowRef.version', 'must be a string when given');
   }
-  if (!SEMVER_EXACT_REGEX.test(flowRef.version)) {
+  if (typeof version === 'string' && !SEMVER_EXACT_REGEX.test(version)) {
     return subgraphErr(
       flow,
       subgraph.id,
       'flowRef.version',
-      `must be an exact semver (no ranges) — got "${flowRef.version}"`,
+      `must be an exact semver (no ranges) — got "${version}"`,
     );
   }
 
@@ -1138,22 +1140,24 @@ function checkAllLoopOutputSchemas(flow: Flow): LoopOutputSchemaError | undefine
   return undefined;
 }
 
-// ============ data-flow mappings (leaf inputMapping + flow output, schema-version 1.8.0) ============
+// ============ data-flow mappings (leaf + subgraph inputMapping, flow output) ============
 
 /**
- * Stricter than edge predicates: a mapping feeds a handler or the run's
- * output, so a path that can never resolve is a mistake, not a
- * "false" — reject it at load time. The schema already limits path
- * roots; this pass checks what it can't: `nodeOutputs.<id>` names a node
- * of the flow (ids are globally unique, so every node counts), a node
- * doesn't map its own output, and no loop-only root is used.
+ * Stricter than edge predicates: a mapping feeds a handler, a sub-flow's
+ * run or the run's output, so a path that can never resolve is a
+ * mistake, not a "false" — reject it at load time. The schema already
+ * limits path roots; this pass checks what it can't: `nodeOutputs.<id>`
+ * names a node of the flow (ids are globally unique, so every node
+ * counts), a node doesn't map its own output, and no loop-only root is
+ * used.
  */
 function checkAllMappings(flow: Flow): InvalidMappingError | undefined {
   const allNodes = collectAllNodes(flow);
   const nodeIds = new Set<string>(allNodes.map((n) => n.id as unknown as string));
   for (const node of allNodes) {
-    if (!isLeafNode(node) || node.inputMapping === undefined) continue;
-    const bad = firstInvalidEntry(node.inputMapping, nodeIds, node.id as unknown as string);
+    const mapping = isLeafNode(node) || isSubflowNode(node) ? node.inputMapping : undefined;
+    if (mapping === undefined) continue;
+    const bad = firstInvalidEntry(mapping, nodeIds, node.id as unknown as string);
     if (bad !== undefined) return mappingErr(flow, bad, node.id);
   }
   if (flow.output !== undefined) {

@@ -7868,7 +7868,7 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('validation-failed');
     expect(res.body.error.message).toContain(
-      "use tool, agent or block versions that aren't published",
+      "use tool, agent, block or sub-flow versions that can't be pinned",
     );
     expect(JSON.stringify(res.body.error.details)).toContain(
       'prompt block \\"acme.reply\\": the pack brings version 2.0.0, which \\"^1.0.0\\" doesn\'t take; change the agent\'s range or the block\'s version',
@@ -7919,5 +7919,319 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     };
     expect(doc.info['x-kindgi-capabilities']).toContain('deploy-publishes-pack-blocks');
     expect(doc.info.version).toBe('0.1.0');
+  });
+});
+
+// ---------------- sub-flows: a flow step that runs another flow ----------------
+
+/** Versions of any flow; `registered()` lists them `id@version`, in the order they were written. */
+function makeFlowsRegistry(): FlowRegistryBinding & {
+  versions: (flowId: string) => Flow[];
+  registered: () => string[];
+} {
+  const rows = new Map<string, Flow>();
+  const of = (flowId: unknown) => [...rows.values()].filter((f) => f.id === flowId);
+  return {
+    versions: (flowId: string) => of(flowId),
+    registered: () => [...rows.keys()],
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion({ flowId, version }: Parameters<FlowRegistryBinding['getVersion']>[0]) {
+      return rows.get(`${flowId as unknown as string}@${version}`) ?? null;
+    },
+    async headExists({ flowId }: Parameters<FlowRegistryBinding['headExists']>[0]) {
+      return of(flowId).length > 0;
+    },
+    async listVersions({ flowId }: Parameters<FlowRegistryBinding['listVersions']>[0]) {
+      return { data: of(flowId) };
+    },
+    async publish({ flow }: Parameters<FlowRegistryBinding['publish']>[0]) {
+      const key = `${flow.id as unknown as string}@${flow.version}`;
+      if (rows.has(key)) {
+        return { kind: 'already-registered', flowId: flow.id, version: flow.version };
+      }
+      rows.set(key, flow);
+      return { kind: 'ok', flowId: flow.id, version: flow.version };
+    },
+    async unregister({ flowId, version }: Parameters<FlowRegistryBinding['unregister']>[0]) {
+      return { unregistered: rows.delete(`${flowId as unknown as string}@${version}`) };
+    },
+    async reinstateVersion({
+      flowId,
+      version,
+    }: Parameters<FlowRegistryBinding['reinstateVersion']>[0]) {
+      return { kind: 'not-found', flowId, version };
+    },
+  } as unknown as FlowRegistryBinding & {
+    versions: (flowId: string) => Flow[];
+    registered: () => string[];
+  };
+}
+
+/** Flow `id` at 1.0.0 with one step: a sub-flow step running `child` (at `version` when given). */
+function parentFlow(id: string, child: string, version?: string): Record<string, unknown> {
+  return {
+    id,
+    version: '1.0.0',
+    nodes: [
+      {
+        id: 'run',
+        kind: 'subgraph',
+        flowRef: { flowId: child, ...(version !== undefined && { version }) },
+        inputMapping: {},
+        outputSchema: { type: 'object' },
+        convergence: 'settle-all',
+      },
+    ],
+    edges: [
+      { id: 'e0', from: '$start', to: 'run' },
+      { id: 'e1', from: 'run', to: '$end' },
+    ],
+  };
+}
+
+/** Flow `acme.child` at 1.0.0, which runs the tool `acme.score`. */
+const CHILD_FLOW = {
+  id: 'acme.child',
+  version: '1.0.0',
+  nodes: [{ id: 'score', kind: 'tool', ref: 'acme.score' }],
+  edges: [
+    { id: 'e0', from: '$start', to: 'score' },
+    { id: 'e1', from: 'score', to: '$end' },
+  ],
+};
+
+/** A pack with the tool `acme.score` at `toolVersion`, no agents, and `flows`. */
+function subflowPack(
+  toolVersion: string,
+  flows: readonly Record<string, unknown>[],
+  artifactVersion = '20261027.1',
+): SignedDeploy {
+  const publishedAt = '2026-10-27T00:00:00.000Z';
+  return buildSignedDeploy({
+    artifactVersion,
+    publishedAt,
+    index: {
+      v: 1,
+      artifactVersion,
+      publishedAt,
+      tools: [
+        {
+          id: 'acme.score',
+          description: 'Scores a match.',
+          version: toolVersion,
+          input: { type: 'object', properties: { q: { type: 'string' } } },
+          output: { type: 'object', properties: { score: { type: 'number' } } },
+          modulePath: `./tools/score-${toolVersion}.js`,
+        },
+      ],
+      guardrails: [],
+      agents: [],
+      flows,
+    },
+  });
+}
+
+describe('POST /v1/deployments — a sub-flow step that names no version is pinned', () => {
+  function setup(packs: readonly SignedDeploy[], reached?: ReadonlySet<string>, pinning = true) {
+    const tools = makeVersionedToolRegistry();
+    const flows = makeFlowsRegistry();
+    const { app } = makeApp({
+      toolRegistry: tools,
+      agentRegistry: makeVersionedAgentRegistry(),
+      flowRegistry: flows,
+      extra: {
+        ...(reached !== undefined && {
+          referenceScope: {
+            async reachable({ ref }) {
+              return ref.kind !== 'flow' || ref.version === undefined
+                ? true
+                : reached.has(`${ref.id}@${ref.version}`);
+            },
+          },
+        }),
+        // Without the agent registry, a deploy registers flows unpinned.
+        ...(!pinning && ({ agentRegistry: undefined } as unknown as object)),
+      },
+      extraTrust: packs.map((f) => ({
+        keyId: KEY_ID,
+        tenantId,
+        publicKey: Buffer.from(f.publicKeyRaw).toString('base64'),
+      })),
+      extraImages: packs.map((f) => ({
+        imageRef: f.imageRef,
+        digest: f.digest,
+        indexBytes: f.indexBytes,
+      })),
+    });
+    const deploy = async (f: SignedDeploy) => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(f.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { tools, flows, deploy };
+  }
+
+  const pinsOf = (flows: ReturnType<typeof makeFlowsRegistry>, id: string, version: string) =>
+    flows.versions(id).find((f) => f.version === version)?.pins;
+
+  test('to the version this deploy registers for it, written before the flow that runs it', async () => {
+    const pack = subflowPack('1.0.0', [parentFlow('acme.parent', 'acme.child'), CHILD_FLOW]);
+    const { flows, deploy } = setup([pack]);
+
+    const res = await deploy(pack);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    // The pack's order in the answer; children first in the registry.
+    expect(res.body.contents.flows).toEqual([
+      { id: 'acme.parent', version: '1.0.0' },
+      { id: 'acme.child', version: '1.0.0' },
+    ]);
+    expect(flows.registered()).toEqual(['acme.child@1.0.0', 'acme.parent@1.0.0']);
+    const pins = { tools: {}, agents: {}, flows: { 'acme.child': '1.0.0' } };
+    expect(pinsOf(flows, 'acme.parent', '1.0.0')).toEqual(pins);
+    expect(flows.versions('acme.parent')[0]?.pinsDigest).toBe(flowPinsDigest(pins));
+    expect(pinsOf(flows, 'acme.child', '1.0.0')).toEqual({
+      tools: { 'acme.score': '1.0.0' },
+      agents: {},
+    });
+  });
+
+  test('one tool change cascades through a sub-flow into the flow that runs it, in one deploy', async () => {
+    const flowsOf = () => [parentFlow('acme.parent', 'acme.child'), CHILD_FLOW];
+    const first = subflowPack('1.0.0', flowsOf());
+    const second = subflowPack('1.1.0', flowsOf());
+    const again = subflowPack('1.1.0', flowsOf(), '20261027.2');
+    const { flows, deploy } = setup([first, second, again]);
+
+    expect((await deploy(first)).status).toBe(201);
+    const two = await deploy(second);
+    expect(two.status, JSON.stringify(two.body)).toBe(201);
+    expect(two.body.contents.flows).toEqual([
+      {
+        id: 'acme.parent',
+        version: '1.0.1',
+        authoredVersion: '1.0.0',
+        reason: 'pins-changed',
+        newVersion: true,
+        pinChanges: [{ kind: 'flow', id: 'acme.child', from: '1.0.0', to: '1.0.1' }],
+      },
+      {
+        id: 'acme.child',
+        version: '1.0.1',
+        authoredVersion: '1.0.0',
+        reason: 'pins-changed',
+        newVersion: true,
+        pinChanges: [{ kind: 'tool', id: 'acme.score', from: '1.0.0', to: '1.1.0' }],
+      },
+    ]);
+    expect(pinsOf(flows, 'acme.parent', '1.0.1')).toEqual({
+      tools: {},
+      agents: {},
+      flows: { 'acme.child': '1.0.1' },
+    });
+
+    // A redeploy derives nothing more: the cascade ended in the one deploy.
+    const three = await deploy(again);
+    expect(three.body.contents.flows).toMatchObject([
+      { id: 'acme.parent', version: '1.0.1', newVersion: false },
+      { id: 'acme.child', version: '1.0.1', newVersion: false },
+    ]);
+    expect(flows.registered().sort()).toEqual([
+      'acme.child@1.0.0',
+      'acme.child@1.0.1',
+      'acme.parent@1.0.0',
+      'acme.parent@1.0.1',
+    ]);
+  });
+
+  test("a sub-flow the deploy doesn't bring pins to the newest version the project reaches", async () => {
+    const pack = subflowPack('1.0.0', [parentFlow('acme.parent', 'acme.child')]);
+    const { flows, deploy } = setup([pack], new Set(['acme.child@1.0.0']));
+    for (const version of ['1.0.0', '1.1.0']) {
+      await flows.publish({
+        tenantId,
+        projectId: DEFAULT_PROJECT_ID,
+        flow: { ...CHILD_FLOW, version } as unknown as Flow,
+        enqueueTuples: async () => {},
+      } as unknown as Parameters<FlowRegistryBinding['publish']>[0]);
+    }
+
+    const res = await deploy(pack);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(pinsOf(flows, 'acme.parent', '1.0.0')?.flows).toEqual({ 'acme.child': '1.0.0' });
+  });
+
+  test('a step that names its version is left as named, with no pin', async () => {
+    const pack = subflowPack('1.0.0', [
+      parentFlow('acme.parent', 'acme.child', '1.0.0'),
+      CHILD_FLOW,
+    ]);
+    const { flows, deploy } = setup([pack]);
+
+    expect((await deploy(pack)).status).toBe(201);
+    expect(pinsOf(flows, 'acme.parent', '1.0.0')).toEqual({ tools: {}, agents: {} });
+  });
+
+  test.each([
+    [
+      'flows that run each other',
+      [parentFlow('acme.a', 'acme.b'), parentFlow('acme.b', 'acme.a')],
+      'flows \\"acme.a\\" → \\"acme.b\\" → \\"acme.a\\" run each other as sub-flows with no version, so neither can be pinned first; name the version in one of them',
+    ],
+    [
+      'a flow that runs itself',
+      [parentFlow('acme.a', 'acme.a')],
+      'a sub-flow step runs flow \\"acme.a\\", this flow, with no version; name the version it runs',
+    ],
+    [
+      'a sub-flow with no published version',
+      [parentFlow('acme.a', 'acme.ghost')],
+      'flow \\"acme.ghost\\" has no published version this project runs; publish it first',
+    ],
+  ])(
+    '%s with no version is refused, before anything is written',
+    async (_label, defined, issue) => {
+      const pack = subflowPack('1.0.0', defined);
+      const { tools, flows, deploy } = setup([pack]);
+
+      const res = await deploy(pack);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('validation-failed');
+      expect(res.body.error.message).toContain(
+        "use tool, agent, block or sub-flow versions that can't be pinned (1 issue)",
+      );
+      expect(JSON.stringify(res.body.error.details)).toContain(issue);
+      expect(flows.registered()).toEqual([]);
+      expect(tools.versions('acme.score')).toEqual([]);
+    },
+  );
+
+  test('without the agent registry, one is refused before anything is written: nothing would pin it; a named one registers unpinned', async () => {
+    const pack = subflowPack('1.0.0', [parentFlow('acme.parent', 'acme.child'), CHILD_FLOW]);
+    const { tools, flows, deploy } = setup([pack], undefined, false);
+
+    const res = await deploy(pack);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(JSON.stringify(res.body.error.details)).toContain(
+      `flow \\"acme.parent\\": a sub-flow step runs flow \\"acme.child\\" with no version, and this server doesn't pin one; name the version it runs`,
+    );
+    expect(flows.registered()).toEqual([]);
+    expect(tools.versions('acme.score')).toEqual([]);
+
+    const named = subflowPack('1.0.0', [
+      parentFlow('acme.parent', 'acme.child', '1.0.0'),
+      CHILD_FLOW,
+    ]);
+    const unpinned = setup([named], undefined, false);
+    expect((await unpinned.deploy(named)).status).toBe(201);
+    expect(pinsOf(unpinned.flows, 'acme.parent', '1.0.0')).toBeUndefined();
   });
 });
