@@ -73,10 +73,11 @@ pnpm exec kindgi artifacts download <blob-id> -o report.pdf
 
 A download is checked against the sha256 and size kept for the artifact. If
 its bytes were changed in their store outside the runtime, on disk or in the
-bucket, the download stops partway: the runtime closes the connection before
-the last of its `Content-Length` bytes. `download` then fails, and the file
-it wrote holds only part of the bytes, so delete it. In TypeScript, reading
-`download`'s body throws. The runtime logs each one at `ERROR`, as
+bucket, the download stops part way: the runtime closes the connection
+before the last of its `Content-Length` bytes. `download` then fails with
+`the download stopped part way (…): report.pdf wasn't written`, and writes
+no file. In TypeScript, reading `download`'s body throws. The runtime logs
+each one at `ERROR`, as
 `Artifact <blob-id>'s stored bytes aren't the ones put; the read was stopped`,
 with its tenant, where its bytes are kept, the sha256 and size kept for it,
 and what was read. The log line never holds the file's content.
