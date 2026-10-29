@@ -325,6 +325,21 @@ From your app, newest first:
   (`getVersion`, `get_version`). A version the schedule doesn't have is
   `404 trigger-version-not-found`.
 
+From the CLI:
+
+```sh
+pnpm exec kindgi schedules versions <schedule-id> --table
+pnpm exec kindgi schedules get <schedule-id> <version>
+```
+
+- `versions` pages them, with `--limit` and `--cursor`. Its table shows
+  each one's number, when it was made, by whom, and why. `Kindgi` stands
+  in the `BY` column for a version the runtime made itself.
+- `get <schedule-id> <version>` reads one. Without a version, `get` is the
+  schedule as it is now, and its `version` is the newest. The `VERSION`
+  column of `list --table` shows it, empty for a schedule that has none
+  yet.
+
 Whoever can read the schedule can read its versions. Each one says when it
 was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
 `register`, `edit` or `owner` for a take-over to another owner). Two causes

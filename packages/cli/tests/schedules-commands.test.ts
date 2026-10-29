@@ -47,8 +47,35 @@ const FIRE = {
   runId: '22222222-2222-4222-8222-222222222222',
   missedCount: 9,
 };
+const VERSIONS = {
+  data: [
+    {
+      scheduleId: ID,
+      triggerId: ID,
+      version: 2,
+      createdAt: '2026-10-08T00:00:00.000Z',
+      createdBy: '22222222-2222-4222-8222-222222222222',
+      cause: 'edit',
+      definition: { cronExpression: '0 8 * * 1-5' },
+    },
+    {
+      scheduleId: ID,
+      triggerId: ID,
+      version: 1,
+      createdAt: '2026-10-07T11:00:01.000Z',
+      cause: 'first-fire',
+      definition: { cronExpression: '0 7 * * 1-5' },
+    },
+  ],
+  hasMore: true,
+  nextCursor: 'c-2',
+};
 
-async function schedules(argv: readonly string[], taken: Record<string, unknown> = SCHEDULE) {
+async function schedules(
+  argv: readonly string[],
+  taken: Record<string, unknown> = SCHEDULE,
+  listed: readonly Record<string, unknown>[] = [SCHEDULE],
+) {
   const calls: unknown[][] = [];
   const record =
     (name: string, result: unknown) =>
@@ -64,8 +91,10 @@ async function schedules(argv: readonly string[], taken: Record<string, unknown>
     clientFactory: () =>
       ({
         schedules: {
-          list: record('list', { data: [SCHEDULE], hasMore: false }),
+          list: record('list', { data: listed, hasMore: false }),
           get: record('get', SCHEDULE),
+          getVersion: record('getVersion', VERSIONS.data[0]),
+          versions: record('versions', VERSIONS),
           register: record('register', SCHEDULE),
           update: record('update', SCHEDULE),
           pause: record('pause', SCHEDULE),
@@ -379,5 +408,53 @@ describe('kindgi schedules', () => {
     expect(calls).toEqual([['fires', ID, { limit: 10 }]]);
     expect(out.stdout).toContain('stood in for 9 missed');
     expect(out.stdout).toMatch(/started\s+2{8}-/);
+  });
+
+  test("versions: a schedule's versions, paged; the table names who made each, or Kindgi", async () => {
+    const { out, calls } = await schedules(['versions', ID, '--limit=2', '--cursor=c-1']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['versions', ID, { limit: 2, cursor: 'c-1' }]]);
+    expect(JSON.parse(out.stdout)).toEqual(VERSIONS);
+    const table = await schedules(['versions', ID, '--table']);
+    expect(table.out.exitCode, table.out.stderr).toBe(0);
+    expect(table.out.stdout).toMatch(/^VERSION\s+CREATED\s+BY\s+CAUSE/);
+    expect(table.out.stdout).toMatch(/2\s+2026-10-08T00:00:00\.000Z\s+2{8}-\S+\s+edit/);
+    expect(table.out.stdout).toMatch(/1\s+2026-10-07T11:00:01\.000Z\s+Kindgi\s+first-fire/);
+    expect(table.out.stderr).toContain('c-2');
+  });
+
+  test('get <schedule-id> <version> reads that version; --upcoming is not with one', async () => {
+    const { out, calls } = await schedules(['get', ID, '2']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['getVersion', ID, 2]]);
+    expect(JSON.parse(out.stdout)).toEqual(VERSIONS.data[0]);
+    expect((await schedules(['get', ID])).calls).toEqual([['get', ID, undefined]]);
+    const both = await schedules(['get', ID, '2', '--upcoming=3']);
+    expect(both.out.exitCode).not.toBe(0);
+    expect(both.out.stderr).toContain('--upcoming');
+    expect(both.calls).toEqual([]);
+  });
+
+  test('get: a <version> that is not a whole number from 1 is refused before any call', async () => {
+    for (const bad of ['0', '01', '1.0.0', 'abc', '9007199254740993']) {
+      const { out, calls } = await schedules(['get', ID, bad]);
+      expect(out.exitCode, bad).not.toBe(0);
+      expect(out.stderr).toContain(`<version> must be a whole number from 1, got "${bad}"`);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("list --table: the VERSION column is the schedule's current version, empty before its first", async () => {
+    const versioned = await schedules(['list', '--table'], SCHEDULE, [{ ...SCHEDULE, version: 3 }]);
+    expect(versioned.out.exitCode, versioned.out.stderr).toBe(0);
+    expect(versioned.out.stdout).toMatch(/^ID\s+VERSION\s+RUNS/);
+    expect(versioned.out.stdout).toMatch(new RegExp(`${ID}\\s+3\\s+agent acme\\.digest`));
+    const before = await schedules(['list', '--table']);
+    expect(before.out.stdout).toMatch(new RegExp(`${ID}\\s+agent acme\\.digest`));
+  });
+
+  test('help lists versions', async () => {
+    const { out } = await schedules(['--help']);
+    expect(out.stdout).toMatch(/^ {2}versions /m);
   });
 });
