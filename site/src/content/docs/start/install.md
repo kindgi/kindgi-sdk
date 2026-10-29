@@ -324,6 +324,21 @@ workspace root's or the pack folder's. It says which when it starts:
 - **Several packs in one project** share its database and tenant, but not
   each other's tools: under `kindgi dev`, a flow in one pack can't call
   another pack's tools.
+- **Git worktrees run side by side.** The project's name is the same in
+  every worktree, and `<worktree>` is git's name for a linked one. Each
+  worktree has its own dev tenant, user and token. In the bundled Postgres
+  it has its own database too, and its tenant and user are named from it;
+  with your own (`--database-url` or `KINDGI_DATABASE_URL`), it uses that
+  one. Its `.kindgirc.json`, which `kindgi init` keeps out of git, keeps
+  the token, the tenant and the user. When port `4000` is taken, by another
+  worktree's `kindgi dev` say, `kindgi dev` takes the next free one and
+  says so:
+  `⚠ port 4000 is in use (another kindgi dev?): using 4001`. The
+  worktree's `.kindgirc.json` records it, so the CLI there follows. A
+  `--port` that's taken is refused. The providers the Kindgi config declares
+  are registered in each worktree as it starts. One registered with
+  `kindgi providers register` belongs to one worktree, and so does an env
+  file git doesn't track, such as `.env.local`: copy it into a new worktree.
 
 ## Calling Kindgi from an application
 
