@@ -13,6 +13,22 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
+  tenant.** A run that names no flow version takes the version pinned for its
+  project (the project's own pin, then its org's, then the tenant's), else the
+  newest version the project reaches, so a new version can be published and
+  tried by naming it without going into use. `resolve`, `list`, `pin`, `unpin`
+  and `history`, sync and async. A run says how its version was chosen, in
+  `flow_version_via` (`explicit`, `pinned` or `latest`) and, for a pin,
+  `flow_pinned_scope`.
+- `kindgi`: **`client.tools.pinned` pins a tool's version per project, org or
+  tenant.** An agent or flow version made in a project a pin covers locks the
+  tool at the pinned version (an agent's tool range, when the pinned version
+  is in it), so a new tool version can be published without reaching what's
+  made there. The same five calls as `client.flows.pinned`, sync and async.
+- `kindgi`: **`DeploymentPromotion.pinned_flows`** lists each carried flow
+  version a promotion with `make_live` pinned in the target project.
+
 - `kindgi`: **a `retry` guardrail sends a failed answer back to the model,
   for a new one**, until it has failed `maxAttempts` answers (2 when left
   out), and then the turn fails with `guardrail-violation`.

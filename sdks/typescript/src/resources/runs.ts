@@ -8,6 +8,7 @@ import type { ScopeRef } from '../scope-wire.js';
 import { KindgiApiError, notYetWired } from '../errors.js';
 import type {
   LiveScope,
+  PinScope,
   RunFailureGroups,
   RunProgress,
   RunWaitingApproval,
@@ -333,6 +334,10 @@ export type StartRunInput =
     }
   | {
       readonly flow: FlowId | string;
+      /**
+       * Semver; omit → the version pinned for the run's project (the
+       * project, its org, then the tenant), else the newest it reaches.
+       */
       readonly flowVersion?: string;
       /** Project the run belongs to. Optional; when omitted, the API's run handler chooses. */
       readonly projectId?: string;
@@ -435,6 +440,14 @@ export interface Run {
   readonly projectId?: string;
   readonly flowId: string;
   readonly flowVersion: string;
+  /**
+   * How the flow version was chosen: named by the start (`explicit`), the
+   * version pinned for the run's project (`pinned`, with the pin's scope
+   * in `flowPinnedScope`), or the newest the project reaches (`latest`).
+   * Absent when the runtime didn't record it.
+   */
+  readonly flowVersionVia?: 'explicit' | 'pinned' | 'latest';
+  readonly flowPinnedScope?: PinScope;
   readonly status: RunStatus;
   readonly dryRun: boolean;
   readonly createdAt: Timestamp;

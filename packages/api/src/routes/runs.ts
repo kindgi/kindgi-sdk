@@ -56,6 +56,7 @@ import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
+import { pinScopeToWire } from './pin-scope-wire.js';
 import { runFailuresHandler } from './run-failures.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
@@ -1246,6 +1247,7 @@ function serializeRun(
     projectId: row.projectId as unknown as string,
     flowId: row.flowId,
     flowVersion: row.flowVersion,
+    ...withFlowVersionChoice(row),
     status: row.status,
     dryRun: row.dryRun,
     createdAt: row.createdAt as unknown as string,
@@ -1295,6 +1297,16 @@ function serializeRun(
         segments: row.segments.map(({ key, value }) => ({ key, value })),
       }),
     ...(row.traceId != null && { traceId: row.traceId }),
+  };
+}
+
+/** How the run's flow version was chosen, when the run recorded it. */
+function withFlowVersionChoice(row: KernelRunRecord): Record<string, unknown> {
+  return {
+    ...(row.flowVersionVia !== undefined && { flowVersionVia: row.flowVersionVia }),
+    ...(row.flowPinnedScope !== undefined && {
+      flowPinnedScope: pinScopeToWire(row.flowPinnedScope),
+    }),
   };
 }
 

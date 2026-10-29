@@ -48,6 +48,7 @@ import type {
   MCPEndpointRegistryBinding,
   MemoryBinding,
   MemoryErasureBinding,
+  PinnedVersionBinding,
   PolicyRegistryBinding,
   ProviderRegistryBinding,
   PublicRunTokenConfig,
@@ -432,6 +433,14 @@ const noopMemoryErasures: MemoryErasureBinding = {
   replay: async () => ({ replayed: [], restored: [], unmatched: [] }),
 };
 
+const noopPinnedVersions: PinnedVersionBinding = {
+  resolve: async () => null,
+  list: async () => [],
+  pin: async () => ({ kind: 'err', error: { code: 'not-found', message: 'noop' } }),
+  unpin: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'noop' } }),
+  history: async () => ({ data: [] }),
+};
+
 const noopAgentReleases: AgentReleaseBindings = {
   live: { resolve: async () => null, list: async () => [] },
   promotions: {
@@ -666,6 +675,7 @@ export function fullAppInput(): CreateAppInput {
     enableObservations: true,
     agentRegistry: noopAgentRegistry,
     agentReleases: noopAgentReleases,
+    pinnedVersions: noopPinnedVersions,
     flowRegistry: noopFlowRegistry,
     toolRegistry: noopToolRegistry,
     guardrailRegistry: noopGuardrailRegistry,

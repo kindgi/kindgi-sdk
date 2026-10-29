@@ -1,6 +1,6 @@
 ---
 title: Agent and tool versions
-description: How a range picks a tool version, how a published agent version locks its tools, what a deploy does when they change, and what unregistering a version does.
+description: How a range picks a tool version, how a published agent version locks its tools, how a pin holds a tool at a version, what a deploy does when they change, and what unregistering a version does.
 sidebar:
   order: 7
 ---
@@ -8,15 +8,16 @@ sidebar:
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This page explains which tool version a run of an agent gets, how a published
-agent version locks it, and what unregistering a version does.
+agent version locks it, how a pin holds a tool at a version, and what
+unregistering a version does.
 
-Tools and agents are versioned, and several versions of each can be live at
+Tools and agents are versioned, and several versions of each can be active at
 once. An agent names each tool by a range.
 
 ## A range picks a version
 
-A range picks the highest live version it allows. `^1.0.0` picks `1.2.0`
-when `1.0.0`, `1.1.0` and `1.2.0` are live, and never picks `2.0.0`.
+A range picks the highest active version it allows. `^1.0.0` picks `1.2.0`
+when `1.0.0`, `1.1.0` and `1.2.0` are active, and never picks `2.0.0`.
 
 A pack can hold several versions of one tool side by side: two tool files with
 the same id and different versions. Both are served, and each agent runs the
@@ -74,6 +75,184 @@ published, so a version can't be published with a tool it can't run:
 ranges when it starts, so a tool you save is used at the next turn. An agent
 version published without pins resolves its ranges per run too.
 
+## A pin holds a tool at a version
+
+A **pin** holds a tool at a version for a project, an org or the whole tenant
+(runtime 0.3.0 or later), so you can publish a new tool version without it
+reaching the agents and flows made there. When an agent or flow version is
+made in a project a tool's pin covers (the project's own pin, then its org's,
+then the tenant's), the version locks the tool at the pinned version:
+
+- **An agent's tool range** locks the pinned version when the range allows it.
+  A range that leaves it out, such as the exact `1.2.0` while 1.1.0 is pinned,
+  picks as above.
+- **A flow's tool step** locks the pinned version.
+
+This pin is set for a scope. It isn't a version's own `pins`, the tool
+versions that agent or flow version locked when it was published, which never
+change.
+
+A pin counts only while its version is active. It changes no version already
+made: a pin reaches an agent or flow through its next version, as a new tool
+version does.
+
+To try a new tool version without putting it in use:
+
+1. **Pin the version in use,** 1.1.0, for the project.
+2. **Publish 1.2.0.** Agent and flow versions made in the project still lock
+   1.1.0.
+3. **Try it** in an agent version whose range is the exact `1.2.0`, and run
+   that version by name (`agentVersion`). With the agent's
+   [live version](../../evals/live-versions-reference/) pinned, runs that name
+   no version keep the one they had.
+4. **Move the pin** to 1.2.0. The next agent and flow versions made there lock
+   it.
+
+Ask your coding agent: "I want to pin my tool's version in a project, then
+try a new version there without putting it in use." For reference, step 1
+looks like this, with the project's id as its argument:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// pin-a-tool.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const projectId = process.argv[2];
+
+// Agent and flow versions made in the project lock acme.greet 1.1.0.
+await kindgi.tools.pinned.pin('acme.greet', {
+  version: '1.1.0',
+  scope: { kind: 'project', projectId },
+  reason: '1.1.0 is the version we checked',
+});
+
+// Which version would the next agent or flow version made there lock, and why?
+const locks = await kindgi.tools.pinned.resolve('acme.greet', { projectId });
+console.log(locks.version, locks.via);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# pin_a_tool.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+project_id = sys.argv[1]
+
+# Agent and flow versions made in the project lock acme.greet 1.1.0.
+kindgi.tools.pinned.pin(
+    "acme.greet",
+    version="1.1.0",
+    scope={"kind": "project", "project_id": project_id},
+    reason="1.1.0 is the version we checked",
+)
+
+# Which version would the next agent or flow version made there lock, and why?
+locks = kindgi.tools.pinned.resolve("acme.greet", project_id=project_id)
+print(locks.version, locks.via)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/PinATool.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.PinScopeProject;
+import com.kindgi.client.models.PinVersionBody;
+import com.kindgi.client.models.PinnedVersionResolution;
+import com.kindgi.client.resources.ToolsPinnedResolveParams;
+import java.util.UUID;
+
+public final class PinATool {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    UUID projectId = UUID.fromString(args[0]);
+
+    // Agent and flow versions made in the project lock acme.greet 1.1.0.
+    kindgi.tools().pinned().pin("acme.greet", PinVersionBody.builder()
+        .version("1.1.0")
+        .scope(PinScopeProject.builder().projectId(projectId).build())
+        .reason("1.1.0 is the version we checked")
+        .build());
+
+    // Which version would the next agent or flow version made there lock, and why?
+    PinnedVersionResolution locks = kindgi.tools().pinned().resolve("acme.greet",
+        ToolsPinnedResolveParams.builder().projectId(projectId).build());
+    System.out.println(locks.version() + " " + locks.via());
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/PinATool.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{PinScopeProject, PinVersionBody}
+import com.kindgi.client.resources.ToolsPinnedResolveParams
+import java.util.UUID
+
+object PinATool {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    val projectId = UUID.fromString(args(0))
+
+    // Agent and flow versions made in the project lock acme.greet 1.1.0.
+    kindgi.tools().pinned().pin("acme.greet", PinVersionBody.builder()
+      .version("1.1.0")
+      .scope(PinScopeProject.builder().projectId(projectId).build())
+      .reason("1.1.0 is the version we checked")
+      .build())
+
+    // Which version would the next agent or flow version made there lock, and why?
+    val locks = kindgi.tools().pinned().resolve("acme.greet",
+      ToolsPinnedResolveParams.builder().projectId(projectId).build())
+    println(s"${locks.version} ${locks.via}")
+  }
+}
+```
+
+</TabItem>
+</Tabs>
+
+It prints the version the next agent or flow version made there locks, and
+how it was chosen:
+
+```text
+1.1.0 pinned
+```
+
+`kindgi.tools.pinned` also has `resolve` (the version a flow version made in
+a project would lock, and why), `list`, `unpin` and `history`, as
+[Pin a flow's version](../../flows/pin-a-flow-version/) shows for flows.
+Pinning and unpinning need `pin` on the tool, which its admins have.
+
+**In an environment order,** versions are made in the order's first
+environment, so a tool in an order is pinned there. A pin for a later
+environment would never act, and is refused with
+`409 environment-takes-promotions`, naming the first environment in
+`details.firstProjectId` when you can read that project. A pin for an org or
+the tenant is refused with `409 pin-scope-spans-environments`.
+
+**Some tools can't be pinned.** A tool an MCP endpoint's catalog lists (its
+metadata has the catalog's `kindgi.mcp` key) follows its server: a call goes
+to the live server whatever the version, so a pin couldn't keep it still. The
+runtime's own tools follow the runtime. Pinning either is refused with
+`400 tool-not-pinnable`; reference them with a range.
+
 ## Deploys make the new version for you
 
 `kindgi deploy` publishes the agents in your pack. A published version never
@@ -105,7 +284,9 @@ agent's next version, as above. A new image of the same tool keeps its
 version: the deploy points the version at the new image.
 
 **Flows** are pinned the same way. A flow version pins its tool nodes, and
-its agent steps that don't name a version, to their latest at publish. A tool
+its agent steps that don't name a version, to their latest at publish (a
+tool's [pinned version](#a-pin-holds-a-tool-at-a-version), where a pin covers
+the flow's project). A tool
 change reaches a flow through a new agent version and a new flow version, in
 one deploy, with a line for each.
 
@@ -281,6 +462,10 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   acme.order-desk 1.0.0 is live in a scope: roll back, unpin, or promote another version there first, then unregister it.
   ```
 
+- **A pinned flow or tool version can't be unregistered** either (runtime
+  0.3.0 or later). Move or remove the pins first; until then, it's refused
+  with `409 flow-version-pinned` or `409 tool-version-pinned`, naming the
+  pins' scopes in `details.scopes`.
 - **What pins it keeps running:** an agent version pinned to an unregistered
   tool version, or a flow whose step names an unregistered agent version,
   runs as before.

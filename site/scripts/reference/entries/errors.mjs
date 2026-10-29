@@ -729,7 +729,7 @@ export const ERROR_ENTRIES = {
   },
   'environment-takes-promotions': {
     description:
-      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. Nothing is written.",
+      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. A tool's pin for a later environment is refused too: a tool's pin acts when an agent or flow version is made, which is in the first environment, so pin the tool there. Nothing is written.",
     details: [
       {
         key: 'firstProjectId',
@@ -794,6 +794,21 @@ export const ERROR_ENTRIES = {
       "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written.",
     details: [],
     seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
+  'pin-scope-spans-environments': {
+    description:
+      "A flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once. Pin a flow in each environment's project, and a tool in the order's first environment, where agent and flow versions are made.",
+    details: [],
+  },
+  'tool-not-pinnable': {
+    description:
+      "The tool follows its server (a tool an MCP endpoint's catalog lists: its metadata has the catalog's `kindgi.mcp` key) or the runtime (a tool the runtime ships), so a pin couldn't keep it still. Reference it with a version range instead.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: 'the tool',
+      },
+    ],
   },
   'live-scope-spans-environments': {
     description:
@@ -1938,7 +1953,7 @@ export const ERROR_ENTRIES = {
   },
   'not-pinned': {
     description:
-      "The scope has no live version of its own, so there's nothing to roll back or unpin. Pin a version for the scope first.",
+      "The scope has no pin of its own (for an agent, no live version of its own), so there's nothing to roll back or unpin. Pin a version for the scope first.",
     details: [],
   },
   'gate-failed': {
@@ -2487,6 +2502,42 @@ export const ERROR_ENTRIES = {
       {
         key: 'scopes',
         meaning: 'the scopes where it is live',
+      },
+    ],
+  },
+  'flow-version-pinned': {
+    description:
+      "The flow version is pinned in one or more scopes, so it can't be unregistered, and the flow can't be deleted while any of its versions is. Move the pin to another version, or unpin it, first.",
+    details: [
+      {
+        key: 'flowId',
+        meaning: 'the flow',
+      },
+      {
+        key: 'version',
+        meaning: 'the version',
+      },
+      {
+        key: 'scopes',
+        meaning: 'the scopes where it is pinned',
+      },
+    ],
+  },
+  'tool-version-pinned': {
+    description:
+      "The tool version is pinned in one or more scopes, so it can't be unregistered, and the tool can't be deleted while any of its versions is. Move the pin to another version, or unpin it, first.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: 'the tool',
+      },
+      {
+        key: 'version',
+        meaning: 'the version',
+      },
+      {
+        key: 'scopes',
+        meaning: 'the scopes where it is pinned',
       },
     ],
   },

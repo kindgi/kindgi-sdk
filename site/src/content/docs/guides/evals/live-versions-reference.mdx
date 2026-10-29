@@ -74,6 +74,11 @@ tenant went back to 1.0.0, its step still ran 1.3.0:
 
 To run a new agent version in a flow, publish a new version of the flow.
 
+Its tool steps are held the same way: each runs the tool version the flow
+version locked when it was published, which is the tool's
+[pinned version](../../agents/agent-and-tool-versions/#a-pin-holds-a-tool-at-a-version)
+for the flow's project when a pin covers it, else the tool's newest.
+
 ## Rollbacks and unpins
 
 - **A rollback** puts a scope back on the version that was live there

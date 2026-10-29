@@ -284,6 +284,7 @@
           "agent-project-mismatch": 409,
           "registry-read-only": 409,
           "live-scope-spans-environments": 409,
+          "pin-scope-spans-environments": 409,
           "agent-gone": 410,
           "run-erased": 410,
           "flow-gone": 410,
@@ -461,6 +462,9 @@
           "person-grants-unsupported": 501,
           "permissions-unsupported": 501,
           "agent-version-live": 409,
+          "flow-version-pinned": 409,
+          "tool-version-pinned": 409,
+          "tool-not-pinnable": 400,
           "artifact-too-large": 413,
           "request-too-large": 413,
           "unsupported-media-type": 415,
@@ -1347,6 +1351,299 @@
           }
         }
       },
+      "PinScopeTenant": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "The whole tenant.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant"
+            ]
+          }
+        }
+      },
+      "PinScopeOrg": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "orgId"
+        ],
+        "description": "An org's projects.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "org"
+            ]
+          },
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PinScopeProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId"
+        ],
+        "description": "One project.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "project"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PinScope": {
+        "description": "Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PinScopeTenant"
+          },
+          {
+            "$ref": "#/components/schemas/PinScopeOrg"
+          },
+          {
+            "$ref": "#/components/schemas/PinScopeProject"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "PinActor": {
+        "type": "object",
+        "description": "Who pinned or unpinned: a user, or a service token.",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service"
+            ]
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "PinnedVersionResolution": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "itemId",
+          "version",
+          "via"
+        ],
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "description": "The flow or tool."
+          },
+          "version": {
+            "type": "string",
+            "description": "The version in use there (semver): what a run that names no flow version takes, or what the next agent or flow version made there locks for a tool."
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "pinned",
+              "latest"
+            ],
+            "description": "A pin chose it, or nothing is pinned on the way up and it is the newest version (for a flow, the newest the project reaches; for a tool, the newest active one)."
+          },
+          "pinnedScope": {
+            "$ref": "#/components/schemas/PinScope"
+          }
+        }
+      },
+      "PinnedVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "itemId",
+          "scope",
+          "version",
+          "changeId",
+          "setAt",
+          "setBy"
+        ],
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PinScope"
+          },
+          "version": {
+            "type": "string"
+          },
+          "changeId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The change that set it."
+          },
+          "setAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "setBy": {
+            "$ref": "#/components/schemas/PinActor"
+          }
+        }
+      },
+      "PinnedVersionList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinnedVersion"
+            }
+          }
+        }
+      },
+      "PinnedVersionChange": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "itemId",
+          "scope",
+          "action",
+          "fromVersion",
+          "toVersion",
+          "requestedBy",
+          "createdAt"
+        ],
+        "description": "One change of a scope's pin, kept for good: what was pinned before, what is after, who asked and why.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PinScope"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "pin",
+              "unpin"
+            ]
+          },
+          "fromVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scope's own pin before; null when it had none."
+          },
+          "toVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The scope's own pin after; null after an unpin."
+          },
+          "requestedBy": {
+            "$ref": "#/components/schemas/PinActor"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PinnedVersionChangePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinnedVersionChange"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "PinVersionBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "scope"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The version to pin (registered, active)."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PinScope"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "UnpinVersionBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/PinScope"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
       "GateCheck": {
         "type": "object",
         "additionalProperties": false,
@@ -1809,6 +2106,18 @@
             "type": "string",
             "description": "Semver."
           },
+          "flowVersionVia": {
+            "type": "string",
+            "enum": [
+              "explicit",
+              "pinned",
+              "latest"
+            ],
+            "description": "How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the tenant; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did."
+          },
+          "flowPinnedScope": {
+            "$ref": "#/components/schemas/PinScope"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -2151,7 +2460,7 @@
               },
               "flowVersion": {
                 "type": "string",
-                "description": "Semver; omit → latest."
+                "description": "Semver; omit → the version pinned for the run's project (the project, its org, then the tenant), else the newest it reaches."
               },
               "projectId": {
                 "type": "string",
@@ -2247,6 +2556,18 @@
                 "flowVersion": {
                   "type": "string",
                   "description": "Semver."
+                },
+                "flowVersionVia": {
+                  "type": "string",
+                  "enum": [
+                    "explicit",
+                    "pinned",
+                    "latest"
+                  ],
+                  "description": "How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the tenant; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did."
+                },
+                "flowPinnedScope": {
+                  "$ref": "#/components/schemas/PinScope"
                 },
                 "status": {
                   "type": "string",
@@ -7290,7 +7611,7 @@
         }
       },
       "FlowPins": {
-        "description": "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).",
+        "description": "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version live for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version live for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version live for the run, else its latest.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -18863,7 +19184,8 @@
                 "delete",
                 "admin",
                 "execute",
-                "publish"
+                "publish",
+                "pin"
               ]
             }
           },
@@ -18876,7 +19198,8 @@
                 "write",
                 "delete",
                 "admin",
-                "invoke"
+                "invoke",
+                "pin"
               ]
             }
           },
@@ -19648,7 +19971,7 @@
           },
           "makeLive": {
             "type": "boolean",
-            "description": "Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape."
+            "description": "Make every agent version the promotion carries live in the target project, each through its scope's gate, and pin every flow version it carries there (the project's pin), so a run there that names no version takes it. The answer's `live` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.live` and `error.details.pinnedFlows`, in the answer's shapes."
           }
         }
       },
@@ -19852,6 +20175,22 @@
           }
         }
       },
+      "DeploymentPinnedFlow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
       "DeploymentPromotion": {
         "type": "object",
         "additionalProperties": false,
@@ -19884,6 +20223,13 @@
               "$ref": "#/components/schemas/DeploymentLivePin"
             },
             "description": "Each carried agent pinned live in the target; present only when `makeLive` was asked."
+          },
+          "pinnedFlows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeploymentPinnedFlow"
+            },
+            "description": "Each carried flow version pinned in the target (the project's pin); present only when `makeLive` was asked of a runtime that pins flows."
           }
         }
       },
@@ -20199,6 +20545,12 @@
           "agent-rollback",
           "agent-live-unpinned",
           "agent-live-pin-inactive",
+          "flow-pinned",
+          "flow-unpinned",
+          "flow-pin-inactive",
+          "tool-pinned",
+          "tool-unpinned",
+          "tool-pin-inactive",
           "api-key-minted",
           "api-key-revoked",
           "service-account-created",
@@ -20367,6 +20719,12 @@
               "agent-rollback",
               "agent-live-unpinned",
               "agent-live-pin-inactive",
+              "flow-pinned",
+              "flow-unpinned",
+              "flow-pin-inactive",
+              "tool-pinned",
+              "tool-unpinned",
+              "tool-pin-inactive",
               "api-key-minted",
               "api-key-revoked",
               "service-account-created",
@@ -20558,6 +20916,12 @@
               "agent-rollback",
               "agent-live-unpinned",
               "agent-live-pin-inactive",
+              "flow-pinned",
+              "flow-unpinned",
+              "flow-pin-inactive",
+              "tool-pinned",
+              "tool-unpinned",
+              "tool-pin-inactive",
               "api-key-minted",
               "api-key-revoked",
               "service-account-created",
@@ -20647,6 +21011,12 @@
                   "agent-rollback",
                   "agent-live-unpinned",
                   "agent-live-pin-inactive",
+                  "flow-pinned",
+                  "flow-unpinned",
+                  "flow-pin-inactive",
+                  "tool-pinned",
+                  "tool-unpinned",
+                  "tool-pin-inactive",
                   "api-key-minted",
                   "api-key-revoked",
                   "service-account-created",
@@ -37481,7 +37851,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `flow-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -37656,6 +38026,507 @@
             },
             "required": false,
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/flows/{flowId}/pinned": {
+      "get": {
+        "operationId": "flows.pinned.resolve",
+        "summary": "The version in use for a project",
+        "tags": [
+          "flows"
+        ],
+        "responses": {
+          "200": {
+            "description": "The version in use.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed project or org id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`flow-not-found`: no flow with that id, or no version of it for that project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over. `via` says which; `pinnedScope` names the pin that matched.",
+        "parameters": [
+          {
+            "name": "flowId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "FlowId — dotted namespace (`acme.ingest-invoice`)."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "The project to resolve for; omit → only the org's pin (with `orgId`) and the tenant-wide pin apply."
+          },
+          {
+            "name": "orgId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "The project's org, when it has one. A runtime may look it up from `projectId` itself."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/flows/{flowId}/pinned-versions": {
+      "get": {
+        "operationId": "flows.pinned.list",
+        "summary": "List a flow's pinned versions",
+        "tags": [
+          "flows"
+        ],
+        "responses": {
+          "200": {
+            "description": "The pins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every scope with a version pinned, and the change that set it.",
+        "parameters": [
+          {
+            "name": "flowId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "FlowId — dotted namespace (`acme.ingest-invoice`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/flows/{flowId}/pinned/pin": {
+      "post": {
+        "operationId": "flows.pinned.pin",
+        "summary": "Pin a version for a scope",
+        "tags": [
+          "flows"
+        ],
+        "responses": {
+          "200": {
+            "description": "Pinned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body. Or `scope-invalid`: a segment scope, since flows pin per project, org or tenant. Or `reference-out-of-scope`: a project scope whose project doesn't reach the version (`details.issues`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`flow-not-found`: no flow with that id, or the version isn't registered or was unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body. Or `pin-scope-spans-environments`: the flow has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin it per project instead. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "`flow-gone`: the flow has no active version left.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the flow.",
+        "parameters": [
+          {
+            "name": "flowId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "FlowId — dotted namespace (`acme.ingest-invoice`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinVersionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/flows/{flowId}/pinned/unpin": {
+      "post": {
+        "operationId": "flows.pinned.unpin",
+        "summary": "Remove a scope's pin",
+        "tags": [
+          "flows"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unpinned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body. Or `scope-invalid`: a segment scope, since flows pin per project, org or tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`flow-not-found`: no flow with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body. Or `not-pinned`: the scope has no pin of its own. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the flow.",
+        "parameters": [
+          {
+            "name": "flowId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "FlowId — dotted namespace (`acme.ingest-invoice`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnpinVersionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/flows/{flowId}/pin-history": {
+      "get": {
+        "operationId": "flows.pinned.history",
+        "summary": "List a flow's pin changes",
+        "tags": [
+          "flows"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of pin changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionChangePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.",
+        "parameters": [
+          {
+            "name": "flowId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "FlowId — dotted namespace (`acme.ingest-invoice`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -38252,7 +39123,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -38427,6 +39298,507 @@
             },
             "required": false,
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/tools/{toolId}/pinned": {
+      "get": {
+        "operationId": "tools.pinned.resolve",
+        "summary": "The version in use for a project",
+        "tags": [
+          "tools"
+        ],
+        "responses": {
+          "200": {
+            "description": "The version in use.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionResolution"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed project or org id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`tool-not-found`: no tool with that id, or no version of it for that project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest active version, the one a flow version made now would lock its tool step to. `via` says which; `pinnedScope` names the pin that matched.",
+        "parameters": [
+          {
+            "name": "toolId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ToolId — dotted namespace (`acme.lookup-order`)."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "The project to resolve for; omit → only the org's pin (with `orgId`) and the tenant-wide pin apply."
+          },
+          {
+            "name": "orgId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "The project's org, when it has one. A runtime may look it up from `projectId` itself."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/tools/{toolId}/pinned-versions": {
+      "get": {
+        "operationId": "tools.pinned.list",
+        "summary": "List a tool's pinned versions",
+        "tags": [
+          "tools"
+        ],
+        "responses": {
+          "200": {
+            "description": "The pins.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every scope with a version pinned, and the change that set it.",
+        "parameters": [
+          {
+            "name": "toolId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ToolId — dotted namespace (`acme.lookup-order`)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/tools/{toolId}/pinned/pin": {
+      "post": {
+        "operationId": "tools.pinned.pin",
+        "summary": "Pin a version for a scope",
+        "tags": [
+          "tools"
+        ],
+        "responses": {
+          "200": {
+            "description": "Pinned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body. Or `scope-invalid`: a segment scope, since tools pin per project, org or tenant. Or `reference-out-of-scope`: a project scope whose project doesn't reach the tool (`details.issues`). Or `tool-not-pinnable`: the tool follows its server (an MCP endpoint's catalog lists it; its metadata has the catalog's `kindgi.mcp` key) or the runtime (a tool the runtime ships), so a pin couldn't keep it still; reference it with a range.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`tool-not-found`: no tool with that id, or the version isn't registered or was unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body. Or `pin-scope-spans-environments`: the tool has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin it per project instead. Or `environment-takes-promotions`: the project is a later environment of an environment order, where no agent or flow version is made, so a pin there would never act; pin the tool in the order's first environment (`details.firstProjectId`). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "`tool-gone`: the tool has no active version left.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the tool.",
+        "parameters": [
+          {
+            "name": "toolId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ToolId — dotted namespace (`acme.lookup-order`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinVersionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/tools/{toolId}/pinned/unpin": {
+      "post": {
+        "operationId": "tools.pinned.unpin",
+        "summary": "Remove a scope's pin",
+        "tags": [
+          "tools"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unpinned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body. Or `scope-invalid`: a segment scope, since tools pin per project, org or tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`tool-not-found`: no tool with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body. Or `not-pinned`: the scope has no pin of its own. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the tool.",
+        "parameters": [
+          {
+            "name": "toolId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ToolId — dotted namespace (`acme.lookup-order`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnpinVersionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/tools/{toolId}/pin-history": {
+      "get": {
+        "operationId": "tools.pinned.history",
+        "summary": "List a tool's pin changes",
+        "tags": [
+          "tools"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of pin changes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedVersionChangePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.",
+        "parameters": [
+          {
+            "name": "toolId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ToolId — dotted namespace (`acme.lookup-order`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [

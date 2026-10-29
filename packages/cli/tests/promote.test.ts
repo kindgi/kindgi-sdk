@@ -326,6 +326,50 @@ describe('kindgi promote', () => {
     expect(out.stdout).toContain('prod has this build already, as deployment dep-prod-0');
   });
 
+  test('--make-live: asks for it, then prints each agent version live or held by its gate, and each flow version pinned; one not live exits 3', async () => {
+    const gate = (status: string) => ({
+      status,
+      promotionId: '00000000-0000-4000-8000-000000000001',
+    });
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', '--make-live'], {
+      promote: () => ({
+        deployment: deployment('dep-prod-1'),
+        created: true,
+        moved: MOVES,
+        live: [
+          { id: 'acme.matcher', version: '1.0.2', pinned: true },
+          { id: 'acme.router', version: '2.1.0', pinned: false, gate: gate('pending-approval') },
+          { id: 'acme.drafter', version: '0.4.0', pinned: false, gate: gate('refused') },
+        ],
+        pinnedFlows: [{ id: 'acme.checkout', version: '2.0.0' }],
+      }),
+    });
+    expect(out.exitCode).toBe(3);
+    expect(named(calls, 'promote')[0]?.[2]).toMatchObject({
+      toProjectId: 'p-prod',
+      makeLive: true,
+    });
+    expect(out.stdout).toContain(
+      [
+        'Promoted: deployment dep-prod-1 in prod.',
+        'Live in prod:',
+        '  acme.matcher 1.0.2 — live',
+        '  acme.router 2.1.0 — waiting for an approval',
+        '  acme.drafter 0.4.0 — held by the gate',
+        'Flows pinned in prod:',
+        '  acme.checkout 2.0.0',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('without --make-live, nothing is asked for and no live or pinned lines are printed', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod']);
+    expect(named(calls, 'promote')[0]?.[2]).not.toHaveProperty('makeLive');
+    expect(out.stdout).not.toContain('Live in');
+    expect(out.stdout).not.toContain('Flows pinned in');
+  });
+
   test('--json: the deployment, the check and the promotion, as one object', async () => {
     const { out } = await run(['promote', '--from=staging', '--to=prod', '--json']);
     expect(out.exitCode).toBe(0);

@@ -102,6 +102,7 @@ import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
+import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
@@ -985,6 +986,16 @@ export interface CreateAppInput {
    */
   readonly agentReleases?: AgentReleaseBindings;
   /**
+   * Optional. Pinned versions of flows and tools per scope
+   * (`/v1/flows/{id}/pinned`, `/pinned-versions`, `/pinned/pin`,
+   * `/pinned/unpin`, `/pin-history`, and the same under `/v1/tools/{id}`).
+   * A run that names no flow version takes the one pinned for its project,
+   * and a published agent or flow version locks each tool at the version
+   * pinned where it's made. Absent → the routes aren't mounted, a run takes
+   * the newest flow version and a lock the newest tool version, as before.
+   */
+  readonly pinnedVersions?: PinnedVersionBinding;
+  /**
    * Optional. Push-based pub/sub binding used by SSE endpoints to
    * deliver run events without polling. When present, `GET
    * /v1/runs/:runId/stream` subscribes on channel
@@ -1761,6 +1772,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.environmentOrders,
         itemRights,
         itemServing,
+        input.pinnedVersions,
       ),
     );
   }
@@ -1791,12 +1803,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               tools: input.toolRegistry,
               agents: input.agentRegistry,
               ...(input.agentReleases !== undefined && { live: input.agentReleases.live }),
+              ...(input.pinnedVersions !== undefined && { pinned: input.pinnedVersions }),
             }
           : undefined,
         input.referenceScope,
         input.environmentOrders,
         itemRights,
         itemServing,
+        input.pinnedVersions,
       ),
     );
   }
@@ -1854,6 +1868,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
         ...(itemRights !== undefined && { itemRights }),
         ...(itemServing !== undefined && { itemServing }),
+        ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+        ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
       }),
     );
   }
@@ -2493,6 +2509,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
           ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
+          ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
           // A promotion asked to make its carried agents live pins each in
           // the target through the same gate a live route uses.
           ...(input.agentReleases !== undefined && {

@@ -14,7 +14,7 @@ import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { Cursor, LiveScope, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
-import { resolveAgentPins } from '../agent-pins.js';
+import { resolveAgentPins, toolPinLookup } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import {
   type DeriveAgentVersionOutcome,
@@ -43,6 +43,7 @@ import {
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import {
   type ReferenceScopeBinding,
   agentReferences,
@@ -82,7 +83,9 @@ import { parseScopeParams } from './scope-params.js';
  * resolves once, at publish, to the exact version every run of that
  * version uses (`pins`, see `resolveAgentPins`), and a range that
  * matches no published version refuses the publish. Without it,
- * versions carry no pins and resolve their ranges per run.
+ * versions carry no pins and resolve their ranges per run. With
+ * `pinnedVersions` too, a tool pinned for the agent's project pins its
+ * pinned version when that one is in the range.
  */
 export function agentsRouter(
   binding: AgentRegistryBinding,
@@ -107,6 +110,8 @@ export function agentsRouter(
   itemRights?: ItemRights,
   /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
   itemServing?: ItemServing,
+  /** The tools' pinned versions, read when a version is pinned; absent → each range's newest. */
+  pinnedVersions?: PinnedVersionBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -602,7 +607,14 @@ export function agentsRouter(
     // publish rather than store a partly pinned version.
     let agent: Agent = defined.value;
     if (toolRegistry !== undefined) {
-      const resolved = await resolveAgentPins(toolRegistry, tenantId, defined.value, blockRegistry);
+      const resolved = await resolveAgentPins(
+        toolRegistry,
+        tenantId,
+        defined.value,
+        blockRegistry,
+        undefined,
+        toolPinLookup(pinnedVersions, projectId),
+      );
       if (resolved.kind === 'unpinnable') {
         c.status(statusFor('invalid-agent') as never);
         return c.json(

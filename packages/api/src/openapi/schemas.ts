@@ -430,6 +430,149 @@ export const PromotionPageSchema: JsonSchema = {
   },
 };
 
+// ---------------- pinned versions of flows and tools ----------------
+
+export const PinScopeTenantSchema = liveScopeVariant('tenant', 'The whole tenant.', {});
+export const PinScopeOrgSchema = liveScopeVariant('org', "An org's projects.", {
+  orgId: { type: 'string', format: 'uuid' },
+});
+export const PinScopeProjectSchema = liveScopeVariant('project', 'One project.', {
+  projectId: { type: 'string', format: 'uuid' },
+});
+
+export const PinScopeSchema: JsonSchema = {
+  description:
+    'Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.',
+  oneOf: [
+    { $ref: '#/components/schemas/PinScopeTenant' },
+    { $ref: '#/components/schemas/PinScopeOrg' },
+    { $ref: '#/components/schemas/PinScopeProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const PinActorSchema: JsonSchema = {
+  type: 'object',
+  description: 'Who pinned or unpinned: a user, or a service token.',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service'] },
+    id: { type: 'string' },
+  },
+};
+
+export const PinnedVersionResolutionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['itemId', 'version', 'via'],
+  properties: {
+    itemId: { type: 'string', description: 'The flow or tool.' },
+    version: {
+      type: 'string',
+      description:
+        'The version in use there (semver): what a run that names no flow version takes, or what the next agent or flow version made there locks for a tool.',
+    },
+    via: {
+      type: 'string',
+      enum: ['pinned', 'latest'],
+      description:
+        'A pin chose it, or nothing is pinned on the way up and it is the newest version (for a flow, the newest the project reaches; for a tool, the newest active one).',
+    },
+    pinnedScope: { $ref: '#/components/schemas/PinScope' },
+  },
+};
+
+export const PinnedVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['itemId', 'scope', 'version', 'changeId', 'setAt', 'setBy'],
+  properties: {
+    itemId: { type: 'string' },
+    scope: { $ref: '#/components/schemas/PinScope' },
+    version: { type: 'string' },
+    changeId: { type: 'string', format: 'uuid', description: 'The change that set it.' },
+    setAt: { type: 'string', format: 'date-time' },
+    setBy: { $ref: '#/components/schemas/PinActor' },
+  },
+};
+
+export const PinnedVersionListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: { data: { type: 'array', items: { $ref: '#/components/schemas/PinnedVersion' } } },
+};
+
+export const PinnedVersionChangeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'id',
+    'itemId',
+    'scope',
+    'action',
+    'fromVersion',
+    'toVersion',
+    'requestedBy',
+    'createdAt',
+  ],
+  description:
+    "One change of a scope's pin, kept for good: what was pinned before, what is after, who asked and why.",
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    itemId: { type: 'string' },
+    scope: { $ref: '#/components/schemas/PinScope' },
+    action: { type: 'string', enum: ['pin', 'unpin'] },
+    fromVersion: {
+      type: ['string', 'null'],
+      description: "The scope's own pin before; null when it had none.",
+    },
+    toVersion: {
+      type: ['string', 'null'],
+      description: "The scope's own pin after; null after an unpin.",
+    },
+    requestedBy: { $ref: '#/components/schemas/PinActor' },
+    reason: { type: 'string' },
+    createdAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const PinnedVersionChangePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/PinnedVersionChange' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const PinVersionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'scope'],
+  properties: {
+    version: {
+      type: 'string',
+      description: 'The version to pin (registered, active).',
+    },
+    scope: { $ref: '#/components/schemas/PinScope' },
+    reason: { type: 'string', maxLength: 2000 },
+  },
+};
+
+export const UnpinVersionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scope'],
+  properties: {
+    scope: { $ref: '#/components/schemas/PinScope' },
+    reason: { type: 'string', maxLength: 2000 },
+  },
+};
+
 // ---------------- the promotion gate (evals step 4b) ----------------
 
 export const GateCheckSchema: JsonSchema = {
@@ -921,6 +1064,13 @@ export const RunSchema: JsonSchema = {
     projectId: { type: 'string', format: 'uuid' },
     flowId: { type: 'string' },
     flowVersion: { type: 'string', description: 'Semver.' },
+    flowVersionVia: {
+      type: 'string',
+      enum: ['explicit', 'pinned', 'latest'],
+      description:
+        "How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the tenant; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.",
+    },
+    flowPinnedScope: { $ref: '#/components/schemas/PinScope' },
     status: RunStatusSchema,
     dryRun: { type: 'boolean' },
     createdAt: { type: 'string', format: 'date-time' },
@@ -1081,7 +1231,11 @@ export const StartRunBodySchema: JsonSchema = {
       required: ['flow', 'input'],
       properties: {
         flow: { type: 'string', description: 'FlowId.' },
-        flowVersion: { type: 'string', description: 'Semver; omit → latest.' },
+        flowVersion: {
+          type: 'string',
+          description:
+            "Semver; omit → the version pinned for the run's project (the project, its org, then the tenant), else the newest it reaches.",
+        },
         projectId: {
           type: 'string',
           format: 'uuid',
@@ -3621,7 +3775,7 @@ export const FlowSchema: JsonSchema = {
 
 export const FlowPinsSchema: JsonSchema = {
   description:
-    'The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).',
+    "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version live for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version live for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version live for the run, else its latest.",
   type: 'object',
   additionalProperties: false,
   required: ['tools', 'agents'],
@@ -11445,7 +11599,7 @@ export const DeploymentPromotionBodySchema: JsonSchema = {
     makeLive: {
       type: 'boolean',
       description:
-        "Make every agent version the promotion carries live in the target project, each through its scope's gate. The answer's `live` reports each. An error answered after some carried agents were already pinned lists those in `error.details.live`, in `live`'s shape.",
+        "Make every agent version the promotion carries live in the target project, each through its scope's gate, and pin every flow version it carries there (the project's pin), so a run there that names no version takes it. The answer's `live` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.live` and `error.details.pinnedFlows`, in the answer's shapes.",
     },
   },
 };
@@ -11550,6 +11704,17 @@ export const DeploymentLivePinSchema: JsonSchema = {
   },
 };
 
+/** A carried flow version a make-live pinned in the target project. */
+export const DeploymentPinnedFlowSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'version'],
+  properties: {
+    id: { type: 'string' },
+    version: { type: 'string' },
+  },
+};
+
 /** A promotion's answer. */
 export const DeploymentPromotionSchema: JsonSchema = {
   type: 'object',
@@ -11573,6 +11738,12 @@ export const DeploymentPromotionSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/DeploymentLivePin' },
       description:
         'Each carried agent pinned live in the target; present only when `makeLive` was asked.',
+    },
+    pinnedFlows: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentPinnedFlow' },
+      description:
+        "Each carried flow version pinned in the target (the project's pin); present only when `makeLive` was asked of a runtime that pins flows.",
     },
   },
 };
@@ -15844,6 +16015,18 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
+  ['PinScopeTenant', PinScopeTenantSchema],
+  ['PinScopeOrg', PinScopeOrgSchema],
+  ['PinScopeProject', PinScopeProjectSchema],
+  ['PinScope', PinScopeSchema],
+  ['PinActor', PinActorSchema],
+  ['PinnedVersionResolution', PinnedVersionResolutionSchema],
+  ['PinnedVersion', PinnedVersionSchema],
+  ['PinnedVersionList', PinnedVersionListSchema],
+  ['PinnedVersionChange', PinnedVersionChangeSchema],
+  ['PinnedVersionChangePage', PinnedVersionChangePageSchema],
+  ['PinVersionBody', PinVersionBodySchema],
+  ['UnpinVersionBody', UnpinVersionBodySchema],
   ['GateCheck', GateCheckSchema],
   ['GatePolicyRef', GatePolicyRefSchema],
   ['GateApproval', GateApprovalSchema],
@@ -16321,6 +16504,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LeftBehindVersion', LeftBehindVersionSchema],
   ['DeploymentLivePinGate', DeploymentLivePinGateSchema],
   ['DeploymentLivePin', DeploymentLivePinSchema],
+  ['DeploymentPinnedFlow', DeploymentPinnedFlowSchema],
   ['DeploymentPromotion', DeploymentPromotionSchema],
   ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],
   ['DeploymentPromotionCheck', DeploymentPromotionCheckSchema],

@@ -318,6 +318,21 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "flows.pinned.resolve": Operation(
+        "flows.pinned.resolve", "GET", "/v1/flows/{flowId}/pinned", "json", False
+    ),
+    "flows.pinned.list": Operation(
+        "flows.pinned.list", "GET", "/v1/flows/{flowId}/pinned-versions", "json", False
+    ),
+    "flows.pinned.pin": Operation(
+        "flows.pinned.pin", "POST", "/v1/flows/{flowId}/pinned/pin", "json", True
+    ),
+    "flows.pinned.unpin": Operation(
+        "flows.pinned.unpin", "POST", "/v1/flows/{flowId}/pinned/unpin", "json", True
+    ),
+    "flows.pinned.history": Operation(
+        "flows.pinned.history", "GET", "/v1/flows/{flowId}/pin-history", "json", False
+    ),
     "tools.list": Operation("tools.list", "GET", "/v1/tools", "json", False),
     "tools.register": Operation("tools.register", "POST", "/v1/tools", "json", True),
     "tools.get": Operation("tools.get", "GET", "/v1/tools/{toolId}", "json", False),
@@ -336,6 +351,21 @@ OPERATIONS: dict[str, Operation] = {
         "/v1/tools/{toolId}/versions/{version}/reinstate",
         "json",
         True,
+    ),
+    "tools.pinned.resolve": Operation(
+        "tools.pinned.resolve", "GET", "/v1/tools/{toolId}/pinned", "json", False
+    ),
+    "tools.pinned.list": Operation(
+        "tools.pinned.list", "GET", "/v1/tools/{toolId}/pinned-versions", "json", False
+    ),
+    "tools.pinned.pin": Operation(
+        "tools.pinned.pin", "POST", "/v1/tools/{toolId}/pinned/pin", "json", True
+    ),
+    "tools.pinned.unpin": Operation(
+        "tools.pinned.unpin", "POST", "/v1/tools/{toolId}/pinned/unpin", "json", True
+    ),
+    "tools.pinned.history": Operation(
+        "tools.pinned.history", "GET", "/v1/tools/{toolId}/pin-history", "json", False
     ),
     "guardrails.list": Operation("guardrails.list", "GET", "/v1/guardrails", "json", False),
     "guardrails.register": Operation("guardrails.register", "POST", "/v1/guardrails", "json", True),
@@ -3419,11 +3449,127 @@ class GatePoliciesResource:
         )
 
 
+class FlowsPinnedResource:
+    """`client.flows.pinned` — the `flows.pinned` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def resolve(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        org_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionResolution:
+        """The version in use for a project. `GET /v1/flows/{flowId}/pinned`
+
+        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over. `via` says which; `pinnedScope` names the pin that matched.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.resolve"],
+            path={"flowId": flow_id},
+            query={"projectId": project_id, "orgId": org_id},
+            headers={},
+            response=_models.PinnedVersionResolution,
+            timeout=timeout,
+        )
+
+    def list(
+        self, flow_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PinnedVersionList:
+        """List a flow's pinned versions. `GET /v1/flows/{flowId}/pinned-versions`
+
+        Every scope with a version pinned, and the change that set it.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.list"],
+            path={"flowId": flow_id},
+            query={},
+            headers={},
+            response=_models.PinnedVersionList,
+            timeout=timeout,
+        )
+
+    def pin(
+        self,
+        flow_id: str | UUID,
+        body: _models.PinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Pin a version for a scope. `POST /v1/flows/{flowId}/pinned/pin`
+
+        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the flow.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.pin"],
+            path={"flowId": flow_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    def unpin(
+        self,
+        flow_id: str | UUID,
+        body: _models.UnpinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Remove a scope's pin. `POST /v1/flows/{flowId}/pinned/unpin`
+
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the flow.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.unpin"],
+            path={"flowId": flow_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    def history(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionChangePage:
+        """List a flow's pin changes. `GET /v1/flows/{flowId}/pin-history`
+
+        Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.history"],
+            path={"flowId": flow_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.PinnedVersionChangePage,
+            timeout=timeout,
+        )
+
+
 class FlowsResource:
     """`client.flows` — the `flows` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.pinned = FlowsPinnedResource(client)
 
     def list(
         self,
@@ -3581,11 +3727,127 @@ class FlowsResource:
         )
 
 
+class ToolsPinnedResource:
+    """`client.tools.pinned` — the `tools.pinned` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def resolve(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        org_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionResolution:
+        """The version in use for a project. `GET /v1/tools/{toolId}/pinned`
+
+        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest active version, the one a flow version made now would lock its tool step to. `via` says which; `pinnedScope` names the pin that matched.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.resolve"],
+            path={"toolId": tool_id},
+            query={"projectId": project_id, "orgId": org_id},
+            headers={},
+            response=_models.PinnedVersionResolution,
+            timeout=timeout,
+        )
+
+    def list(
+        self, tool_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PinnedVersionList:
+        """List a tool's pinned versions. `GET /v1/tools/{toolId}/pinned-versions`
+
+        Every scope with a version pinned, and the change that set it.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.list"],
+            path={"toolId": tool_id},
+            query={},
+            headers={},
+            response=_models.PinnedVersionList,
+            timeout=timeout,
+        )
+
+    def pin(
+        self,
+        tool_id: str | UUID,
+        body: _models.PinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Pin a version for a scope. `POST /v1/tools/{toolId}/pinned/pin`
+
+        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the tool.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.pin"],
+            path={"toolId": tool_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    def unpin(
+        self,
+        tool_id: str | UUID,
+        body: _models.UnpinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Remove a scope's pin. `POST /v1/tools/{toolId}/pinned/unpin`
+
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the tool.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.unpin"],
+            path={"toolId": tool_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    def history(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionChangePage:
+        """List a tool's pin changes. `GET /v1/tools/{toolId}/pin-history`
+
+        Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.history"],
+            path={"toolId": tool_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.PinnedVersionChangePage,
+            timeout=timeout,
+        )
+
+
 class ToolsResource:
     """`client.tools` — the `tools` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.pinned = ToolsPinnedResource(client)
 
     def list(
         self,
@@ -12936,11 +13198,127 @@ class AsyncGatePoliciesResource:
         )
 
 
+class AsyncFlowsPinnedResource:
+    """`client.flows.pinned` — the `flows.pinned` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def resolve(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        org_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionResolution:
+        """The version in use for a project. `GET /v1/flows/{flowId}/pinned`
+
+        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over. `via` says which; `pinnedScope` names the pin that matched.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.resolve"],
+            path={"flowId": flow_id},
+            query={"projectId": project_id, "orgId": org_id},
+            headers={},
+            response=_models.PinnedVersionResolution,
+            timeout=timeout,
+        )
+
+    async def list(
+        self, flow_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PinnedVersionList:
+        """List a flow's pinned versions. `GET /v1/flows/{flowId}/pinned-versions`
+
+        Every scope with a version pinned, and the change that set it.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.list"],
+            path={"flowId": flow_id},
+            query={},
+            headers={},
+            response=_models.PinnedVersionList,
+            timeout=timeout,
+        )
+
+    async def pin(
+        self,
+        flow_id: str | UUID,
+        body: _models.PinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Pin a version for a scope. `POST /v1/flows/{flowId}/pinned/pin`
+
+        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the flow.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.pin"],
+            path={"flowId": flow_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    async def unpin(
+        self,
+        flow_id: str | UUID,
+        body: _models.UnpinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Remove a scope's pin. `POST /v1/flows/{flowId}/pinned/unpin`
+
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the flow.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.unpin"],
+            path={"flowId": flow_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    async def history(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionChangePage:
+        """List a flow's pin changes. `GET /v1/flows/{flowId}/pin-history`
+
+        Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.history"],
+            path={"flowId": flow_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.PinnedVersionChangePage,
+            timeout=timeout,
+        )
+
+
 class AsyncFlowsResource:
     """`client.flows` — the `flows` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.pinned = AsyncFlowsPinnedResource(client)
 
     async def list(
         self,
@@ -13098,11 +13476,127 @@ class AsyncFlowsResource:
         )
 
 
+class AsyncToolsPinnedResource:
+    """`client.tools.pinned` — the `tools.pinned` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def resolve(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        org_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionResolution:
+        """The version in use for a project. `GET /v1/tools/{toolId}/pinned`
+
+        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest active version, the one a flow version made now would lock its tool step to. `via` says which; `pinnedScope` names the pin that matched.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.resolve"],
+            path={"toolId": tool_id},
+            query={"projectId": project_id, "orgId": org_id},
+            headers={},
+            response=_models.PinnedVersionResolution,
+            timeout=timeout,
+        )
+
+    async def list(
+        self, tool_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PinnedVersionList:
+        """List a tool's pinned versions. `GET /v1/tools/{toolId}/pinned-versions`
+
+        Every scope with a version pinned, and the change that set it.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.list"],
+            path={"toolId": tool_id},
+            query={},
+            headers={},
+            response=_models.PinnedVersionList,
+            timeout=timeout,
+        )
+
+    async def pin(
+        self,
+        tool_id: str | UUID,
+        body: _models.PinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Pin a version for a scope. `POST /v1/tools/{toolId}/pinned/pin`
+
+        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the tool.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.pin"],
+            path={"toolId": tool_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    async def unpin(
+        self,
+        tool_id: str | UUID,
+        body: _models.UnpinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Remove a scope's pin. `POST /v1/tools/{toolId}/pinned/unpin`
+
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the tool.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.unpin"],
+            path={"toolId": tool_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    async def history(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionChangePage:
+        """List a tool's pin changes. `GET /v1/tools/{toolId}/pin-history`
+
+        Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.history"],
+            path={"toolId": tool_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.PinnedVersionChangePage,
+            timeout=timeout,
+        )
+
+
 class AsyncToolsResource:
     """`client.tools` — the `tools` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.pinned = AsyncToolsPinnedResource(client)
 
     async def list(
         self,

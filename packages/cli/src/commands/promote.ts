@@ -390,12 +390,18 @@ export function resultText(result: DeploymentPromotion, to: string): string {
     ? `Promoted: deployment ${id} in ${to}.\n`
     : `${to} has this build already, as deployment ${id}: nothing new was deployed. The carried edits are recorded with it.\n`;
   const live = result.live ?? [];
-  if (live.length === 0) return head;
   const pin = (p: (typeof live)[number]) =>
     p.pinned
       ? `  ${p.id} ${p.version} — live`
       : `  ${p.id} ${p.version} — ${GATE_WORDS[p.gate?.status ?? ''] ?? 'held by the gate'}`;
-  return `${head}Live in ${to}:\n${live.map(pin).join('\n')}\n`;
+  const liveText = live.length === 0 ? '' : `Live in ${to}:\n${live.map(pin).join('\n')}\n`;
+  // `makeLive` also pins each flow version the promotion carries, for the target.
+  const flows = result.pinnedFlows ?? [];
+  const flowsText =
+    flows.length === 0
+      ? ''
+      : `Flows pinned in ${to}:\n${flows.map((f) => `  ${f.id} ${f.version}`).join('\n')}\n`;
+  return `${head}${liveText}${flowsText}`;
 }
 
 /** A carried version that isn't live, by its gate's status; any other is held by the gate. */
@@ -636,7 +642,7 @@ const promote: LeafCommand = {
     'make-live': {
       type: 'boolean',
       description:
-        "Make every agent version the promotion carries live in --to, each through its scope's gate. Prints each, and any waiting on a gate; exits 3 when one doesn't go live.",
+        "Make every agent version the promotion carries live in --to, each through its scope's gate, and pin every flow version it carries there. Prints each, and any waiting on a gate; exits 3 when one doesn't go live.",
     },
     ...WAIT_FLAG,
     path: { type: 'string', description: 'The pack root. Default: the current directory.' },

@@ -39,7 +39,9 @@ export interface LaterEnvironment {
 export type EnvironmentEntry =
   | { readonly kind: 'deploy' }
   | { readonly kind: 'publish'; readonly noun: string }
-  | { readonly kind: 'derive' };
+  | { readonly kind: 'derive' }
+  /** A tool pin: it acts where agent and flow versions are made, which is the first environment. */
+  | { readonly kind: 'tool-pin' };
 
 /**
  * Where `projectId` sits when it's a later environment of its order;
@@ -103,6 +105,9 @@ export function environmentTakesPromotionsMessage(
   }
   if (entry.kind === 'publish') {
     return `${rule} Publish the ${entry.noun} in the order's first environment instead: what moves between environments is builds, so a version published through the API stays in the environment it was published in. Nothing was published.`;
+  }
+  if (entry.kind === 'tool-pin') {
+    return `${rule} A tool's pin acts when an agent or flow version is made and locks its tools, and in this order versions are made in the first environment: pin the tool there. Nothing was pinned.`;
   }
   return `${rule} A new version of an agent is made in the order's first environment, and reaches the later ones when a build of the agent is promoted. Nothing was made.`;
 }

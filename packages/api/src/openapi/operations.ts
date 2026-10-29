@@ -1698,6 +1698,180 @@ function usageQueryParams(groupBy: string): ParameterSpec[] {
   ];
 }
 
+// ---------------- pinned versions (flows, tools) ----------------
+
+const PinProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description:
+    "The project to resolve for; omit → only the org's pin (with `orgId`) and the tenant-wide pin apply.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const PinOrgQueryParam: ParameterSpec = {
+  name: 'orgId',
+  in: 'query',
+  required: false,
+  description:
+    "The project's org, when it has one. A runtime may look it up from `projectId` itself.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+/** What the pin operations say about one kind of item. */
+interface PinKindSpec {
+  /** `flow` or `tool`: the error codes' prefix, and the noun in the text. */
+  readonly noun: string;
+  readonly tag: string;
+  readonly idParam: ParameterSpec;
+  /** `/v1/flows/{flowId}` */
+  readonly openapiBase: string;
+  /** `/v1/flows/:flowId` */
+  readonly honoBase: string;
+  /** What a pin does, in a sentence. */
+  readonly acts: string;
+  /** What `…/pinned` answers when no pin covers. */
+  readonly latest: string;
+  /** The pin write's own 400s and 409s, after the shared ones. */
+  readonly pin400: string;
+  readonly pin409: string;
+}
+
+const FLOW_PINS: PinKindSpec = {
+  noun: 'flow',
+  tag: 'flows',
+  idParam: FlowIdPathParam,
+  openapiBase: '/v1/flows/{flowId}',
+  honoBase: '/v1/flows/:flowId',
+  acts: "A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version.",
+  latest:
+    "else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over.",
+  pin400: '',
+  pin409: '',
+};
+
+const TOOL_PINS: PinKindSpec = {
+  noun: 'tool',
+  tag: 'tools',
+  idParam: ToolIdPathParam,
+  openapiBase: '/v1/tools/{toolId}',
+  honoBase: '/v1/tools/:toolId',
+  acts: "An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version.",
+  latest:
+    'else the newest active version, the one a flow version made now would lock its tool step to.',
+  pin400:
+    " Or `tool-not-pinnable`: the tool follows its server (an MCP endpoint's catalog lists it; its metadata has the catalog's `kindgi.mcp` key) or the runtime (a tool the runtime ships), so a pin couldn't keep it still; reference it with a range.",
+  pin409:
+    " Or `environment-takes-promotions`: the project is a later environment of an environment order, where no agent or flow version is made, so a pin there would never act; pin the tool in the order's first environment (`details.firstProjectId`).",
+};
+
+/** The five pin operations of a flow or a tool (`routes/pinned-versions.ts`). */
+function pinnedVersionOperations(kind: PinKindSpec): readonly OperationSpec[] {
+  const { noun, tag, idParam } = kind;
+  const notFound = `\`${noun}-not-found\`: no ${noun} with that id, or the version isn't registered or was unregistered.`;
+  const readOnly =
+    " Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.";
+  return [
+    {
+      method: 'get',
+      honoPath: `${kind.honoBase}/pinned`,
+      openapiPath: `${kind.openapiBase}/pinned`,
+      operationId: `${tag}.pinned.resolve`,
+      summary: 'The version in use for a project',
+      description: `Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, ${kind.latest} \`via\` says which; \`pinnedScope\` names the pin that matched.`,
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, PinProjectQueryParam, PinOrgQueryParam],
+      responses: {
+        '200': { description: 'The version in use.', schema: ref('PinnedVersionResolution') },
+        ...CommonAuthErrors,
+        '400': ErrorResponse('A malformed project or org id.'),
+        '404': ErrorResponse(
+          `\`${noun}-not-found\`: no ${noun} with that id, or no version of it for that project.`,
+        ),
+      },
+    },
+    {
+      method: 'get',
+      honoPath: `${kind.honoBase}/pinned-versions`,
+      openapiPath: `${kind.openapiBase}/pinned-versions`,
+      operationId: `${tag}.pinned.list`,
+      summary: `List a ${noun}'s pinned versions`,
+      description: 'Every scope with a version pinned, and the change that set it.',
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam],
+      responses: {
+        '200': { description: 'The pins.', schema: ref('PinnedVersionList') },
+        ...CommonAuthErrors,
+      },
+    },
+    {
+      method: 'post',
+      honoPath: `${kind.honoBase}/pinned/pin`,
+      openapiPath: `${kind.openapiBase}/pinned/pin`,
+      operationId: `${tag}.pinned.pin`,
+      summary: 'Pin a version for a scope',
+      description: `Pins \`version\` for \`scope\` (the tenant, an org or a project), or moves the scope's pin to it. ${kind.acts} The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs \`pin\` on the ${noun}.`,
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, IdempotencyKeyParam],
+      requestBody: { required: true, schema: ref('PinVersionBody') },
+      responses: {
+        '200': { description: 'Pinned.', schema: ref('PinnedVersionChange') },
+        ...CommonMutationErrors,
+        '400': ErrorResponse(
+          `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or tenant. Or \`reference-out-of-scope\`: a project scope whose project doesn't reach the ${noun === 'flow' ? 'version' : noun} (\`details.issues\`).${kind.pin400}`,
+        ),
+        '404': ErrorResponse(notFound),
+        '409': ErrorResponse(
+          `Idempotency-Key was reused with a different body. Or \`pin-scope-spans-environments\`: the ${noun} has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin it per project instead.${kind.pin409}${readOnly}`,
+        ),
+        '410': ErrorResponse(`\`${noun}-gone\`: the ${noun} has no active version left.`),
+      },
+    },
+    {
+      method: 'post',
+      honoPath: `${kind.honoBase}/pinned/unpin`,
+      openapiPath: `${kind.openapiBase}/pinned/unpin`,
+      operationId: `${tag}.pinned.unpin`,
+      summary: "Remove a scope's pin",
+      description: `Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs \`pin\` on the ${noun}.`,
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, IdempotencyKeyParam],
+      requestBody: { required: true, schema: ref('UnpinVersionBody') },
+      responses: {
+        '200': { description: 'Unpinned.', schema: ref('PinnedVersionChange') },
+        ...CommonMutationErrors,
+        '400': ErrorResponse(
+          `Malformed request body. Or \`scope-invalid\`: a segment scope, since ${noun}s pin per project, org or tenant.`,
+        ),
+        '404': ErrorResponse(`\`${noun}-not-found\`: no ${noun} with that id.`),
+        '409': ErrorResponse(
+          `Idempotency-Key was reused with a different body. Or \`not-pinned\`: the scope has no pin of its own.${readOnly}`,
+        ),
+      },
+    },
+    {
+      method: 'get',
+      honoPath: `${kind.honoBase}/pin-history`,
+      openapiPath: `${kind.openapiBase}/pin-history`,
+      operationId: `${tag}.pinned.history`,
+      summary: `List a ${noun}'s pin changes`,
+      description:
+        'Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.',
+      tags: [tag],
+      security: 'bearer',
+      parameters: [idParam, LimitQueryParam, CursorQueryParam],
+      responses: {
+        '200': { description: 'Page of pin changes.', schema: ref('PinnedVersionChangePage') },
+        ...CommonAuthErrors,
+      },
+    },
+  ];
+}
+
 export const OPERATIONS: readonly OperationSpec[] = [
   // ---------- health ----------
   {
@@ -4068,7 +4242,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterFlowResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `flow-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
     },
@@ -4096,6 +4270,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No flow at that (id, version) under this tenant.'),
     },
   },
+  ...pinnedVersionOperations(FLOW_PINS),
 
   // ---------- tools ----------
   {
@@ -4214,7 +4389,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterToolResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-version-pinned`: the version is pinned in one or more scopes (`details.scopes`); move those pins to another version, or unpin them, first. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse('No tool at that (id, version) under this tenant.'),
     },
@@ -4242,6 +4417,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+
+  ...pinnedVersionOperations(TOOL_PINS),
 
   // ---------- guardrails ----------
   {

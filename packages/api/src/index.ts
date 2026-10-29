@@ -759,6 +759,21 @@ export type {
   UnpinInput,
 } from './live-version-binding.js';
 export type {
+  ListPinnedVersionChangesInput,
+  PinActor,
+  PinVersionInput,
+  PinVersionOutcome,
+  PinnedResolution,
+  PinnedResolveInput,
+  PinnedVersion,
+  PinnedVersionBinding,
+  PinnedVersionChange,
+  PinnedVersionChangeAction,
+  PinnedVersionError,
+  PinnedVersionErrorCode,
+  UnpinVersionInput,
+} from './pinned-version-binding.js';
+export type {
   GateMetricName,
   GateMetricSpec,
   GatePolicy,

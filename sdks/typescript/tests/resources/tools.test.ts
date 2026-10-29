@@ -198,3 +198,66 @@ describe('tools.register', () => {
     expect(stub.calls[0]?.headers['idempotency-key']).toBe('k-1');
   });
 });
+
+describe('tools.pinned', () => {
+  const PROJECT_ID = '0b0e9c62-0d6c-4d39-9b1e-6c1a5f6c2d11';
+  const client = (stub: ReturnType<typeof jsonFetch>) =>
+    createClient({ apiUrl: 'https://api.example.com', auth: AUTH, fetch: stub.fetch });
+
+  it('resolve, list and history read the tool’s pin routes', async () => {
+    const resolved = jsonFetch({ itemId: WIRE_TOOL.id, version: '1.0.0', via: 'latest' });
+    await client(resolved).tools.pinned.resolve(WIRE_TOOL.id, { projectId: PROJECT_ID });
+    const url = new URL(resolved.calls[0]!.url);
+    expect(url.pathname).toBe('/v1/tools/acme.verify-citation/pinned');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ projectId: PROJECT_ID });
+    const listed = jsonFetch({ data: [] });
+    await client(listed).tools.pinned.list(WIRE_TOOL.id);
+    expect(listed.calls[0]!.url).toBe(
+      'https://api.example.com/v1/tools/acme.verify-citation/pinned-versions',
+    );
+    const paged = jsonFetch({ data: [], hasMore: false });
+    await client(paged).tools.pinned.history(WIRE_TOOL.id);
+    expect(paged.calls[0]!.url).toBe(
+      'https://api.example.com/v1/tools/acme.verify-citation/pin-history',
+    );
+  });
+
+  it('pin and unpin POST the scope', async () => {
+    const change = {
+      id: 'c-1',
+      kind: 'tool',
+      itemId: WIRE_TOOL.id,
+      scope: { kind: 'project', projectId: PROJECT_ID },
+      action: 'pin',
+      fromVersion: null,
+      toVersion: '1.0.0',
+      requestedBy: { kind: 'user', id: 'u-1' },
+      createdAt: '2026-10-27T05:00:00.000Z',
+    };
+    const pinned = jsonFetch(change);
+    await client(pinned).tools.pinned.pin(
+      WIRE_TOOL.id,
+      { version: '1.0.0', scope: { kind: 'project', projectId: PROJECT_ID } },
+      { idempotencyKey: 'idem-1' },
+    );
+    expect(pinned.calls[0]!.url).toBe(
+      'https://api.example.com/v1/tools/acme.verify-citation/pinned/pin',
+    );
+    expect(pinned.calls[0]!.headers['idempotency-key']).toBe('idem-1');
+    const unpinned = jsonFetch({
+      ...change,
+      action: 'unpin',
+      fromVersion: '1.0.0',
+      toVersion: null,
+    });
+    await client(unpinned).tools.pinned.unpin(WIRE_TOOL.id, {
+      scope: { kind: 'project', projectId: PROJECT_ID },
+    });
+    expect(unpinned.calls[0]!.url).toBe(
+      'https://api.example.com/v1/tools/acme.verify-citation/pinned/unpin',
+    );
+    expect(JSON.parse(unpinned.calls[0]!.body ?? '{}')).toEqual({
+      scope: { kind: 'project', projectId: PROJECT_ID },
+    });
+  });
+});

@@ -16,7 +16,7 @@ description: >
   kindgi-python-authoring-agents.
 type: core
 library: "kindgi (Python)"
-version: "0.1.2"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -37,8 +37,10 @@ A **flow** is a versioned, durable graph of steps: tools (your code) and
 agents (a model's judgment), joined by edges that can carry conditions.
 It is **data**, not code: a `Flow(...)` at module level in
 `flows/<name>.py`. The runtime runs it step by step, journals every
-step, and can resume a run that was interrupted. A run pins the flow
-version it started on.
+step, and can resume a run that was interrupted. A run keeps the flow
+version it started on. A run that names no version takes the version
+pinned for its project (or its org, or the tenant), else the newest
+version the project reaches.
 
 Use a flow when the order of the work is known: parse, then classify,
 then branch, then write. Use a single agent when the model should decide
