@@ -587,9 +587,9 @@ export interface Agent {
   readonly settings?: readonly BlockRef[];
   /**
    * A settings block of model settings (`MODEL_SETTINGS_SCHEMA`:
-   * `temperature`, `maxOutputTokens`, and the model it prefers,
-   * `providerId` and `model`) the turn's model calls use. Pinned at
-   * publish with the other settings.
+   * `temperature`, `maxOutputTokens`, `thinking`, and the model it
+   * prefers, `providerId` and `model`) the turn's model calls use.
+   * Pinned at publish with the other settings.
    */
   readonly modelSettings?: BlockRef;
   /** `pinsDigest(pins)`, recorded when the version was published. */

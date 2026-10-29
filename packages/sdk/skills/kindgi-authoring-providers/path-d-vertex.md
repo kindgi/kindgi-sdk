@@ -64,13 +64,23 @@ its own credentials to tenant configuration.
   to the higher rates past the threshold; `cachedPromptMultiplier` (default 0.25) prices cached
   prompt tokens.
 - `thinking` is how the model thinks, as the preset has it. `lowest` is
-  the least level it takes, which a judge's call asks for.
-- To make a model think less, set `adapter_config.thinkingLevels`, a level
-  for each model it names: `"thinkingLevels": "gemini-3.8-flash=low"`. The
-  levels are `minimal`, `low`, `medium` and `high`. A named model needs
-  `thinking` in its entry and a level no lower than its `lowest`, or the
-  registration is refused. A model it doesn't name thinks as Google sets.
-  It takes effect from the 0.2.0-rc.1 adapter on; an older one ignores it.
+  the least level it takes, which a judge's call asks for. `levels`
+  (optional) are the levels it takes besides `lowest`, least first; without
+  them it takes `low`, `medium` and `high` (plus `minimal` when `lowest` is
+  `minimal`, and none below `lowest` when that's `medium` or `high`).
+- To make a model think less, the agent sets `thinking` in its model
+  settings (`lowest`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+  For calls that ask none, set the model's `thinking.default`:
+  `"thinking": { "mode": "adaptive", "lowest": "low", "default": "low" }`.
+  A `default` the model doesn't take is refused, naming the ones it takes.
+  A model without one thinks as Google sets. It needs runtime 0.3.0 or
+  later; an older one refuses a `thinking` with `default`.
+- `adapter_config.thinkingLevels` is no longer read. A new registration
+  with it is refused (`adapter_config.thinkingLevels isn't read here: its
+  setting is metadata.models[].thinking.default.`); a stored one builds,
+  thinking at Google's default, and `kindgi doctor` warns. Move each
+  `model=level` pair into that model's `thinking.default`, unregister the
+  provider and register it again.
 
 **Step 3 — register and check:**
 ```sh

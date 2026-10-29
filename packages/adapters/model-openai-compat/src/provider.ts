@@ -18,15 +18,21 @@ import type {
   ModelToolCall,
   ModelToolDefinition,
   ProviderMetadata,
+  ThinkingLevel,
   UsageCounters,
 } from '@kindgi/capabilities';
-import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
+import { adapterConfigError, samplingFor, thinkingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
 import { bearerValueProblem } from '@kindgi/types';
 
-import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses, requestOptions } from './responses.js';
+import {
+  EXTRA_BODY_RESERVED_RESPONSES,
+  type Reasoning,
+  invokeResponses,
+  requestOptions,
+} from './responses.js';
 import { retryAttempts, sendWithRetries } from './retry.js';
 import { SERVER_ENV_NEVER, computeCost, decodeToolName, encodeToolName } from './wire.js';
 
@@ -218,11 +224,10 @@ export function createOpenAICompatModelProvider(
           : m,
       );
       const sampling = samplingFor(modelInfo, input);
-      // A caller that wants as little thinking as the model allows (a judge).
-      const lowestThinking =
-        input.thinking === 'lowest' && modelInfo.thinking !== undefined
-          ? modelInfo.thinking.lowest
-          : undefined;
+      // The call's level, or the model's default, as one the model takes.
+      const thinking = thinkingFor(modelInfo, input);
+      const reasoning = reasoningOf(modelInfo, thinking.level);
+      const warnings = [...sampling.warnings, ...thinking.warnings];
       if (api === 'responses') {
         return invokeResponses({
           client: openai,
@@ -234,8 +239,8 @@ export function createOpenAICompatModelProvider(
           extraBody,
           dataResidency,
           ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-          ...(lowestThinking !== undefined && { reasoningEffort: lowestThinking }),
-          warnings: sampling.warnings,
+          ...(reasoning !== undefined && { reasoning }),
+          warnings,
           startedAt,
           toolIdOf,
         });
@@ -266,8 +271,8 @@ export function createOpenAICompatModelProvider(
                 ...(tools !== undefined && tools.length > 0 && { tools }),
                 ...(responseFormat !== undefined && { response_format: responseFormat }),
                 ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-                ...(lowestThinking !== undefined && {
-                  reasoning_effort: lowestThinking as NonNullable<
+                ...(reasoning !== undefined && {
+                  reasoning_effort: reasoning.effort as NonNullable<
                     OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
                   >,
                 }),
@@ -313,10 +318,25 @@ export function createOpenAICompatModelProvider(
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(completion.usage !== undefined && { rawUsage: { ...completion.usage } }),
-        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
+        ...(reasoning !== undefined && {
+          thinking: { level: reasoning.level, sent: { reasoning_effort: reasoning.effort } },
+        }),
+        ...(warnings.length > 0 && { warnings }),
       };
     },
   };
+}
+
+/**
+ * The reasoning effort a call's level sends (`reasoning_effort`, or the
+ * Responses API's `reasoning.effort`): `lowest` is the model's
+ * `thinking.lowest` (`none` or `low`), any other level goes by its own
+ * name. Only a model with `thinking` is sent one: an Ollama or vLLM model
+ * without it gets none, and a registration's `extraBody` stays as set.
+ */
+function reasoningOf(model: ModelInfo, level: ThinkingLevel | undefined): Reasoning | undefined {
+  if (level === undefined || model.thinking === undefined) return undefined;
+  return { level, effort: level === 'lowest' ? model.thinking.lowest : level };
 }
 
 function toOpenAiMessage(m: ModelMessage): OpenAI.Chat.Completions.ChatCompletionMessageParam {
@@ -460,12 +480,15 @@ export function openAICompatCheckConfig(
   );
 }
 
-/** The entry a runtime registers: the factory, and its static check. */
+/** The entry a runtime registers: the factory, its static check, and the keys it takes. */
 export const openAICompatAdapterEntry: AdapterFactoryEntry = {
   adapterId: OPENAI_COMPAT_ADAPTER_ID,
   capabilityKind: 'llm-inference',
   factory: openAICompatAdapterFactory,
   checkConfig: openAICompatCheckConfig,
+  configKeys: ['baseURL', 'api'],
+  // Each request field rides as `extraBody.<field>`.
+  configKeyPrefixes: ['extraBody.'],
 };
 
 /** What the checks read of a registration. */

@@ -94,7 +94,10 @@ when it registers), which an agent with no preference gets. A preset
 registered before 0.1.4 has none: unregister it and register it again.
 The Claude 5.5 and GPT-6 models take no `temperature` (`"sampling": false`:
 the call goes without it, with a `sampling-unsupported` warning), and a
-model's `thinking` says how it thinks; thinking counts against
+model's `thinking` says how it thinks and the levels it takes (the presets
+list each model's). An agent asks for a level with `thinking` in its model
+settings; one the model doesn't take is rounded up, or to its highest, with
+a `thinking-level-adjusted` warning. Thinking counts against
 `maxOutputTokens` and bills as output.
 The preset carries the models, context windows, default output caps (what
 a call asks for when its agent sets no `maxOutputTokens`; not the model's own

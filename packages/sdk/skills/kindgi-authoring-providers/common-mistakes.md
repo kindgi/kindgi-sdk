@@ -103,10 +103,17 @@
     ```
     Fix each `✗` line's setting and register again. A key the adapter
     needs is checked too (`✗ /secret_ref: …`); whether the key works, or
-    the endpoint answers, isn't (the first turn finds out). A
+    the endpoint answers, isn't (the first turn finds out). So is each
+    `adapter_config` key: one the adapter doesn't take is refused, naming
+    the ones it takes (`✗ /adapter_config/timeout: adapter_config.timeout
+    isn't a setting of this adapter: it takes baseURL, api,
+    extraBody.<field>.`), and one that moved names its new place. A
     registration stored before 0.1.5 wasn't checked: `kindgi doctor`
     names its problems (`GET /v1/providers/<id>/check`); unregister it
-    and register it again.
+    and register it again. A stored registration with a key its adapter
+    doesn't take still builds, without reading it: the check lists it in
+    `warnings`, apart from `issues`, and `kindgi doctor` shows it as a
+    warning.
 
 11. **A provider registered by hand under `kindgi dev`, with nothing
     committed.** `kindgi providers register` puts it in this worktree's dev
