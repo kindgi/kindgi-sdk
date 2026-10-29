@@ -765,7 +765,7 @@ describe('the company connection it reads with', () => {
     expect(resent.body.folder).toBe('Label_3');
   });
 
-  test('where it named none, the only one taken when none is named is the mailbox it reads already; one named is another mailbox', async () => {
+  test('where it named none, the only one taken when none is named is the mailbox it reads already, and with several none is taken; one named is another mailbox', async () => {
     const list: FakeConnection[] = [];
     const h = harness({ connections: list });
     const make = async (more: Record<string, unknown> = {}) => {
@@ -780,6 +780,7 @@ describe('the company connection it reads with', () => {
     const plain = await make();
     const listed = await make({ toolsAllowedUnattended: ['acme.lookup'] });
     const other = await make({ toolsAllowedUnattended: ['acme.lookup'] });
+    const unstored = await make();
     list.push(SUPPORT_GMAIL);
     // It already reads with the only one: storing it keeps the folder, and
     // the list needs no naming again.
@@ -789,6 +790,16 @@ describe('the company connection it reads with', () => {
       expect(pinned.body.mailbox).toEqual(gmail(SUPPORT_GMAIL.connectionId));
       expect(pinned.body.folder).toBe('Label_9');
     }
+    // With two there, there's no only one to take: the mailbox sent again
+    // is refused, and the trigger stays as it was.
+    list.push(SALES_GMAIL);
+    const several = await h.call('PATCH', `${BASE}/${unstored}`, { config: { mailbox: gmail() } });
+    expect(several.status).toBe(409);
+    expect(several.body.error.code).toBe('connection-not-chosen');
+    expect(several.body.error.details.choices).toHaveLength(2);
+    const kept = await h.call('GET', `${BASE}/${unstored}`);
+    expect(kept.body.mailbox).toEqual(gmail());
+    expect(kept.body.folder).toBe('Label_9');
     // One named where none was is another mailbox: the list is named again,
     // and it watches that mailbox's inbox.
     const to = { config: { mailbox: gmail(SUPPORT_GMAIL.connectionId) } };
