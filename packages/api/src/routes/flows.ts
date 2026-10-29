@@ -8,7 +8,7 @@ import { type Flow, type FlowError, flowPinsDigest, loadFlow } from '@kindgi/flo
 import type { Cursor, FlowId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
-import type { UnpinnableRef } from '../agent-pins.js';
+import { type UnpinnableRef, toolPinLookup } from '../agent-pins.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -24,6 +24,7 @@ import {
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import {
   type ReferenceScopeBinding,
   flowReferences,
@@ -35,6 +36,13 @@ import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
+import {
+  type PinnedItem,
+  isPinWrite,
+  mountPinnedVersionRoutes,
+  pinRightsMiddleware,
+  versionPinnedResponse,
+} from './pinned-versions.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
@@ -56,13 +64,21 @@ import { parseScopeParams } from './scope-params.js';
  * `/v1/flows/:flowId/run` route is added here.
  *
  * With `pinning` (the tool and agent registries), a published version is
- * pinned: each tool it runs resolves once, at publish, to its latest
- * version, and each agent it runs at no named version to what a run in
- * the flow's project would get, its live version there with
- * `pinning.live`, else its latest. Every run of that version uses those
- * (`pins`, see `resolveFlowPins`); one with no published version refuses
+ * pinned: each tool it runs resolves once, at publish, to its version
+ * pinned for the flow's project with `pinning.pinned` (the project, then
+ * its org, then the tenant), else its latest version, and each agent it
+ * runs at no named version to what a run in the flow's project would
+ * get, its live version there with `pinning.live`, else its latest.
+ * Every run of that version uses those (`pins`, see `resolveFlowPins`),
+ * but for an agent step under a gate policy set on a segment, which runs
+ * the version live there; one with no published version refuses
  * the publish. Without `pinning`, versions carry no pins and bind the
  * latest versions per run.
+ *
+ * With `pinnedVersions`, a flow's versions can be pinned per project, org
+ * or tenant (`…/pinned`, `pinned-versions.ts`): a run that names no flow
+ * version takes the one pinned for its project, else the newest it
+ * reaches. Without it, the pin routes aren't mounted.
  */
 export function flowsRouter(
   binding: FlowRegistryBinding,
@@ -79,6 +95,8 @@ export function flowsRouter(
   itemRights?: ItemRights,
   /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
   itemServing?: ItemServing,
+  /** The flows' pinned versions; absent → no pin routes, and a run takes the newest version it reaches. */
+  pinnedVersions?: PinnedVersionBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -89,6 +107,15 @@ export function flowsRouter(
     '*',
     refuseWritesWhenReadOnly(() => binding.readOnly),
   );
+
+  const pinDeps = {
+    ...(authorizer !== undefined && { authorizer }),
+    ...(itemRights !== undefined && { itemRights }),
+    ...(referenceScope !== undefined && { referenceScope }),
+    ...(environmentOrders !== undefined && { environmentOrders }),
+  };
+  const pinWrite = (c: Context<AppEnv>) =>
+    pinnedVersions !== undefined && isPinWrite(c.req.method, c.req.path);
 
   // Authorization — mirrors agents 1:1. Check the resource directly;
   // permissions cascade from the parent project because publish writes
@@ -124,8 +151,14 @@ export function flowsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // Pinning a version is its own permission (`pin`, granted to the
+    // flow's admins; `pinChangeRefusal`).
+    if (pinnedVersions !== undefined) {
+      r.use('/:flowId/*', pinRightsMiddleware('flow', 'flowId', pinDeps));
+    }
     // An item more than one project serves is checked on those projects
-    // instead (`item-rights.ts`).
+    // instead (`item-rights.ts`). A pin write is checked above.
+    // '/:flowId/*' matches '/:flowId' too: this one gate decides both, once.
     r.use(
       '/:flowId/*',
       itemMiddleware({
@@ -133,20 +166,8 @@ export function flowsRouter(
         rights: itemRights,
         kind: 'flow',
         id: (c) => c.req.param('flowId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : 'admin'),
+        today: (c) => (c.req.method === 'GET' ? 'read' : pinWrite(c) ? undefined : 'admin'),
         check: itemPathCheck,
-        versionNotFound: flowVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:flowId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'flow',
-        id: (c) => c.req.param('flowId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: flowVersionNotFound,
       }),
     );
@@ -514,6 +535,9 @@ export function flowsRouter(
     const version = c.req.param('version');
 
     const outcome = await binding.unregister({ tenantId, flowId, version });
+    if (!outcome.unregistered && outcome.pinned !== undefined && outcome.pinned.length > 0) {
+      return versionPinnedResponse(c, 'flow', flowId, version, outcome.pinned);
+    }
     if (!outcome.unregistered) {
       c.status(statusFor('flow-not-found') as never);
       return c.json(
@@ -578,7 +602,54 @@ export function flowsRouter(
     });
   });
 
+  if (pinnedVersions !== undefined) {
+    mountPinnedVersionRoutes(
+      r,
+      'flowId',
+      flowPinnedItem(binding, itemRights ?? itemServing),
+      pinnedVersions,
+      pinDeps,
+    );
+  }
+
   return r;
+}
+
+/** What the pin routes ask of the flow registry (`pinned-versions.ts`). */
+function flowPinnedItem(
+  binding: FlowRegistryBinding,
+  serving: ItemServing | undefined,
+): PinnedItem {
+  return {
+    kind: 'flow',
+    async state(tenantId, itemId) {
+      const flowId = itemId as FlowId;
+      if ((await binding.get({ tenantId, flowId })) !== null) return 'ok';
+      return (await binding.headExists({ tenantId, flowId })) ? 'gone' : 'not-found';
+    },
+    async active(tenantId, itemId, version) {
+      const flow = await binding.getVersion({
+        tenantId,
+        flowId: itemId as FlowId,
+        version: version as unknown as string,
+      });
+      return flow !== null && flow.unregisteredAt === undefined;
+    },
+    // What a run that names no version takes when no pin covers: the
+    // newest version, or the newest in `?projectId=`, as `GET /:flowId`
+    // answers it.
+    async latest(c, tenantId, itemId) {
+      const flowId = itemId as FlowId;
+      const newest = await binding.get({ tenantId, flowId });
+      if (newest === null) return undefined;
+      const shown = await shownLatest(c, serving, 'flow', itemId, newest, {
+        versionOf: (f) => f.version as unknown as string,
+        projectOf: (f) => f.projectId as unknown as string | undefined,
+        getVersion: (version) => binding.getVersion({ tenantId, flowId, version }),
+      });
+      return shown.kind === 'ok' ? (shown.row.version as unknown as string) : undefined;
+    },
+  };
 }
 
 /** The registries a published flow version is pinned against. */
@@ -587,6 +658,8 @@ export interface FlowPinning {
   readonly agents: AgentRegistryBinding;
   /** The agents' live versions: an agent step pins the one live for the flow's project. */
   readonly live?: LiveVersionBinding;
+  /** The tools' pinned versions: a tool step pins the one pinned for the flow's project. */
+  readonly pinned?: PinnedVersionBinding;
 }
 
 /** The flow with its pins, or the references with no published version; as it is without `pinning`. */
@@ -606,6 +679,7 @@ async function pinFlow(
     tenantId,
     flow,
     pinning.live !== undefined ? { binding: pinning.live, projectId } : undefined,
+    toolPinLookup(pinning.pinned, projectId),
   );
   if (resolved.kind === 'unpinnable') return resolved;
   return {

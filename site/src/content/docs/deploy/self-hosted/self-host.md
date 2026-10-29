@@ -56,7 +56,7 @@ license key, and pull it:
 
 ```sh
 docker login registry.kindgi.com --username kindgi
-docker pull quay.io/kindgi/runtime:0.1.10
+docker pull registry.kindgi.com/kindgi/runtime:0.2.0
 ```
 
 `docker login` asks for the password: paste your key. It prints
@@ -268,7 +268,9 @@ KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 
 - **`<DB_PASSWORD>`** is the password from step 2: `echo "$DB_PASSWORD"`
   prints it.
-- **`<your tenant id>`** is the id `uuidgen` printed.
+- **`<your tenant id>`** is the id `uuidgen` printed. The runtime takes it
+  in lower case. If an earlier runtime ran with it in upper case, the start
+  says what to do: [A tenant id given in upper case](../serve-many-tenants/#a-tenant-id-given-in-upper-case).
 - **`<the token>`** is the API token `printf` printed.
 - **`<the same token as in pack.env>`** is `pack.env`'s
   `KINDGI_PACK_SERVICE_TOKEN`.
@@ -295,7 +297,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.10
+  registry.kindgi.com/kindgi/runtime:0.2.0
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a

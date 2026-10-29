@@ -246,7 +246,7 @@ export function connectionsRouter(
   },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  r.use('/requests/:requestId', refuseMalformedUuidParam('requestId', 'a connect request id'));
+  // '/requests/:requestId/*' matches '/requests/:requestId' too: one check, once.
   r.use('/requests/:requestId/*', refuseMalformedUuidParam('requestId', 'a connect request id'));
   // On the two routes, not `use`: `/finish` would match `/:connectionId`.
   const connectionIdChecked = refuseMalformedUuidParam('connectionId', 'a connection id');

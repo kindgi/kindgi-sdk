@@ -10,6 +10,7 @@ import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.j
 import type { BlockRegistryBinding } from './block-binding.js';
 import { type BlockPins, resolveBlockPins } from './block-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
+import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import { PublishRefused } from './publish-refused.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 
@@ -33,10 +34,12 @@ const VERSIONS_PAGE = 200;
  *
  * Each range is picked by `pickVersion` over the tool's active versions,
  * the same versions and the same rule a run resolves against, so the pin
- * is the version a run would have picked at that moment. A range that
- * matches nothing (the tool isn't published, or no version is in range)
- * makes the agent unpinnable: the caller refuses the publish, naming
- * each such tool, rather than store a partly pinned version.
+ * is the version a run would have picked at that moment. With `toolPins`,
+ * a tool pinned for the project the version is made in takes its pinned
+ * version instead, when that one is in the range. A range that matches
+ * nothing (the tool isn't published, or no version is in range) makes
+ * the agent unpinnable: the caller refuses the publish, naming each such
+ * tool, rather than store a partly pinned version.
  *
  * Its data blocks pin by `resolveBlockPins`, unless the caller resolved
  * them already (`blockPins`): a deploy does, before it writes anything,
@@ -48,6 +51,7 @@ export async function resolveAgentPins(
   agent: Agent,
   blocks?: BlockRegistryBinding,
   blockPins?: BlockPins,
+  toolPins?: ToolPinLookup,
 ): Promise<AgentPinsOutcome> {
   const pinned: Record<string, string> = {};
   const issues: UnpinnableRef[] = [];
@@ -58,7 +62,8 @@ export async function resolveAgentPins(
       available = await activeToolVersions(tools, tenantId, ref.id as ToolId);
       versionsOf.set(ref.id, available);
     }
-    const pick = pickVersion(available, ref.version);
+    const pin = await pinnedToolVersion(toolPins, tenantId, ref.id, available);
+    const pick = pickLocked(available, ref.version, pin);
     if (pick.kind === 'ok') {
       pinned[ref.id] = pick.version;
       continue;
@@ -79,6 +84,62 @@ export async function resolveAgentPins(
     kind: 'ok',
     pins: { tools: pinned, prompts: blocksPinned.prompts, settings: blocksPinned.settings },
   };
+}
+
+/** A range's lock: the pinned version when it's in the range, else `pickVersion`'s pick. */
+function pickLocked(available: readonly string[], range: string, pin: string | undefined) {
+  if (pin !== undefined) {
+    const held = pickVersion([pin], range);
+    if (held.kind === 'ok') return held;
+  }
+  return pickVersion(available, range);
+}
+
+/**
+ * Where an agent or flow version is made, so each tool it runs locks to
+ * the version pinned there (the project, its org, then the tenant). A
+ * deploy makes one for everything it registers, so each tool's pin is
+ * looked up once (`toolPinLookup`).
+ */
+export interface ToolPinLookup {
+  readonly binding: PinnedVersionBinding;
+  /** The project the version is made in: never a later environment of an order. */
+  readonly projectId: ProjectId;
+  /** Each tool's pinned version, by tool id, once looked up. */
+  readonly looked: Map<string, Promise<string | undefined>>;
+}
+
+/** The lookup for `projectId`; none without a binding or a project, so every tool takes its newest. */
+export function toolPinLookup(
+  binding: PinnedVersionBinding | undefined,
+  projectId: ProjectId | undefined,
+): ToolPinLookup | undefined {
+  return binding === undefined || projectId === undefined
+    ? undefined
+    : { binding, projectId, looked: new Map() };
+}
+
+/**
+ * The tool's version pinned for `lookup`'s project, when a pin covers it
+ * and the version is among `active`; `undefined` otherwise, and without
+ * `lookup`.
+ */
+export async function pinnedToolVersion(
+  lookup: ToolPinLookup | undefined,
+  tenantId: TenantId,
+  toolId: string,
+  active: readonly string[],
+): Promise<string | undefined> {
+  if (lookup === undefined) return undefined;
+  let found = lookup.looked.get(toolId);
+  if (found === undefined) {
+    found = lookup.binding
+      .resolve({ tenantId, kind: 'tool', itemId: toolId, projectId: lookup.projectId })
+      .then((pin) => (pin === null ? undefined : (pin.version as unknown as string)));
+    lookup.looked.set(toolId, found);
+  }
+  const version = await found;
+  return version !== undefined && active.includes(version) ? version : undefined;
 }
 
 /** Every active version of a tool, newest first; none when it isn't published. */

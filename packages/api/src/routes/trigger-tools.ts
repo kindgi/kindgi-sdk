@@ -296,8 +296,8 @@ function targetDoc(target: TriggerTarget): Record<string, string> {
 /**
  * Records a trigger's `toolsAllowedUnattended` being set: at register
  * (no `from`), and at every update that changes it or, with a non-empty
- * list, its target. The one place the `trigger-tools-allowed-unattended-set`
- * evidence is shaped.
+ * list, its target. `version` names the trigger's version after it. The
+ * one place the `trigger-tools-allowed-unattended-set` evidence is shaped.
  */
 export async function recordToolsAllowedUnattendedSet(args: {
   readonly auditEvents: EmitAuditEventArgs['auditEvents'];
@@ -311,6 +311,8 @@ export async function recordToolsAllowedUnattendedSet(args: {
   readonly by: string | undefined;
   readonly correlationId: string;
   readonly log: EmitAuditEventArgs['log'];
+  /** The trigger's version after the change (`TriggerVersionRecord`). */
+  readonly version?: number;
 }): Promise<void> {
   const { auditEvents, tenantId, projectId, triggerId, triggerKind, target, from, to, by } = args;
   await emitAuditEvent({
@@ -328,6 +330,7 @@ export async function recordToolsAllowedUnattendedSet(args: {
       ...(from !== undefined && { from: [...from] }),
       to: [...to],
       ...(by !== undefined && { by }),
+      ...(args.version !== undefined && { version: args.version }),
     },
     ...(args.log !== undefined && { log: args.log }),
   });

@@ -41,12 +41,13 @@ export function anthropicCheckConfig(
   return problem !== undefined ? [problem] : [];
 }
 
-/** The entry a runtime registers: the factory, and its static check. */
+/** The entry a runtime registers: the factory, and its static check. It takes no `adapter_config`. */
 export const anthropicAdapterEntry: AdapterFactoryEntry = {
   adapterId: ANTHROPIC_ADAPTER_ID,
   capabilityKind: 'llm-inference',
   factory: anthropicAdapterFactory,
   checkConfig: anthropicCheckConfig,
+  configKeys: [],
 };
 
 function keyProblem(hasSecretRef: boolean): AdapterConfigProblem | undefined {

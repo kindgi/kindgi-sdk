@@ -17,6 +17,8 @@ import {
   type OperationSpec,
   type ParameterSpec,
   type ResponseSpec,
+  answersDatabaseBusy,
+  answersIdempotencyStoreUnavailable,
   honoToOpenapiPath,
 } from './operations.js';
 import { COMPONENT_SCHEMAS, type JsonSchema, ref } from './schemas.js';
@@ -331,16 +333,61 @@ const REQUEST_TOO_LARGE: ResponseSpec = {
   schema: ref('WireError'),
 };
 
+/**
+ * What a `GET` or `HEAD` answers when the database is too busy to answer in
+ * time, unless the operation declares a 503 of its own. Every served read
+ * but the storage-free ones gets it — see `answersDatabaseBusy`.
+ */
+const DATABASE_BUSY: ResponseSpec = {
+  description:
+    'The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.',
+  schema: ref('WireError'),
+};
+
+/** The same on a `HEAD`: the status and `Retry-After`, with no body. */
+const DATABASE_BUSY_HEAD: ResponseSpec = {
+  description:
+    'The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`.',
+};
+
+/**
+ * What a write that takes an `Idempotency-Key` answers when the key's store
+ * fails before the write runs, unless the operation declares a 503 of its
+ * own — see `answersIdempotencyStoreUnavailable`.
+ */
+const IDEMPOTENCY_STORE_UNAVAILABLE: ResponseSpec = {
+  description:
+    "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+  schema: ref('WireError'),
+};
+
+/**
+ * An operation's own responses plus the ones the generator shares across
+ * operations: a 413 for anything with a body, the 503 a read answers when
+ * the database is too busy, and the 503 a keyed write answers when its
+ * key's store fails — each only when the operation doesn't declare that
+ * status itself.
+ */
+function responsesWithShared(op: OperationSpec): Readonly<Record<string, ResponseSpec>> {
+  let responses = op.responses;
+  if (op.requestBody !== undefined && responses['413'] === undefined) {
+    responses = { ...responses, '413': REQUEST_TOO_LARGE };
+  }
+  if (answersDatabaseBusy(op) && responses['503'] === undefined) {
+    responses = { ...responses, '503': op.method === 'head' ? DATABASE_BUSY_HEAD : DATABASE_BUSY };
+  }
+  if (answersIdempotencyStoreUnavailable(op) && responses['503'] === undefined) {
+    responses = { ...responses, '503': IDEMPOTENCY_STORE_UNAVAILABLE };
+  }
+  return responses;
+}
+
 function buildOperation(op: OperationSpec): Record<string, unknown> {
-  const responses =
-    op.requestBody !== undefined && op.responses['413'] === undefined
-      ? { ...op.responses, '413': REQUEST_TOO_LARGE }
-      : op.responses;
   const doc: Record<string, unknown> = {
     operationId: op.operationId,
     summary: op.summary,
     tags: [...op.tags],
-    responses: buildResponses(responses),
+    responses: buildResponses(responsesWithShared(op)),
   };
   if (op.description !== undefined) doc.description = op.description;
   if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;

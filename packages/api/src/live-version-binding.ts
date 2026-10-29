@@ -62,6 +62,31 @@ export interface LiveVersionBinding {
   list(input: { readonly tenantId: TenantId; readonly agentId: string }): Promise<
     readonly LivePin[]
   >;
+  /**
+   * A page of every agent's pins that cover a project: the tenant's, the
+   * project's org's (the binding finds the org itself, as `resolve` may),
+   * the project's own and its segments', ordered by agent id, then scope.
+   * Optional: without it, `GET /v1/projects/:projectId/pinned-versions`
+   * answers `501 pinned-versions-not-supported`.
+   */
+  listCovering?(input: ListCoveringPinsInput): Promise<{
+    readonly data: readonly LivePin[];
+    readonly nextCursor?: Cursor;
+  }>;
+  /**
+   * Whether `cursor` is one this binding issued for `listCovering`
+   * (`'covering'`: a page's `nextCursor`), as `PromotionBinding.issuedCursor`
+   * is for its `list`. Optional: without it, the route passes any cursor on.
+   */
+  issuedCursor?(list: 'covering', cursor: Cursor): boolean;
+}
+
+/** A page of the pins that cover one project (`LiveVersionBinding.listCovering`). */
+export interface ListCoveringPinsInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly limit: number;
+  readonly cursor?: Cursor;
 }
 
 /** Who asked: the request's principal (a user, or a service token). */

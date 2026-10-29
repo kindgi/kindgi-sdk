@@ -369,10 +369,12 @@ export function projectsRouter(
     if (authorizer !== undefined) {
       const principal = c.get('principal') as Principal | undefined;
       const creatorUserId =
-        principal?.actor.kind === 'user'
-          ? (principal.actor.id as UserId)
-          : ('00000000-0000-0000-0000-000000000000' as UserId);
-      const result = await tenantHierarchy.createProject({ tenantId, creatorUserId, spec });
+        principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
+      const result = await tenantHierarchy.createProject({
+        tenantId,
+        ...(creatorUserId !== undefined && { creatorUserId }),
+        spec,
+      });
       if (result.kind === 'err') {
         const error =
           result.error.code === 'slug-conflict'

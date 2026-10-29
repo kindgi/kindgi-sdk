@@ -34,6 +34,7 @@ import type {
   DeploymentPromotion,
   DeploymentPromotionCheck,
   KindgiClient,
+  Promotion,
 } from '@kindgi/client';
 
 import { deployApiAddress, sameAddress } from '../api-address.js';
@@ -41,10 +42,24 @@ import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type Column, type Rendered, renderJson, renderTable } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
+import { type ProgressLines, progressLines } from '../progress-lines.js';
 import { resolveProjectRefs } from '../project-ref.js';
+import {
+  type ApprovalWaited,
+  WAIT_FLAG,
+  type WaitingVersion,
+  endedLine,
+  stillOpenLine,
+  unreadableLine,
+  waitDeadline,
+  waitFlag,
+  waitForApproval,
+  waitWords,
+  waitingLine,
+} from './approval-wait.js';
 import { type EnvironmentConfig, projectOfEnv } from './build.js';
 import { packDirOf } from './environments.js';
-import { runSdkRendered, stringFlag } from './helpers.js';
+import { ANSWER_NO_EXIT_CODE, runSdkRendered, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 type Answer = Rendered & { readonly exitCode?: number };
@@ -375,12 +390,134 @@ export function resultText(result: DeploymentPromotion, to: string): string {
     ? `Promoted: deployment ${id} in ${to}.\n`
     : `${to} has this build already, as deployment ${id}: nothing new was deployed. The carried edits are recorded with it.\n`;
   const live = result.live ?? [];
-  if (live.length === 0) return head;
   const pin = (p: (typeof live)[number]) =>
     p.pinned
       ? `  ${p.id} ${p.version} — live`
-      : `  ${p.id} ${p.version} — ${p.gate?.status === 'pending-approval' ? 'waiting for an approval' : 'held by the gate'}`;
-  return `${head}Live in ${to}:\n${live.map(pin).join('\n')}\n`;
+      : `  ${p.id} ${p.version} — ${GATE_WORDS[p.gate?.status ?? ''] ?? 'held by the gate'}`;
+  const liveText = live.length === 0 ? '' : `Live in ${to}:\n${live.map(pin).join('\n')}\n`;
+  // `makeLive` also pins each flow version the promotion carries, for the target.
+  const flows = result.pinnedFlows ?? [];
+  const flowsText =
+    flows.length === 0
+      ? ''
+      : `Flows pinned in ${to}:\n${flows.map((f) => `  ${f.id} ${f.version}`).join('\n')}\n`;
+  return `${head}${liveText}${flowsText}`;
+}
+
+/** A carried version that isn't live, by its gate's status; any other is held by the gate. */
+const GATE_WORDS: Readonly<Record<string, string>> = {
+  'pending-approval': 'waiting for an approval',
+  rejected: 'its approval was rejected',
+  expired: 'its approval expired',
+  superseded: 'approved, but superseded',
+};
+
+type LivePin = NonNullable<DeploymentPromotion['live']>[number];
+
+/** A carried version waiting for an approval, as the wait's lines name it. */
+function waitingVersion(pin: LivePin): WaitingVersion {
+  return {
+    agentId: pin.id,
+    toVersion: pin.version,
+    ...(pin.gate?.approvalId !== undefined && { approvalId: pin.gate.approvalId }),
+  };
+}
+
+/**
+ * `--wait`: wait for each carried version that waits for an approval, all
+ * within one deadline, and stop at the first that doesn't go live. A
+ * version held by a failed check can't go live, so then nothing waits.
+ * The answer has each version as it ended, and `end` says when the wait
+ * ended before every version did: stopped, or a promotion it couldn't read.
+ */
+async function waitForPins(
+  ctx: CommandContext,
+  client: KindgiClient,
+  result: DeploymentPromotion,
+  waitMs: number,
+  out: ProgressLines,
+): Promise<PinsWaited> {
+  const live = result.live ?? [];
+  const held = live.find((p) => !p.pinned && p.gate?.status !== 'pending-approval');
+  if (held !== undefined) {
+    out.problem(
+      `Not waiting: ${held.id} ${held.version} is held by the gate, so not every version goes live.`,
+    );
+    return { result };
+  }
+  const waiting = live.filter((p) => !p.pinned);
+  for (const p of waiting) out.line(waitingLine(waitingVersion(p), waitMs));
+  const deadline = waitDeadline(ctx, waitMs);
+  const ended = new Map<string, Promotion>();
+  for (const p of waiting) {
+    const promotionId = p.gate?.promotionId;
+    if (promotionId === undefined) continue;
+    const waited = await waitForApproval(
+      ctx,
+      undefined,
+      () => client.agents.promotions.get(p.id, promotionId),
+      deadline,
+    );
+    if (waited.promotion !== undefined) ended.set(promotionId, waited.promotion);
+    const end = sayHowItEnded(waited, waitingVersion(p), waitMs, out);
+    if (end === 'live') continue;
+    return { result: withEnded(result, ended), ...(end !== 'not-live' && { end }) };
+  }
+  return { result: withEnded(result, ended) };
+}
+
+/** Say how one carried version's wait ended, unless it went live. */
+function sayHowItEnded(
+  waited: ApprovalWaited<Promotion | undefined>,
+  version: WaitingVersion,
+  waitMs: number,
+  out: ProgressLines,
+): 'live' | 'not-live' | NonNullable<PinsWaited['end']> {
+  switch (waited.kind) {
+    case 'stopped':
+      out.line(`Stopped waiting. ${stillOpenLine(version)}`);
+      return 'stopped';
+    case 'unreadable':
+      out.problem(unreadableLine(version, waited.message));
+      return 'unreadable';
+    case 'still-waiting':
+      out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(version)}`);
+      return 'not-live';
+    case 'decided':
+      if (waited.promotion.status === 'promoted') return 'live';
+      out.problem(endedLine(waited.promotion));
+      return 'not-live';
+  }
+}
+
+interface PinsWaited {
+  readonly result: DeploymentPromotion;
+  readonly end?: 'stopped' | 'unreadable';
+}
+
+/** The exit of a wait that ended before every version did. */
+const END_EXIT: Readonly<Record<NonNullable<PinsWaited['end']>, number>> = {
+  stopped: 130,
+  unreadable: 1,
+};
+
+/** `result` with each carried version a wait read as it ended. */
+function withEnded(
+  result: DeploymentPromotion,
+  ended: ReadonlyMap<string, Promotion>,
+): DeploymentPromotion {
+  if (result.live === undefined || ended.size === 0) return result;
+  const live = result.live.map((pin): LivePin => {
+    const gate = pin.gate;
+    const promotion = gate !== undefined ? ended.get(gate.promotionId) : undefined;
+    if (gate === undefined || promotion?.status === undefined) return pin;
+    return {
+      ...pin,
+      pinned: promotion.status === 'promoted',
+      gate: { ...gate, status: promotion.status },
+    };
+  });
+  return { ...result, live };
 }
 
 /** The values a `409 promotion-values-not-ready` names; `undefined` for any other error. */
@@ -392,7 +529,44 @@ function valuesRefused(err: unknown): readonly DeploymentValue[] | undefined {
   return Array.isArray(values) ? (values as DeploymentValue[]) : undefined;
 }
 
+/** `--wait`, which goes only with `--make-live`, and not with `--check`. */
+function promoteWaitFlag(ctx: CommandContext): number | undefined {
+  const waitMs = waitFlag(ctx);
+  if (waitMs !== undefined && (ctx.options.check === true || ctx.options['make-live'] !== true)) {
+    throw new UsageError(
+      '--wait waits for the versions --make-live makes live: it goes with --make-live, without --check',
+    );
+  }
+  return waitMs;
+}
+
+/**
+ * The promotion's answer: each carried version as it ended, after any
+ * `--wait`, rendered by `render`. It exits 3 when one isn't live, 130
+ * when the wait is stopped, and 1 when it couldn't read a promotion.
+ */
+async function promotedAnswer(
+  ctx: CommandContext,
+  client: KindgiClient,
+  result: DeploymentPromotion,
+  waitMs: number | undefined,
+  render: (promotion: DeploymentPromotion) => string,
+): Promise<Answer> {
+  const out = progressLines(ctx.progress, ctx.globals.format === 'quiet');
+  const waited: PinsWaited =
+    waitMs === undefined ? { result } : await waitForPins(ctx, client, result, waitMs, out);
+  const notLive = (waited.result.live ?? []).some((p) => !p.pinned);
+  const exit =
+    waited.end !== undefined ? END_EXIT[waited.end] : notLive ? ANSWER_NO_EXIT_CODE : undefined;
+  return {
+    stdout: render(waited.result),
+    stderr: out.kept(),
+    ...(exit !== undefined && { exitCode: exit }),
+  };
+}
+
 async function promoteBuild(ctx: CommandContext): Promise<Answer> {
+  const waitMs = promoteWaitFlag(ctx);
   const route = await routeOf(ctx);
   const source = await sourceOf(ctx, route);
   if ('answer' in source) return source.answer;
@@ -429,17 +603,21 @@ async function promoteBuild(ctx: CommandContext): Promise<Answer> {
     if (values === undefined || json) throw err;
     return { stdout: `${head}${valuesText(values, target)}`, stderr: '', exitCode: 1 };
   }
-  if (json) return renderJson({ deploymentId, check, promotion: result }, ctx.globals.format);
-  return { stdout: `${head}${valuesText([], target)}${resultText(result, route.to)}`, stderr: '' };
+  const render = json
+    ? (promotion: DeploymentPromotion) =>
+        renderJson({ deploymentId, check, promotion }, ctx.globals.format).stdout
+    : (promotion: DeploymentPromotion) =>
+        `${head}${valuesText([], target)}${resultText(promotion, route.to)}`;
+  return await promotedAnswer(ctx, route.client, result, waitMs, render);
 }
 
 const promote: LeafCommand = {
   kind: 'leaf',
   name: 'promote',
   description:
-    "Move a build to the next environment of its environment order, staging to prod, say: the same signed image, with the edits made since to its agents and flows. Prints what moves, then each value the build needs there that isn't set, with the command that sets it; exits 1 while one isn't. `--check` stops before moving anything. In a pack, --from and --to are its environment names; outside one, project ids or slugs.",
+    "Move a build to the next environment of its environment order, staging to prod, say: the same signed image, with the edits made since to its agents and flows. Prints what moves, then each value the build needs there that isn't set, with the command that sets it; exits 1 while one isn't. `--check` stops before moving anything. With `--make-live`, exits 3 when a carried version doesn't go live: held by the gate, or waiting for an approval (`--wait` waits for the decision). In a pack, --from and --to are its environment names; outside one, project ids or slugs.",
   usage:
-    'kindgi promote --from=<env> --to=<env> [--deployment=<id>] [--reason=<text>] [--check] [--make-live] [--path=<dir>]',
+    'kindgi promote --from=<env> --to=<env> [--deployment=<id>] [--reason=<text>] [--check] [--make-live [--wait[=<duration>]]] [--path=<dir>]',
   optionSpec: {
     from: {
       type: 'string',
@@ -464,8 +642,9 @@ const promote: LeafCommand = {
     'make-live': {
       type: 'boolean',
       description:
-        "Make every agent version the promotion carries live in --to, each through its scope's gate. Prints each, and any waiting on a gate.",
+        "Make every agent version the promotion carries live in --to, each through its scope's gate, and pin every flow version it carries there. Prints each, and any waiting on a gate; exits 3 when one doesn't go live.",
     },
+    ...WAIT_FLAG,
     path: { type: 'string', description: 'The pack root. Default: the current directory.' },
   },
   run: (ctx) => runSdkRendered(ctx, 'promote', () => promoteBuild(ctx)),

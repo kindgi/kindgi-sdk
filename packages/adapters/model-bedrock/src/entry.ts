@@ -45,7 +45,7 @@ import {
 } from '@kindgi/capabilities';
 import { bearerValueProblem } from '@kindgi/types';
 
-import { BEDROCK_ADAPTER_ID, readBedrockConfig } from './config.js';
+import { BEDROCK_ADAPTER_ID, BEDROCK_CONFIG_KEYS, readBedrockConfig } from './config.js';
 import { isNovaModel, withoutLeadingThinking } from './nova-thinking.js';
 
 /**
@@ -109,6 +109,10 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
           : { apiKey: KEY_SET_PER_REQUEST, fetch: withBearerKey(send) }),
       })(name);
     },
+    // The library sends nothing for `none`, and gives no warning: for Claude it makes it
+    // `reasoningConfig: { type: 'disabled' }` and then writes no `thinking` field for it, and
+    // for any other model it sets nothing (`resolveAmazonBedrockReasoningConfig`).
+    sendsNoReasoning: (_model, reasoning) => reasoning === 'none',
     cost: (model, usage) => tokenCostUsd(model, usage),
     cacheMark: (model) => (cachesPrompts(model) ? BEDROCK_CACHE_POINT : undefined),
     explain: (error) => (error.status === 403 ? accessHint(auth, region) : undefined),
@@ -145,12 +149,14 @@ export function cachesPrompts(model: ModelInfo): boolean {
   return typeof read === 'number' && read > 0 && CACHING_FAMILY.test(model.name);
 }
 
-/** The entry a runtime registers: the factory, and its static check. */
+/** The entry a runtime registers: the factory, its static check, and the keys it takes. */
 export const bedrockAdapterEntry: AdapterFactoryEntry = {
   adapterId: BEDROCK_ADAPTER_ID,
   capabilityKind: 'llm-inference',
   factory: bedrockAdapterFactory,
   checkConfig: bedrockCheckConfig,
+  configKeys: BEDROCK_CONFIG_KEYS,
+  movedConfigKeys: { region: 'metadata.region' },
 };
 
 /** What a 403 from Bedrock can mean, beyond its own words, for how the adapter signed in. */

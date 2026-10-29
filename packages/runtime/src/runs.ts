@@ -11,8 +11,10 @@
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type {
   Cursor,
+  FlowVersionVia,
   NodeId,
   OrgId,
+  PinScope,
   ProjectId,
   RunId,
   ScopeSegment,
@@ -61,6 +63,13 @@ export interface KernelRunRecord {
    * (`RunFlowInput.versions`). Absent on a run that has none.
    */
   readonly versions?: FlowVersionOverrides;
+  /**
+   * How the run's flow version was chosen (`RunFlowInput.flowVersionVia`)
+   * and, for `pinned`, the pin's scope. Absent on runs that didn't record
+   * it, as on runs from before it was recorded (nothing is backfilled).
+   */
+  readonly flowVersionVia?: FlowVersionVia;
+  readonly flowPinnedScope?: PinScope;
   /**
    * The segment path the run was started with (ordered, coarse to fine),
    * which picks live agent versions: the run's own, and its agent steps'

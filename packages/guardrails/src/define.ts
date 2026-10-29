@@ -11,6 +11,7 @@ import type {
   UnknownCheckError,
 } from './errors.js';
 import guardrailSchema from './guardrail.schema.json' with { type: 'json' };
+import { checkPoints, guardrailCheckPointProblems, guardrailPointIssues } from './points.js';
 import type { CheckRegistry, Guardrail } from './types.js';
 
 const GUARDRAIL_SCHEMA_ID = 'https://kindgi.com/schemas/v1/guardrail.schema.json';
@@ -33,7 +34,9 @@ function schemaRegistry(): SpecRegistry {
  *   1. The declaration doesn't match `@kindgi/specs/guardrail.schema.json`.
  *   2. The `check` id isn't in the registry.
  *   3. The registered check's `kind` differs from the guardrail's `kind`.
- *   4. The check has a config validator and `guardrail.config` fails it.
+ *   4. Its point (`at`) asks for what the point can't do
+ *      (`guardrailPointIssues`), or isn't one of the check's `points`.
+ *   5. The check has a config validator and `guardrail.config` fails it.
  *
  * Every failure surfaces at pack-init — before any run touches the guardrail.
  */
@@ -60,6 +63,9 @@ export function validateGuardrail(
     };
   }
 
+  const pointIssues = pointIssuesError(spec);
+  if (pointIssues !== undefined) return { kind: 'err', error: pointIssues };
+
   const check = checks.get(spec.check);
   if (check === undefined) {
     return {
@@ -80,6 +86,18 @@ export function validateGuardrail(
         code: 'invalid-guardrail',
         message: `Guardrail "${spec.id}" kind "${spec.kind}" does not match check "${spec.check}" kind "${check.kind}"`,
         issues: [{ path: '/kind', message: `expected "${check.kind}"` }],
+      },
+    };
+  }
+
+  const pointProblems = guardrailCheckPointProblems(spec, checkPoints(check));
+  if (pointProblems.length > 0) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'invalid-guardrail',
+        message: `Guardrail "${spec.id}" runs where check "${spec.check}" doesn't: ${pointProblems[0]?.message}`,
+        issues: pointProblems,
       },
     };
   }
@@ -139,7 +157,21 @@ export function validateGuardrailSpec(spec: unknown): Result<Guardrail, InvalidG
       error: { code: 'invalid-guardrail', message: err.message, issues },
     };
   }
+  const pointIssues = pointIssuesError(spec as Guardrail);
+  if (pointIssues !== undefined) return { kind: 'err', error: pointIssues };
   return { kind: 'ok', value: spec as Guardrail };
+}
+
+/** What the declaration asks for that its point can't do, as an error; undefined when nothing. */
+function pointIssuesError(spec: Guardrail): InvalidGuardrailError | undefined {
+  const issues = guardrailPointIssues(spec);
+  const first = issues[0];
+  if (first === undefined) return undefined;
+  return {
+    code: 'invalid-guardrail',
+    message: `Guardrail "${spec.id}": ${first.message}`,
+    issues,
+  };
 }
 
 /** The `$id` of the JSON Schema this loader validates against. */

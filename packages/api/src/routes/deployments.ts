@@ -19,12 +19,19 @@ import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
 import {
+  DEFAULT_CHECK_POINTS,
   GUARDRAIL_SPEC_KEYS,
   type Guardrail,
+  type GuardrailConfigProblem,
+  checkPoints,
   createCheckRegistry,
+  guardrailCheckPointProblems,
+  guardrailPoint,
+  isGuardrailPoint,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import { resolvePackEnv } from '@kindgi/handler-runtime/pack-env';
+import type { Logger } from '@kindgi/log';
 import type { ProjectBinding } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
@@ -41,7 +48,13 @@ import type {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
-import { type UnpinnableRef, publishDeployedAgent, resolveAgentPins } from '../agent-pins.js';
+import {
+  type ToolPinLookup,
+  type UnpinnableRef,
+  publishDeployedAgent,
+  resolveAgentPins,
+  toolPinLookup,
+} from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { type BlockPins, type BlockVersionReads, resolveBlockPins } from '../block-pins.js';
 import { canonicalJson } from '../canonical-json.js';
@@ -78,9 +91,12 @@ import type { AgentReleaseBindings, LiveVersionBinding } from '../live-version-b
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
+import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
-import { PublishRefused } from '../publish-refused.js';
+import { PROJECT_MISMATCH, PublishRefused, projectMismatchFix } from '../publish-refused.js';
 import {
+  type ItemReference,
+  type ReferenceOutOfScopeError,
   type ReferenceScopeBinding,
   agentReferences,
   flowReferences,
@@ -99,7 +115,7 @@ import {
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
-import type { ToolRegistryBinding } from '../tool-binding.js';
+import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import type { AgentReleaseGateDeps } from './agent-releases.js';
 import { capabilityRefusal, deniedBy } from './denied.js';
@@ -210,6 +226,14 @@ export interface DeploymentsRouterBindings {
    */
   readonly requirePrefixedPackChecks?: boolean;
   /**
+   * Whether each deployment runs its own pack service (per-deployment
+   * routing), so a copy of a pack with its own pack id runs beside it: the
+   * fix a `<primitive>-project-mismatch` names. Absent: one pack service
+   * serves every deployment, and the fix named is an environment order
+   * (with `environmentOrders`), or none.
+   */
+  readonly perDeploymentPacks?: boolean;
+  /**
    * Whether a project is suspended: nothing new deploys into one (the
    * named project, or the Default for a tenant-wide deploy), refused
    * `409 project-suspended` before anything is written. Absent: no check,
@@ -243,6 +267,14 @@ export interface DeploymentsRouterBindings {
    * version pins the one live for the deploy's project, else the latest.
    */
   readonly liveVersions?: LiveVersionBinding;
+  /**
+   * The flows' and tools' pinned versions: each tool a deployed agent or
+   * flow runs pins the version pinned for the deploy's project (an
+   * agent's, when it's in the reference's range), else as without it; and
+   * a promotion asked to make what it carried live (`{ makeLive: true }`)
+   * pins each carried flow version in the target. Absent: neither.
+   */
+  readonly pinnedVersions?: PinnedVersionBinding;
   /** Data blocks: an agent's block references are pinned at deploy with its tools. */
   readonly blockRegistry?: BlockRegistryBinding;
   /**
@@ -339,6 +371,12 @@ export function deploymentsRouter(
   // the project it serves as well (`readableDeployment`). (A key limited to
   // another project was already refused, `refuseOtherProjectForKey`.)
   const tenantAccess = tenantResourceAccess(authorizer);
+  // What this runtime offers a deploy refused as another project's: the fix
+  // its `<primitive>-project-mismatch` names (`projectMismatchFix`).
+  const packRuntime = {
+    perDeploymentPacks: bindings.perDeploymentPacks === true,
+    environmentOrders: bindings.environmentOrders !== undefined,
+  };
   r.use('*', async (c, next) => {
     // Without an authorizer, nothing here is checked: deploying is project
     // work, which a runtime without an authorization store leaves to every
@@ -1037,7 +1075,9 @@ export function deploymentsRouter(
           plan.issues.map((issue) => ({ primitive: 'block' as const, ...issue })),
         );
       }
-      if (plan.kind === 'refused') return publishRefusedResponse(c, requestId, plan.refusal);
+      if (plan.kind === 'refused') {
+        return publishRefusedResponse(c, requestId, plan.refusal, packRuntime);
+      }
       packBlocks = plan.planned;
       blockReads = withPackVersions(bindings.blockRegistry, targetProjectId, packBlocks);
     }
@@ -1052,7 +1092,9 @@ export function deploymentsRouter(
         targetProjectId,
         validated.tools,
       );
-      if (plan.kind === 'refused') return publishRefusedResponse(c, requestId, plan.refusal);
+      if (plan.kind === 'refused') {
+        return publishRefusedResponse(c, requestId, plan.refusal, packRuntime);
+      }
       packTools = plan.planned;
     }
     const blockPinsOf =
@@ -1132,14 +1174,20 @@ export function deploymentsRouter(
             if (outcome.kind === 'ok') {
               const toolId = outcome.toolId;
               const version = outcome.version;
-              rolled.push(async () => {
-                await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+              rolled.push({
+                primitive: 'tool',
+                id: `${toolId}@${version}`,
+                undo: 'unregister',
+                run: async () => {
+                  await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
+                },
               });
             } else if (outcome.kind === 'already-registered') {
               // Compared before the first write where the plan could.
               if (state === 'new' || state === 'publish-decides') {
                 await keepPublishedTool(bindings.toolRegistry, tenantId, tool);
               }
+              await reinstateRetiredTool(bindings.toolRegistry, tenantId, tool, rolled);
               await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
             } else {
               throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
@@ -1163,8 +1211,13 @@ export function deploymentsRouter(
             });
             if (outcome.kind === 'ok') {
               const guardrailId = outcome.guardrailId;
-              rolled.push(async () => {
-                await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+              rolled.push({
+                primitive: 'guardrail',
+                id: guardrailId,
+                undo: 'unregister',
+                run: async () => {
+                  await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                },
               });
             } else if (outcome.kind === 'already-registered') {
               const kept = await keepRegisteredGuardrail(
@@ -1177,8 +1230,13 @@ export function deploymentsRouter(
               // Unregistered since the registry answered: registered afresh.
               if (kept.kind === 'registered') {
                 const guardrailId = guardrail.id;
-                rolled.push(async () => {
-                  await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                rolled.push({
+                  primitive: 'guardrail',
+                  id: guardrailId,
+                  undo: 'unregister',
+                  run: async () => {
+                    await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+                  },
                 });
               } else {
                 await refreshGuardrailFields(
@@ -1194,15 +1252,19 @@ export function deploymentsRouter(
             }
           }
         }
+        // Each tool's pin for the project, looked up once for the deploy.
+        const toolPins = toolPinLookup(bindings.pinnedVersions, targetProjectId);
         if (bindings.agentRegistry !== undefined && targetProjectId !== undefined) {
           deployedAgents.push(
             ...(await registerAgents({
               agents: bindings.agentRegistry,
               tools: bindings.toolRegistry,
               blockPins: blockPinsOf,
+              toolPins,
               tenantId,
               projectId: targetProjectId,
               defined: validated.agents,
+              referenceScope: bindings.referenceScope,
               rolled,
             })),
           );
@@ -1216,9 +1278,11 @@ export function deploymentsRouter(
               tools: bindings.toolRegistry,
               agents: bindings.agentRegistry,
               ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
+              toolPins,
               tenantId,
               projectId: targetProjectId,
               defined: validated.flows,
+              referenceScope: bindings.referenceScope,
               rolled,
             })),
           );
@@ -1227,15 +1291,22 @@ export function deploymentsRouter(
         }
       });
     } catch (cause) {
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       // A compile the tenant's budget refused is a limit, which the app's
       // error handler answers. None runs past the first write here.
       if (cause instanceof SchemaCompileBudgetError) throw cause;
       // A primitive refused with a typed outcome is the caller's to fix:
       // that outcome's own status and code. Anything else propagates to the
       // central error handler (a 500 for this write).
-      if (cause instanceof PublishRefused) return publishRefusedResponse(c, requestId, cause);
+      if (cause instanceof PublishRefused) {
+        return publishRefusedResponse(c, requestId, cause, packRuntime);
+      }
       if (cause instanceof UnpinnableDeploy) return unpinnableResponse(c, requestId, cause.issues);
+      // An unregistered agent or flow version naming what its project doesn't
+      // reach: refused as the pack's own references are, before any write.
+      if (cause instanceof RetiredVersionOutOfScope) {
+        return outOfScopeResponse(c, requestId, cause.refusal);
+      }
       // Not a mapped outcome: to the central error handler (a 500 for this
       // write — the rollback above already ran; the whole error is logged).
       throw cause;
@@ -1284,13 +1355,13 @@ export function deploymentsRouter(
         },
       });
     } catch (cause) {
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       // To the central error handler: a 500 with no raw text; the error is logged.
       throw cause;
     }
 
     if (outcome.kind === 'error') {
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       // To the central error handler: a 500 with no raw text; the outcome's
       // code and message go to the log.
       throw new Error(`Deployment record failed (${outcome.code}): ${outcome.message}`);
@@ -1302,7 +1373,7 @@ export function deploymentsRouter(
       // at the primitive layer too, so `ok` outcomes only happen when
       // the primitive was DIFFERENT this run, which is an inconsistent
       // wire body).
-      await rollback(rolled);
+      await rollback(rolled, c.get('log'));
       c.status(200);
       return c.json(serializeDeployment(outcome.deployment));
     }
@@ -1704,9 +1775,15 @@ function parseWireBody(body: unknown): ParseResult {
 /**
  * A primitive the deploy refused to publish (`PublishRefused`), with that
  * outcome's own status and code. A project mismatch logs the project the
- * primitive belongs to, which the answer never names.
+ * primitive belongs to, which the answer never names, and names the fix
+ * this runtime has (`projectMismatchFix`).
  */
-function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: PublishRefused) {
+function publishRefusedResponse(
+  c: Context<AppEnv>,
+  requestId: string,
+  cause: PublishRefused,
+  runtime: Parameters<typeof projectMismatchFix>[0],
+) {
   if (cause.projectId !== undefined) {
     c.get('log').info(`${cause.message}: deploy refused`, {
       primitive: cause.primitive,
@@ -1719,7 +1796,7 @@ function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: Pu
     toWireError(
       {
         code: cause.code,
-        message: `${cause.message}; nothing was deployed`,
+        message: `${cause.message}${fixOf(cause, runtime)}; nothing was deployed`,
         primitive: cause.primitive,
         id: cause.id,
         ...(cause.endpointId !== undefined && { endpointId: cause.endpointId }),
@@ -1728,6 +1805,13 @@ function publishRefusedResponse(c: Context<AppEnv>, requestId: string, cause: Pu
       requestId,
     ),
   );
+}
+
+/** A project mismatch's fix, as ` (<fix>)`, when this runtime has one; else nothing. */
+function fixOf(cause: PublishRefused, runtime: Parameters<typeof projectMismatchFix>[0]): string {
+  if (!cause.code.endsWith('-project-mismatch')) return '';
+  const fix = projectMismatchFix(runtime);
+  return fix === undefined ? '' : ` (${fix})`;
 }
 
 function validationFailed(c: Context<AppEnv>, issues: readonly ValidationDetail[]) {
@@ -1891,8 +1975,7 @@ async function keepRegisteredGuardrail(
       if (!(await guardrailInOrder(registry, orders, tenantId, projectId, guardrail.id))) {
         throw new PublishRefused('guardrail', guardrail.id, {
           code: 'guardrail-project-mismatch',
-          reason:
-            'it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id)',
+          reason: PROJECT_MISMATCH,
         });
       }
       if (!sameGuardrailDefinition(existing, guardrail)) {
@@ -1948,9 +2031,151 @@ async function refreshToolCode(
   const done = await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: now });
   if (!done.refreshed) return;
   // Only while it still points where this deploy put it.
-  rolled.push(async () => {
-    await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
+  rolled.push({
+    primitive: 'tool',
+    id: `${tool.id}@${tool.version}`,
+    undo: 'put back the code pointer of',
+    run: async () => {
+      await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
+    },
   });
+}
+
+/**
+ * A tool version a deploy finds already published but unregistered is
+ * reinstated. Version numbers are single-use (`publish`), so the registry
+ * won't take it again, and without it the agents and flows that use the
+ * tool find no published version: a deploy that failed after its tool
+ * publish unregistered it rolling back, and the same image was refused
+ * from then on, until its pack was rebuilt under a new version. Rolling
+ * this deploy back unregisters it again.
+ *
+ * Only a version its registry lists as unregistered (`unregisteredAt`) is
+ * reinstated, under the rule reinstating it by hand holds
+ * (`POST /v1/tools/{toolId}/versions/{version}/reinstate`): the stored
+ * version is what comes back. It's the pack's tool, as the deploy keeps a
+ * version only with the pack's definition (`deploy-tools.ts`), so one
+ * naming a model provider's key never gets here: the pack's own check
+ * refused it before any write. One of another kind than the tool's
+ * active versions stays unregistered, refused as publishing it is
+ * (`tool-kind-mismatch`).
+ */
+async function reinstateRetiredTool(
+  registry: ToolRegistryBinding,
+  tenantId: TenantId,
+  tool: import('@kindgi/tools').ToolManifest,
+  rolled: RollbackAction[],
+): Promise<void> {
+  const toolId = tool.id;
+  const version = tool.version as unknown as Semver;
+  const retired = await unregisteredVersion(registry, tenantId, toolId, version);
+  if (retired === undefined) return;
+  const outcome = await registry.reinstateVersion({ tenantId, toolId, version });
+  if (outcome.kind === 'not-found') {
+    throw new Error(
+      `tool ${toolId as unknown as string}@${tool.version}: its registry lists the version as unregistered, then answered not-found reinstating it`,
+    );
+  }
+  if (outcome.kind === 'kind-mismatch') {
+    throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
+  }
+  // Reinstated since the registry listed it: nothing of this deploy's to undo.
+  if (!outcome.wasTombstoned) return;
+  rolled.push({
+    primitive: 'tool',
+    id: `${toolId}@${version}`,
+    undo: 'unregister',
+    run: async () => {
+      await registry.unregister({ tenantId, toolId, version });
+    },
+  });
+}
+
+/** `toolId@version` as its registry lists it, when it's unregistered. */
+async function unregisteredVersion(
+  registry: ToolRegistryBinding,
+  tenantId: TenantId,
+  toolId: ToolId,
+  version: Semver,
+): Promise<ToolVersionRow | undefined> {
+  let cursor: Cursor | undefined;
+  do {
+    const page = await registry.listVersions({
+      tenantId,
+      toolId,
+      includeTombstoned: true,
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    const row = page.data.find((v) => v.version === version);
+    if (row !== undefined) return row.unregisteredAt !== undefined ? row : undefined;
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return undefined;
+}
+
+/**
+ * An agent or flow version a deploy finds already published but
+ * unregistered is reinstated, where the deploy registers its agents and
+ * flows unpinned (without a tool registry), as `reinstateRetiredTool`
+ * reinstates a tool's: version numbers are single-use, so without it the
+ * deploy lands with that agent or flow still unregistered. Pinned, a
+ * deploy registers the next free version instead (`deployVersion`).
+ * Answers whether this deploy reinstated it, so that rolling the deploy
+ * back unregisters it again.
+ *
+ * Only a version its registry reads as unregistered (`unregisteredAt`) is
+ * reinstated, under the rule reinstating it by hand holds
+ * (`POST /v1/agents/{agentId}/versions/{version}/reinstate`, and flows'):
+ * the stored version is what comes back, and its references are asked as
+ * at publish, so one naming what its project doesn't reach stays
+ * unregistered (`RetiredVersionOutOfScope`).
+ */
+async function reinstateRetiredVersion<
+  Stored extends { readonly unregisteredAt?: string; readonly projectId?: ProjectId },
+>(input: {
+  readonly primitive: 'agent' | 'flow';
+  readonly id: string;
+  readonly version: string;
+  /** Where the pack names it (`/agents/0`), for the refusal's issues. */
+  readonly path: string;
+  readonly tenantId: TenantId;
+  readonly referenceScope: ReferenceScopeBinding | undefined;
+  readonly read: () => Promise<Stored | null>;
+  readonly referencesOf: (stored: Stored) => readonly (ItemReference & { readonly path: string })[];
+  readonly reinstate: () => Promise<
+    { readonly kind: 'ok'; readonly wasTombstoned: boolean } | { readonly kind: 'not-found' }
+  >;
+}): Promise<boolean> {
+  const { primitive, version } = input;
+  const retired = await input.read();
+  if (retired?.unregisteredAt === undefined) return false;
+  if (retired.projectId !== undefined) {
+    const outOfScope = await referencesOutOfScope(
+      input.referenceScope,
+      input.tenantId,
+      retired.projectId,
+      input.referencesOf(retired),
+    );
+    if (outOfScope !== undefined) {
+      throw new RetiredVersionOutOfScope({
+        ...outOfScope,
+        issues: outOfScope.issues.map((issue) => ({
+          ...issue,
+          path: input.path,
+          message: `version ${version} of this ${primitive} is unregistered and can't be reinstated: ${issue.message}. Publish the ${primitive} under a new version`,
+        })),
+      });
+    }
+  }
+  const outcome = await input.reinstate();
+  if (outcome.kind === 'not-found') {
+    throw new Error(
+      `${primitive} ${input.id}@${version}: its registry reads the version as unregistered, then answered not-found reinstating it`,
+    );
+  }
+  // Reinstated since the registry read it: nothing of this deploy's to undo.
+  return outcome.wasTombstoned;
 }
 
 /**
@@ -1982,8 +2207,13 @@ async function refreshGuardrailFields(
   const done = await refresh({ tenantId, guardrailId: guardrail.id, ...now });
   if (!done.refreshed) return;
   // Only while it still holds what this deploy gave it.
-  rolled.push(async () => {
-    await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
+  rolled.push({
+    primitive: 'guardrail',
+    id: guardrail.id,
+    undo: 'put back the code pointer and config schema of',
+    run: async () => {
+      await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
+    },
   });
 }
 
@@ -2166,7 +2396,12 @@ function validatePrimitives(
     // the runtime checks a guardrail naming this check against it. A field
     // the guardrail spec doesn't have (an index from a newer CLI) is dropped,
     // never refused, so a newer CLI never breaks a deployment.
-    const { checkModulePath, checkId, ...indexed } = raw as Record<string, unknown>;
+    const {
+      checkModulePath,
+      checkId,
+      checkPoints: packCheckPoints,
+      ...indexed
+    } = raw as Record<string, unknown>;
     const dropped = Object.keys(indexed).filter((k) => !GUARDRAIL_SPEC_KEYS.includes(k));
     const rest = Object.fromEntries(
       Object.entries(indexed).filter(([k]) => GUARDRAIL_SPEC_KEYS.includes(k)),
@@ -2210,8 +2445,16 @@ function validatePrimitives(
       return;
     }
     // A guardrail naming a built-in check: its config against the built-in's.
+    // Its point against its check's points: a built-in's, or the pack
+    // check's as the index lists them. One that lists none (an older CLI's)
+    // runs at the final answer only, so a point it can't honor is refused.
     const builtIn = builtInChecks.get(r.value.check);
-    const configProblems = builtIn?.configProblems?.(r.value.config) ?? [];
+    const configProblems = [
+      ...(builtIn?.configProblems?.(r.value.config) ?? []),
+      ...(builtIn !== undefined
+        ? guardrailCheckPointProblems(r.value, checkPoints(builtIn))
+        : packCheckPointProblems(r.value, packCheckPoints)),
+    ];
     if (configProblems.length > 0) {
       for (const problem of configProblems) {
         details.push({
@@ -2308,6 +2551,31 @@ function validatePrimitives(
   };
 }
 
+/**
+ * A guardrail's point against its pack check's points as the index lists
+ * them (`checkPoints`), the ones this runtime knows. Absent: the final
+ * answer only. A list with none this runtime knows (a newer CLI's) is
+ * refused with the points it lists, so the refusal says what's there.
+ */
+function packCheckPointProblems(
+  guardrail: Guardrail,
+  value: unknown,
+): readonly GuardrailConfigProblem[] {
+  if (!Array.isArray(value)) return guardrailCheckPointProblems(guardrail, DEFAULT_CHECK_POINTS);
+  const known = value.filter(isGuardrailPoint);
+  if (known.length > 0) return guardrailCheckPointProblems(guardrail, known);
+  const listed =
+    value.length > 0
+      ? `none this runtime knows: ${value.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(', ')}`
+      : 'the index lists none';
+  return [
+    {
+      path: '/at',
+      message: `at "${guardrailPoint(guardrail)}" isn't one of the check's points (${listed}).`,
+    },
+  ];
+}
+
 function readArray(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? (value as readonly unknown[]) : [];
 }
@@ -2363,6 +2631,12 @@ function validateAgentIndexShape(
     out.push({ path: '/tools', message: 'agent.tools must be an array of tool ids' });
   }
   out.push(...agentOutputProblems(spec.output));
+  if (spec.parallelToolCalls !== undefined && typeof spec.parallelToolCalls !== 'boolean') {
+    out.push({
+      path: '/parallelToolCalls',
+      message: 'agent.parallelToolCalls must be true or false',
+    });
+  }
   return out;
 }
 
@@ -2414,7 +2688,18 @@ function validateFlowIndexShape(
 // Rollback / serialisation
 // ------------------------------------------------------------
 
-type RollbackAction = () => Promise<void>;
+/**
+ * A write a deploy made, and how to undo it should the deploy fail
+ * (`rollback`), named for the warn when the undo fails.
+ */
+export interface RollbackAction {
+  readonly primitive: 'tool' | 'guardrail' | 'agent' | 'flow' | 'block';
+  /** `id@version`, or a guardrail's id. */
+  readonly id: string;
+  /** What `run` does to it, as the warn says it: `unregister`, `put back the code pointer of`. */
+  readonly undo: string;
+  readonly run: () => Promise<void>;
+}
 
 /** The refusal of a deploy whose agents or flows use versions nothing published takes. */
 function unpinnableResponse(
@@ -2439,6 +2724,13 @@ function unpinnableResponse(
 class UnpinnableDeploy extends Error {
   constructor(readonly issues: readonly UnpinnableRef[]) {
     super('the deployment uses tools or agents that are not published');
+  }
+}
+
+/** An agent or flow version a deploy found unregistered and may not reinstate (`reinstateRetiredVersion`). */
+class RetiredVersionOutOfScope extends Error {
+  constructor(readonly refusal: ReferenceOutOfScopeError) {
+    super(refusal.message);
   }
 }
 
@@ -2484,34 +2776,58 @@ async function registerAgents(input: {
   readonly tools: ToolRegistryBinding | undefined;
   /** Each agent's data-block pins (`pinBlocks`); undefined without a tool registry. */
   readonly blockPins: readonly BlockPins[] | undefined;
+  /** The tools' pins for the deploy's project, shared with its flows. */
+  readonly toolPins: ToolPinLookup | undefined;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Agent[];
+  /** What a reinstated version's references are asked of (`reinstateRetiredVersion`). */
+  readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedAgent[]> {
-  const { agents, tools, blockPins, tenantId, projectId, rolled } = input;
+  const { agents, tools, blockPins, toolPins, tenantId, projectId, rolled } = input;
   // Signed deploys have no per-request principal — pass parent-only
   // tuples (no owner grant). Tenant admins keep access via
   // `admin from parent` cascade.
   const enqueueTuples = (agentId: string) =>
     tuplesForCreate({ kind: 'agent', id: agentId as AgentId, tenantId, projectId });
   const written = (agentId: AgentId, version: Semver) =>
-    rolled.push(async () => {
-      await agents.unregister({ tenantId, agentId, version });
+    rolled.push({
+      primitive: 'agent',
+      id: `${agentId}@${version}`,
+      undo: 'unregister',
+      run: async () => {
+        await agents.unregister({ tenantId, agentId, version });
+      },
     });
 
   if (tools === undefined || blockPins === undefined) {
-    for (const agent of input.defined) {
+    for (const [index, agent] of input.defined.entries()) {
       const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
-      else if (outcome.kind !== 'already-registered') {
+      else if (outcome.kind === 'already-registered') {
+        const agentId = agent.id;
+        const version = agent.version;
+        const reinstated = await reinstateRetiredVersion({
+          primitive: 'agent',
+          id: agentId as unknown as string,
+          version: version as unknown as string,
+          path: `/agents/${index}`,
+          tenantId,
+          referenceScope: input.referenceScope,
+          read: () => agents.getVersion({ tenantId, agentId, version }),
+          referencesOf: agentReferences,
+          reinstate: () => agents.reinstateVersion({ tenantId, agentId, version }),
+        });
+        if (reinstated) written(agentId, version);
+      } else {
         throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome);
       }
     }
     return input.defined.map(deployedPrimitive);
   }
 
-  const pinsOf = await pinAgents(tools, blockPins, tenantId, input.defined);
+  const pinsOf = await pinAgents(tools, blockPins, tenantId, input.defined, toolPins);
   const deployed: DeployedAgent[] = [];
   for (const [i, agent] of input.defined.entries()) {
     const pins = pinsOf[i] as AgentPins;
@@ -2551,24 +2867,48 @@ async function registerFlows(input: {
   readonly tools: ToolRegistryBinding | undefined;
   readonly agents: AgentRegistryBinding | undefined;
   readonly live?: LiveVersionBinding;
+  /** The tools' pins for the deploy's project, shared with its agents. */
+  readonly toolPins: ToolPinLookup | undefined;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly defined: readonly Flow[];
+  /** What a reinstated version's references are asked of (`reinstateRetiredVersion`). */
+  readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
-  const { flows, tools, agents, live, tenantId, projectId, rolled } = input;
+  const { flows, tools, agents, live, toolPins, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
-    rolled.push(async () => {
-      await flows.unregister({ tenantId, flowId, version: version as never });
+    rolled.push({
+      primitive: 'flow',
+      id: `${flowId}@${version}`,
+      undo: 'unregister',
+      run: async () => {
+        await flows.unregister({ tenantId, flowId, version: version as never });
+      },
     });
 
   if (tools === undefined || agents === undefined) {
-    for (const flow of input.defined) {
+    for (const [index, flow] of input.defined.entries()) {
       const outcome = await flows.publish({ tenantId, projectId, flow, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.flowId, outcome.version as unknown as string);
-      else if (outcome.kind !== 'already-registered') {
+      else if (outcome.kind === 'already-registered') {
+        const flowId = flow.id;
+        const version = flow.version;
+        const reinstated = await reinstateRetiredVersion({
+          primitive: 'flow',
+          id: flowId as unknown as string,
+          version,
+          path: `/flows/${index}`,
+          tenantId,
+          referenceScope: input.referenceScope,
+          read: () => flows.getVersion({ tenantId, flowId, version }),
+          referencesOf: flowReferences,
+          reinstate: () => flows.reinstateVersion({ tenantId, flowId, version }),
+        });
+        if (reinstated) written(flowId, version);
+      } else {
         throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome);
       }
     }
@@ -2581,6 +2921,7 @@ async function registerFlows(input: {
     tenantId,
     input.defined,
     live !== undefined ? { binding: live, projectId } : undefined,
+    toolPins,
   );
   const deployed: DeployedFlow[] = [];
   for (const [i, flow] of input.defined.entries()) {
@@ -2607,11 +2948,12 @@ async function pinFlows(
   tenantId: TenantId,
   defined: readonly Flow[],
   live: FlowPinsLive | undefined,
+  toolPins: ToolPinLookup | undefined,
 ): Promise<FlowPins[]> {
   const pins: FlowPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
   for (const [i, flow] of defined.entries()) {
-    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live);
+    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live, toolPins);
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
       continue;
@@ -2648,6 +2990,7 @@ async function pinAgents(
   blockPins: readonly BlockPins[],
   tenantId: TenantId,
   defined: readonly Agent[],
+  toolPins: ToolPinLookup | undefined,
 ): Promise<AgentPins[]> {
   const pins: AgentPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
@@ -2658,6 +3001,7 @@ async function pinAgents(
       agent,
       undefined,
       blockPins[i] as BlockPins,
+      toolPins,
     );
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
@@ -2677,17 +3021,23 @@ function atAgent(i: number, agent: Agent, issues: readonly UnpinnableRef[]): Unp
   }));
 }
 
-async function rollback(actions: readonly RollbackAction[]): Promise<void> {
-  // Reverse order — last-in, first-out — so registrations are undone in
-  // the mirror sequence of their creation.
+/**
+ * Undo a deploy's writes, last first, so registrations are undone in the
+ * mirror sequence of their creation. An undo that fails doesn't stop the
+ * rest: it's warned, naming what it couldn't undo, which stays as the
+ * deploy left it for an operator to reconcile.
+ */
+async function rollback(actions: readonly RollbackAction[], log: Logger): Promise<void> {
   for (let i = actions.length - 1; i >= 0; i--) {
     const action = actions[i];
     if (action === undefined) continue;
     try {
-      await action();
-    } catch {
-      // Swallow: rollback is best-effort. Real production adapters
-      // record a rollback-failure event so operators can reconcile.
+      await action.run();
+    } catch (cause) {
+      log.warn(
+        `deploy rollback: couldn't ${action.undo} ${action.primitive} "${action.id}", so it stays as this deploy left it`,
+        { primitive: action.primitive, id: action.id, err: cause },
+      );
     }
   }
 }

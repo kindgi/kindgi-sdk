@@ -60,6 +60,8 @@ export const ACTIONS = [
   'fire',
   'cancel',
   'promote',
+  // Pinning a flow or tool version for a scope (the version in use there).
+  'pin',
   // Delegation: naming a principal as the one a trigger's runs act as.
   'act_as',
   // Running an agent in a project: asked of the project only
@@ -81,6 +83,7 @@ export const ACTION_TO_RELATION: Record<Action, string> = {
   fire: 'can_fire',
   cancel: 'can_cancel',
   promote: 'can_promote',
+  pin: 'can_pin',
   act_as: 'can_act_as',
   call: 'can_call',
 };
@@ -99,8 +102,8 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
   service_account: ['act_as'],
 
   agent: ['read', 'write', 'delete', 'admin', 'execute', 'publish', 'promote'],
-  flow: ['read', 'write', 'delete', 'admin', 'execute', 'publish'],
-  tool: ['read', 'write', 'delete', 'admin', 'invoke'],
+  flow: ['read', 'write', 'delete', 'admin', 'execute', 'publish', 'pin'],
+  tool: ['read', 'write', 'delete', 'admin', 'invoke', 'pin'],
   guardrail: ['read', 'write', 'delete', 'admin'],
   eval_suite: ['read', 'write', 'delete', 'admin', 'execute', 'publish'],
   trigger: ['read', 'write', 'delete', 'admin', 'fire'],
