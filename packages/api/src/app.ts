@@ -134,6 +134,7 @@ import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
 import {
   connectionAppsRouter,
+  connectionChoicesRouter,
   connectionEntriesRouter,
   connectionNoticesRouter,
   connectionsRouter,
@@ -2214,6 +2215,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ...(input.reviewerBinding !== undefined &&
           input.hitlBinding !== undefined && { reviewers: input.reviewerBinding }),
       }),
+    );
+    v1.route(
+      '/connection-choices',
+      connectionChoicesRouter(input.connections, authorizer, { envName: servedEnv }),
     );
   }
   if (input.policyRegistry !== undefined) {

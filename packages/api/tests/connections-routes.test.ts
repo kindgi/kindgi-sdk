@@ -21,6 +21,7 @@ import type {
   ConnectRequestRecord,
   ConnectionAppRecord,
   ConnectionBinding,
+  ConnectionChoiceRecord,
   ConnectionRecord,
 } from '../src/connection-binding.js';
 import type { HitlBinding } from '../src/hitl-binding.js';
@@ -56,6 +57,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
   const apps = new Map<string, ConnectionAppRecord>();
   const connections = new Map<string, ConnectionRecord>();
   const requests = new Map<string, ConnectRequestRecord>();
+  const choices = new Map<string, ConnectionChoiceRecord>();
   const calls: Record<string, unknown[]> = {};
   const seen = (name: string, input: unknown) => {
     calls[name] = [...(calls[name] ?? []), input];
@@ -169,6 +171,76 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       const renamed: ConnectionRecord = { ...connection, label: input.label, updatedAt: at };
       connections.set(input.connectionId, renamed);
       return { kind: 'ok', value: renamed };
+    },
+    async listChoices(input) {
+      seen('listChoices', input);
+      const data = [...choices.values()].filter(
+        (choice) =>
+          choice.tenantId === input.tenantId &&
+          choice.projectId === input.projectId &&
+          choice.envName === input.envName &&
+          choice.removedAt === undefined,
+      );
+      return { data };
+    },
+    async getChoice({ tenantId, choiceId }) {
+      const choice = choices.get(choiceId);
+      return choice?.tenantId === tenantId ? choice : null;
+    },
+    async setChoice(input) {
+      seen('setChoice', input);
+      const connection = connections.get(input.connectionId);
+      if (connection === undefined) {
+        return refuse('connection-not-found', 'No such candidate', 'connectionId');
+      }
+      if (connection.owner.kind === 'member') {
+        return refuse(
+          'bad-input',
+          "A person's own connection is used for them; choices are for the company's.",
+          'connectionId',
+        );
+      }
+      if (input.agentId === 'acme.elsewhere') {
+        return refuse('agent-not-found', 'No such agent in the project');
+      }
+      const { agentId, flowId } = input;
+      const choice = {
+        choiceId: randomUUID(),
+        tenantId: input.tenantId,
+        projectId: input.projectId,
+        envName: input.envName,
+        ...(agentId !== undefined ? { agentId } : { flowId }),
+        app: connection.app,
+        connectionId: connection.connectionId,
+        version: 1,
+        createdAt: at,
+        createdBy: `${input.by.kind}:${input.by.id}`,
+      } as ConnectionChoiceRecord;
+      choices.set(choice.choiceId, choice);
+      return { kind: 'ok', value: choice };
+    },
+    async removeChoice(input) {
+      seen('removeChoice', input);
+      const choice = choices.get(input.choiceId) as ConnectionChoiceRecord;
+      const removed = { ...choice, removedAt: at, removedBy: `${input.by.kind}:${input.by.id}` };
+      choices.set(input.choiceId, removed);
+      return { kind: 'ok', value: removed };
+    },
+    async listCandidates(input) {
+      seen('listCandidates', input);
+      const data = [...connections.values()]
+        .filter(
+          (c) =>
+            c.tenantId === input.tenantId && c.owner.kind === 'company' && c.state === 'working',
+        )
+        .map((c) => ({
+          connectionId: c.connectionId,
+          name: c.label ?? c.account.label,
+          app: c.app,
+          accountLabel: c.account.label,
+          state: c.state,
+        }));
+      return { data };
     },
     async createRequest(input) {
       seen('createRequest', input);
@@ -307,7 +379,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     return connection;
   }
 
-  return { binding, calls, connected, requests };
+  return { binding, calls, connected, requests, choices };
 }
 
 const runHandler = {} as RunHandlerBinding;
@@ -1337,6 +1409,298 @@ describe('POST /v1/connection-notices/{tenantId}/{appId}', () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get('retry-after')).not.toBeNull();
     expect((await send(app, 'forged', '198.51.100.7')).status).toBe(400);
+  });
+});
+
+/** An authorization store where Ana is an admin of `project` and Ben a member; anyone else, nothing. */
+function projectRoles(project: string, recorded: string[] = []): AuthzCheckBinding {
+  const roles: Record<string, 'admin' | 'member'> = { [ANA]: 'admin', [BEN]: 'member' };
+  const decide = (principal: unknown, action: Action, r: ResourceRef): Decision => {
+    const actor = (principal as { actor?: { id?: string } }).actor?.id ?? '';
+    const role = r.type === 'project' && r.id === project ? roles[actor] : undefined;
+    const allowed = role === 'admin' || (role === 'member' && action === 'read');
+    return {
+      allowed,
+      reason: allowed ? 'test: granted' : 'test: not in the project',
+      evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
+    };
+  };
+  return {
+    check: async (p, action, r) => decide(p, action, r),
+    checkBatch: async (p, action, rs) => rs.map((r) => decide(p, action, r)),
+    recordDecision: (_p, action, r, decision) => {
+      if (!decision.allowed) recorded.push(`${action} ${r.type}:${r.id}`);
+    },
+  };
+}
+
+describe('/v1/connection-choices', () => {
+  const project = randomUUID();
+
+  function choicesApp(recorded: string[] = []) {
+    const made = makeApp({ authzCheckBinding: projectRoles(project, recorded) });
+    const company = made.connected({ kind: 'company' }, tenantA, { label: 'Support' });
+    return { ...made, company };
+  }
+
+  test('members read, admins write, and anyone else is refused', async () => {
+    const recorded: string[] = [];
+    const { app, company } = choicesApp(recorded);
+    const body = {
+      projectId: project,
+      agentId: 'acme.support',
+      connectionId: company.connectionId,
+    };
+
+    const member = await call(app, 'ben', 'PUT', '/v1/connection-choices', body);
+    expect(member.status).toBe(403);
+    expect(member.json.error).toMatchObject({
+      code: 'permission-denied',
+      message: 'Choosing a connection takes a project admin.',
+    });
+
+    const set = await call(app, 'ana', 'PUT', '/v1/connection-choices', body);
+    expect(set.status).toBe(200);
+    expect(set.json).toEqual({
+      choiceId: expect.any(String),
+      projectId: project,
+      envName: 'local',
+      agentId: 'acme.support',
+      app: 'google',
+      connectionId: company.connectionId,
+      version: 1,
+      createdAt: at,
+      createdBy: `user:${ANA}`,
+    });
+
+    const list = `/v1/connection-choices?projectId=${project}`;
+    const read = await call(app, 'ben', 'GET', list);
+    expect(read.status).toBe(200);
+    expect(read.json).toEqual({ data: [set.json], hasMore: false });
+
+    const outsider = await call(app, 'bot', 'GET', list);
+    expect(outsider.status).toBe(403);
+    expect((await call(app, 'bot', 'PUT', '/v1/connection-choices', body)).status).toBe(403);
+    const path = `/v1/connection-choices/${set.json.choiceId}`;
+    expect((await call(app, 'bot', 'DELETE', path)).status).toBe(403);
+
+    const notAdmin = await call(app, 'ben', 'DELETE', path);
+    expect(notAdmin.status).toBe(403);
+    expect(notAdmin.json.error.message).toBe('Removing a connection choice takes a project admin.');
+
+    const removed = await call(app, 'ana', 'DELETE', path);
+    expect(removed.status).toBe(200);
+    expect(removed.json).toEqual({ deleted: true });
+    expect((await call(app, 'ben', 'GET', list)).json.data).toEqual([]);
+    // The route's own refusals are in the access audit.
+    expect(recorded).toEqual(Array(3).fill(`admin project:${project}`));
+  });
+
+  test("a project's members see a candidate's id and name; its admins see all of it", async () => {
+    const { app, company } = choicesApp();
+    const path = `/v1/connection-choices/candidates?projectId=${project}&app=google`;
+    const admin = await call(app, 'ana', 'GET', path);
+    expect(admin.status).toBe(200);
+    expect(admin.json.data).toEqual([
+      {
+        connectionId: company.connectionId,
+        name: 'Support',
+        app: 'google',
+        accountLabel: 'acme',
+        state: 'working',
+      },
+    ]);
+    const member = await call(app, 'ben', 'GET', path);
+    expect(member.status).toBe(200);
+    expect(member.json.data).toEqual([{ connectionId: company.connectionId, name: 'Support' }]);
+    expect((await call(app, 'bot', 'GET', path)).status).toBe(403);
+  });
+
+  test('the routes pass the env this server serves, and the caller', async () => {
+    const { app, calls, company } = choicesApp();
+    await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      flowId: 'acme.triage',
+      connectionId: company.connectionId,
+    });
+    await call(
+      app,
+      'ben',
+      'GET',
+      `/v1/connection-choices?projectId=${project}&flowId=acme.triage&app=google&limit=5`,
+    );
+    await call(app, 'ben', 'GET', `/v1/connection-choices/candidates?projectId=${project}`);
+    expect(calls.setChoice).toEqual([
+      {
+        projectId: project,
+        flowId: 'acme.triage',
+        connectionId: company.connectionId,
+        tenantId: tenantA,
+        envName: 'local',
+        by: { kind: 'user', id: ANA, tenantId: tenantA },
+      },
+    ]);
+    expect(calls.listChoices).toEqual([
+      {
+        tenantId: tenantA,
+        projectId: project,
+        envName: 'local',
+        flowId: 'acme.triage',
+        app: 'google',
+        limit: 5,
+      },
+    ]);
+    expect(calls.listCandidates).toEqual([
+      { tenantId: tenantA, projectId: project, envName: 'local', limit: 25 },
+    ]);
+  });
+
+  test('without an authorization store, a tenant admin writes and any member reads', async () => {
+    const { app, connected } = makeApp();
+    const company = connected({ kind: 'company' });
+    const body = {
+      projectId: project,
+      agentId: 'acme.support',
+      connectionId: company.connectionId,
+    };
+    expect((await call(app, 'ana', 'PUT', '/v1/connection-choices', body)).status).toBe(403);
+    expect(
+      (await call(app, 'admin-member-key', 'PUT', '/v1/connection-choices', body)).status,
+    ).toBe(403);
+    expect((await call(app, 'admin', 'PUT', '/v1/connection-choices', body)).status).toBe(200);
+    const read = await call(app, 'ana', 'GET', `/v1/connection-choices?projectId=${project}`);
+    expect(read.json.data).toHaveLength(1);
+    const candidates = await call(
+      app,
+      'ana',
+      'GET',
+      `/v1/connection-choices/candidates?projectId=${project}`,
+    );
+    expect(candidates.json.data).toEqual([{ connectionId: company.connectionId, name: 'acme' }]);
+  });
+
+  test.each([
+    ['both agentId and flowId', { agentId: 'acme.support', flowId: 'acme.triage' }, undefined],
+    ['neither agentId nor flowId', {}, undefined],
+    ['an empty agentId', { agentId: '' }, 'agentId'],
+    ['an unknown field', { agentId: 'acme.support', app: 'google' }, 'app'],
+    [
+      'a connectionId that is not a UUID',
+      { agentId: 'acme.support', connectionId: 'support' },
+      'connectionId',
+    ],
+  ])('a body with %s is bad-input, and the binding never sees it', async (_, more, field) => {
+    const { app, calls, company } = choicesApp();
+    const res = await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      connectionId: company.connectionId,
+      ...more,
+    });
+    expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe('bad-input');
+    expect(res.json.error.details?.field).toBe(field);
+    expect(calls.setChoice).toBeUndefined();
+  });
+
+  test("the binding's refusals: a person's connection, a non-candidate, an agent of another project", async () => {
+    const { app, connected } = choicesApp();
+    const mine = connected({ kind: 'member', userId: ANA as UserId });
+    const person = await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      agentId: 'acme.support',
+      connectionId: mine.connectionId,
+    });
+    expect(person.status).toBe(400);
+    expect(person.json.error).toMatchObject({
+      code: 'bad-input',
+      message: "A person's own connection is used for them; choices are for the company's.",
+      details: { field: 'connectionId' },
+    });
+
+    const unknown = randomUUID();
+    const missing = await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      agentId: 'acme.support',
+      connectionId: unknown,
+    });
+    expect(missing.status).toBe(404);
+    expect(missing.json.error).toMatchObject({
+      code: 'connection-not-found',
+      details: { connectionId: unknown, field: 'connectionId' },
+    });
+
+    const company = connected({ kind: 'company' });
+    const elsewhere = await call(app, 'ana', 'PUT', '/v1/connection-choices', {
+      projectId: project,
+      agentId: 'acme.elsewhere',
+      connectionId: company.connectionId,
+    });
+    expect(elsewhere.status).toBe(404);
+    expect(elsewhere.json.error).toMatchObject({
+      code: 'agent-not-found',
+      details: { agentId: 'acme.elsewhere' },
+    });
+  });
+
+  test("a choice that is unknown, removed or another env's is connection-choice-not-found", async () => {
+    const { app, choices, company } = choicesApp();
+    const unknown = randomUUID();
+    const missing = await call(app, 'ana', 'DELETE', `/v1/connection-choices/${unknown}`);
+    expect(missing.status).toBe(404);
+    expect(missing.json.error).toMatchObject({
+      code: 'connection-choice-not-found',
+      message: `No connection choice with id "${unknown}"`,
+      details: { choiceId: unknown },
+    });
+    const live = {
+      choiceId: randomUUID(),
+      tenantId: tenantA,
+      projectId: project,
+      agentId: 'acme.support',
+      app: 'google',
+      connectionId: company.connectionId,
+      version: 1,
+      createdAt: at,
+      createdBy: `user:${ANA}`,
+    };
+    const staging = { ...live, choiceId: randomUUID(), envName: 'staging' as EnvName };
+    const removed = { ...live, choiceId: randomUUID(), envName: 'local' as EnvName, removedAt: at };
+    for (const choice of [staging, removed]) {
+      choices.set(choice.choiceId, choice as ConnectionChoiceRecord);
+      const res = await call(app, 'ana', 'DELETE', `/v1/connection-choices/${choice.choiceId}`);
+      expect(res.status).toBe(404);
+      expect(res.json.error.code).toBe('connection-choice-not-found');
+    }
+    const malformed = await call(app, 'ana', 'DELETE', '/v1/connection-choices/support');
+    expect(malformed.status).toBe(400);
+    expect(malformed.json.error.code).toBe('bad-input');
+  });
+
+  test.each([
+    ['no projectId', '', 'projectId'],
+    ['a projectId that is not a UUID', 'projectId=acme', 'projectId'],
+    ['an app that is not an entry id', `projectId=${project}&app=Google!`, 'app'],
+    ['both agentId and flowId', `projectId=${project}&agentId=a&flowId=f`, undefined],
+  ])('a list with %s is bad-input', async (_, query, field) => {
+    const { app, calls } = choicesApp();
+    const res = await call(app, 'ben', 'GET', `/v1/connection-choices?${query}`);
+    expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe('bad-input');
+    expect(res.json.error.details?.field).toBe(field);
+    expect(calls.listChoices).toBeUndefined();
+  });
+
+  test('a candidates read with no projectId, or an unknown app, is bad-input', async () => {
+    const { app, calls } = choicesApp();
+    expect((await call(app, 'ben', 'GET', '/v1/connection-choices/candidates')).status).toBe(400);
+    const res = await call(
+      app,
+      'ben',
+      'GET',
+      `/v1/connection-choices/candidates?projectId=${project}&app=Google!`,
+    );
+    expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field: 'app' } });
+    expect(calls.listCandidates).toBeUndefined();
   });
 });
 

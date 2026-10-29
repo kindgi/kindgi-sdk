@@ -1195,6 +1195,18 @@ OPERATIONS: dict[str, Operation] = {
     "connections.disconnect": Operation(
         "connections.disconnect", "DELETE", "/v1/connections/{connectionId}", "json", True
     ),
+    "connectionChoices.list": Operation(
+        "connectionChoices.list", "GET", "/v1/connection-choices", "json", False
+    ),
+    "connectionChoices.set": Operation(
+        "connectionChoices.set", "PUT", "/v1/connection-choices", "json", True
+    ),
+    "connectionChoices.remove": Operation(
+        "connectionChoices.remove", "DELETE", "/v1/connection-choices/{choiceId}", "json", True
+    ),
+    "connectionChoices.candidates": Operation(
+        "connectionChoices.candidates", "GET", "/v1/connection-choices/candidates", "json", False
+    ),
     "projects.sites.list": Operation(
         "projects.sites.list", "GET", "/v1/projects/{projectId}/sites", "json", False
     ),
@@ -10641,6 +10653,112 @@ class ConnectionsResource:
         )
 
 
+class ConnectionChoicesResource:
+    """`client.connection_choices` — the `connectionChoices` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        app: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoicePage:
+        """List connection choices. `GET /v1/connection-choices`
+
+        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). A choice of a connection that's since been disconnected stays listed until it's set again or removed.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionChoices.list"],
+            path={},
+            query={
+                "projectId": project_id,
+                "agentId": agent_id,
+                "flowId": flow_id,
+                "app": app,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.ConnectionChoicePage,
+            timeout=timeout,
+        )
+
+    def set(
+        self,
+        body: _models.SetConnectionChoiceBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionChoice:
+        """Choose a connection. `PUT /v1/connection-choices`
+
+        Chooses which company connection an agent or a flow uses, in the project and this server's environment, for the connection's app. The project's admins only (`admin` on the project). The connection must be one of the project's candidates (`GET /v1/connection-choices/candidates`). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.
+        """
+        return self._client._request(
+            _OPERATIONS["connectionChoices.set"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetConnectionChoiceBody, body, fields),
+            response=_models.ConnectionChoice,
+            timeout=timeout,
+        )
+
+    def remove(
+        self,
+        choice_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoiceDeleteResult:
+        """Remove a connection choice. `DELETE /v1/connection-choices/{choiceId}`
+
+        Removes a live choice; it's kept in the choice's history. The admins of its project only (`admin` on the project).
+        """
+        return self._client._request(
+            _OPERATIONS["connectionChoices.remove"],
+            path={"choiceId": choice_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ConnectionChoiceDeleteResult,
+            timeout=timeout,
+        )
+
+    def candidates(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        app: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionCandidatePage:
+        """List connection candidates. `GET /v1/connection-choices/candidates`
+
+        The company connections a choice in the project may name: working, in this server's environment, on a registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
+        """
+        return self._client._request(
+            _OPERATIONS["connectionChoices.candidates"],
+            path={},
+            query={"projectId": project_id, "app": app, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionCandidatePage,
+            timeout=timeout,
+        )
+
+
 class AsyncSystemResource:
     """`client.system` — the `system` operations."""
 
@@ -20042,6 +20160,112 @@ class AsyncConnectionsResource:
         )
 
 
+class AsyncConnectionChoicesResource:
+    """`client.connection_choices` — the `connectionChoices` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        app: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoicePage:
+        """List connection choices. `GET /v1/connection-choices`
+
+        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). A choice of a connection that's since been disconnected stays listed until it's set again or removed.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionChoices.list"],
+            path={},
+            query={
+                "projectId": project_id,
+                "agentId": agent_id,
+                "flowId": flow_id,
+                "app": app,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.ConnectionChoicePage,
+            timeout=timeout,
+        )
+
+    async def set(
+        self,
+        body: _models.SetConnectionChoiceBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ConnectionChoice:
+        """Choose a connection. `PUT /v1/connection-choices`
+
+        Chooses which company connection an agent or a flow uses, in the project and this server's environment, for the connection's app. The project's admins only (`admin` on the project). The connection must be one of the project's candidates (`GET /v1/connection-choices/candidates`). Choosing the connection already chosen answers that choice as it is. Choosing another removes that choice and makes a new one at the next `version`, in one step.
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionChoices.set"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetConnectionChoiceBody, body, fields),
+            response=_models.ConnectionChoice,
+            timeout=timeout,
+        )
+
+    async def remove(
+        self,
+        choice_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionChoiceDeleteResult:
+        """Remove a connection choice. `DELETE /v1/connection-choices/{choiceId}`
+
+        Removes a live choice; it's kept in the choice's history. The admins of its project only (`admin` on the project).
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionChoices.remove"],
+            path={"choiceId": choice_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ConnectionChoiceDeleteResult,
+            timeout=timeout,
+        )
+
+    async def candidates(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        app: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ConnectionCandidatePage:
+        """List connection candidates. `GET /v1/connection-choices/candidates`
+
+        The company connections a choice in the project may name: working, in this server's environment, on a registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
+        """
+        return await self._client._request(
+            _OPERATIONS["connectionChoices.candidates"],
+            path={},
+            query={"projectId": project_id, "app": app, "limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ConnectionCandidatePage,
+            timeout=timeout,
+        )
+
+
 class Resources:
     """Every resource, as attributes of `Kindgi`."""
 
@@ -20102,6 +20326,7 @@ class Resources:
     connection_entries: ConnectionEntriesResource
     connection_apps: ConnectionAppsResource
     connections: ConnectionsResource
+    connection_choices: ConnectionChoicesResource
 
     def __init__(self) -> None:
         client = cast(SyncClientBase, self)
@@ -20162,6 +20387,7 @@ class Resources:
         self.connection_entries = ConnectionEntriesResource(client)
         self.connection_apps = ConnectionAppsResource(client)
         self.connections = ConnectionsResource(client)
+        self.connection_choices = ConnectionChoicesResource(client)
 
 
 class AsyncResources:
@@ -20224,6 +20450,7 @@ class AsyncResources:
     connection_entries: AsyncConnectionEntriesResource
     connection_apps: AsyncConnectionAppsResource
     connections: AsyncConnectionsResource
+    connection_choices: AsyncConnectionChoicesResource
 
     def __init__(self) -> None:
         client = cast(AsyncClientBase, self)
@@ -20284,3 +20511,4 @@ class AsyncResources:
         self.connection_entries = AsyncConnectionEntriesResource(client)
         self.connection_apps = AsyncConnectionAppsResource(client)
         self.connections = AsyncConnectionsResource(client)
+        self.connection_choices = AsyncConnectionChoicesResource(client)

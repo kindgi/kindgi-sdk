@@ -11124,6 +11124,119 @@ class ConnectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class ConnectionChoice(BaseModel):
+    """
+    Which company connection an agent or a flow uses for an app in a project, in one env: `agentId` or `flowId`, one of them. A choice is never changed: changing it removes it and makes a new one at the next version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    choice_id: Annotated[UUID, Field(alias="choiceId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    env_name: Annotated[str, Field(alias="envName")]
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    app: str
+    """
+    The app's entry id (`google`): the connection's.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    The chosen connection. A choice of a connection that's since been disconnected stays until it's set again or removed.
+    """
+    version: Annotated[int, Field(ge=1)]
+    """
+    From 1, per project, env, agent or flow, and app.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str, Field(alias="createdBy")]
+
+
+class ConnectionChoicePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionChoice]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class SetConnectionChoiceBody(BaseModel):
+    """
+    Name what the choice is for: `agentId` or `flowId`, one of them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    One of the project's agents.
+    """
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    One of the project's flows.
+    """
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    """
+    One of the project's candidates (`GET /v1/connection-choices/candidates`). The choice is for its app.
+    """
+
+
+class ConnectionChoiceDeleteResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    deleted: bool
+
+
+class ConnectionCandidate(BaseModel):
+    """
+    A company connection a choice in the project may name. A project admin reads all of it; a project member, only `connectionId` and `name`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[UUID, Field(alias="connectionId")]
+    name: str
+    """
+    Its label, else its account's label (a connection made before connections had names).
+    """
+    app: str | None = None
+    """
+    The app's entry id.
+    """
+    account_label: Annotated[str | None, Field(alias="accountLabel")] = None
+    """
+    Its account's label: an email address, a login.
+    """
+    state: (
+        Annotated[Literal["working", "needs-reconnecting", "removing", "removed"] | str, _open.OPEN]
+        | None
+    ) = None
+    """
+    `working`: runs can use it. `needs-reconnecting`: the app no longer accepts it; connect again. `removing`: a disconnect is under way. `removed`: gone.
+    """
+
+
+class ConnectionCandidatePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ConnectionCandidate]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
 class CreateConnectRequestBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",

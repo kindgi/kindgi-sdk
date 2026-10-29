@@ -631,10 +631,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'webhook-url-refused': 400,
   'webhook-secret-not-found': 400,
   'webhook-secret-too-weak': 400,
-  // Connections (`/v1/connection-apps`, `/v1/connections`).
+  // Connections (`/v1/connection-apps`, `/v1/connections`, `/v1/connection-choices`).
   'connection-app-not-found': 404,
   'connection-not-found': 404,
   'connection-request-not-found': 404,
+  /** A choice that isn't there, or is removed: `details.choiceId` names it. */
+  'connection-choice-not-found': 404,
   /** A registration that doesn't fit its entry; `field` names what. */
   'connection-app-invalid': 400,
   'connection-app-unknown-entry': 400,

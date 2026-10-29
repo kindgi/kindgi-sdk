@@ -48,4 +48,8 @@ without a refresh token (only for an `'optional'` app). `calls` lists every
 call to the fake app, never a token. `onConnectComplete` is told when a
 run's connect finishes, as a server completes the run's wait.
 
+**Connection choices.** `setChoice` needs to know a project's agents and
+flows: pass `inProject`, which says whether an agent or a flow is one of a
+project's. Without it, none is, and every choice is refused.
+
 Apache-2.0.

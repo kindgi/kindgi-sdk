@@ -14818,6 +14818,115 @@ export const ConnectionPageSchema: JsonSchema = {
   },
 };
 
+export const ConnectionChoiceSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'choiceId',
+    'projectId',
+    'envName',
+    'app',
+    'connectionId',
+    'version',
+    'createdAt',
+    'createdBy',
+  ],
+  description:
+    'Which company connection an agent or a flow uses for an app in a project, in one env: `agentId` or `flowId`, one of them. A choice is never changed: changing it removes it and makes a new one at the next version.',
+  properties: {
+    choiceId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+    envName: { type: 'string' },
+    agentId: { type: 'string' },
+    flowId: { type: 'string' },
+    app: { type: 'string', description: "The app's entry id (`google`): the connection's." },
+    connectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The chosen connection. A choice of a connection that's since been disconnected stays until it's set again or removed.",
+    },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description: 'From 1, per project, env, agent or flow, and app.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    createdBy: { type: 'string' },
+  },
+};
+
+export const ConnectionChoicePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionChoice' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+export const SetConnectionChoiceBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'connectionId'],
+  description: 'Name what the choice is for: `agentId` or `flowId`, one of them.',
+  properties: {
+    projectId: { type: 'string', format: 'uuid' },
+    agentId: { type: 'string', minLength: 1, description: "One of the project's agents." },
+    flowId: { type: 'string', minLength: 1, description: "One of the project's flows." },
+    connectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "One of the project's candidates (`GET /v1/connection-choices/candidates`). The choice is for its app.",
+    },
+  },
+};
+
+export const ConnectionChoiceDeleteResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['deleted'],
+  properties: {
+    deleted: { type: 'boolean' },
+  },
+};
+
+export const ConnectionCandidateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['connectionId', 'name'],
+  description:
+    'A company connection a choice in the project may name. A project admin reads all of it; a project member, only `connectionId` and `name`.',
+  properties: {
+    connectionId: { type: 'string', format: 'uuid' },
+    name: {
+      type: 'string',
+      description:
+        "Its label, else its account's label (a connection made before connections had names).",
+    },
+    app: { type: 'string', description: "The app's entry id." },
+    accountLabel: {
+      type: 'string',
+      description: "Its account's label: an email address, a login.",
+    },
+    state: { $ref: '#/components/schemas/ConnectionState' },
+  },
+};
+
+export const ConnectionCandidatePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ConnectionCandidate' } },
+    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
 export const ConnectRequestSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -16128,6 +16237,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['Connection', ConnectionSchema],
   ['UpdateConnectionBody', UpdateConnectionBodySchema],
   ['ConnectionPage', ConnectionPageSchema],
+  ['ConnectionChoice', ConnectionChoiceSchema],
+  ['ConnectionChoicePage', ConnectionChoicePageSchema],
+  ['SetConnectionChoiceBody', SetConnectionChoiceBodySchema],
+  ['ConnectionChoiceDeleteResult', ConnectionChoiceDeleteResultSchema],
+  ['ConnectionCandidate', ConnectionCandidateSchema],
+  ['ConnectionCandidatePage', ConnectionCandidatePageSchema],
   ['ConnectRequest', ConnectRequestSchema],
   ['CreateConnectRequestBody', CreateConnectRequestBodySchema],
   ['ConnectRequestInstallation', ConnectRequestInstallationSchema],

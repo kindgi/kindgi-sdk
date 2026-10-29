@@ -25,6 +25,9 @@ import type {
   ConnectionAppRecord,
   ConnectionAppUpdateInput,
   ConnectionBinding,
+  ConnectionChoiceRecord,
+  ConnectionChoiceSetInput,
+  ConnectionChoiceTarget,
   ConnectionError,
   ConnectionErrorCode,
   ConnectionListInput,
@@ -176,6 +179,17 @@ export interface InMemoryConnectionsOptions {
     readonly waitToken: string;
     readonly result: ConnectWaitResult;
   }) => Promise<void>;
+  /**
+   * Whether an agent or a flow is one of a project's, for a choice
+   * (`setChoice`). Without it none is: every choice answers
+   * `agent-not-found` or `flow-not-found`.
+   */
+  readonly inProject?: (input: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly kind: 'agent' | 'flow';
+    readonly id: string;
+  }) => boolean | Promise<boolean>;
 }
 
 /** A connection put in place without a connect. */
@@ -288,6 +302,19 @@ function page<T>(items: readonly T[], limit: number, cursor?: Cursor): Connectio
   return { data, ...(next < items.length && { nextCursor: String(next) as Cursor }) };
 }
 
+/** The agent or the flow alone, from an input that names one. */
+function targetOf(input: ConnectionChoiceTarget): ConnectionChoiceTarget {
+  return input.agentId !== undefined ? { agentId: input.agentId } : { flowId: input.flowId };
+}
+
+function sameTarget(a: ConnectionChoiceTarget, b: ConnectionChoiceTarget): boolean {
+  return a.agentId !== undefined ? a.agentId === b.agentId : a.flowId === b.flowId;
+}
+
+function oldestFirst(a: ConnectionChoiceRecord, b: ConnectionChoiceRecord): number {
+  return a.createdAt.localeCompare(b.createdAt) || a.choiceId.localeCompare(b.choiceId);
+}
+
 function challengeOf(verifier: string): string {
   return createHash('sha256').update(verifier).digest('base64url');
 }
@@ -313,6 +340,7 @@ export function createInMemoryConnections(
   const apps = new Map<string, ConnectionAppRecord>();
   const connections = new Map<string, StoredConnection>();
   const requests = new Map<string, StoredRequest>();
+  const choices = new Map<string, ConnectionChoiceRecord>();
   const calls: FakeAppCall[] = [];
 
   // ---------------- registrations ----------------
@@ -423,6 +451,47 @@ export function createInMemoryConnections(
     return (
       projectId === undefined || app.projects === undefined || app.projects.includes(projectId)
     );
+  }
+
+  /** The refusal when the agent or the flow isn't one of the project's. */
+  async function outsideProject(
+    input: ConnectionChoiceSetInput,
+    target: ConnectionChoiceTarget,
+  ): Promise<Outcome<never> | undefined> {
+    const kind = target.agentId !== undefined ? 'agent' : 'flow';
+    const id = (target.agentId ?? target.flowId) as string;
+    const { tenantId, projectId } = input;
+    if (await (options.inProject?.({ tenantId, projectId, kind, id }) ?? false)) return undefined;
+    return refuse(`${kind}-not-found`, `No ${kind} "${id}" in the project`, {
+      field: `${kind}Id`,
+    });
+  }
+
+  /** The connection a choice names, when it's a candidate. */
+  function choosable(input: ConnectionChoiceSetInput): Outcome<ConnectionRecord> {
+    const stored = connections.get(input.connectionId);
+    const connection =
+      stored !== undefined && stored.record.tenantId === input.tenantId
+        ? current(stored)
+        : undefined;
+    if (connection?.owner.kind === 'member') {
+      return refuse(
+        'bad-input',
+        "A person's own connection is used for them; choices are for the company's.",
+        { field: 'connectionId' },
+      );
+    }
+    if (connection === undefined || !candidate(connection, input.projectId, input.envName)) {
+      return refuse('connection-not-found', 'No such connection', { field: 'connectionId' });
+    }
+    return ok(connection);
+  }
+
+  /** Whether a choice in the project may name the connection: live, working, the company's, in the env. */
+  function candidate(c: ConnectionRecord, projectId: ProjectId, envName: EnvName): boolean {
+    if (c.owner.kind !== 'company' || c.state !== 'working' || c.envName !== envName) return false;
+    const app = liveApp(c.tenantId, c.appId);
+    return app !== undefined && allows(app, projectId);
   }
 
   /**
@@ -1537,6 +1606,101 @@ export function createInMemoryConnections(
       }
       stored.record = { ...stored.record, label: input.label, updatedAt: iso() };
       return ok(current(stored));
+    },
+
+    async listChoices(input) {
+      const data = [...choices.values()]
+        .filter(
+          (c) =>
+            c.tenantId === input.tenantId &&
+            c.projectId === input.projectId &&
+            c.envName === input.envName &&
+            c.removedAt === undefined &&
+            (input.agentId === undefined || c.agentId === input.agentId) &&
+            (input.flowId === undefined || c.flowId === input.flowId) &&
+            (input.app === undefined || c.app === input.app),
+        )
+        .sort(oldestFirst);
+      return page(data, input.limit, input.cursor);
+    },
+
+    async getChoice(input) {
+      const choice = choices.get(input.choiceId);
+      return choice !== undefined && choice.tenantId === input.tenantId ? choice : null;
+    },
+
+    async setChoice(input) {
+      const { tenantId, projectId, envName } = input;
+      const target = targetOf(input);
+      const outside = await outsideProject(input, target);
+      if (outside !== undefined) return outside;
+      const chosen = choosable(input);
+      if (chosen.kind !== 'ok') return chosen;
+      const connection = chosen.value;
+      const history = [...choices.values()].filter(
+        (c) =>
+          c.tenantId === tenantId &&
+          c.projectId === projectId &&
+          c.envName === envName &&
+          c.app === connection.app &&
+          sameTarget(c, target),
+      );
+      const live = history.find((c) => c.removedAt === undefined);
+      if (live?.connectionId === connection.connectionId) return ok(live);
+      const at = iso();
+      const by = principalKey(input.by);
+      if (live !== undefined) choices.set(live.choiceId, { ...live, removedAt: at, removedBy: by });
+      const choice: ConnectionChoiceRecord = {
+        ...target,
+        choiceId: randomUUID(),
+        tenantId,
+        projectId,
+        envName,
+        app: connection.app,
+        connectionId: connection.connectionId,
+        version: Math.max(0, ...history.map((c) => c.version)) + 1,
+        createdAt: at,
+        createdBy: by,
+      };
+      choices.set(choice.choiceId, choice);
+      return ok(choice);
+    },
+
+    async removeChoice(input) {
+      const choice = choices.get(input.choiceId);
+      if (
+        choice === undefined ||
+        choice.tenantId !== input.tenantId ||
+        choice.removedAt !== undefined
+      ) {
+        return refuse('connection-choice-not-found', 'No such connection choice');
+      }
+      const removed = { ...choice, removedAt: iso(), removedBy: principalKey(input.by) };
+      choices.set(choice.choiceId, removed);
+      return ok(removed);
+    },
+
+    async listCandidates(input) {
+      const data = [...connections.values()]
+        .map(current)
+        .filter(
+          (c) =>
+            c.tenantId === input.tenantId &&
+            (input.app === undefined || c.app === input.app) &&
+            candidate(c, input.projectId, input.envName),
+        )
+        .sort(
+          (a, b) =>
+            a.createdAt.localeCompare(b.createdAt) || a.connectionId.localeCompare(b.connectionId),
+        )
+        .map((c) => ({
+          connectionId: c.connectionId,
+          name: c.label ?? c.account.label,
+          app: c.app,
+          accountLabel: c.account.label,
+          state: c.state,
+        }));
+      return page(data, input.limit, input.cursor);
     },
 
     async createRequest(input) {

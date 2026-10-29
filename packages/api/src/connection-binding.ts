@@ -205,11 +205,50 @@ export interface ConnectRequestRecord {
   readonly createdBy: string;
 }
 
+/** What a choice is for: an agent, or a flow. */
+export type ConnectionChoiceTarget =
+  | { readonly agentId: string; readonly flowId?: never }
+  | { readonly flowId: string; readonly agentId?: never };
+
+/**
+ * Which company connection an agent (or a flow) uses for an app in a
+ * project, in one env. Never changed: a change removes it and makes a new
+ * one at the next version.
+ */
+export type ConnectionChoiceRecord = ConnectionChoiceTarget & {
+  readonly choiceId: string;
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  /** The app's entry id (`google`): the connection's. */
+  readonly app: string;
+  readonly connectionId: string;
+  /** From 1, per project, env, agent or flow, and app. */
+  readonly version: number;
+  readonly createdAt: string;
+  readonly createdBy: string;
+  readonly removedAt?: string;
+  readonly removedBy?: string;
+};
+
+/** A company connection a choice in a project may name. */
+export interface ConnectionCandidateRecord {
+  readonly connectionId: string;
+  /** Its label, else its account's label. */
+  readonly name: string;
+  readonly app: string;
+  readonly accountLabel: string;
+  readonly state: ConnectionState;
+}
+
 /** The codes a `ConnectionBinding` refuses with. The routes answer them in the error body's `code`. */
 export type ConnectionErrorCode =
   | 'connection-app-not-found'
   | 'connection-not-found'
   | 'connection-request-not-found'
+  | 'connection-choice-not-found'
+  | 'agent-not-found'
+  | 'flow-not-found'
   | 'connection-app-invalid'
   | 'connection-app-unknown-entry'
   | 'connection-app-in-use'
@@ -273,6 +312,34 @@ export interface ConnectionListInput {
   readonly ownerKind?: 'member' | 'company';
   readonly state?: ConnectionState;
   readonly includeRemoved?: boolean;
+  readonly limit: number;
+  readonly cursor?: Cursor;
+}
+
+export interface ConnectionChoiceListInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  readonly agentId?: string;
+  readonly flowId?: string;
+  readonly app?: string;
+  readonly limit: number;
+  readonly cursor?: Cursor;
+}
+
+export type ConnectionChoiceSetInput = ConnectionChoiceTarget & {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  readonly connectionId: string;
+  readonly by: PrincipalRef;
+};
+
+export interface ConnectionCandidateListInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly envName: EnvName;
+  readonly app?: string;
   readonly limit: number;
   readonly cursor?: Cursor;
 }
@@ -410,6 +477,49 @@ export interface ConnectionBinding {
     readonly label: string;
     readonly by: PrincipalRef;
   }): Promise<Result<ConnectionRecord, ConnectionError>>;
+
+  /**
+   * The project's live choices in the env, oldest first. `agentId`,
+   * `flowId` and `app` narrow it. A choice of a removed connection stays
+   * listed until it's set again or removed.
+   */
+  listChoices(input: ConnectionChoiceListInput): Promise<ConnectionPage<ConnectionChoiceRecord>>;
+  /** A choice by id, a removed one too. */
+  getChoice(input: {
+    readonly tenantId: TenantId;
+    readonly choiceId: string;
+  }): Promise<ConnectionChoiceRecord | null>;
+  /**
+   * Chooses a company connection for the agent or flow, for the
+   * connection's app, in the project and env. The agent or flow must be
+   * one of the project's (`agent-not-found`, `flow-not-found`). The
+   * connection must be a candidate (`listCandidates`): a person's is
+   * `bad-input`, and anything else that isn't one is
+   * `connection-not-found`, the same answer as for an id that doesn't
+   * exist. The connection already chosen answers the live choice as it
+   * is. Another removes the live choice and makes a new one at the next
+   * version, in one step.
+   */
+  setChoice(
+    input: ConnectionChoiceSetInput,
+  ): Promise<Result<ConnectionChoiceRecord, ConnectionError>>;
+  /**
+   * Removes a live choice; it's kept, with `removedAt` and `removedBy`.
+   * An unknown or removed one is `connection-choice-not-found`.
+   */
+  removeChoice(input: {
+    readonly tenantId: TenantId;
+    readonly choiceId: string;
+    readonly by: PrincipalRef;
+  }): Promise<Result<ConnectionChoiceRecord, ConnectionError>>;
+  /**
+   * The company connections a choice in the project may name: live and
+   * working, in the env, on a registration that allows the project.
+   * `app` narrows it.
+   */
+  listCandidates(
+    input: ConnectionCandidateListInput,
+  ): Promise<ConnectionPage<ConnectionCandidateRecord>>;
 
   /**
    * A connect from outside a run (a Connect button, the CLI). A run's

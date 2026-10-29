@@ -365,7 +365,7 @@ export const ERROR_ENTRIES = {
   },
   'flow-not-found': {
     description:
-      "The flow, or the flow version, isn't registered. Check the id and version; a run can't start on an unregistered flow version.",
+      "The flow, or the flow version, isn't registered. Check the id and version; a run can't start on an unregistered flow version. A connection choice's flow must be one of the choice's project's.",
     details: [
       {
         key: 'flowId',
@@ -3701,7 +3701,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-not-found': {
     description:
-      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected. A connect's `reconnects` must name a live connection of the connect's own owner on the same registration and environment, and any other id is answered the same way.",
+      "No connection with that id that the caller can reach. A person's connection is reachable by that person and a tenant admin; the company's, by a tenant admin. It may have been disconnected. A connect's `reconnects` must name a live connection of the connect's own owner on the same registration and environment, and any other id is answered the same way. So must a connection choice's `connectionId`: a working company connection, in this server's environment, on a registration that allows the project (`GET /v1/connection-choices/candidates` lists them).",
     details: [
       {
         key: 'connectionId',
@@ -3709,9 +3709,21 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'field',
-        meaning: "`reconnects`, when a connect named a connection it can't connect again",
+        meaning:
+          "`reconnects`, when a connect named a connection it can't connect again; `connectionId`, when a choice named a connection it can't choose",
       },
     ],
+  },
+  'connection-choice-not-found': {
+    description:
+      "No live connection choice with that id in this server's environment: it may have been removed, or changed (a change removes the old choice and makes a new one). `GET /v1/connection-choices` lists a project's live choices.",
+    details: [
+      {
+        key: 'choiceId',
+        meaning: 'the choice id that was not found',
+      },
+    ],
+    seeAlso: ['GET /v1/connection-choices'],
   },
   'connection-request-not-found': {
     description:

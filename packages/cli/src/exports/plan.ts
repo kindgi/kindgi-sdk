@@ -597,11 +597,14 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from deployments, tools, agents, providers, secrets and env values',
   '/v1/retention/scheduled': 'computed from the retention policies and the records',
   '/v1/deployments/{deploymentId}/pack-env': 'computed from deployments, env and secrets',
+  '/v1/connection-choices/candidates': 'computed from connections and connection-apps',
   // Not listed by any route.
   '/v1/secrets/{name}/rotations/{rotationId}':
     "read by the id its rotation's request answered; no route lists rotations, and each rotation's versions are in secret-versions",
   '/v1/connections/requests/{requestId}':
     'read by the id its connect request answered; no route lists connect requests',
+  // Read one project at a time, by a query value no parent fills.
+  '/v1/connection-choices': "a project's live choices, read by `?projectId`",
   // Read live from another server.
   '/v1/mcp/endpoints/{endpointId}/resources': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/resources/{uri}': "read live from the MCP endpoint's own server",

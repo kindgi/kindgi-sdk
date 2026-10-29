@@ -12,9 +12,11 @@ import { type CapabilitiesClient, makeCapabilitiesClient } from './resources/cap
 import { type ComplianceClient, makeComplianceClient } from './resources/compliance.js';
 import {
   type ConnectionAppsClient,
+  type ConnectionChoicesClient,
   type ConnectionEntriesClient,
   type ConnectionsClient,
   makeConnectionAppsClient,
+  makeConnectionChoicesClient,
   makeConnectionEntriesClient,
   makeConnectionsClient,
 } from './resources/connections.js';
@@ -180,6 +182,8 @@ export interface KindgiClient {
   readonly connectionEntries: ConnectionEntriesClient;
   readonly connectionApps: ConnectionAppsClient;
   readonly connections: ConnectionsClient;
+  /** Which company connection an agent or a flow uses for an app in a project. */
+  readonly connectionChoices: ConnectionChoicesClient;
   /** Inbound webhook triggers: a signed request starts a flow run. */
   readonly webhooks: WebhooksClient;
   /** Mail triggers: a mailbox's new mail starts runs of an agent or a flow. */
@@ -262,6 +266,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     connectionEntries: makeConnectionEntriesClient(transport),
     connectionApps: makeConnectionAppsClient(transport),
     connections: makeConnectionsClient(transport),
+    connectionChoices: makeConnectionChoicesClient(transport),
     webhooks: makeWebhooksClient(transport),
     mailTriggers: makeMailTriggersClient(transport),
     packs: makePacksClient(transport),
