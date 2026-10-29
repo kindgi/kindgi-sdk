@@ -100,6 +100,8 @@ export interface ListConnectionChoicesInput {
   readonly flowId?: string;
   /** An app's entry id: `'google'`. */
   readonly app?: string;
+  /** Removed choices too, with their `removedAt` and `removedBy`: a choice's history. */
+  readonly includeRemoved?: boolean;
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -178,8 +180,9 @@ export interface ConnectionsClient {
 
 export interface ConnectionChoicesClient {
   /**
-   * @wire GET /v1/connection-choices — the project's live choices; its members may read them.
-   * A choice of a connection removed since stays listed until it's set or removed.
+   * @wire GET /v1/connection-choices — the project's live choices, and with
+   * `includeRemoved` the removed ones too; its members may read them. A
+   * choice of a connection removed since stays listed until it's set or removed.
    */
   list(input: ListConnectionChoicesInput): Promise<ConnectionChoicePage>;
   /**
@@ -349,6 +352,7 @@ export function makeConnectionChoicesClient(transport: Transport): ConnectionCho
           ...(input.agentId !== undefined && { agentId: input.agentId }),
           ...(input.flowId !== undefined && { flowId: input.flowId }),
           ...(input.app !== undefined && { app: input.app }),
+          ...(input.includeRemoved === true && { includeRemoved: true }),
           ...(input.limit !== undefined && { limit: input.limit }),
           ...(input.cursor !== undefined && { cursor: input.cursor }),
         },

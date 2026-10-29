@@ -10667,13 +10667,14 @@ class ConnectionChoicesResource:
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
         app: str | None = None,
+        include_removed: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionChoicePage:
         """List connection choices. `GET /v1/connection-choices`
 
-        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). A choice of a connection that's since been disconnected stays listed until it's set again or removed.
+        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.
         """
         return self._client._request(
             _OPERATIONS["connectionChoices.list"],
@@ -10683,6 +10684,7 @@ class ConnectionChoicesResource:
                 "agentId": agent_id,
                 "flowId": flow_id,
                 "app": app,
+                "includeRemoved": include_removed,
                 "limit": limit,
                 "cursor": cursor,
             },
@@ -10724,7 +10726,7 @@ class ConnectionChoicesResource:
     ) -> _models.ConnectionChoiceDeleteResult:
         """Remove a connection choice. `DELETE /v1/connection-choices/{choiceId}`
 
-        Removes a live choice; it's kept in the choice's history. The admins of its project only (`admin` on the project).
+        Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).
         """
         return self._client._request(
             _OPERATIONS["connectionChoices.remove"],
@@ -10747,7 +10749,7 @@ class ConnectionChoicesResource:
     ) -> _models.ConnectionCandidatePage:
         """List connection candidates. `GET /v1/connection-choices/candidates`
 
-        The company connections a choice in the project may name: working, in this server's environment, on a registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
+        The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
         """
         return self._client._request(
             _OPERATIONS["connectionChoices.candidates"],
@@ -20174,13 +20176,14 @@ class AsyncConnectionChoicesResource:
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
         app: str | None = None,
+        include_removed: bool | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionChoicePage:
         """List connection choices. `GET /v1/connection-choices`
 
-        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). A choice of a connection that's since been disconnected stays listed until it's set again or removed.
+        The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.
         """
         return await self._client._request(
             _OPERATIONS["connectionChoices.list"],
@@ -20190,6 +20193,7 @@ class AsyncConnectionChoicesResource:
                 "agentId": agent_id,
                 "flowId": flow_id,
                 "app": app,
+                "includeRemoved": include_removed,
                 "limit": limit,
                 "cursor": cursor,
             },
@@ -20231,7 +20235,7 @@ class AsyncConnectionChoicesResource:
     ) -> _models.ConnectionChoiceDeleteResult:
         """Remove a connection choice. `DELETE /v1/connection-choices/{choiceId}`
 
-        Removes a live choice; it's kept in the choice's history. The admins of its project only (`admin` on the project).
+        Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).
         """
         return await self._client._request(
             _OPERATIONS["connectionChoices.remove"],
@@ -20254,7 +20258,7 @@ class AsyncConnectionChoicesResource:
     ) -> _models.ConnectionCandidatePage:
         """List connection candidates. `GET /v1/connection-choices/candidates`
 
-        The company connections a choice in the project may name: working, in this server's environment, on a registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
+        The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).
         """
         return await self._client._request(
             _OPERATIONS["connectionChoices.candidates"],

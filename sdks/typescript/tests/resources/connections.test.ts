@@ -135,7 +135,7 @@ describe('connectionChoices', () => {
   const clientOf = (stub: { readonly fetch: typeof fetch }) =>
     createClient({ apiUrl: 'https://api.example.com', auth: AUTH, fetch: stub.fetch });
 
-  it('list GETs /v1/connection-choices for the project, with its filters', async () => {
+  it('list GETs /v1/connection-choices for the project, with its filters and its history', async () => {
     const { stub, client } = clientFor(2);
     await client.connectionChoices.list({
       projectId: 'p-1',
@@ -144,7 +144,11 @@ describe('connectionChoices', () => {
       limit: 10,
       cursor: 'c-1',
     });
-    await client.connectionChoices.list({ projectId: 'p-1', flowId: 'acme.intake' });
+    await client.connectionChoices.list({
+      projectId: 'p-1',
+      flowId: 'acme.intake',
+      includeRemoved: true,
+    });
     const [narrowed, flow] = urls(stub);
     expect(narrowed?.pathname).toBe('/v1/connection-choices');
     expect(Object.fromEntries(narrowed?.searchParams ?? [])).toEqual({
@@ -157,6 +161,7 @@ describe('connectionChoices', () => {
     expect(Object.fromEntries(flow?.searchParams ?? [])).toEqual({
       projectId: 'p-1',
       flowId: 'acme.intake',
+      includeRemoved: 'true',
     });
   });
 

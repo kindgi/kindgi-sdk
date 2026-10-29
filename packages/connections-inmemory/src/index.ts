@@ -67,6 +67,8 @@ const ACCESS_END_MARGIN_MS = 60_000;
 const HOUR_MS = 60 * 60_000;
 /** A connection's label, in characters, as a server's. */
 const MAX_LABEL_LENGTH = 100;
+/** The states of a connection a choice may name: live, never `removing` or `removed`. */
+const LIVE: ReadonlySet<ConnectionState> = new Set(['working', 'needs-reconnecting']);
 
 /** What the fake app answers a code with. */
 export interface FakeAppExchange {
@@ -487,9 +489,12 @@ export function createInMemoryConnections(
     return ok(connection);
   }
 
-  /** Whether a choice in the project may name the connection: live, working, the company's, in the env. */
+  /**
+   * Whether a choice in the project may name the connection: the company's,
+   * live (working, or needing a reconnect), in the env.
+   */
   function candidate(c: ConnectionRecord, projectId: ProjectId, envName: EnvName): boolean {
-    if (c.owner.kind !== 'company' || c.state !== 'working' || c.envName !== envName) return false;
+    if (c.owner.kind !== 'company' || !LIVE.has(c.state) || c.envName !== envName) return false;
     const app = liveApp(c.tenantId, c.appId);
     return app !== undefined && allows(app, projectId);
   }
@@ -1615,7 +1620,7 @@ export function createInMemoryConnections(
             c.tenantId === input.tenantId &&
             c.projectId === input.projectId &&
             c.envName === input.envName &&
-            c.removedAt === undefined &&
+            (input.includeRemoved === true || c.removedAt === undefined) &&
             (input.agentId === undefined || c.agentId === input.agentId) &&
             (input.flowId === undefined || c.flowId === input.flowId) &&
             (input.app === undefined || c.app === input.app),

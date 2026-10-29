@@ -11486,7 +11486,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionChoices.list',
     summary: 'List connection choices',
     description:
-      "The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). A choice of a connection that's since been disconnected stays listed until it's set again or removed.",
+      "The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.",
     tags: ['connections'],
     security: 'bearer',
     parameters: [
@@ -11518,6 +11518,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: "Only this app's (its entry id).",
         schema: { type: 'string' },
       },
+      {
+        name: 'includeRemoved',
+        in: 'query',
+        required: false,
+        description: '`true` lists removed choices too.',
+        schema: { type: 'boolean', default: false },
+      },
       LimitQueryParam,
       CursorQueryParam,
     ],
@@ -11525,7 +11532,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of choices.', schema: ref('ConnectionChoicePage') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; or both `agentId` and `flowId` (`bad-input`).',
+        'No `projectId`, or one that is not a UUID; an `app` that is not an entry id; both `agentId` and `flowId`; or an `includeRemoved` other than `true` or `false` (`bad-input`).',
       ),
       '403': ErrorResponse('Not a member of the project (`permission-denied`).'),
     },
@@ -11562,7 +11569,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionChoices.remove',
     summary: 'Remove a connection choice',
     description:
-      "Removes a live choice; it's kept in the choice's history. The admins of its project only (`admin` on the project).",
+      "Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).",
     tags: ['connections'],
     security: 'bearer',
     parameters: [
@@ -11593,7 +11600,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'connectionChoices.candidates',
     summary: 'List connection candidates',
     description:
-      "The company connections a choice in the project may name: working, in this server's environment, on a registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).",
+      "The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).",
     tags: ['connections'],
     security: 'bearer',
     parameters: [

@@ -1963,7 +1963,7 @@ describe('connection choices', () => {
     const later = () => {
       at += 1000;
     };
-    return { ...made, c, later };
+    return { ...made, c, later, company: seed };
   }
 
   type Choosing = ReturnType<typeof choosing>;
@@ -2003,9 +2003,10 @@ describe('connection choices', () => {
     (await made.binding.listChoices({ tenantId, projectId: projA, envName, limit: 25, ...more }))
       .data;
 
-  test("candidates: the project's live, working company connections in the env, named by their label, else their account's", async () => {
+  test("candidates: the project's live company connections in the env, one that needs reconnecting too, named by their label, else their account's", async () => {
     const made = choosing();
     await made.binding.disconnect({ tenantId, connectionId: made.c.removed, by: admin });
+    made.company('leaving@acme.example', { state: 'removing' });
     const candidates = await made.binding.listCandidates({
       tenantId,
       projectId: projA,
@@ -2034,6 +2035,13 @@ describe('connection choices', () => {
         accountLabel: 'acme',
         state: 'working',
       },
+      {
+        connectionId: made.c.reconnect,
+        name: 'old@acme.example',
+        app: 'google',
+        accountLabel: 'old@acme.example',
+        state: 'needs-reconnecting',
+      },
     ]);
     const ids = async (input: { projectId: ProjectId; envName?: EnvName; app?: string }) =>
       (await made.binding.listCandidates({ tenantId, envName, limit: 25, ...input })).data.map(
@@ -2061,13 +2069,14 @@ describe('connection choices', () => {
           limit: 2,
           ...(first.nextCursor !== undefined && { cursor: first.nextCursor }),
         })
-      ).data,
-    ).toHaveLength(1);
+      ).data.map((candidate) => candidate.connectionId),
+    ).toEqual([made.c.github, made.c.reconnect]);
   });
 
-  test("a choice names a candidate: a person's connection is bad-input, any other connection-not-found", async () => {
+  test("a choice names a candidate, one that needs reconnecting too: a person's connection is bad-input, any other connection-not-found", async () => {
     const made = choosing();
     await made.binding.disconnect({ tenantId, connectionId: made.c.removed, by: admin });
+    const removing = made.company('leaving@acme.example', { state: 'removing' });
     expect(await set(made, made.c.ana)).toEqual({
       kind: 'err',
       error: {
@@ -2083,12 +2092,16 @@ describe('connection choices', () => {
     for (const connectionId of [
       made.c.staging,
       made.c.projectB,
-      made.c.reconnect,
       made.c.removed,
+      removing,
       '00000000-0000-4000-8000-00000000c0de',
     ]) {
       expect(await set(made, connectionId)).toEqual(notFound);
     }
+    expect(await set(made, made.c.reconnect)).toMatchObject({
+      kind: 'ok',
+      value: { connectionId: made.c.reconnect, version: 1 },
+    });
     expect(await set(made, made.c.staging, { envName: staging })).toMatchObject({ kind: 'ok' });
     expect(await set(made, made.c.projectB, { projectId: projB })).toMatchObject({ kind: 'ok' });
     expect(
@@ -2158,6 +2171,17 @@ describe('connection choices', () => {
       removedBy: 'user:user-admin',
     });
     expect(await listed(made)).toEqual([second]);
+    const history = await made.binding.listChoices({
+      tenantId,
+      projectId: projA,
+      envName,
+      includeRemoved: true,
+      limit: 25,
+    });
+    expect(history.data).toEqual([
+      { ...first, removedAt: second.createdAt, removedBy: 'user:user-admin' },
+      second,
+    ]);
   });
 
   test('versions count per project, env, agent or flow, and app', async () => {

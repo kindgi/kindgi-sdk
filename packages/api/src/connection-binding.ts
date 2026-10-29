@@ -323,6 +323,8 @@ export interface ConnectionChoiceListInput {
   readonly agentId?: string;
   readonly flowId?: string;
   readonly app?: string;
+  /** Removed choices too: a choice's history. */
+  readonly includeRemoved?: boolean;
   readonly limit: number;
   readonly cursor?: Cursor;
 }
@@ -479,9 +481,10 @@ export interface ConnectionBinding {
   }): Promise<Result<ConnectionRecord, ConnectionError>>;
 
   /**
-   * The project's live choices in the env, oldest first. `agentId`,
-   * `flowId` and `app` narrow it. A choice of a removed connection stays
-   * listed until it's set again or removed.
+   * The project's live choices in the env, oldest first, and with
+   * `includeRemoved` the removed ones too. `agentId`, `flowId` and `app`
+   * narrow it. A choice of a removed connection stays listed until it's
+   * set again or removed.
    */
   listChoices(input: ConnectionChoiceListInput): Promise<ConnectionPage<ConnectionChoiceRecord>>;
   /** A choice by id, a removed one too. */
@@ -496,7 +499,8 @@ export interface ConnectionBinding {
    * connection must be a candidate (`listCandidates`): a person's is
    * `bad-input`, and anything else that isn't one is
    * `connection-not-found`, the same answer as for an id that doesn't
-   * exist. The connection already chosen answers the live choice as it
+   * exist. One that needs reconnecting may be chosen. The connection
+   * already chosen answers the live choice as it
    * is. Another removes the live choice and makes a new one at the next
    * version, in one step.
    */
@@ -513,9 +517,9 @@ export interface ConnectionBinding {
     readonly by: PrincipalRef;
   }): Promise<Result<ConnectionChoiceRecord, ConnectionError>>;
   /**
-   * The company connections a choice in the project may name: live and
-   * working, in the env, on a registration that allows the project.
-   * `app` narrows it.
+   * The company connections a choice in the project may name: live
+   * (working, or needing a reconnect), in the env, on a live registration
+   * that allows the project. `app` narrows it.
    */
   listCandidates(
     input: ConnectionCandidateListInput,

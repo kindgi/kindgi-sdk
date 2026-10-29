@@ -11152,6 +11152,11 @@ class ConnectionChoice(BaseModel):
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     created_by: Annotated[str, Field(alias="createdBy")]
+    removed_at: Annotated[AwareDatetime | None, Field(alias="removedAt")] = None
+    """
+    When it was removed, or replaced by a new choice. Only a removed choice has it.
+    """
+    removed_by: Annotated[str | None, Field(alias="removedBy")] = None
 
 
 class ConnectionChoicePage(BaseModel):
@@ -11198,7 +11203,7 @@ class ConnectionChoiceDeleteResult(BaseModel):
 
 class ConnectionCandidate(BaseModel):
     """
-    A company connection a choice in the project may name. A project admin reads all of it; a project member, only `connectionId` and `name`.
+    A company connection a choice in the project may name. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of it; a project member, only `connectionId` and `name`.
     """
 
     model_config = ConfigDict(

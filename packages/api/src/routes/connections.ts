@@ -582,6 +582,10 @@ export function connectionChoicesRouter(
     const query = parseChoiceQuery(c);
     if (query.kind === 'err') return badInput(c, query.message, query.field);
     const { projectId, agentId, flowId, app } = query.value;
+    const includeRemoved = parseIncludeRemoved(c);
+    if (includeRemoved.kind === 'err') {
+      return badInput(c, includeRemoved.message, includeRemoved.field);
+    }
     const unreadable = await deniedBy(authorizer, c, 'read', ref('project', projectId));
     if (unreadable !== undefined) return unreadable;
     const cursor = c.req.query('cursor');
@@ -592,6 +596,7 @@ export function connectionChoicesRouter(
       ...(agentId !== undefined && { agentId }),
       ...(flowId !== undefined && { flowId }),
       ...(app !== undefined && { app }),
+      ...(includeRemoved.value && { includeRemoved: true }),
       limit: clampLimit(c.req.query('limit')),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
     });
@@ -1409,7 +1414,7 @@ function serializeFinish(outcome: ConnectFinishOutcome): Record<string, unknown>
     : { kind: outcome.kind, request: serializeRequest(outcome.request) };
 }
 
-/** A choice. Only live ones are answered, so never a removal. */
+/** A choice, with its removal when it's been removed. */
 function serializeChoice(choice: ConnectionChoiceRecord): Record<string, unknown> {
   return {
     choiceId: choice.choiceId,
@@ -1422,10 +1427,11 @@ function serializeChoice(choice: ConnectionChoiceRecord): Record<string, unknown
     version: choice.version,
     createdAt: choice.createdAt,
     createdBy: choice.createdBy,
+    ...(choice.removedAt !== undefined && { removedAt: choice.removedAt }),
+    ...(choice.removedBy !== undefined && { removedBy: choice.removedBy }),
   };
 }
 
-/** A candidate: in full for a project admin, its id and name for anyone else. */
 /** What a refused choice names: the agent, the flow or the connection not found. */
 function choiceNamed(body: ChoiceBody, code: string): Readonly<Record<string, string>> {
   if (code === 'agent-not-found' && body.agentId !== undefined) return { agentId: body.agentId };
@@ -1433,6 +1439,7 @@ function choiceNamed(body: ChoiceBody, code: string): Readonly<Record<string, st
   return code === 'connection-not-found' ? { connectionId: body.connectionId } : {};
 }
 
+/** A candidate: in full for a project admin, its id and name for anyone else. */
 function serializeCandidate(
   candidate: ConnectionCandidateRecord,
   full: boolean,

@@ -10,8 +10,9 @@
  *
  * Each record is written as the route answers it, unchanged, so the API
  * reference documents the files. A top-level kind's file holds one record
- * per line. A child kind's line is `{ "parent": { <path params> }, "item": … }`,
- * so a line never depends on the item carrying its parent's id.
+ * per line. A child kind's line is `{ "parent": { <what its parent filled> }, "item": … }`,
+ * the path and query values read from its parent's record, so a line never
+ * depends on the item carrying its parent's id.
  */
 
 /** How a route answers. */
@@ -23,12 +24,14 @@ export type Paging =
   /** One answer, one record. */
   | 'one';
 
-/** Where a child kind's path parameters come from: each one, the field of the parent's record that fills it. */
+/** Where a child kind's path and query parameters come from: each one, the field of the parent's record that fills it. */
 export interface ParentRef {
   /** The parent kind's name; it comes earlier in the plan. */
   readonly kind: string;
   /** Path parameter -> the parent record's field. */
-  readonly params: Readonly<Record<string, string>>;
+  readonly params?: Readonly<Record<string, string>>;
+  /** Query parameter -> the parent record's field: a route that takes its parent as `?projectId=`. */
+  readonly query?: Readonly<Record<string, string>>;
 }
 
 /** A kind of record, and how it's read. */
@@ -206,6 +209,13 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     query: { includeRemoved: 'true' },
     covers: ['/v1/connections/{connectionId}'],
     admin: true,
+  },
+  {
+    name: 'connection-choices',
+    route: '/v1/connection-choices',
+    paging: cursor,
+    parent: { kind: 'projects', query: { projectId: 'id' } },
+    query: { includeRemoved: 'true' },
   },
 
   // What the packs and the console registered.
@@ -603,8 +613,6 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     "read by the id its rotation's request answered; no route lists rotations, and each rotation's versions are in secret-versions",
   '/v1/connections/requests/{requestId}':
     'read by the id its connect request answered; no route lists connect requests',
-  // Read one project at a time, by a query value no parent fills.
-  '/v1/connection-choices': "a project's live choices, read by `?projectId`",
   // Read live from another server.
   '/v1/mcp/endpoints/{endpointId}/resources': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/resources/{uri}': "read live from the MCP endpoint's own server",

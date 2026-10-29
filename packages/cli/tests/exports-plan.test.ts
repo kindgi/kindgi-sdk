@@ -212,7 +212,8 @@ describe('each kind reads its route as the route takes it', () => {
 
   test.each(kinds)('%s: the route takes each query value it sends', (_name, kind: ExportKind) => {
     const query = params(kind.route, 'query');
-    const unknown = Object.keys(kind.query ?? {}).filter((name) => !query.has(name));
+    const sent = [...Object.keys(kind.query ?? {}), ...Object.keys(kind.parent?.query ?? {})];
+    const unknown = sent.filter((name) => !query.has(name));
     expect(unknown, kind.route).toEqual([]);
     const outside = Object.entries(kind.query ?? {}).filter(([name, value]) => {
       const schema = query.get(name)?.schema;
@@ -226,7 +227,8 @@ describe('each kind reads its route as the route takes it', () => {
     const query = params(kind.route, 'query');
     const scoped = kind.envScoped === true ? ['envName', 'scopeKind', 'scopeId'] : [];
     const paged = kind.paging === 'cursor' ? ['limit', 'cursor'] : [];
-    const given = new Set([...Object.keys(kind.query ?? {}), ...scoped, ...paged]);
+    const filled = Object.keys(kind.parent?.query ?? {});
+    const given = new Set([...Object.keys(kind.query ?? {}), ...filled, ...scoped, ...paged]);
     const missing = [...query.values()].filter((p) => p.required === true && !given.has(p.name));
     expect(missing.map((p) => p.name)).toEqual([]);
     expect(scoped.filter((name) => name !== 'scopeId' && !query.has(name))).toEqual([]);
@@ -247,10 +249,13 @@ describe('each kind reads its route as the route takes it', () => {
   });
 
   test.each(kinds.filter(([, k]) => k.parent !== undefined))(
-    '%s: its parent’s records carry what fills its path',
+    '%s: its parent’s records carry what fills its path and query',
     (_name, kind: ExportKind) => {
       const parent = recordSchema(kindNamed(kind.parent?.kind as string));
-      const fields = Object.values(kind.parent?.params ?? {});
+      const fields = [
+        ...Object.values(kind.parent?.params ?? {}),
+        ...Object.values(kind.parent?.query ?? {}),
+      ];
       expect(fields.filter((field) => !fillsAPath(fieldAt(parent, [field])))).toEqual([]);
     },
   );

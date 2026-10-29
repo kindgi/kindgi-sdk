@@ -40,6 +40,18 @@ describe('connectionChoices — what a choice names', () => {
     expectTypeOf<ConnectionChoice>().toHaveProperty('version').toEqualTypeOf<number>();
   });
 
+  it("a choice's removal is there only once it's removed", () => {
+    expectTypeOf<ListConnectionChoicesInput>()
+      .toHaveProperty('includeRemoved')
+      .toEqualTypeOf<boolean | undefined>();
+    expectTypeOf<ConnectionChoice>()
+      .toHaveProperty('removedAt')
+      .toEqualTypeOf<string | undefined>();
+    expectTypeOf<ConnectionChoice>()
+      .toHaveProperty('removedBy')
+      .toEqualTypeOf<string | undefined>();
+  });
+
   it("a candidate's app, account and state may be left out, as for a member", () => {
     expectTypeOf<ConnectionCandidate>().toHaveProperty('name').toEqualTypeOf<string>();
     expectTypeOf<ConnectionCandidate>().toHaveProperty('app').toEqualTypeOf<string | undefined>();

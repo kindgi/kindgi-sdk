@@ -290,6 +290,32 @@ describe('kindgi exports create', () => {
     ]);
   });
 
+  test('a project’s connection choices are read by its id, removed ones too', async () => {
+    const choice = {
+      choiceId: 'choice-1',
+      projectId: 'proj-1',
+      connectionId: 'conn-1',
+      version: 1,
+    };
+    const fake = server({
+      '/v1/projects': [{ id: 'proj-1' }, { id: 'proj-2' }],
+      '/v1/connection-choices': (url) =>
+        json(200, {
+          data: url.searchParams.get('projectId') === 'proj-1' ? [choice] : [],
+          hasMore: false,
+        }),
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(fake.calls.filter((c) => c.startsWith('GET /v1/connection-choices?'))).toEqual([
+      'GET /v1/connection-choices?includeRemoved=true&projectId=proj-1&limit=100',
+      'GET /v1/connection-choices?includeRemoved=true&projectId=proj-2&limit=100',
+    ]);
+    expect(await lines('connection-choices')).toEqual([
+      { parent: { projectId: 'proj-1' }, item: choice },
+    ]);
+  });
+
   test('a 429 is waited out; a 5xx is sent again three times, then that kind fails and the rest go on', async () => {
     let flowsTries = 0;
     let agentsTries = 0;

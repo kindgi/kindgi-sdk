@@ -25057,6 +25057,14 @@
           },
           "createdBy": {
             "type": "string"
+          },
+          "removedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was removed, or replaced by a new choice. Only a removed choice has it."
+          },
+          "removedBy": {
+            "type": "string"
           }
         }
       },
@@ -25131,7 +25139,7 @@
           "connectionId",
           "name"
         ],
-        "description": "A company connection a choice in the project may name. A project admin reads all of it; a project member, only `connectionId` and `name`.",
+        "description": "A company connection a choice in the project may name. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of it; a project member, only `connectionId` and `name`.",
         "properties": {
           "connectionId": {
             "type": "string",
@@ -64918,7 +64926,7 @@
             }
           },
           "400": {
-            "description": "No `projectId`, or one that is not a UUID; an `app` that is not an entry id; or both `agentId` and `flowId` (`bad-input`).",
+            "description": "No `projectId`, or one that is not a UUID; an `app` that is not an entry id; both `agentId` and `flowId`; or an `includeRemoved` other than `true` or `false` (`bad-input`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -64948,7 +64956,7 @@
             }
           }
         },
-        "description": "The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). A choice of a connection that's since been disconnected stays listed until it's set again or removed.",
+        "description": "The project's live choices in this server's environment: which company connection each agent or flow uses for an app. The project's members may read them (`read` on the project). Removed choices, a choice's history, are listed only with `includeRemoved=true`. A choice of a connection that's since been disconnected stays listed until it's set again or removed.",
         "parameters": [
           {
             "name": "projectId",
@@ -64986,6 +64994,16 @@
             },
             "required": false,
             "description": "Only this app's (its entry id)."
+          },
+          {
+            "name": "includeRemoved",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "`true` lists removed choices too."
           },
           {
             "name": "limit",
@@ -65232,7 +65250,7 @@
             }
           }
         },
-        "description": "Removes a live choice; it's kept in the choice's history. The admins of its project only (`admin` on the project).",
+        "description": "Removes a live choice. It's kept, with `removedAt` and `removedBy`: `GET /v1/connection-choices?includeRemoved=true` lists it. The admins of its project only (`admin` on the project).",
         "parameters": [
           {
             "name": "choiceId",
@@ -65311,7 +65329,7 @@
             }
           }
         },
-        "description": "The company connections a choice in the project may name: working, in this server's environment, on a registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).",
+        "description": "The company connections a choice in the project may name: live ones, working or needing a reconnect, in this server's environment, on a live registration that allows the project. The project's admins read each in full; its members read `connectionId` and `name` only (`read` on the project).",
         "parameters": [
           {
             "name": "projectId",

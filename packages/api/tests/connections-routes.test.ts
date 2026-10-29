@@ -179,7 +179,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
           choice.tenantId === input.tenantId &&
           choice.projectId === input.projectId &&
           choice.envName === input.envName &&
-          choice.removedAt === undefined,
+          (input.includeRemoved === true || choice.removedAt === undefined),
       );
       return { data };
     },
@@ -231,7 +231,9 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       const data = [...connections.values()]
         .filter(
           (c) =>
-            c.tenantId === input.tenantId && c.owner.kind === 'company' && c.state === 'working',
+            c.tenantId === input.tenantId &&
+            c.owner.kind === 'company' &&
+            (c.state === 'working' || c.state === 'needs-reconnecting'),
         )
         .map((c) => ({
           connectionId: c.connectionId,
@@ -1492,6 +1494,11 @@ describe('/v1/connection-choices', () => {
     expect(removed.status).toBe(200);
     expect(removed.json).toEqual({ deleted: true });
     expect((await call(app, 'ben', 'GET', list)).json.data).toEqual([]);
+    // A choice's history: the removed ones too, with who removed them.
+    const history = await call(app, 'ben', 'GET', `${list}&includeRemoved=true`);
+    expect(history.status).toBe(200);
+    expect(history.json.data).toEqual([{ ...set.json, removedAt: at, removedBy: `user:${ANA}` }]);
+    expect((await call(app, 'bot', 'GET', `${list}&includeRemoved=true`)).status).toBe(403);
     // The route's own refusals are in the access audit.
     expect(recorded).toEqual(Array(3).fill(`admin project:${project}`));
   });
@@ -1527,7 +1534,7 @@ describe('/v1/connection-choices', () => {
       app,
       'ben',
       'GET',
-      `/v1/connection-choices?projectId=${project}&flowId=acme.triage&app=google&limit=5`,
+      `/v1/connection-choices?projectId=${project}&flowId=acme.triage&app=google&includeRemoved=true&limit=5`,
     );
     await call(app, 'ben', 'GET', `/v1/connection-choices/candidates?projectId=${project}`);
     expect(calls.setChoice).toEqual([
@@ -1547,6 +1554,7 @@ describe('/v1/connection-choices', () => {
         envName: 'local',
         flowId: 'acme.triage',
         app: 'google',
+        includeRemoved: true,
         limit: 5,
       },
     ]);
@@ -1681,6 +1689,11 @@ describe('/v1/connection-choices', () => {
     ['a projectId that is not a UUID', 'projectId=acme', 'projectId'],
     ['an app that is not an entry id', `projectId=${project}&app=Google!`, 'app'],
     ['both agentId and flowId', `projectId=${project}&agentId=a&flowId=f`, undefined],
+    [
+      'an includeRemoved that is not a boolean',
+      `projectId=${project}&includeRemoved=yes`,
+      'includeRemoved',
+    ],
   ])('a list with %s is bad-input', async (_, query, field) => {
     const { app, calls } = choicesApp();
     const res = await call(app, 'ben', 'GET', `/v1/connection-choices?${query}`);

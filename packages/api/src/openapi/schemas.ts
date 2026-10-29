@@ -14853,6 +14853,13 @@ export const ConnectionChoiceSchema: JsonSchema = {
     },
     createdAt: { type: 'string', format: 'date-time' },
     createdBy: { type: 'string' },
+    removedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it was removed, or replaced by a new choice. Only a removed choice has it.',
+    },
+    removedBy: { type: 'string' },
   },
 };
 
@@ -14899,7 +14906,7 @@ export const ConnectionCandidateSchema: JsonSchema = {
   additionalProperties: false,
   required: ['connectionId', 'name'],
   description:
-    'A company connection a choice in the project may name. A project admin reads all of it; a project member, only `connectionId` and `name`.',
+    "A company connection a choice in the project may name. Its `state` is `working` or `needs-reconnecting`: one that needs reconnecting may be chosen, and works again once it's reconnected. A project admin reads all of it; a project member, only `connectionId` and `name`.",
   properties: {
     connectionId: { type: 'string', format: 'uuid' },
     name: {
