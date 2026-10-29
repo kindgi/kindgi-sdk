@@ -418,7 +418,10 @@ connections at the mailbox's app. Over HTTP, and in the clients, that's
   at the app when it next reads, and stores it from then on, so a second
   one connected later doesn't move it. With several there already, it
   doesn't read, and shows `connection-not-chosen`, until a project admin
-  points it at one.
+  points it at one. Pointed at the account it read before, in the folder
+  it watches (`--folder` again, if it watches one), it reads on from where
+  it stopped, so mail that came meanwhile runs. Another account starts
+  afresh.
 
 Point a trigger at another of the company's mailboxes with `update`:
 
