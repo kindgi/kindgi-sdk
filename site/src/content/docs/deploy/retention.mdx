@@ -537,7 +537,7 @@ then every hour, in the tenants it serves:
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
 | Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), answers to a paused tool call (`wait-token-completed`, `wait-token-discarded`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
-| Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, triggers' owners, people's access and connections, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
+| Approval decisions (`hitl-decision`), changes to secrets, API keys, service accounts, triggers' owners, people's access, connections and the choices of them, and promotions between environments ([On legal hold](#on-legal-hold)) | For good: they're on legal hold |
 | Any other kind | For good |
 
 Run outcomes and guardrail violations are recorded (runtime 0.1.9 or
@@ -590,7 +590,14 @@ The changes on legal hold are these kinds:
   `person-ungranted`;
 - **Connections:** `connection-created`, `connection-removed`,
   `connection-app-set`, `connection-app-removed`
-  ([Connections](../../guides/connections/));
+  ([Connections](../../guides/connections/)); and (runtime 0.4.0 or later)
+  `connection-renamed`, a connection
+  [named](../../guides/connections/choose-a-connection/#name-a-connection)
+  anew; `connection-choice-set` and `connection-choice-removed`, a
+  project's
+  [choice](../../guides/connections/choose-a-connection/#choose-one-for-an-agent-or-a-flow)
+  of the company connection an agent or a flow uses, made, changed or
+  removed;
 - **Promotions:** `deployment-promoted`, a build promoted to the next
   environment.
 
