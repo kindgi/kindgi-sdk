@@ -92,15 +92,15 @@ locals {
   }
 
   # Versionless references: Container Apps picks up a new version within 30
-  # minutes and restarts the revisions that read it (C-SEC-4). Two keys are
-  # the exception, pinned to one version: the AAD key (C-SEC-3: a new
-  # version would make every secret stored in Postgres unreadable) and the
-  # erasure ledger's key (a new version would make the ledger unreplayable
-  # after a restore).
-  pinned_versions = {
+  # minutes and restarts the revisions that read it (C-SEC-4). Pinned to one
+  # version: the AAD key (C-SEC-3: a new one would make every secret stored
+  # in Postgres unreadable), the erasure ledger's key (a new one would make
+  # the ledger unreplayable after a restore) and, with database_url_version,
+  # the database URL: a way back's new revision reads the restored server's.
+  pinned_versions = merge({
     secrets_aad_key    = var.secrets_aad_key_version
     erasure_ledger_key = var.erasure_ledger_key_version
-  }
+  }, var.database_url_version == "" ? {} : { database_url = var.database_url_version })
   secret_ids = {
     for role, name in merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets) :
     role => (
