@@ -547,6 +547,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/openapi.json': 'the server, not the workspace',
   '/v1/license': 'the server, not the workspace',
   '/v1/license/usage': 'the server, not the workspace',
+  '/v1/runtime': 'the server, not the workspace',
   '/v1/adapters': 'the server, not the workspace: the adapters the deployment wired at boot',
   '/v1/adapters/{adapterId}':
     'the server, not the workspace: the adapters the deployment wired at boot',
