@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/cli",
-  "version": "0.2.0",
+  "version": "0.3.0-rc.0",
   "description": "Command-line interface for Kindgi™. Create a pack, run it on your machine (`kindgi dev`), build, sign and deploy it, and work with a running Kindgi API from the terminal.",
   "license": "Apache-2.0",
   "repository": {
