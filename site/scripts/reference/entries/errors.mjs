@@ -3795,7 +3795,7 @@ export const ERROR_ENTRIES = {
   },
   'connection-account-mismatch': {
     description:
-      "A reconnect signed in to an account other than the connection's. Sign in with the same account; to connect another account instead, disconnect, then connect again.",
+      "A reconnect signed in to an account other than the connection's. Sign in with the same account. To connect another account instead, a person disconnects, then connects again; the company connects again, not as a reconnect, since it keeps a connection of its own for each account.",
     details: [],
   },
   'connection-label-taken': {

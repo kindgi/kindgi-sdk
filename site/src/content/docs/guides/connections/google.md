@@ -10,9 +10,9 @@ When you finish this page, people in your workspace can connect their Google
 account, and a tool, such as the ready-made
 [`gmailSend`](../use-a-connection/#ready-made-tools), can send mail as
 them, after they approve it, or read their mail. A tenant admin can
-connect the company's mailbox too, such as a shop's support address, for
-the tools and
-[mail triggers](../../runs/start-runs-from-new-mail/) that use it. They
+connect the company's mailboxes too, such as a shop's support and sales
+addresses, for the tools and
+[mail triggers](../../runs/start-runs-from-new-mail/) that use them. They
 connect through an OAuth client in your organization's Google Cloud project,
 which you register with Kindgi once.
 
@@ -112,12 +112,16 @@ Google, and allow what's asked. Google lists it in plain words, such as "Send em
 The connection shows your Google account, what it allows, and when it was
 last used. Reconnecting later needs the same Google account.
 
-**The company's mailbox** is a tenant admin's to connect. In a project,
+**The company's mailboxes** are a tenant admin's to connect. In a project,
 open **Connections**, choose **Connect an app**, pick Google, and under
 **For** choose **The company**. Then sign in to Google as the mailbox
-itself, such as `support@acme.example`, not as yourself. Tools with
-`as: 'company'` use it, in every project the registration allows
-([The company's mailbox](../../runs/start-runs-from-new-mail/#the-companys-mailbox)).
+itself, such as `support@acme.example`, not as yourself. Connect each
+mailbox the same way, such as `sales@acme.example` as well: each is a
+connection of its own, with its own name. Tools with `as: 'company'` use
+them, in every project the registration allows, and the run or a project
+admin's choice says which one a call uses
+([Choose a connection](../choose-a-connection/),
+[The company's mailboxes](../../runs/start-runs-from-new-mail/#the-companys-mailboxes)).
 
 If you untick a permission on Google's page, Kindgi keeps what you allowed.
 If a tool's call asked you to connect, that call fails with
