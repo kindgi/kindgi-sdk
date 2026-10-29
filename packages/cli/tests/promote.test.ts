@@ -326,7 +326,7 @@ describe('kindgi promote', () => {
     expect(out.stdout).toContain('prod has this build already, as deployment dep-prod-0');
   });
 
-  test('--make-live: asks for it, then prints each agent version live or held by its gate, and each flow version pinned', async () => {
+  test('--make-live: asks for it, then prints each agent version live or held by its gate, and each flow version pinned; one not live exits 3', async () => {
     const gate = (status: string) => ({
       status,
       promotionId: '00000000-0000-4000-8000-000000000001',
@@ -344,7 +344,7 @@ describe('kindgi promote', () => {
         pinnedFlows: [{ id: 'acme.checkout', version: '2.0.0' }],
       }),
     });
-    expect(out.exitCode).toBe(0);
+    expect(out.exitCode).toBe(3);
     expect(named(calls, 'promote')[0]?.[2]).toMatchObject({
       toProjectId: 'p-prod',
       makeLive: true,
