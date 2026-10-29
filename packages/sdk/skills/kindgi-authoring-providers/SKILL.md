@@ -238,7 +238,10 @@ when it registers), which an agent with no preference gets. A preset
 registered before 0.1.4 has none: unregister it and register it again.
 The Claude 5.5 and GPT-6 models take no `temperature` (`"sampling": false`:
 the call goes without it, with a `sampling-unsupported` warning), and a
-model's `thinking` says how it thinks; thinking counts against
+model's `thinking` says how it thinks and the levels it takes (the presets
+list each model's). An agent asks for a level with `thinking` in its model
+settings; one the model doesn't take is rounded up, or to its highest, with
+a `thinking-level-adjusted` warning. Thinking counts against
 `maxOutputTokens` and bills as output.
 The preset carries the models, context windows, default output caps (what
 a call asks for when its agent sets no `maxOutputTokens`; not the model's own
@@ -632,13 +635,23 @@ its own credentials to tenant configuration.
   to the higher rates past the threshold; `cachedPromptMultiplier` (default 0.25) prices cached
   prompt tokens.
 - `thinking` is how the model thinks, as the preset has it. `lowest` is
-  the least level it takes, which a judge's call asks for.
-- To make a model think less, set `adapter_config.thinkingLevels`, a level
-  for each model it names: `"thinkingLevels": "gemini-3.8-flash=low"`. The
-  levels are `minimal`, `low`, `medium` and `high`. A named model needs
-  `thinking` in its entry and a level no lower than its `lowest`, or the
-  registration is refused. A model it doesn't name thinks as Google sets.
-  It takes effect from the 0.2.0-rc.1 adapter on; an older one ignores it.
+  the least level it takes, which a judge's call asks for. `levels`
+  (optional) are the levels it takes besides `lowest`, least first; without
+  them it takes `low`, `medium` and `high` (plus `minimal` when `lowest` is
+  `minimal`).
+- To make a model think less, the agent sets `thinking` in its model
+  settings (`lowest`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+  For calls that ask none, set the model's `thinking.default`:
+  `"thinking": { "mode": "adaptive", "lowest": "low", "default": "low" }`.
+  A `default` the model doesn't take is refused, naming the ones it takes.
+  A model without one thinks as Google sets. It needs runtime 0.3.0 or
+  later; an older one refuses a `thinking` with `default`.
+- `adapter_config.thinkingLevels` is no longer read. A new registration
+  with it is refused (`adapter_config.thinkingLevels isn't read here: its
+  setting is metadata.models[].thinking.default.`); a stored one builds,
+  thinking at Google's default, and `kindgi doctor` warns. Move each
+  `model=level` pair into that model's `thinking.default`, unregister the
+  provider and register it again.
 
 **Step 3 — register and check:**
 ```sh
@@ -914,10 +927,17 @@ defineAgent({
     ```
     Fix each `✗` line's setting and register again. A key the adapter
     needs is checked too (`✗ /secret_ref: …`); whether the key works, or
-    the endpoint answers, isn't (the first turn finds out). A
+    the endpoint answers, isn't (the first turn finds out). So is each
+    `adapter_config` key: one the adapter doesn't take is refused, naming
+    the ones it takes (`✗ /adapter_config/timeout: adapter_config.timeout
+    isn't a setting of this adapter: it takes baseURL, api,
+    extraBody.<field>.`), and one that moved names its new place. A
     registration stored before 0.1.5 wasn't checked: `kindgi doctor`
     names its problems (`GET /v1/providers/<id>/check`); unregister it
-    and register it again.
+    and register it again. A stored registration with a key its adapter
+    doesn't take still builds, without reading it: the check lists it in
+    `warnings`, apart from `issues`, and `kindgi doctor` shows it as a
+    warning.
 
 11. **A provider registered by hand under `kindgi dev`, with nothing
     committed.** `kindgi providers register` puts it in this worktree's dev
