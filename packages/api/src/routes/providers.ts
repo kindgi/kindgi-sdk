@@ -750,7 +750,12 @@ function validateModelInfo(
     ...(m.maxOutputTokens !== undefined && { maxOutputTokens: m.maxOutputTokens }),
     ...(m.sampling !== undefined && { sampling: m.sampling }),
     ...(m.thinking !== undefined && {
-      thinking: { mode: m.thinking.mode, lowest: m.thinking.lowest },
+      thinking: {
+        mode: m.thinking.mode,
+        lowest: m.thinking.lowest,
+        ...(m.thinking.levels !== undefined && { levels: m.thinking.levels }),
+        ...(m.thinking.default !== undefined && { default: m.thinking.default }),
+      },
     }),
     ...(m.description !== undefined && { description: m.description }),
   };
