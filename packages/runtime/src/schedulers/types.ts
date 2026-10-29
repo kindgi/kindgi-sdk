@@ -110,6 +110,12 @@ export interface WebhookTriggerConfig {
 export interface MailTriggerMailbox {
   readonly app: 'google' | 'microsoft';
   readonly as: 'company' | 'person';
+  /**
+   * The company connection the polls and the runs read the mailbox with.
+   * Only with `as: 'company'`. Absent: none was named and the project had
+   * none, or the trigger is from before connections had names.
+   */
+  readonly connectionId?: string;
 }
 
 export interface MailTriggerConfig {

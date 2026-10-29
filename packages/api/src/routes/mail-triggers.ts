@@ -7,10 +7,11 @@ import type { Context } from 'hono';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
-import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
+import type { Cursor, EnvName, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { callerRef, isTenantAdmin } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
+import type { ConnectionBinding, ConnectionCandidateRecord } from '../connection-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -82,6 +83,15 @@ export interface MailTriggersRouterOptions {
   readonly targetTools?: TargetToolsDeps;
   /** Tells a person what a project admin did to their trigger; absent → only audited. */
   readonly ownerNotices?: TriggerOwnerNotices;
+  /**
+   * Where the company connection a company mailbox reads with is checked,
+   * and the env this server serves. Absent: a `connectionId` is
+   * `connection-not-found`, and none is stored.
+   */
+  readonly connections?: {
+    readonly binding: Pick<ConnectionBinding, 'entries' | 'get' | 'listCandidates'>;
+    readonly envName: EnvName;
+  };
 }
 
 /**
@@ -114,6 +124,12 @@ export interface MailTriggersRouterOptions {
  * (`ownerNotices`), as for schedules and webhooks.
  * `toolsAllowedUnattended` (`trigger-tools.ts`) is an admin's to set, and
  * a new target or mailbox while it lists any must name it again.
+ *
+ * The company's mailbox is read with the company connection its
+ * `connectionId` names: one of the project's candidates, as for a
+ * connection choice. With none named, the only candidate is stored, so
+ * another connection added later never moves the trigger; several are
+ * `connection-not-chosen`. Another `connectionId` is another mailbox.
  */
 export function mailTriggersRouter(
   binding: TriggerRegistryBinding,
@@ -128,6 +144,7 @@ export function mailTriggersRouter(
     itemRights,
     targetTools,
     ownerNotices,
+    connections,
   } = options;
   const r = new Hono<AppEnv>();
 
@@ -249,6 +266,56 @@ export function mailTriggersRouter(
     return { kind: 'ok', value: rec };
   }
 
+  /**
+   * The mailbox to store, its company connection decided, else the
+   * refusal. A named `connectionId` must be one of the project's
+   * candidates of the app: a person's is a 400, and anything else a 404,
+   * the same answer as for an id that doesn't exist. With none named, the
+   * only candidate is stored, none when there are none, and several are
+   * `connection-not-chosen`. A person's mailbox is read with its owner's
+   * one connection, and stored as it is.
+   */
+  async function decideConnection(
+    c: Context<AppEnv>,
+    mailbox: MailTriggerMailbox,
+    project: string | undefined,
+  ): Promise<{ kind: 'ok'; value: MailTriggerMailbox } | { kind: 'err'; response: Response }> {
+    const decided =
+      mailbox.as === 'company' ? await companyConnection(c, mailbox, project) : mailbox;
+    return decided instanceof Response
+      ? { kind: 'err', response: decided }
+      : { kind: 'ok', value: decided };
+  }
+
+  /** The company mailbox to store, its connection decided, else the refusal. */
+  async function companyConnection(
+    c: Context<AppEnv>,
+    mailbox: MailTriggerMailbox,
+    project: string | undefined,
+  ): Promise<MailTriggerMailbox | Response> {
+    const named = mailbox.connectionId;
+    if (connections === undefined) return named === undefined ? mailbox : notACandidate(c, named);
+    // With no project to check against (none named, and no Default found),
+    // a named connection must be the tenant's live company connection of
+    // the app in this env, and none named stores none.
+    const candidates =
+      project === undefined
+        ? undefined
+        : await candidatesOf(connections.binding, {
+            tenantId: c.get('tenantId') as TenantId,
+            projectId: project as ProjectId,
+            envName: connections.envName,
+            app: mailbox.app,
+          });
+    if (named !== undefined) {
+      return (await namedRefusal(c, connections, mailbox, named, candidates)) ?? mailbox;
+    }
+    const [only, ...more] = candidates ?? [];
+    if (only === undefined) return mailbox;
+    if (more.length === 0) return { ...mailbox, connectionId: only.connectionId };
+    return notChosen(c, connections.binding, mailbox.app, [only, ...more]);
+  }
+
   // ---------- POST / (register) ----------
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
@@ -311,6 +378,9 @@ export function mailTriggersRouter(
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
+    // The company connection it reads with: the one named, else the only one.
+    const decided = await decideConnection(c, mailbox, project);
+    if (decided.kind === 'err') return decided.response;
 
     // Who its runs act as: the caller, or on the company's mailbox the
     // service account named with `runAsServiceAccountId` (gated by `act_as`)
@@ -330,7 +400,7 @@ export function mailTriggersRouter(
       target: target.value,
       ...(project !== undefined && { projectId: project as ProjectId }),
       owner,
-      config: config.value as MailTriggerConfig,
+      config: { ...config.value, mailbox: decided.value } as MailTriggerConfig,
       ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
       ...(tools.kind === 'ok' && tools.value.length > 0 && { toolsAllowedUnattended: tools.value }),
     };
@@ -476,8 +546,18 @@ export function mailTriggersRouter(
     if (rec.owner.kind === 'service' && mailboxAfter.as === 'person') {
       return bad(c, requestId, PERSON_MAILBOX_IS_A_PERSONS);
     }
+    // A new mailbox's company connection: the one named, else the only one.
+    const decided =
+      config.value.mailbox === undefined
+        ? undefined
+        : await decideConnection(c, config.value.mailbox, project);
+    if (decided?.kind === 'err') return decided.response;
+    const nextMailbox = decided?.value ?? mailboxBefore;
+    // Another company connection, or one named where none was, is another mailbox too.
     const readsElsewhere =
-      mailboxAfter.app !== mailboxBefore.app || mailboxAfter.as !== mailboxBefore.as;
+      mailboxAfter.app !== mailboxBefore.app ||
+      mailboxAfter.as !== mailboxBefore.as ||
+      nextMailbox.connectionId !== mailboxBefore.connectionId;
     // What a personal trigger reads from a person's mailbox is its owner's
     // alone to choose: the mailbox, and the folder or label in it. Nobody
     // else, an admin included, points it at mail its owner didn't offer.
@@ -547,7 +627,9 @@ export function mailTriggersRouter(
       kind: 'mail',
       tenantId,
       triggerId,
-      ...(Object.keys(config.value).length > 0 && { config: config.value }),
+      ...(Object.keys(config.value).length > 0 && {
+        config: { ...config.value, ...(decided !== undefined && { mailbox: decided.value }) },
+      }),
       ...(target !== undefined && { target: target.value }),
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
       ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
@@ -734,6 +816,93 @@ const ONLY_THE_OWNER_CHOOSES_WHAT_IT_READS =
 const PERSON_MAILBOX_IS_A_PERSONS =
   "a trigger on a person's mailbox reads its owner's own mail, so a person owns it: not a service account or the project's own account (`runAsServiceAccountId` and `runAsProject` go with the company's mailbox)";
 
+/** Where a company mailbox names its connection, as a refusal's `details.field` says. */
+const CONNECTION_FIELD = 'config.mailbox.connectionId';
+
+/** A company mailbox names a company connection: a person's is theirs. */
+const PERSON_CONNECTION_IS_THEIRS =
+  "A person's own connection is used for them; the company's mailbox is read with a company connection.";
+
+/** A connection that may be read with: working, or needing a reconnect. */
+const LIVE_CONNECTION_STATES: ReadonlySet<string> = new Set(['working', 'needs-reconnecting']);
+
+/** Every page of the project's candidates of the app (`listCandidates`). */
+async function candidatesOf(
+  binding: Pick<ConnectionBinding, 'listCandidates'>,
+  input: { tenantId: TenantId; projectId: ProjectId; envName: EnvName; app: string },
+): Promise<ConnectionCandidateRecord[]> {
+  const out: ConnectionCandidateRecord[] = [];
+  let cursor: Cursor | undefined;
+  do {
+    const page = await binding.listCandidates({
+      ...input,
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    out.push(...page.data);
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return out;
+}
+
+/**
+ * Why a named company connection can't be stored, else nothing: one of
+ * the project's candidates is stored; a person's connection is a 400; with
+ * no project to check against, the tenant's live company connection of
+ * the app in this env is stored; anything else is a 404.
+ */
+async function namedRefusal(
+  c: Context<AppEnv>,
+  connections: NonNullable<MailTriggersRouterOptions['connections']>,
+  mailbox: MailTriggerMailbox,
+  named: string,
+  candidates: readonly ConnectionCandidateRecord[] | undefined,
+): Promise<Response | undefined> {
+  if (candidates?.some((x) => x.connectionId === named)) return undefined;
+  const tenantId = c.get('tenantId') as TenantId;
+  const connection = await connections.binding.get({ tenantId, connectionId: named });
+  if (connection?.owner.kind === 'member') {
+    return answer(c, c.get('requestId'), 'bad-input', PERSON_CONNECTION_IS_THEIRS, {
+      field: CONNECTION_FIELD,
+    });
+  }
+  const tenantsOwn =
+    candidates === undefined &&
+    connection?.owner.kind === 'company' &&
+    LIVE_CONNECTION_STATES.has(connection.state) &&
+    connection.envName === connections.envName &&
+    connection.app === mailbox.app;
+  return tenantsOwn ? undefined : notACandidate(c, named);
+}
+
+/** A named connection that isn't a candidate: the same 404 as for one that doesn't exist. */
+function notACandidate(c: Context<AppEnv>, named: string): Response {
+  return answer(c, c.get('requestId'), 'connection-not-found', `No connection with id "${named}"`, {
+    connectionId: named,
+    field: CONNECTION_FIELD,
+  });
+}
+
+/** Several candidates and none named: `connection-not-chosen`, listing them by name. */
+function notChosen(
+  c: Context<AppEnv>,
+  binding: Pick<ConnectionBinding, 'entries'>,
+  appId: string,
+  candidates: readonly ConnectionCandidateRecord[],
+): Response {
+  const choices = [...candidates]
+    .sort((a, b) => a.name.localeCompare(b.name) || a.connectionId.localeCompare(b.connectionId))
+    .map(({ connectionId, name }) => ({ connectionId, name }));
+  const app = binding.entries().find((entry) => entry.id === appId)?.name ?? appId;
+  return answer(
+    c,
+    c.get('requestId'),
+    'connection-not-chosen',
+    `This project has ${choices.length} company ${app} connections (${choices.map((x) => x.name).join(', ')}); name one in ${CONNECTION_FIELD}.`,
+    { choices, field: CONNECTION_FIELD },
+  );
+}
+
 /**
  * Why the trigger's owner can't be who the request makes it: on a person's
  * mailbox, a person, never a service account (named, the project's own, or
@@ -815,7 +984,13 @@ function serializeMailTrigger(
     ...targetFields(r.target),
     projectId: r.projectId as unknown as string,
     owner: ownerJson(r.owner, names),
-    mailbox: { app: r.config.mailbox.app, as: r.config.mailbox.as },
+    mailbox: {
+      app: r.config.mailbox.app,
+      as: r.config.mailbox.as,
+      ...(r.config.mailbox.connectionId !== undefined && {
+        connectionId: r.config.mailbox.connectionId,
+      }),
+    },
     ...(r.config.folder !== undefined && { folder: r.config.folder }),
     pollSeconds: r.config.pollSeconds,
     runsPerHour: r.config.runsPerHour,
@@ -954,16 +1129,26 @@ function parseMailConfig(
   return { kind: 'ok', value };
 }
 
-/** `{ app: 'google' | 'microsoft', as: 'company' | 'person' }`, else why not. */
+/**
+ * `{ app: 'google' | 'microsoft', as: 'company' | 'person' }`, and on the
+ * company's mailbox an optional `connectionId`, else why not.
+ */
 function parseMailbox(raw: unknown): MailTriggerMailbox | string {
   const shape =
-    "`config.mailbox` must be `{ app, as }`: `app` `google` or `microsoft`, `as` `company` (the company's mailbox) or `person` (the owner's own)";
+    "`config.mailbox` must be `{ app, as }`: `app` `google` or `microsoft`, `as` `company` (the company's mailbox, with an optional `connectionId`) or `person` (the owner's own)";
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return shape;
-  const { app, as, ...rest } = raw as Record<string, unknown>;
+  const { app, as, connectionId, ...rest } = raw as Record<string, unknown>;
   if (Object.keys(rest).length > 0) return shape;
   if (app !== 'google' && app !== 'microsoft') return shape;
   if (as !== 'company' && as !== 'person') return shape;
-  return { app, as };
+  if (connectionId === undefined) return { app, as };
+  if (as === 'person') {
+    return "A person's mailbox is read with its owner's own connection; `connectionId` is for the company's.";
+  }
+  if (typeof connectionId !== 'string' || !UUID_RE.test(connectionId)) {
+    return '`config.mailbox.connectionId` must be a connection id (a UUID)';
+  }
+  return { app, as, connectionId };
 }
 
 type ParseOk<T> = { readonly kind: 'ok'; readonly value: T };
@@ -1012,6 +1197,18 @@ async function parseJsonObject(
 function bad(c: Context<AppEnv>, requestId: string, message: string): Response {
   c.status(statusFor('bad-input') as never);
   return c.json(toWireError({ code: 'bad-input', message }, requestId));
+}
+
+/** An error with its code's status, and `details`. */
+function answer(
+  c: Context<AppEnv>,
+  requestId: string,
+  code: string,
+  message: string,
+  details: Readonly<Record<string, unknown>>,
+): Response {
+  c.status(statusFor(code) as never);
+  return c.json(toWireError({ code, message, ...details }, requestId));
 }
 
 function unsupported(c: Context<AppEnv>, requestId: string, what: string): Response {

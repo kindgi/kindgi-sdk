@@ -3810,22 +3810,32 @@ export const ERROR_ENTRIES = {
   },
   'connection-not-chosen': {
     description:
-      "A tool call needs a company connection of an app, the project has more than one in this environment, and the agent or flow has no choice of one. The turn's run fails rather than pick one: a project admin chooses the connection (`PUT /v1/connection-choices`), then the turn runs again.",
+      "A tool call needs a company connection of an app, the project has more than one in this environment, and the agent or flow has no choice of one. The turn's run fails rather than pick one: a project admin chooses the connection (`PUT /v1/connection-choices`), then the turn runs again. Or a mail trigger's create or update puts it on the company's mailbox without `config.mailbox.connectionId`, and the project has more than one company connection of the app: nothing changes; name one of `details.choices` and send it again.",
     details: [
       {
         key: 'connection',
-        meaning: "the tool's name for the connection",
+        meaning: "the tool's name for the connection (a turn's run only)",
       },
       {
         key: 'choices',
-        meaning: 'the names of the connections to choose from, sorted',
+        meaning:
+          "the connections to choose from: for a turn's run, their names, sorted; for a mail trigger, `{connectionId, name}` objects sorted by name",
       },
       {
         key: 'runId',
-        meaning: 'the run that failed',
+        meaning: "the run that failed (a turn's run only)",
+      },
+      {
+        key: 'field',
+        meaning: 'the input field to fill (`config.mailbox.connectionId`; a mail trigger only)',
       },
     ],
-    seeAlso: ['PUT /v1/connection-choices', 'GET /v1/connection-choices/candidates'],
+    seeAlso: [
+      'PUT /v1/connection-choices',
+      'GET /v1/connection-choices/candidates',
+      'POST /v1/mail-triggers',
+      'PATCH /v1/mail-triggers/{triggerId}',
+    ],
   },
   'connection-removing': {
     description:

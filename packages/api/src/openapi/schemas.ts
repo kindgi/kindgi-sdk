@@ -14097,10 +14097,16 @@ export const MailTriggerMailboxSchema: JsonSchema = {
   additionalProperties: false,
   required: ['app', 'as'],
   description:
-    "The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company's connection of that app; `person`: the trigger owner's own, through their connection).",
+    "The mailbox a mail trigger reads: its app (`google`: Gmail; `microsoft`: Outlook) and whose it is (`company`: the company's mailbox, through the company connection of that app `connectionId` names; `person`: the trigger owner's own, through their connection).",
   properties: {
     app: { type: 'string', enum: ['google', 'microsoft'] },
     as: { type: 'string', enum: ['company', 'person'] },
+    connectionId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The company connection it reads the mailbox with: only with `as: company`, since a person's mailbox is read with its owner's own connection. Named, it must be one of the project's candidates of the app (`GET /v1/connection-choices/candidates`); a person's connection is `400 bad-input`, and any other `404 connection-not-found`. Not named, the project's only one is stored, so another connection added later doesn't change what the trigger reads; with several, it's `409 connection-not-chosen`, and with none, nothing is stored. Another `connectionId`, or one where there was none, is another mailbox. Absent from a trigger that names none.",
+    },
   },
 };
 
@@ -14176,7 +14182,7 @@ export const MailTriggerRecordSchema: JsonSchema = {
     statusReason: {
       type: 'string',
       description:
-        "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
+        "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `connection-not-chosen` (it names no company connection and the project has several of the app, which the reason names; it doesn't poll until its `config.mailbox.connectionId` names one), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
     },
     account: {
       type: 'object',
@@ -14220,7 +14226,7 @@ export const PatchMailTriggerBodyConfigSchema: JsonSchema = {
     folder: {
       ...MAIL_TRIGGER_CONFIG_PROPERTIES.folder,
       description:
-        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes; then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
+        "The Gmail label id, or the Outlook folder id or well-known name, it watches from now. Absent: it keeps its folder, unless `mailbox` changes (another app, `as` or `connectionId`); then it watches the new mailbox's inbox. To watch the inbox again, name it: `INBOX` in Gmail, `inbox` in Outlook.",
     },
   },
 };

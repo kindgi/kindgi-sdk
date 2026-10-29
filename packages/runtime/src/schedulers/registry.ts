@@ -427,6 +427,17 @@ export interface RegisterMailTriggerInput {
    * account the route allowed. A `person` mailbox's owner is a person.
    */
   readonly owner: TriggerOwner;
+  /**
+   * Stored as given. On the company's mailbox the route has decided
+   * `mailbox.connectionId`: one of the project's company connections of
+   * the app, the only one when none was named, or none when the project
+   * has none. A stored id is the connection the poller reads with. With
+   * none stored, it reads with the project's one company connection of the
+   * app; with several, the trigger's `statusReason` is
+   * `connection-not-chosen` (the reason names them), and it doesn't poll
+   * until someone points it at one. A fire records the id of the
+   * connection its read opened in the run's `mailbox.connectionId`.
+   */
   readonly config: MailTriggerConfig;
   readonly label?: string;
   /**
@@ -492,9 +503,11 @@ export interface UpdateWebhookTriggerInput extends UpdateBase {
 export interface UpdateMailTriggerInput extends Omit<UpdateBase, 'flowVersion'> {
   readonly kind: 'mail';
   /**
-   * The fields given replace the trigger's; `mailbox` is replaced whole.
-   * Another mailbox (the other app, or the other `as`) with no `folder`
-   * drops the trigger's folder, so it watches the new mailbox's inbox.
+   * The fields given replace the trigger's; `mailbox` is replaced whole,
+   * its `connectionId` as the route decided it (as at registration).
+   * Another mailbox (the other app, the other `as`, or another
+   * `connectionId`, one where there was none too) with no `folder` drops
+   * the trigger's folder, so it watches the new mailbox's inbox.
    */
   readonly config?: Partial<MailTriggerConfig>;
   /** Run something else: another agent or agent version, another flow version. */
@@ -584,9 +597,12 @@ export interface MailTriggerRecord extends TriggerRecordBase {
   /**
    * Why it isn't polling as it should: `connection-missing` (the mailbox's
    * connection is gone or lapsed; polls go on, and work again once it's
-   * back), `owner-refused` (its owner was removed or may no longer run the
-   * target; polls go on and read nothing until that changes or an admin
-   * takes it over), or why the runtime paused it.
+   * back), `connection-not-chosen` (it names no company connection and the
+   * project has several of the app, which the reason names; it doesn't
+   * poll until someone points it at one), `owner-refused` (its owner was
+   * removed or may no longer run the target; polls go on and read nothing
+   * until that changes or an admin takes it over), or why the runtime
+   * paused it.
    */
   readonly statusReason?: string;
   /** The mailbox's account at its last poll. Absent before its first. */

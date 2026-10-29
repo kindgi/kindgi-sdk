@@ -2181,6 +2181,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.triggerOwnerNotices !== undefined && {
             ownerNotices: input.triggerOwnerNotices,
           }),
+          // The company connection a company mailbox reads with, checked
+          // against the project's candidates, as connection choices are.
+          ...(input.connections !== undefined &&
+            servedEnv !== undefined && {
+              connections: { binding: input.connections, envName: servedEnv },
+            }),
         }),
       );
     }
