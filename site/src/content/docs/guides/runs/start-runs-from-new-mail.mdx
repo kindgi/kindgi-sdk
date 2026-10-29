@@ -414,9 +414,11 @@ connections at the mailbox's app. Over HTTP, and in the clients, that's
   before anything is sent, and `config.mailbox.connectionId` is
   `400 bad-input`.
 - **A trigger that stores none,** such as one made before triggers stored
-  their connection, reads with the project's only company connection at
-  the app. When a second one is connected, it stops reading, with
-  `connection-not-chosen`, until a project admin points it at one.
+  their connection, is pointed at the project's only company connection
+  at the app when it next reads, and stores it from then on, so a second
+  one connected later doesn't move it. With several there already, it
+  doesn't read, and shows `connection-not-chosen`, until a project admin
+  points it at one.
 
 Point a trigger at another of the company's mailboxes with `update`:
 
@@ -567,11 +569,13 @@ pnpm exec kindgi mail-triggers get <trigger-id> <version>
 
 Whoever can read the trigger can read its versions. Each one says when it
 was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
-`register`, `edit` or `owner` for a take-over to another owner). Two
+`register`, `edit` or `owner` for a take-over to another owner). Three
 causes name no one, since the runtime made the version itself: `first-fire`,
-for a trigger from before versions; and `unversioned-edit`, at its next look
+for a trigger from before versions; `unversioned-edit`, at its next look
 at the mailbox or just before an edit or take-over, after a release from
-before versions changed the trigger during an upgrade. Its `definition` is
+before versions changed the trigger during an upgrade; and `pin`, when it
+stored the project's only company connection for a trigger that stored
+none. Its `definition` is
 what it ran, as whom, which mailbox and folder it read, at what pace, its
 label and its tools allowed unattended: never its status or where it is in
 the mailbox.
