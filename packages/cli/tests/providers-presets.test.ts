@@ -431,8 +431,33 @@ describe('kindgi providers register --preset', () => {
       undefined,
     ]);
     expect(out.stderr).toContain(
-      "  This runtime is older than 0.3.0, so it doesn't take thinking levels: claude-haiku-5-5 registered without them. Upgrade the runtime to 0.3.0 or later to use them.\n",
+      "  This runtime doesn't accept thinking levels, so claude-haiku-5-5 registered without them. Upgrade it to 0.3.0 or later to use them.\n",
     );
+  });
+
+  test.each([
+    `thinking default "max" isn't a level this model takes: it takes lowest, low, medium, high`,
+    "thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting>, levels?: <the levels it takes besides lowest, least first>, default?: <a level it takes> }",
+  ])("a 0.3.0 runtime's refusal of the thinking stands, with no retry: %s", async (refusal) => {
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-ant-test\n');
+    const message = `provider "anthropic" model "claude-haiku-5-5" ${refusal}`;
+    const register = vi.fn(async () => {
+      throw {
+        code: 'invalid-request',
+        serverCode: 'invalid-provider',
+        message,
+        issues: [],
+        fields: { reason: 'invalid-thinking' },
+      };
+    });
+    const out = await runCli({
+      ...inputs(['providers', 'register', '--preset=anthropic', '--models=claude-haiku-5-5']),
+      clientFactory: () => ({ providers: { register } }) as never,
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(out.stderr).toContain(message);
+    expect(out.stderr).not.toContain('accept thinking levels');
   });
 
   test('a missing key stops it, saying how to set one — in the pack’s own kindgi', async () => {

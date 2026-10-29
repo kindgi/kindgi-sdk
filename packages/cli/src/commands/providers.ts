@@ -176,10 +176,19 @@ const register: LeafCommand = {
 };
 
 /**
+ * How a runtime before 0.3.0 refuses a model's `thinking` with more than
+ * `mode` and `lowest`, at the end of its message. 0.3.0's own refusal of
+ * that shape goes on to name `levels` and `default`, so it never ends so.
+ */
+const LEVELLESS_THINKING_REFUSAL =
+  "thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }";
+
+/**
  * Register a preset's body. A runtime before 0.3.0 takes a model's
  * `thinking` as `mode` and `lowest` only, and refuses the preset's
- * `levels` (`invalid-thinking`): then the models go again without them,
- * and the note says they need a newer runtime. Any other refusal stands.
+ * `levels` (`LEVELLESS_THINKING_REFUSAL`): then the models go again
+ * without them, and the note says they need a newer runtime. Any other
+ * refusal stands, a 0.3.0 runtime's refusal of a level among them.
  */
 async function registerPreset(
   ctx: CommandContext,
@@ -200,7 +209,8 @@ async function registerPreset(
       leveled.length === 0 ||
       wire?.code !== 'invalid-request' ||
       wire.serverCode !== 'invalid-provider' ||
-      wire.fields?.reason !== 'invalid-thinking'
+      wire.fields?.reason !== 'invalid-thinking' ||
+      !wire.message.endsWith(LEVELLESS_THINKING_REFUSAL)
     ) {
       throw err;
     }
@@ -218,7 +228,7 @@ async function registerPreset(
     return {
       outcome: await ctx.client().providers.register(without),
       input: without,
-      levelsNote: `  This runtime is older than 0.3.0, so it doesn't take thinking levels: ${leveled.map((m) => m.name).join(', ')} registered without them. Upgrade the runtime to 0.3.0 or later to use them.\n`,
+      levelsNote: `  This runtime doesn't accept thinking levels, so ${leveled.map((m) => m.name).join(', ')} registered without them. Upgrade it to 0.3.0 or later to use them.\n`,
     };
   }
 }
