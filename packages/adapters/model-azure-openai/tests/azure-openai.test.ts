@@ -525,6 +525,86 @@ describe('whether a model reasons is the registration’s where it says, never t
   });
 });
 
+describe('how much a model thinks: the level goes to the library as its portable reasoning', () => {
+  const thinking = { mode: 'adaptive', lowest: 'none', levels: ['low', 'medium', 'high', 'xhigh'] };
+  const metadata = {
+    ...METADATA,
+    models: METADATA.models.map((m, i) => (i === 0 ? { ...m, thinking } : m)),
+  } as unknown as ProviderMetadata;
+  const call = async (api: string, level: string | undefined, model = 'gpt-6.1-sol') => {
+    const sent: Sent[] = [];
+    const result = await azureOpenAIAdapterFactory({
+      metadata,
+      config: { ...GOOD, api },
+      fetch: capturingFetch(sent, 200, api === 'responses' ? RESPONSES_BODY : CHAT_BODY),
+      resolveApiKey: async () => 'k',
+    }).invoke({ ...ask(model), ...(level !== undefined && { thinking: level as never }) });
+    const body = sent[0]?.body as Record<string, unknown>;
+    return {
+      effort:
+        api === 'responses'
+          ? (body.reasoning as { effort?: string } | undefined)?.effort
+          : body.reasoning_effort,
+      thinking: result.thinking,
+      warnings: result.warnings,
+    };
+  };
+
+  describe.each(['responses', 'chat-completions'])('%s', (api) => {
+    test.each(['low', 'medium', 'high', 'xhigh'])(
+      '%s is sent as the effort of its name, and reported',
+      async (level) => {
+        expect(await call(api, level)).toEqual({
+          effort: level,
+          thinking: { level, sent: { reasoning: level } },
+          warnings: undefined,
+        });
+      },
+    );
+
+    test("an effort the library won't send for the deployment is dropped: it says so, and no level is reported", async () => {
+      // The library reads the deployment's name (gpt-6-1-sol) and takes low to max: not none.
+      expect(await call(api, 'lowest')).toEqual({
+        effort: undefined,
+        thinking: undefined,
+        warnings: [
+          {
+            code: 'sdk-unsupported',
+            message:
+              'reasoningEffort: gpt-6-1-sol only supports the following reasoning efforts: low, medium, high, xhigh, max',
+          },
+          {
+            code: 'thinking-unsupported',
+            message:
+              "gpt-6.1-sol doesn't take reasoning none through the AI SDK, so the call sent no level (it asked for lowest).",
+          },
+        ],
+      });
+    });
+
+    test('max is rounded to the highest it takes, with a warning', async () => {
+      expect(await call(api, 'max')).toEqual({
+        effort: 'xhigh',
+        thinking: { level: 'xhigh', sent: { reasoning: 'xhigh' } },
+        warnings: [
+          {
+            code: 'thinking-level-adjusted',
+            message: "gpt-6.1-sol doesn't take thinking level max, so the call sent xhigh.",
+          },
+        ],
+      });
+    });
+
+    test('a model with no thinking is sent none, with a warning', async () => {
+      expect(await call(api, 'high', 'gpt-6-luna')).toEqual({
+        effort: undefined,
+        thinking: undefined,
+        warnings: [expect.objectContaining({ code: 'thinking-unsupported' })],
+      });
+    });
+  });
+});
+
 describe('Entra by cloud', () => {
   test('Azure Government: the token is for its scope, and the request goes to its host', async () => {
     const sent: Sent[] = [];

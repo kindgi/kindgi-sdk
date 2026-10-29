@@ -67,6 +67,7 @@ console.log(result.message.content, result.usage); // costUsd is always 0
 - **Streaming.** `invoke()` resolves with the complete response.
 - **Tool calling and structured output.** `tools`, `structuredOutput`, and message `toolCalls` / `toolCallId` are not passed to the model; responses are plain text.
 - **Arbitrary Hugging Face models.** Only the three `LocalModel` keys are selectable.
+- **How much a model thinks.** These models carry no `thinking`, so a call's level isn't sent, and the answer warns `thinking-unsupported`.
 
 ## Related
 

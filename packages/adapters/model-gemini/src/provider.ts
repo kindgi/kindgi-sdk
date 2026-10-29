@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import {
+  type ThinkingLevel as GeminiThinkingConfigLevel,
   type GenerateContentConfig,
   type GenerateContentParameters,
   type GenerateContentResponse,
   GoogleGenAI,
-  type ThinkingLevel,
 } from '@google/genai';
 import type {
   AdapterConfigCheckInput,
@@ -16,11 +16,12 @@ import type {
   AdapterFactoryInput,
   ModelCallInput,
   ModelCallResult,
+  ModelCallWarning,
   ModelInfo,
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
-import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
+import { adapterConfigError, samplingFor, thinkingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { headerValueProblem } from '@kindgi/types';
@@ -67,37 +68,29 @@ export interface GeminiProviderOptions {
   readonly apiKey?: () => string | Promise<string>;
   /** An injected client, used as is (tests). `vertex`, `credentials` and `apiKey` are then unused. */
   readonly client?: GeminiClient;
-  /**
-   * How much each model thinks before it answers, by model name: Gemini's
-   * `thinkingLevel`, sent on every call to that model. A model it names
-   * needs `thinking` in `metadata.models`, and a level no lower than its
-   * `thinking.lowest`. A model it doesn't name thinks as Google sets by
-   * default. A call's `thinking: 'lowest'` still sends the model's lowest.
-   * Gemini 3 models: Gemini 2.5 takes a token budget instead.
-   */
-  readonly thinkingLevels?: Readonly<Record<string, GeminiThinkingLevel>>;
+}
+
+/** What a call sends about thinking, and what it says about it. */
+interface GeminiThinking {
+  /** Gemini's `thinkingConfig.thinkingLevel`, upper-cased. Absent: none is sent. */
+  readonly thinkingLevel?: string;
+  /** The call's record of it (`ModelCallResult.thinking`). */
+  readonly result?: NonNullable<ModelCallResult['thinking']>;
+  readonly warnings: readonly ModelCallWarning[];
 }
 
 /**
- * A Gemini 3 thinking level (`ThinkingConfig.thinkingLevel`), lowercase
- * like `ModelInfo.thinking.lowest`. Each thinks more than the one before.
+ * The level a call sends (Gemini 3's `thinkingLevel`): the call's level,
+ * or the model's `thinking.default` when it asks none, rounded to one the
+ * model takes (`thinkingFor`). `lowest` sends the model's
+ * `thinking.lowest`. A model with no `thinking` gets none. Gemini 2.5
+ * takes a token budget instead, so it isn't sent one.
  */
-export type GeminiThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
-
-/** Gemini's thinking levels, least first. */
-const THINKING_LEVELS: readonly GeminiThinkingLevel[] = ['minimal', 'low', 'medium', 'high'];
-
-/**
- * The level a call sends: the model's lowest when the call asks for the
- * least thinking, otherwise the level set for the model, if any.
- */
-function thinkingLevelFor(
-  input: ModelCallInput,
-  model: ModelInfo,
-  levels: ReadonlyMap<string, GeminiThinkingLevel>,
-): string | undefined {
-  if (input.thinking === 'lowest' && model.thinking !== undefined) return model.thinking.lowest;
-  return levels.get(model.name);
+function thinkingLevelFor(input: ModelCallInput, model: ModelInfo): GeminiThinking {
+  const { level, warnings } = thinkingFor(model, input);
+  if (level === undefined || model.thinking === undefined) return { warnings };
+  const thinkingLevel = (level === 'lowest' ? model.thinking.lowest : level).toUpperCase();
+  return { thinkingLevel, result: { level, sent: { thinkingLevel } }, warnings };
 }
 
 const CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
@@ -145,8 +138,6 @@ const RETRY_ATTEMPTS = 3;
 export function createGeminiProvider(options: GeminiProviderOptions): ModelProvider {
   const { metadata } = options;
   if (options.client === undefined) checkTarget(metadata.id, options);
-  const thinkingLevels = new Map(Object.entries(options.thinkingLevels ?? {}));
-  throwIf(metadata.id, thinkingLevelProblems(thinkingLevels, metadata.models)[0]);
   const modelsByName = new Map<string, GeminiModelInfo>(
     metadata.models.map((m) => [m.name, m] as const),
   );
@@ -232,7 +223,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       const { systemInstruction, contents } = toGeminiRequest(input.messages);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const sampling = samplingFor(model, input);
-      const thinkingLevel = thinkingLevelFor(input, model, thinkingLevels);
+      const thinking = thinkingLevelFor(input, model);
       const config: GenerateContentConfig = {
         ...(systemInstruction !== undefined && { systemInstruction }),
         ...(input.tools !== undefined &&
@@ -244,9 +235,9 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
           responseJsonSchema: input.structuredOutput.schema,
         }),
         ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-        ...(thinkingLevel !== undefined && {
+        ...(thinking.thinkingLevel !== undefined && {
           // Gemini's thinking levels: `minimal`, `low`, `medium`, `high` (3.8 Flash refuses `minimal`).
-          thinkingConfig: { thinkingLevel: thinkingLevel.toUpperCase() as ThinkingLevel },
+          thinkingConfig: { thinkingLevel: thinking.thinkingLevel as GeminiThinkingConfigLevel },
         }),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
@@ -269,6 +260,7 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
 
       const { message, finishReason } = fromGeminiResponse(response);
       const usage = toFrameworkUsage(response.usageMetadata);
+      const warnings = [...sampling.warnings, ...thinking.warnings];
       return {
         message,
         finishReason,
@@ -281,7 +273,8 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(response.usageMetadata !== undefined && { rawUsage: { ...response.usageMetadata } }),
-        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
+        ...(thinking.result !== undefined && { thinking: thinking.result }),
+        ...(warnings.length > 0 && { warnings }),
       };
     },
   };
@@ -348,10 +341,11 @@ export function parseServiceAccountKey(key: string): Record<string, string> {
  * On the Gemini Developer API (`api: "developer"`):
  *   - `secret_ref` (required) — a Gemini API key from Google AI Studio.
  *
- * On either:
- *   - `adapter_config.thinkingLevels` (optional) — how much each model
- *     thinks, `"model=level,…"` (`"gemini-3.8-flash=low"`): see
- *     `GeminiProviderOptions.thinkingLevels`.
+ * How much a model thinks is the call's level (an agent's model
+ * settings), or the model's `metadata.models[].thinking.default` when it
+ * asks none. `adapter_config.thinkingLevels`, which set it before, is no
+ * longer read: a registration with it is refused, and a stored one builds
+ * without it (`movedConfigKeys`).
  */
 export const geminiAdapterFactory: AdapterFactory = (input) => {
   const metadata = input.metadata as GeminiProviderOptions['metadata'];
@@ -362,41 +356,35 @@ export const geminiAdapterFactory: AdapterFactory = (input) => {
       developerKeyProblem(input, hasSecretRef) ??
       serverCredentialsProblem(input, hasSecretRef),
   );
-  const thinking = readThinkingLevels(input);
-  throwIf(input.metadata.id, thinking.problems[0]);
-  const thinkingLevels = thinking.levels !== undefined && { thinkingLevels: thinking.levels };
   if (apiOf(input) === 'developer') {
     return createGeminiProvider({
       metadata,
       apiKey: input.resolveApiKey as () => Promise<string>,
-      ...thinkingLevels,
     });
   }
   return createGeminiProvider({
     metadata,
     vertex: vertexTarget(input),
     ...(input.resolveApiKey !== undefined && { credentials: input.resolveApiKey }),
-    ...thinkingLevels,
   });
 };
 
 /**
  * What's wrong with a registration for this adapter, read without building
  * it (`AdapterFactoryEntry.checkConfig`): its API, its Gemini API key on
- * the Developer API, its Vertex project and location, its thinking levels.
- * Each problem's message is the error the factory throws for it: both read
- * the registration through the same functions.
+ * the Developer API, its Vertex project and location. Each problem's
+ * message is the error the factory throws for it: both read the
+ * registration through the same functions.
  */
 export function geminiCheckConfig(input: AdapterConfigCheckInput): readonly AdapterConfigProblem[] {
   const api = apiProblem(input);
   if (api !== undefined) return [api];
-  const thinking = readThinkingLevels(input).problems;
   if (apiOf(input) === 'developer') {
     const key = developerKeyProblem(input, input.hasSecretRef);
-    return [...(key !== undefined ? [key] : []), ...thinking];
+    return key !== undefined ? [key] : [];
   }
   const server = serverCredentialsProblem(input, input.hasSecretRef);
-  return [...vertexTargetProblems(input), ...(server !== undefined ? [server] : []), ...thinking];
+  return [...vertexTargetProblems(input), ...(server !== undefined ? [server] : [])];
 }
 
 /** The entry a runtime registers: the factory, its static check, and the keys it takes. */
@@ -405,93 +393,13 @@ export const geminiAdapterEntry: AdapterFactoryEntry = {
   capabilityKind: 'llm-inference',
   factory: geminiAdapterFactory,
   checkConfig: geminiCheckConfig,
-  configKeys: ['api', 'project', 'thinkingLevels'],
+  configKeys: ['api', 'project'],
+  // How much a model thinks moved to the model's metadata in 0.3.0.
+  movedConfigKeys: { thinkingLevels: 'metadata.models[].thinking.default' },
 };
 
 /** What the checks read of a registration. */
 type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config' | 'serverCredentials'>;
-
-/**
- * `adapter_config.thinkingLevels`, `"model=level,…"`: the levels it sets,
- * by model, or what's wrong with it. Absent: none.
- */
-function readThinkingLevels(input: Registration): {
-  readonly levels?: Readonly<Record<string, GeminiThinkingLevel>>;
-  readonly problems: readonly AdapterConfigProblem[];
-} {
-  const value = input.config?.thinkingLevels;
-  if (value === undefined) return { problems: [] };
-  if (typeof value !== 'string' || value.trim() === '') {
-    return {
-      problems: [
-        {
-          path: THINKING_LEVELS_PATH,
-          message: `adapter_config.thinkingLevels must be "model=level,…" (e.g. "gemini-3.8-flash=low"), got ${JSON.stringify(value)}.`,
-        },
-      ],
-    };
-  }
-  const levels = new Map<string, string>();
-  const problems: AdapterConfigProblem[] = [];
-  for (const pair of value.split(',')) {
-    const [model, level, extra] = pair.split('=').map((part) => part.trim());
-    if (
-      model === undefined ||
-      model === '' ||
-      level === undefined ||
-      level === '' ||
-      extra !== undefined
-    ) {
-      problems.push({
-        path: THINKING_LEVELS_PATH,
-        message: `adapter_config.thinkingLevels has "${pair.trim()}": each entry is model=level.`,
-      });
-    } else if (levels.has(model)) {
-      problems.push({
-        path: THINKING_LEVELS_PATH,
-        message: `adapter_config.thinkingLevels names ${model} twice: one level each.`,
-      });
-    } else levels.set(model, level);
-  }
-  problems.push(...thinkingLevelProblems(levels, input.metadata.models));
-  if (problems.length > 0) return { problems };
-  return { levels: Object.fromEntries(levels) as Record<string, GeminiThinkingLevel>, problems };
-}
-
-/**
- * What's wrong with the levels set by model: each must name a model the
- * registration lists, one that thinks (`thinking`) with a Gemini level as
- * its `thinking.lowest` (in any case: it's sent upper-cased), and give it
- * a level no lower than that.
- */
-function thinkingLevelProblems(
-  levels: ReadonlyMap<string, unknown>,
-  models: readonly ModelInfo[],
-): AdapterConfigProblem[] {
-  const byName = new Map(models.map((m) => [m.name, m] as const));
-  const problems: AdapterConfigProblem[] = [];
-  for (const [name, level] of levels) {
-    const lowest = byName.get(name)?.thinking?.lowest;
-    const floor = THINKING_LEVELS.indexOf(lowest?.toLowerCase() as GeminiThinkingLevel);
-    const at = THINKING_LEVELS.indexOf(level as GeminiThinkingLevel);
-    let message: string | undefined;
-    if (!byName.has(name)) {
-      message = `adapter_config.thinkingLevels names ${name}, which this registration doesn't list in metadata.models.`;
-    } else if (lowest === undefined) {
-      message = `adapter_config.thinkingLevels names ${name}, which has no thinking in metadata.models: it isn't known to think.`;
-    } else if (at === -1) {
-      message = `adapter_config.thinkingLevels gives ${name} ${JSON.stringify(level)}: a level is minimal, low, medium or high.`;
-    } else if (floor === -1) {
-      message = `adapter_config.thinkingLevels names ${name}, whose thinking.lowest ${JSON.stringify(lowest)} isn't a Gemini thinking level (minimal, low, medium or high), so its least isn't known.`;
-    } else if (at < floor) {
-      message = `adapter_config.thinkingLevels gives ${name} "${level as string}", below its thinking.lowest: it thinks at "${THINKING_LEVELS[floor]}" at the least.`;
-    }
-    if (message !== undefined) problems.push({ path: THINKING_LEVELS_PATH, message });
-  }
-  return problems;
-}
-
-const THINKING_LEVELS_PATH = '/adapter_config/thinkingLevels';
 
 function throwIf(providerId: string, problem: AdapterConfigProblem | undefined): void {
   if (problem !== undefined) throw adapterConfigError(GEMINI_ADAPTER_ID, providerId, problem);

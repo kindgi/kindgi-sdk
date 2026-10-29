@@ -839,6 +839,89 @@ describe("Nova's chain of thought, written into its answer", () => {
   });
 });
 
+describe('how much a model thinks: the level goes to the library as its portable reasoning', () => {
+  const CLAUDE = 'us.anthropic.claude-sonnet-5-5';
+  const thinkingMetadata = {
+    id: 'bedrock-acme',
+    region: 'us-east-2',
+    models: [
+      {
+        name: CLAUDE,
+        contextWindow: 1_000_000,
+        features: ['tool-use'],
+        cost: { promptUsdPer1kTokens: 0.003, completionUsdPer1kTokens: 0.015 },
+        thinking: { mode: 'adaptive', lowest: 'between_tools' },
+      },
+      ...metadata().models,
+    ],
+  } as unknown as ProviderMetadata;
+  const call = async (level: string, model = CLAUDE) => {
+    const sent: Sent[] = [];
+    const result = await bedrockAdapterFactory({
+      metadata: thinkingMetadata,
+      config: {},
+      fetch: capturingFetch(sent),
+      identities: { aws: identity() },
+    }).invoke({ ...ask(), model, thinking: level as never });
+    return { body: sent[0]?.body, thinking: result.thinking, warnings: result.warnings };
+  };
+
+  /** What the library asks Claude for: adaptive thinking at this effort. */
+  const effort = (value: string) => ({
+    thinking: { type: 'adaptive' },
+    output_config: { effort: value },
+  });
+
+  test.each(['low', 'medium', 'high'])(
+    '%s is sent as the effort of its name, and reported',
+    async (level) => {
+      const { body, ...reported } = await call(level);
+      expect(body?.additionalModelRequestFields).toEqual(effort(level));
+      expect(reported).toEqual({
+        thinking: { level, sent: { reasoning: level } },
+        warnings: undefined,
+      });
+    },
+  );
+
+  test("lowest: the library has no between_tools, so Claude's lowest goes as effort low", async () => {
+    const { body, ...reported } = await call('lowest');
+    expect(body?.additionalModelRequestFields).toEqual(effort('low'));
+    expect(reported).toEqual({
+      thinking: { level: 'lowest', sent: { reasoning: 'low' } },
+      warnings: undefined,
+    });
+  });
+
+  test('max, which the model data has no level for, is rounded to high, with a warning', async () => {
+    const { body, ...reported } = await call('max');
+    expect(body?.additionalModelRequestFields).toEqual(effort('high'));
+    expect(reported).toEqual({
+      thinking: { level: 'high', sent: { reasoning: 'high' } },
+      warnings: [
+        {
+          code: 'thinking-level-adjusted',
+          message: `${CLAUDE} doesn't take thinking level max, so the call sent high.`,
+        },
+      ],
+    });
+  });
+
+  test('a model with no thinking (Nova) is sent none, with a warning', async () => {
+    const { body, ...reported } = await call('high', NOVA);
+    expect(body).not.toHaveProperty('additionalModelRequestFields');
+    expect(reported).toEqual({
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message: `${NOVA} doesn't think, or how it thinks isn't known, so the call sent no level (it asked for high).`,
+        },
+      ],
+    });
+  });
+});
+
 describe("prompt caching: Bedrock's cache points", () => {
   const CLAUDE = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
   const OPENAI = 'us.openai.gpt-6.1-sol';

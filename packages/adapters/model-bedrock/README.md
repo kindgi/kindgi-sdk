@@ -60,6 +60,8 @@ Each of these has a test. It signs in before each attempt, with the call's abort
 
 **Model ids:** a model id or a system inference profile (`us.amazon.nova-pro-v1:0`). Application inference profiles (`…:application-inference-profile/…`) aren't supported yet: the Claude handling and the Nova clean-up go by the model's name, so one would get neither.
 
+**How much a model thinks:** a call's level goes as the reasoning, through the AI SDK (see [`@kindgi/adapter-model-shared`](../model-shared/)). For Claude it sends adaptive thinking at that effort; its `lowest` goes as effort `low`, since the AI SDK has no `between_tools` or `disabled`. A model with no `thinking` (Nova) is sent none, with a `thinking-unsupported` warning when the call asked for one.
+
 ## Nova's chain of thought
 
 When tools are in play, Amazon Nova writes its reasoning into the answer: `<thinking>…</thinking>` before the reply. A Kindgi answer carries no reasoning (the other vendors keep it apart, and a result has no slot for reasoning text). So for a Nova model, one leading `<thinking>` block is taken out of the answer, and the result carries the warning `reasoning-text-removed` (`NOVA_THINKING_REMOVED`), which the model-call record keeps. Only an exact, closed, leading block is touched: one later in the text, or an unclosed one, is left as it came. Other vendors' models are never changed.

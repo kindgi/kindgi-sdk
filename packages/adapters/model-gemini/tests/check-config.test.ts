@@ -176,13 +176,9 @@ describe("a deployment that refuses the server's own credentials (serverCredenti
 });
 
 describe('the keys it takes', () => {
-  test("api, project and thinkingLevels; any other is the registration's to refuse, naming them", () => {
+  test("api and project; any other is the registration's to refuse, naming them", () => {
     expect(
-      adapterConfigKeyProblems(geminiAdapterEntry, {
-        api: 'vertex',
-        project: 'acme-project',
-        thinkingLevels: 'gemini-3-pro=high',
-      }),
+      adapterConfigKeyProblems(geminiAdapterEntry, { api: 'vertex', project: 'acme-project' }),
     ).toEqual([]);
     expect(
       adapterConfigKeyProblems(geminiAdapterEntry, {
@@ -192,20 +188,35 @@ describe('the keys it takes', () => {
     ).toEqual([
       {
         path: '/adapter_config/location',
-        message:
-          "adapter_config.location isn't a setting of this adapter: it takes api, project, thinkingLevels.",
+        message: "adapter_config.location isn't a setting of this adapter: it takes api, project.",
       },
     ]);
   });
 
-  test("a stored key it doesn't take: its check leaves it be, and it builds", () => {
-    const { problems, thrown } = both(
-      'global',
-      { project: 'acme-project', location: 'us-central1' },
-      true,
-      false,
-    );
-    expect(problems).toEqual([]);
-    expect(thrown).toBeUndefined();
+  test('thinkingLevels moved: a new registration is refused, naming where the setting is now', () => {
+    expect(
+      adapterConfigKeyProblems(geminiAdapterEntry, {
+        project: 'acme-project',
+        thinkingLevels: 'gemini-3.8-flash=high',
+      }),
+    ).toEqual([
+      {
+        path: '/adapter_config/thinkingLevels',
+        message:
+          "adapter_config.thinkingLevels isn't read here: its setting is metadata.models[].thinking.default.",
+      },
+    ]);
   });
+
+  test.each([
+    ['a key it never took', { project: 'acme-project', location: 'us-central1' }],
+    ['the moved thinkingLevels', { project: 'acme-project', thinkingLevels: 'gemini-3.8-flash=x' }],
+  ] as const)(
+    'a stored registration with %s: its check leaves it be, and it builds',
+    (_n, config) => {
+      const { problems, thrown } = both('global', config, true, false);
+      expect(problems).toEqual([]);
+      expect(thrown).toBeUndefined();
+    },
+  );
 });

@@ -75,6 +75,7 @@ Each of these has a test. It signs in before each attempt, with the call's abort
 - **Responses** (the default): `POST …/openai/v1/responses?api-version=v1`, with the deployment as `model` and `store: false`, so Azure keeps no conversation state for it: Kindgi's journal is the record.
 - **Chat Completions:** `POST …/openai/v1/chat/completions`, with the deployment as `model`.
 - **Whether a model reasons** is the registration's to say: one registered with `thinking` or `sampling: false` reasons, one with `sampling: true` doesn't, whatever its deployment is called. A reasoning model keeps its encrypted reasoning between tool turns on Responses, and gets `max_completion_tokens` on Chat Completions. When the registration says neither, the AI SDK decides from the deployment's name, so register one or the other when the name doesn't say.
+- **How much a model thinks:** a call's level goes as the reasoning effort, through the AI SDK (see [`@kindgi/adapter-model-shared`](../model-shared/)). The AI SDK reads the deployment's name for the efforts it takes, and drops one it thinks the model doesn't (`none` on a GPT-6 name), with a `thinking-unsupported` warning.
 - Every attempt goes through the runtime's `fetch` (`AdapterFactoryInput.fetch`), which refuses the hosts its deployment forbids.
 
 ## Cost
