@@ -14823,6 +14823,11 @@ export const ConnectionSchema: JsonSchema = {
     app: { type: 'string', description: "The app's entry id." },
     owner: { $ref: '#/components/schemas/ConnectionOwner' },
     account: { $ref: '#/components/schemas/ConnectionAccount' },
+    label: {
+      type: 'string',
+      description:
+        "The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.",
+    },
     permissions: {
       type: 'array',
       items: { type: 'string' },
@@ -14920,6 +14925,11 @@ export const ConnectRequestSchema: JsonSchema = {
       format: 'uuid',
       description: 'The connection it connects again; the same account is required.',
     },
+    label: {
+      type: 'string',
+      description:
+        "The name asked for the connection it makes. A reconnect keeps the connection's.",
+    },
     runId: { type: 'string', description: 'The run that waits for it.' },
     name: { type: 'string', description: "The tool's name for the connection, when a run waits." },
     startedBy: {
@@ -14982,6 +14992,28 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       default: 'me',
       description:
         "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.",
+    },
+    label: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 100,
+      description:
+        "The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.",
+    },
+  },
+};
+
+export const UpdateConnectionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['label'],
+  properties: {
+    label: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 100,
+      description:
+        "The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded.",
     },
   },
 };
@@ -16146,6 +16178,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateConnectionAppBody', UpdateConnectionAppBodySchema],
   ['ConnectionAppRemoved', ConnectionAppRemovedSchema],
   ['Connection', ConnectionSchema],
+  ['UpdateConnectionBody', UpdateConnectionBodySchema],
   ['ConnectionPage', ConnectionPageSchema],
   ['ConnectRequest', ConnectRequestSchema],
   ['CreateConnectRequestBody', CreateConnectRequestBodySchema],

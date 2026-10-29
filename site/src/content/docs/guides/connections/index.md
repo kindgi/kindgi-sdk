@@ -40,7 +40,9 @@ runs as a service account and uses the company's
    [LinkedIn](linkedin/)).
 2. **People connect** on the app's own sign-in page: from the console's
    **Connections** page, from a terminal with `kindgi connections connect`,
-   or from a run that's waiting for them.
+   or from a run that's waiting for them. Each connection has a name: the
+   account's, such as an email address, unless the connect gives another
+   ([How connections work](reference/)).
 3. **A tool says which app and which permissions it needs**
    ([Use a connection in a tool](use-a-connection/)). Before each call,
    Kindgi finds the connection and hands that call its current

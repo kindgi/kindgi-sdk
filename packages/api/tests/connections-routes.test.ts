@@ -64,6 +64,24 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
     kind: 'err' as const,
     error: { code, message, ...(field !== undefined && { field }) } as never,
   });
+  const ownerKey = (owner: ConnectionRecord['owner']) =>
+    owner.kind === 'member' ? `member:${owner.userId}` : 'company';
+  /** Another live connection of the app, owner and env has `label`, ignoring case. */
+  const labelTaken = (
+    of: Pick<ConnectionRecord, 'tenantId' | 'app' | 'owner' | 'envName'>,
+    label: string,
+    except?: string,
+  ) =>
+    [...connections.values()].some(
+      (c) =>
+        c.connectionId !== except &&
+        c.tenantId === of.tenantId &&
+        c.app === of.app &&
+        c.envName === of.envName &&
+        ownerKey(c.owner) === ownerKey(of.owner) &&
+        c.state !== 'removed' &&
+        c.label?.toLowerCase() === label.toLowerCase(),
+    );
   const binding: ConnectionBinding = {
     entries: () => entries,
     async listApps(input) {
@@ -142,10 +160,23 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
       connections.set(input.connectionId, removed);
       return { kind: 'ok', value: removed };
     },
+    async update(input) {
+      seen('update', input);
+      const connection = connections.get(input.connectionId) as ConnectionRecord;
+      if (labelTaken(connection, input.label, input.connectionId)) {
+        return refuse('connection-label-taken', 'Another connection has that name', 'label');
+      }
+      const renamed: ConnectionRecord = { ...connection, label: input.label, updatedAt: at };
+      connections.set(input.connectionId, renamed);
+      return { kind: 'ok', value: renamed };
+    },
     async createRequest(input) {
       seen('createRequest', input);
       if (input.permissions.some((p) => !(p in google.permissions))) {
         return refuse('bad-input', 'Google has no such permission', 'permissions');
+      }
+      if (input.label !== undefined && labelTaken(input, input.label)) {
+        return refuse('connection-label-taken', 'Another connection has that name', 'label');
       }
       const requestId = randomUUID();
       const record: ConnectRequestRecord = {
@@ -157,6 +188,7 @@ function memoryBinding(entries: readonly AppEntry[] = [google, github]) {
         owner: input.owner,
         permissions: input.permissions,
         says: input.permissions.map((p) => google.permissions[p]?.says ?? p),
+        ...(input.label !== undefined && { label: input.label }),
         state: 'pending',
         connectUrl: `https://kindgi.acme.example/console/connect/requests/${requestId}`,
         expiresAt: '2026-10-22T13:00:00.000Z',
@@ -626,10 +658,67 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
       { app: 'google', permissions: ['gmail.send'], for: 'team' },
       'for',
     ],
+    ['an empty label', { app: 'google', permissions: ['gmail.send'], label: '  ' }, 'label'],
+    [
+      'a label over 100 characters',
+      { app: 'google', permissions: ['gmail.send'], label: 'a'.repeat(101) },
+      'label',
+    ],
+    [
+      'a label with a control character',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\nmail' },
+      'label',
+    ],
+    [
+      'a label with a bidi override',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u202Elim' },
+      'label',
+    ],
+    [
+      'a label with a zero-width space',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u200Bmail' },
+      'label',
+    ],
+    [
+      'a label with a lone surrogate',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\uD800mail' },
+      'label',
+    ],
+    [
+      'a label with a line separator',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u2028mail' },
+      'label',
+    ],
+    [
+      'a label with a Hangul filler',
+      { app: 'google', permissions: ['gmail.send'], label: '\u3164' },
+      'label',
+    ],
+    [
+      'a label with a combining grapheme joiner',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\u034Fmail' },
+      'label',
+    ],
+    [
+      'a label with a variation selector after a letter',
+      { app: 'google', permissions: ['gmail.send'], label: 'Work\uFE0F' },
+      'label',
+    ],
+    [
+      'a label with a variation selector after a digit, outside a keycap',
+      { app: 'google', permissions: ['gmail.send'], label: '1\uFE0F' },
+      'label',
+    ],
+    [
+      'a label that is not a string',
+      { app: 'google', permissions: ['gmail.send'], label: 7 },
+      'label',
+    ],
   ])('refuses %s, naming the field', async (_what, body, field) => {
     const { app } = makeApp();
     const res = await call(app, 'ana', 'POST', '/v1/connections', body);
     expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe('bad-input');
     expect(res.json.error.details).toEqual({ field });
   });
 
@@ -641,6 +730,55 @@ describe('POST /v1/connections (a connect from outside a run)', () => {
     });
     expect(res.status).toBe(400);
     expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field: 'permissions' } });
+  });
+
+  test('takes a label for the connection it makes, trimmed, of up to 100 characters', async () => {
+    const { app, calls } = makeApp();
+    const res = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '  Work mail  ',
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.label).toBe('Work mail');
+    expect(calls.createRequest?.[0]).toMatchObject({ label: 'Work mail' });
+    // An emoji keeps the variation selector that picks its look.
+    const emoji = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '\u2709\uFE0F Contact',
+    });
+    expect(emoji.status).toBe(201);
+    expect(emoji.json.label).toBe('\u2709\uFE0F Contact');
+    const keycap = await call(app, 'ben', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '1\uFE0F\u20E3 Start',
+    });
+    expect(keycap.status).toBe(201);
+    expect(keycap.json.label).toBe('1\uFE0F\u20E3 Start');
+    // Characters, not UTF-16 units: 100 emoji are 200 units.
+    const long = await call(app, 'ben', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: '\u{1F4EC}'.repeat(100),
+    });
+    expect(long.status).toBe(201);
+  });
+
+  test("a label another of the owner's connections has is the binding's 409, naming the field", async () => {
+    const { app, connected } = makeApp();
+    connected({ kind: 'member', userId: ANA }, tenantA, { label: 'Work mail' });
+    const res = await call(app, 'ana', 'POST', '/v1/connections', {
+      app: 'google',
+      permissions: ['gmail.send'],
+      label: 'work MAIL',
+    });
+    expect(res.status).toBe(409);
+    expect(res.json.error).toMatchObject({
+      code: 'connection-label-taken',
+      details: { field: 'label' },
+    });
   });
 });
 
@@ -988,6 +1126,96 @@ describe('the connections themselves', () => {
     });
     expect(calls.disconnect?.[0]).toMatchObject({ by: { kind: 'user', id: ANA } });
     expect(JSON.stringify(res.json)).not.toMatch(/token/i);
+  });
+
+  test('whoever may disconnect it renames it, trimmed; anyone else gets the same 404', async () => {
+    const { app, calls, connected } = makeApp();
+    const anas = connected({ kind: 'member', userId: ANA });
+    const path = `/v1/connections/${anas.connectionId}`;
+    expect((await call(app, 'ana', 'GET', path)).json).not.toHaveProperty('label');
+    const res = await call(app, 'ana', 'PATCH', path, { label: '  Work mail ' });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({
+      connectionId: anas.connectionId,
+      label: 'Work mail',
+      account: { label: 'user-ana@acme.example' },
+    });
+    expect(calls.update?.[0]).toEqual({
+      tenantId: tenantA,
+      connectionId: anas.connectionId,
+      label: 'Work mail',
+      by: { kind: 'user', id: ANA, tenantId: tenantA },
+    });
+    expect((await call(app, 'ana', 'GET', path)).json.label).toBe('Work mail');
+    expect((await call(app, 'admin', 'PATCH', path, { label: 'Ana' })).status).toBe(200);
+    for (const who of ['ben', 'bot', 'other']) {
+      const refused = await call(app, who, 'PATCH', path, { label: 'Mine now' });
+      expect(refused.status).toBe(404);
+      expect(refused.json.error.code).toBe('connection-not-found');
+    }
+    const company = connected({ kind: 'company' });
+    const companyPath = `/v1/connections/${company.connectionId}`;
+    expect((await call(app, 'ana', 'PATCH', companyPath, { label: 'Ours' })).status).toBe(404);
+    expect((await call(app, 'admin', 'PATCH', companyPath, { label: 'Ours' })).status).toBe(200);
+    expect(calls.update).toHaveLength(3);
+  });
+
+  test('a disconnected connection, or none, is a 404 before the binding', async () => {
+    const { app, calls, connected } = makeApp();
+    const removed = connected({ kind: 'member', userId: ANA }, tenantA, {
+      state: 'removed',
+      removedAt: at,
+      removedReason: 'disconnected',
+    });
+    for (const id of [removed.connectionId, randomUUID()]) {
+      const res = await call(app, 'ana', 'PATCH', `/v1/connections/${id}`, { label: 'Work' });
+      expect(res.status).toBe(404);
+      expect(res.json.error).toMatchObject({
+        code: 'connection-not-found',
+        details: { connectionId: id },
+      });
+    }
+    const notAnId = await call(app, 'ana', 'PATCH', '/v1/connections/x', { label: 'Work' });
+    expect(notAnId.status).toBe(400);
+    expect(calls.update).toBeUndefined();
+  });
+
+  test("a label another of the owner's connections has, ignoring case, is a 409 naming the field", async () => {
+    const { app, connected } = makeApp();
+    connected({ kind: 'member', userId: ANA }, tenantA, { label: 'Work mail' });
+    const second = connected({ kind: 'member', userId: ANA });
+    const res = await call(app, 'ana', 'PATCH', `/v1/connections/${second.connectionId}`, {
+      label: 'WORK mail',
+    });
+    expect(res.status).toBe(409);
+    expect(res.json.error).toMatchObject({
+      code: 'connection-label-taken',
+      details: { field: 'label' },
+    });
+  });
+
+  test.each([
+    ['no label', {}, 'label'],
+    ['an empty label', { label: '' }, 'label'],
+    ['a blank label', { label: ' \t ' }, 'label'],
+    ['a label over 100 characters', { label: 'a'.repeat(101) }, 'label'],
+    ['a label with a control character', { label: 'Work\u0007mail' }, 'label'],
+    ['a label with a bidi override', { label: 'Work\u202Elim' }, 'label'],
+    ['a label with a zero-width space', { label: 'Work\u200Bmail' }, 'label'],
+    ['a label with a lone surrogate', { label: 'Work\uD800mail' }, 'label'],
+    ['a label with a line separator', { label: 'Work\u2029mail' }, 'label'],
+    ['a label with a Hangul filler', { label: '\u3164' }, 'label'],
+    ['a label with a combining grapheme joiner', { label: 'Work\u034Fmail' }, 'label'],
+    ['a label with a variation selector after a letter', { label: 'Work\uFE0F' }, 'label'],
+    ['a null label', { label: null }, 'label'],
+    ['an unknown field', { label: 'Work', account: 'x' }, 'account'],
+  ])('a rename refuses %s before the binding, naming the field', async (_what, body, field) => {
+    const { app, calls, connected } = makeApp();
+    const anas = connected({ kind: 'member', userId: ANA });
+    const res = await call(app, 'ana', 'PATCH', `/v1/connections/${anas.connectionId}`, body);
+    expect(res.status).toBe(400);
+    expect(res.json.error).toMatchObject({ code: 'bad-input', details: { field } });
+    expect(calls.update).toBeUndefined();
   });
 });
 

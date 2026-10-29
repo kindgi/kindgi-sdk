@@ -24,6 +24,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   newest version of the child that its project reaches, and every run of the
   flow version runs that one. The client's flow pins have `flows` for those;
   absent when there are none, and from older servers.
+- `kindgi`: **a connection has a name, its `label`.** `client.connections.connect(...)` takes an optional `label`, the name to give the connection it makes, else it takes its account's. `client.connections.update(connection_id, label=...)` renames one (`PATCH /v1/connections/{connectionId}`), with its async twin. A name another of the owner's live connections to that app has is `409 connection-label-taken`. `Connection` and `ConnectRequest` carry `label` when they have one.
 - `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
 
 - `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a model
