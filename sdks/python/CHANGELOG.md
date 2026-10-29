@@ -13,6 +13,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
+  judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
+  judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
+  refuses an `llm-judge` guardrail without it. Before, `@guardrail` had no way to name it,
+  and the runtime refused such a guardrail on every turn.
 - `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
   tenant.** A run that names no flow version takes the version pinned for its
   project (the project's own pin, then its org's, then the tenant's), else the

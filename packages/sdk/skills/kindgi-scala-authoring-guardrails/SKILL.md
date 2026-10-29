@@ -18,7 +18,7 @@ description: >
   kindgi-scala-authoring-tools.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -174,7 +174,12 @@ object Citations {
   `flows` and `tenants` lists.
 - **`name`:** a display name. **`checkId`:** defaults to the id.
 - **`kind`:** `zero-llm`, the default: a check over the trace, which is what
-  a pack writes.
+  a pack writes. `llm-judge`: a model judges the turn against the rubric in
+  `config` (`set("config", Map("rubric" -> "..."))`), and the check is never
+  called. It costs model calls and needs **`judgeCapabilities(...)`**, what
+  the judge model is routed by (`Map("needs" -> List(Map("feature" ->
+  "structured-output")))`); `check(...)` refuses an llm-judge guardrail
+  without it.
 - `set("sandbox" | "limits" | "network", …)` are recorded in the index.
 
 ## Testing

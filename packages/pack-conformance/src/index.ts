@@ -95,6 +95,7 @@ export const FIXTURE_TOOL_IDS = [
 /** The fixture pack's pausing tool, for a target that supports `pause`. */
 export const FIXTURE_PAUSE_TOOL_ID = 'conformance.pause';
 export const FIXTURE_CHECK_IDS = [
+  'conformance.checks.judged',
   'conformance.checks.min-length',
   'conformance.checks.throws',
 ] as const;
@@ -515,6 +516,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         ]);
         expect(index.guardrails.map((g) => g.id)).toEqual([
           'conformance.check-throws',
+          'conformance.judged',
           'conformance.min-length',
         ]);
         expect(index.agents.map((a) => a.id)).toEqual(['conformance.echo-agent']);
@@ -578,6 +580,18 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         const config = spec.compile(minLength?.configSchema as object);
         expect(config({ minLength: 2 })).toBe(true);
         expect(config({ minLength: -1 })).toBe(false);
+      });
+
+      test("an llm-judge guardrail indexes its judge (judgeCapabilities) the same in every SDK", () => {
+        // The runtime routes an llm-judge guardrail's judge model by its judgeCapabilities, and
+        // refuses one without them on every turn.
+        expect(index.guardrails.find((g) => g.id === 'conformance.judged')).toMatchObject({
+          kind: 'llm-judge',
+          checkId: 'conformance.checks.judged',
+          action: { 'on-violation': 'log-only' },
+          config: { rubric: 'The reply answers the message.', responseFormat: 'pass-fail' },
+          judgeCapabilities: { needs: [{ feature: 'structured-output' }] },
+        });
       });
 
       test('a declarative http tool indexes the same spec in every SDK', () => {

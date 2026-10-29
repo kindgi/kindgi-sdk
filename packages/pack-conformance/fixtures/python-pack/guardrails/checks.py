@@ -29,3 +29,16 @@ def min_length(config: MinLength, trace: RunTrace) -> CheckResult:
 @guardrail(id="conformance.check-throws", check_id="conformance.checks.throws", on_violation="log-only")
 def check_throws(config: dict[str, Any], trace: RunTrace) -> bool:
     raise RuntimeError("check boom")
+
+
+# The runtime judges an llm-judge guardrail with a model, by its `config`; it never calls this check.
+@guardrail(
+    id="conformance.judged",
+    check_id="conformance.checks.judged",
+    kind="llm-judge",
+    on_violation="log-only",
+    config={"rubric": "The reply answers the message.", "responseFormat": "pass-fail"},
+    judge_capabilities={"needs": [{"feature": "structured-output"}]},
+)
+def judged(config: dict[str, Any], trace: RunTrace) -> bool:
+    return True
