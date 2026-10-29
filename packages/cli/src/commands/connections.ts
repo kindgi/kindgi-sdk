@@ -5,6 +5,13 @@ import { createInterface } from 'node:readline';
 
 import type { ConnectRequest, Connection, ConnectionEntry, ConnectionPage } from '@kindgi/client';
 
+import {
+  connectionName,
+  connectionsListed,
+  listConnectionRows,
+  namedBy,
+  resolveConnectionRef,
+} from '../connection-ref.js';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type Rendered, renderJson, successNote } from '../output.js';
@@ -111,6 +118,7 @@ function ownerWords(c: Pick<Connection, 'owner'>): string {
 const TABLE: TableSpec<ConnectionPage, Connection> = {
   rows: (page) => page.data,
   columns: [
+    { header: 'LABEL', get: connectionName },
     { header: 'ID', get: (c) => c.connectionId },
     { header: 'APP', get: (c) => c.app },
     { header: 'ACCOUNT', get: (c) => c.account.label },
@@ -262,8 +270,16 @@ async function waitForConnect(ctx: CommandContext, request: ConnectRequest): Pro
   }
 }
 
-/** Whose account a connection is, in words: `<label> at <app>`, and whether it's the company's. */
+/**
+ * Which connection it is, in words: its label, then whose account at which
+ * app (`support (sales@acme.example at google, company)`). A label that is
+ * its account's own says it once: `sales@acme.example at google`.
+ */
 function accountWords(c: Connection): string {
+  if (c.label !== undefined && c.label !== c.account.label) {
+    const whose = c.owner.kind === 'company' ? ', company' : '';
+    return `${c.label} (${c.account.label} at ${c.app}${whose})`;
+  }
   const whose = c.owner.kind === 'company' ? ", the company's account" : '';
   return `${c.account.label} at ${c.app}${whose}`;
 }
@@ -354,7 +370,7 @@ const connect: LeafCommand = {
   description:
     "Connect your account at an app (the company's with --for-company): prints the link to open, and at a terminal waits until the connect finishes and says whose account it is. --quiet prints the link alone, and still waits.",
   usage:
-    'kindgi connections connect <app> [--app-id=<registration-id>] [--project=<project-id>] [--permissions=<key>,…] [--for-company]',
+    'kindgi connections connect <app> [--label=<name>] [--reconnect=<connection>] [--app-id=<registration-id>] [--project=<project-id>] [--permissions=<key>,…] [--for-company]',
   optionSpec: {
     'app-id': {
       type: 'string',
@@ -373,12 +389,45 @@ const connect: LeafCommand = {
       type: 'boolean',
       description: "Connect the company's account, not your own. Tenant admins only.",
     },
+    label: {
+      type: 'string',
+      description:
+        "The new connection's name, which `--connection` and `kindgi connection-choices set` name it by (default: its account's label); another of the owner's connections at the app can't have it. A reconnect keeps the name it has.",
+    },
+    reconnect: {
+      type: 'string',
+      description:
+        "Connect this connection again, by id or name, so it's granted more or works again: the same account is required. Its owner's own (the company's with --for-company), at <app>.",
+    },
   },
   run: (ctx) =>
     runSdkRendered(ctx, 'connections connect', async () => {
       const app = requiredPositional(ctx, 0, 'app');
       const appId = givenFlag(ctx, 'app-id');
       const projectId = givenFlag(ctx, 'project');
+      const label = givenFlag(ctx, 'label');
+      const again = givenFlag(ctx, 'reconnect');
+      const forCompany = ctx.options['for-company'] === true;
+      if (label !== undefined && again !== undefined) {
+        throw new UsageError(
+          '--label names a new connection; a reconnect keeps its name (`kindgi connections update` renames it)',
+        );
+      }
+      const reconnects =
+        again === undefined
+          ? undefined
+          : (
+              await resolveConnectionRef(again, {
+                rows: () =>
+                  listConnectionRows(ctx.client(), {
+                    app,
+                    ...(forCompany ? { ownerKind: 'company' as const } : { owner: 'me' as const }),
+                  }),
+                app,
+                appNarrows: false,
+                listed: connectionsListed(app),
+              })
+            ).id;
       const permissions = await permissionsFor(ctx, app);
       if (permissions === undefined) {
         return {
@@ -387,13 +436,20 @@ const connect: LeafCommand = {
           exitCode: 1,
         };
       }
-      const request = await ctx.client().connections.connect({
-        app,
-        permissions,
-        ...(appId !== undefined && { appId }),
-        ...(projectId !== undefined && { projectId }),
-        ...(ctx.options['for-company'] === true && { for: 'company' as const }),
-      });
+      const request = await ctx
+        .client()
+        .connections.connect({
+          app,
+          permissions,
+          ...(appId !== undefined && { appId }),
+          ...(projectId !== undefined && { projectId }),
+          ...(forCompany && { for: 'company' as const }),
+          ...(label !== undefined && { label }),
+          ...(reconnects !== undefined && { reconnects }),
+        })
+        .catch((err: unknown) => {
+          throw namedBy(err, 'reconnect');
+        });
       if (ctx.globals.formatRequested && ctx.globals.format !== 'quiet') {
         return renderJson(request, ctx.globals.format);
       }
@@ -434,6 +490,47 @@ async function linkThenWait(
   );
   return await afterWaiting(ctx, request, await waitForConnect(ctx, request));
 }
+
+const update: LeafCommand = {
+  kind: 'leaf',
+  name: 'update',
+  description:
+    "Rename a connection: its label, which `--connection`, `kindgi connection-choices set` and the console name it by. Whoever may disconnect it renames it: its owner or a tenant admin, and only a tenant admin the company's.",
+  usage: 'kindgi connections update <connection> --label=<name> [--app=<app>]',
+  optionSpec: {
+    label: {
+      type: 'string',
+      description: "Its new name; another of the owner's connections at the app can't have it.",
+    },
+    app: {
+      type: 'string',
+      description: 'With a name: only connections at this app, by its entry id (`google`).',
+    },
+  },
+  run: (ctx) =>
+    runSdkRendered(ctx, 'connections update', async () => {
+      const ref = requiredPositional(ctx, 0, 'connection');
+      const label = givenFlag(ctx, 'label');
+      if (label === undefined) throw new UsageError('Missing required flag: --label=<name>');
+      const app = givenFlag(ctx, 'app');
+      const client = ctx.client();
+      const found = await resolveConnectionRef(ref, {
+        rows: () => listConnectionRows(client, app !== undefined ? { app } : {}),
+        ...(app !== undefined && { app }),
+        appNarrows: app === undefined,
+        listed: connectionsListed(app),
+      });
+      const before = found.row?.name ?? connectionName(await client.connections.get(found.id));
+      const c = await client.connections.update(found.id, { label });
+      return {
+        stdout: renderJson(c, ctx.globals.format).stdout,
+        stderr: successNote(
+          ctx.globals.format,
+          `Renamed ${before} to ${connectionName(c)} (connection ${c.connectionId}).\n`,
+        ),
+      };
+    }),
+};
 
 /** What a removal did at the app, in words. */
 export function withdrawnWords(withdrawn: Connection['withdrawn']): string {
@@ -486,6 +583,6 @@ export const connectionsCommand: Command = {
   kind: 'group',
   name: 'connections',
   description:
-    'Connections: accounts at other apps that tools act with (list / get / connect / disconnect).',
-  subcommands: [list, get, connect, disconnect],
+    'Connections: accounts at other apps that tools act with (list / get / connect / update / disconnect).',
+  subcommands: [list, get, connect, update, disconnect],
 };
