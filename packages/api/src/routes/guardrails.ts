@@ -71,10 +71,12 @@ export type GuardrailWriteHook = (params: {
  * (`details.issues`). Absent, or nothing to check against (an unknown
  * check, a check without a schema): no problems. A guardrail naming a
  * built-in check is checked by the route itself, against the built-in's
- * schema, whatever the runtime passes here. The runtime checks a pack
- * check's points here too: a guardrail `at` a point the check doesn't
- * run at is a problem at `/at` (`guardrailCheckPointProblems`); the route
- * checks a built-in's.
+ * schema, whatever the runtime passes here. The route also checks a
+ * built-in check's points: a guardrail `at` a point the check doesn't run
+ * at is a problem at `/at` (`guardrailCheckPointProblems`). A pack
+ * check's points aren't checked when the guardrail is registered: at that
+ * point in a turn, the guardrail fails as a check that couldn't run
+ * (`check-point-unsupported`).
  */
 export type GuardrailConfigCheck = (input: {
   readonly tenantId: TenantId;
