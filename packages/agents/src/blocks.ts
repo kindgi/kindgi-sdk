@@ -229,7 +229,8 @@ export const MODEL_SETTINGS_SCHEMA: Readonly<Record<string, unknown>> = {
   properties: {
     temperature: { type: 'number', minimum: 0, maximum: 2 },
     maxOutputTokens: { type: 'integer', minimum: 1 },
-    thinking: { type: 'string', enum: [...THINKING_LEVELS] },
+    // The enum alone: a value outside it is one issue, a number included.
+    thinking: { enum: [...THINKING_LEVELS] },
     providerId: { type: 'string', minLength: 1 },
     model: { type: 'string', minLength: 1 },
   },
