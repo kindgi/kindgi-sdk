@@ -655,7 +655,7 @@ describe("a registration the runtime can't build: its problems, from GET /v1/pro
     });
     // Not from a preset: its own spec, with the setting fixed.
     expect(check('provider')?.fix).toContain(
-      'providers register --spec=@<file>. (its spec with the setting fixed)',
+      'providers register --spec=@<file> (its spec with the setting fixed).',
     );
   });
 
@@ -730,7 +730,7 @@ describe("a registration with adapter_config keys its adapter doesn't read: the 
     });
     // Registered again from its spec: a preset can't say where a moved key goes.
     expect(check('provider')?.fix).toMatch(
-      /^Unregister acme-llm \(.*providers unregister acme-llm\), then register it again: .*providers register --spec=@<file>\. \(its spec with each key moved to the place its warning names, or removed\)$/,
+      /^Unregister acme-llm \(.*providers unregister acme-llm\), then register it again: .*providers register --spec=@<file> \(its spec with each key moved to the place its warning names, or removed\)\.$/,
     );
   });
 

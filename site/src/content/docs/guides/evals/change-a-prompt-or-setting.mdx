@@ -518,9 +518,10 @@ naming each. So do model settings with values a model can't take:
 such as `{ "temperature": 0.2, "maxOutputTokens": 400, "thinking": "low" }`.
 A temperature goes from 0 to 2. `thinking` is how much the model thinks:
 `lowest`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Its model
-calls use them, and the version pins the block with its other settings. The block can also name the model the turn prefers,
-`model` and `providerId`, in place of the agent's `preferredModel` and
-`preferredProvider` ([never both](../../agents/choose-a-model/#prefer-a-provider-or-a-model)).
+calls use them, and the version pins the block with its other settings. The
+block can also name the model the turn prefers, `model` and `providerId`, in
+place of the agent's `preferredModel` and `preferredProvider`
+([never both](../../agents/choose-a-model/#prefer-a-provider-or-a-model)).
 
 - **A reply that reaches `maxOutputTokens` stops there,** mid-sentence if
   need be, and the run still completes.

@@ -1566,7 +1566,12 @@ function reRegister(id: string, preset: ProviderPreset | undefined, kindgi: Kind
     preset !== undefined
       ? kindgi('providers', 'register', `--preset=${preset.name}`, ...presetSettingFlags(preset))
       : kindgi('providers', 'register', '--spec=@<file>');
-  return `${reRegisterSteps(id, register, kindgi)}${preset === undefined ? ' (its spec with the setting fixed)' : ''}`;
+  return reRegisterSteps(
+    id,
+    register,
+    kindgi,
+    preset === undefined ? 'its spec with the setting fixed' : undefined,
+  );
 }
 
 /**
@@ -1590,13 +1595,21 @@ function unreadKeys(
   const spec = kindgi('providers', 'register', '--spec=@<file>');
   return {
     message: `${id} builds, but ${keys.length <= 1 ? `${keys[0] ?? 'a setting'} isn't` : `${keys.slice(0, -1).join(', ')} and ${keys[keys.length - 1]} aren't`} read.`,
-    fix: `${reRegisterSteps(id, spec, kindgi)} (its spec with each key moved to the place its warning names, or removed)`,
+    fix: reRegisterSteps(
+      id,
+      spec,
+      kindgi,
+      'its spec with each key moved to the place its warning names, or removed',
+    ),
   };
 }
 
-/** A provider's id is taken while it's registered: unregister it first. */
-function reRegisterSteps(id: string, register: string, kindgi: Kindgi): string {
-  return `Unregister ${id} (${kindgi('providers', 'unregister', id)}), then register it again: ${register}.`;
+/**
+ * A provider's id is taken while it's registered: unregister it first.
+ * `file` says what the spec file `register` reads holds.
+ */
+function reRegisterSteps(id: string, register: string, kindgi: Kindgi, file?: string): string {
+  return `Unregister ${id} (${kindgi('providers', 'unregister', id)}), then register it again: ${register}${file === undefined ? '' : ` (${file})`}.`;
 }
 
 // ---------- helpers ----------

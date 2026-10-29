@@ -638,7 +638,7 @@ its own credentials to tenant configuration.
   the least level it takes, which a judge's call asks for. `levels`
   (optional) are the levels it takes besides `lowest`, least first; without
   them it takes `low`, `medium` and `high` (plus `minimal` when `lowest` is
-  `minimal`).
+  `minimal`, and none below `lowest` when that's `medium` or `high`).
 - To make a model think less, the agent sets `thinking` in its model
   settings (`lowest`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
   For calls that ask none, set the model's `thinking.default`:

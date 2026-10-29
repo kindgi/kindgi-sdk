@@ -431,7 +431,7 @@ Some models think before they answer. A model's `thinking` says how:
 - **`levels`** (optional) are the levels it takes besides `lowest`, least
   first, from `minimal`, `low`, `medium`, `high`, `xhigh` and `max`. Without
   them, it takes `low`, `medium` and `high`, plus `minimal` when its `lowest`
-  is `minimal`.
+  is `minimal`, and none below its `lowest` when that's `medium` or `high`.
 - **`default`** (optional) is the level a call that asks none is sent:
   `lowest` or one of its levels. Without it, such a call sends none, and the
   model thinks as its vendor's default says.
@@ -502,7 +502,8 @@ same. On `azure-openai`, the GPT-6 models take `low` to `max`. On `bedrock`,
 Claude Sonnet 5.5 takes `low`, `medium`, `high` and `max`, with no `xhigh`:
 the AI SDK sends `xhigh` to Bedrock as `max`, so Kindgi rounds it up to `max`
 and says so. Bedrock's GPT models list none, so they take `low`, `medium` and
-`high`.
+`high`. Their least thinking is `low`: the AI SDK sends nothing for `none`
+there.
 
 `groq`'s models take a temperature and set no thinking. On `openrouter`,
 `anthropic/claude-sonnet-5.5`, `openai/gpt-6.1-sol` and `openai/gpt-6-luna`
@@ -510,7 +511,9 @@ take no temperature. A model without `thinking` gets nothing sent for it, so
 it thinks, or not, as its vendor's default says.
 
 A registration made from an older preset may lack these settings. To pick
-them up, unregister it and register it again.
+them up, unregister it and register it again. A runtime older than 0.3.0
+takes no levels: there, `kindgi providers register --preset` registers the
+models without them, and says so.
 
 ## Declare them in your pack's config
 

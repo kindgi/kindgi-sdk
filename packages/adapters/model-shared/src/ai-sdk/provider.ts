@@ -69,7 +69,7 @@ export interface AiSdkModelProviderOptions {
   readonly cacheMark?: (model: ModelInfo) => SharedV4ProviderOptions | undefined;
   /**
    * Whether the vendor's AI SDK provider sends nothing for this `reasoning` and gives no warning
-   * either (Bedrock's `none` on a model that isn't Anthropic's). The call then reports no level
+   * either (Bedrock's `none`, on any model). The call then reports no level
    * sent, with `thinking-unsupported`, as when the AI SDK warns that it dropped one.
    */
   readonly sendsNoReasoning?: (model: ModelInfo, reasoning: PortableReasoning) => boolean;

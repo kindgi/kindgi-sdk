@@ -14,7 +14,7 @@ import type { EnvName } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
-import { UsageError } from '../errors.js';
+import { UsageError, extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
 import { binDisplay, detectBinRunner } from '../package-manager.js';
 import {
@@ -157,8 +157,8 @@ const register: LeafCommand = {
         const spec = (await readJsonInput(specText)) as RegisterProviderInput;
         return renderJson(await ctx.client().providers.register(spec), ctx.globals.format);
       }
-      const { input, keyHint } = await presetInput(ctx, presetName as string);
-      const outcome = await ctx.client().providers.register(input);
+      const built = await presetInput(ctx, presetName as string);
+      const { outcome, input, levelsNote } = await registerPreset(ctx, built.input);
       const wanted = input.metadata.defaultModel;
       const models = input.metadata.models
         .map((m) => (m.name === wanted ? `${m.name} (default)` : m.name))
@@ -170,10 +170,58 @@ const register: LeafCommand = {
       const kept = await runtimeNotes(ctx, input);
       return {
         stdout: renderJson(outcome, ctx.globals.format).stdout,
-        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${keyHint}${kept}`,
+        stderr: `✓ Registered ${input.metadata.id}: ${models}${key}\n${built.keyHint}${levelsNote}${kept}`,
       };
     }),
 };
+
+/**
+ * Register a preset's body. A runtime before 0.3.0 takes a model's
+ * `thinking` as `mode` and `lowest` only, and refuses the preset's
+ * `levels` (`invalid-thinking`): then the models go again without them,
+ * and the note says they need a newer runtime. Any other refusal stands.
+ */
+async function registerPreset(
+  ctx: CommandContext,
+  input: RegisterProviderInput,
+): Promise<{
+  readonly outcome: Awaited<
+    ReturnType<ReturnType<CommandContext['client']>['providers']['register']>
+  >;
+  readonly input: RegisterProviderInput;
+  readonly levelsNote: string;
+}> {
+  try {
+    return { outcome: await ctx.client().providers.register(input), input, levelsNote: '' };
+  } catch (err) {
+    const wire = extractKindgiError(err);
+    const leveled = input.metadata.models.filter((m) => m.thinking?.levels !== undefined);
+    if (
+      leveled.length === 0 ||
+      wire?.code !== 'invalid-request' ||
+      wire.serverCode !== 'invalid-provider' ||
+      wire.fields?.reason !== 'invalid-thinking'
+    ) {
+      throw err;
+    }
+    const without: RegisterProviderInput = {
+      ...input,
+      metadata: {
+        ...input.metadata,
+        models: input.metadata.models.map((m) =>
+          m.thinking === undefined
+            ? m
+            : { ...m, thinking: { mode: m.thinking.mode, lowest: m.thinking.lowest } },
+        ),
+      },
+    };
+    return {
+      outcome: await ctx.client().providers.register(without),
+      input: without,
+      levelsNote: `  This runtime is older than 0.3.0, so it doesn't take thinking levels: ${leveled.map((m) => m.name).join(', ')} registered without them. Upgrade the runtime to 0.3.0 or later to use them.\n`,
+    };
+  }
+}
 
 /**
  * A runtime from before 0.1.4 keeps only the provider fields it knows: it

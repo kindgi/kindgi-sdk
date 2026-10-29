@@ -360,6 +360,23 @@ describe('the bundled presets', () => {
       'gemini-3.5-flash-lite': undefined,
     });
   });
+
+  test("each bedrock model's least thinking is a level Bedrock is sent", async () => {
+    const presets = await loadProviderPresets();
+    // The AI SDK sends nothing for `none` on Bedrock, and says nothing, so a judge asking
+    // gpt-6-luna for `lowest` would think at the model's default: its least is `low` instead.
+    expect(
+      Object.fromEntries(
+        (presets.bedrock?.metadata.models ?? [])
+          .filter((m) => m.thinking !== undefined)
+          .map((m) => [m.name, m.thinking?.lowest]),
+      ),
+    ).toEqual({
+      'us.anthropic.claude-sonnet-5-5': 'between_tools',
+      'us.openai.gpt-6.1-sol': 'low',
+      'us.openai.gpt-6-luna': 'low',
+    });
+  });
 });
 
 describe('kindgi providers register --preset', () => {
@@ -374,6 +391,48 @@ describe('kindgi providers register --preset', () => {
       '✓ Registered anthropic: claude-haiku-4-5 — key ANTHROPIC_API_KEY (env local)',
     );
     expect(registered).toHaveLength(1);
+  });
+
+  test("a runtime before 0.3.0 refuses the models' thinking levels: they register again without them, and it says so", async () => {
+    await writeFile(join(packDir, '.env'), 'ANTHROPIC_API_KEY=sk-ant-test\n');
+    type Body = { metadata: { id: string; models: { thinking?: Record<string, unknown> }[] } };
+    const register = vi.fn(async (input: Body) => {
+      registered.push(input);
+      // 0.2.0's check: a model's `thinking` is `mode` and `lowest`, nothing else.
+      if (
+        input.metadata.models.some((m) =>
+          Object.keys(m.thinking ?? {}).some((k) => k !== 'mode' && k !== 'lowest'),
+        )
+      ) {
+        throw {
+          code: 'invalid-request',
+          serverCode: 'invalid-provider',
+          message: `provider "anthropic" model "claude-haiku-5-5" thinking must be { mode: 'adaptive' | 'always', lowest: <the vendor's setting> }`,
+          issues: [],
+          fields: { reason: 'invalid-thinking' },
+        };
+      }
+      return { providerId: input.metadata.id };
+    });
+    const out = await runCli({
+      ...inputs([
+        'providers',
+        'register',
+        '--preset=anthropic',
+        '--models=claude-haiku-5-5,claude-haiku-4-5',
+      ]),
+      clientFactory: () => ({ providers: { register } }) as never,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({ providerId: 'anthropic' });
+    expect(register).toHaveBeenCalledTimes(2);
+    expect((registered[1] as Body).metadata.models.map((m) => m.thinking)).toEqual([
+      { mode: 'adaptive', lowest: 'disabled' },
+      undefined,
+    ]);
+    expect(out.stderr).toContain(
+      "  This runtime is older than 0.3.0, so it doesn't take thinking levels: claude-haiku-5-5 registered without them. Upgrade the runtime to 0.3.0 or later to use them.\n",
+    );
   });
 
   test('a missing key stops it, saying how to set one — in the pack’s own kindgi', async () => {
