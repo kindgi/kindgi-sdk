@@ -13,6 +13,7 @@ import type { AppEnv } from '../types.js';
 import { scopeFromQuery } from './agent-releases.js';
 import { parseGatePolicySpec } from './gate-policy-spec.js';
 import { serializeGatePolicy } from './gate-policy-wire.js';
+import { includeRetiredOf } from './include-retired.js';
 import { parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 
@@ -66,6 +67,7 @@ export function gatePoliciesRouter(
       ...(agentId !== undefined && agentId.length > 0 && { agentId }),
       ...(scope.scope !== undefined && { scope: scope.scope }),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+      ...includeRetiredOf(c),
     });
     const visible =
       authorizer === undefined

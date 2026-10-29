@@ -18,7 +18,9 @@ import { scopeQuery } from './agents.js';
  */
 export interface GatePoliciesClient {
   /**
-   * Each policy's latest active version.
+   * Each policy's latest active version. `filter.includeRetired = true`
+   * lists a retired policy too, as its highest version with
+   * `unregisteredAt`.
    *
    * @wire GET /v1/gate-policies
    */
@@ -61,6 +63,12 @@ export interface GatePolicyFilter {
   readonly scope?: LiveScope;
   readonly limit?: number;
   readonly cursor?: string;
+  /**
+   * `true` lists retired policies too (every version unregistered), each as
+   * its highest version with `unregisteredAt`. Default: policies with an
+   * active version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export type PublishGatePolicyInput = PublishGatePolicyBody;
@@ -77,6 +85,7 @@ export function makeGatePoliciesClient(transport: Transport): GatePoliciesClient
           ...(filter?.scope !== undefined && scopeQuery(filter.scope)),
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          ...(filter?.includeRetired === true && { includeRetired: 'true' }),
         },
       });
     },
