@@ -621,6 +621,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'env-store-error': 500,
   // Trigger HTTP surface.
   'trigger-not-found': 404,
+  /** The trigger is there, but has no version with that number. */
+  'trigger-version-not-found': 404,
   'trigger-invalid-config': 400,
   'trigger-webhook-id-conflict': 409,
   'trigger-already-in-state': 409,

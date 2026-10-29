@@ -138,6 +138,8 @@ export function createStubKernelBinding(): KernelBinding {
       pause: true,
       resume: true,
       unregister: true,
+      listVersions: true,
+      getVersion: true,
       findWebhook: true,
       fireWebhook: true,
       recordWebhookRefusal: true,

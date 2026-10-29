@@ -316,6 +316,7 @@ describe('a schedule', () => {
       projectId: PROJECT,
       to: ['acme.refund', 'acme.lookup'],
       by: `user:${ADA}`,
+      version: 1,
     });
   });
 
@@ -441,12 +442,30 @@ describe('a schedule', () => {
     expect(cleared.status).toBe(200);
     expect(cleared.body).not.toHaveProperty('toolsAllowedUnattended');
 
+    // Each names the version it made: the label's edit made the second.
     const docs = (await h.toolEvents()).map(docOf);
-    expect(docs.map((d) => [d?.from, d?.to])).toEqual([
-      [undefined, ['acme.refund']],
-      [['acme.refund'], ['acme.notify', 'acme.refund']],
-      [['acme.notify', 'acme.refund'], []],
+    expect(docs.map((d) => [d?.from, d?.to, d?.version])).toEqual([
+      [undefined, ['acme.refund'], 1],
+      [['acme.refund'], ['acme.notify', 'acme.refund'], 3],
+      [['acme.notify', 'acme.refund'], [], 4],
     ]);
+  });
+
+  test('the same tools in another order: no change, so no version and nothing audited', async () => {
+    const h = harness();
+    const made = await h.call(
+      'POST',
+      '/v1/schedules',
+      flowSchedule({ toolsAllowedUnattended: ['acme.notify', 'acme.refund'] }),
+    );
+    const id = made.body.scheduleId as string;
+    const reordered = await h.call('PATCH', `/v1/schedules/${id}`, {
+      toolsAllowedUnattended: ['acme.refund', 'acme.notify'],
+    });
+    expect(reordered.status).toBe(200);
+    expect(reordered.body.version).toBe(1);
+    expect(reordered.body.toolsAllowedUnattended).toEqual(['acme.notify', 'acme.refund']);
+    expect(await h.toolEvents()).toHaveLength(1);
   });
 
   test('a new target while it lists any: 400 naming the kept ids unless the body names it again; a version alone keeps it', async () => {
@@ -606,6 +625,7 @@ describe('a webhook trigger', () => {
       projectId: PROJECT,
       to: ['acme.sub-tool'],
       by: `user:${ADA}`,
+      version: 1,
     });
 
     const byWriter = await h.call(
@@ -615,6 +635,23 @@ describe('a webhook trigger', () => {
       WRITER_TOKEN,
     );
     expect(byWriter.status).toBe(403);
+    expect(await h.toolEvents()).toHaveLength(1);
+  });
+
+  test('the same tools in another order: no change, so no version and nothing audited', async () => {
+    const h = harness();
+    const made = await h.call(
+      'POST',
+      '/v1/webhooks',
+      webhook({ toolsAllowedUnattended: ['acme.notify', 'acme.refund'] }),
+    );
+    const id = made.body.triggerId as string;
+    const reordered = await h.call('PATCH', `/v1/webhooks/${id}`, {
+      toolsAllowedUnattended: ['acme.refund', 'acme.notify'],
+    });
+    expect(reordered.status).toBe(200);
+    expect(reordered.body.version).toBe(1);
+    expect(reordered.body.toolsAllowedUnattended).toEqual(['acme.notify', 'acme.refund']);
     expect(await h.toolEvents()).toHaveLength(1);
   });
 

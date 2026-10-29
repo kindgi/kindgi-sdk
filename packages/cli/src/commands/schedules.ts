@@ -291,7 +291,7 @@ const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   'run-as': {
     type: 'string',
     description:
-      "A service account, by id, or `project`: the schedule's owner, so its runs act as that account from the next fire (not as you). `project` runs it as the project's own account, made the first time, and takes `admin` on the project. The project's own account runs only what the project's editors can. A named account takes `act_as`, and needs a role that runs what the schedule runs (editor on the target's project). Omit it to own the schedule yourself.",
+      "A service account, by id, or `project`: the schedule's owner, so its runs act as that account from the next run that starts (not as you). `project` runs it as the project's own account, made the first time, and takes `admin` on the project. The project's own account runs only what the project's editors can. A named account takes `act_as`, and needs a role that runs what the schedule runs (editor on the target's project). Omit it to own the schedule yourself.",
   },
 };
 
@@ -390,7 +390,7 @@ const takeOwnership: LeafCommand = {
   kind: 'leaf',
   name: 'take-ownership',
   description:
-    "Become a schedule's owner, so its runs act as you from the next fire: for a schedule whose owner left, or to make it shared (--run-as=project, the project's own account becomes the owner; --run-as=<service-account-id>, that service account) or yours. Takes a project admin.",
+    "Become a schedule's owner, so its runs act as you from the next run that starts: for a schedule whose owner left, or to make it shared (--run-as=project, the project's own account becomes the owner; --run-as=<service-account-id>, that service account) or yours. Takes a project admin.",
   usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>|project]',
   optionSpec: { ...RUN_AS_FLAG },
   run: (ctx) =>

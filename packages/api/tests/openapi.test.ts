@@ -222,7 +222,17 @@ describe('OpenAPI — generated document', () => {
     };
     const unserved = OPERATIONS.filter((o) => o.unserved !== undefined);
     expect(unserved.map((o) => o.operationId).sort()).toEqual(
-      ['register', 'list', 'get', 'update', 'pause', 'resume', 'unregister']
+      [
+        'register',
+        'list',
+        'get',
+        'update',
+        'pause',
+        'resume',
+        'unregister',
+        'listVersions',
+        'getVersion',
+      ]
         .map((verb) => `eventTriggers.${verb}`)
         .sort(),
     );
