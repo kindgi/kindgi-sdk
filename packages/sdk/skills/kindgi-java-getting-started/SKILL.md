@@ -236,7 +236,7 @@ Show it in the app's own UI. **Never:**
   gives no database access.
 - **link users to Kindgi's console**, or any Kindgi UI, for this data.
 
-Docs: https://docs.kindgi.com/v0.2/guides/runs/show-runs-in-your-app/
+Docs: https://docs.kindgi.com/v0.3/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -274,11 +274,11 @@ running the older version on it.
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.2/deploy/self-hosted/cloud-run/#upgrade-by-hand
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/cloud-run/#upgrade-by-hand
 - **On Azure Container Apps:** the "Operate it" section of its page:
-  https://docs.kindgi.com/v0.2/deploy/self-hosted/azure-container-apps/#operate-it
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/azure-container-apps/#operate-it
 - **Otherwise:** the operate page's upgrade steps:
-  https://docs.kindgi.com/v0.2/deploy/self-hosted/operate/#upgrade-the-runtime
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).
