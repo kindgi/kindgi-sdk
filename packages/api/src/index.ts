@@ -206,8 +206,6 @@ export {
   SITE_DEFAULTS,
   applySiteChange,
   checkSiteSettings,
-  comparableName,
-  fitName,
   hasHiddenCharacters,
   siteOrigin,
   withoutHiddenCharacters,

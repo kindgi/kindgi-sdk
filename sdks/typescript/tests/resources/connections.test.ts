@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
-import { jsonFetch, recordingFetch } from '../support/recording-fetch.js';
+import { recordingFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const EMPTY = { status: 200, body: JSON.stringify({ data: [], hasMore: false }) };
@@ -61,28 +61,5 @@ describe('connections.list', () => {
       limit: '10',
     });
     expect(declined?.search).toBe('');
-  });
-});
-
-describe('connections.update', () => {
-  it('PATCHes /v1/connections/{connectionId} with its label, and the Idempotency-Key', async () => {
-    const connection = { connectionId: 'c 1', label: 'Work mail' };
-    const stub = jsonFetch(connection);
-    const client = createClient({
-      apiUrl: 'https://api.example.com',
-      auth: AUTH,
-      fetch: stub.fetch,
-    });
-    const renamed = await client.connections.update(
-      'c 1',
-      { label: 'Work mail' },
-      { idempotencyKey: 'idem-r' },
-    );
-    expect(renamed).toEqual(connection);
-    const [req] = stub.calls;
-    expect(req?.method).toBe('PATCH');
-    expect(new URL(req?.url ?? '').pathname).toBe('/v1/connections/c%201');
-    expect(JSON.parse(req?.body ?? '{}')).toEqual({ label: 'Work mail' });
-    expect(req?.headers['idempotency-key']).toBe('idem-r');
   });
 });

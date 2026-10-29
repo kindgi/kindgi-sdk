@@ -667,12 +667,6 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A reconnect signed in to an account other than the connection's. */
   'connection-account-mismatch': 409,
   /**
-   * A connect's or a rename's `label` another live connection of the same
-   * app, owner and env has, by `comparableName`: `details.field` is
-   * `label`.
-   */
-  'connection-label-taken': 409,
-  /**
    * A connect, or its finish, for a connection still being disconnected:
    * disconnect it again to finish, then connect.
    */

@@ -39,7 +39,6 @@ import type {
   FinishConnectBody,
   StartConnectBody,
   UpdateConnectionAppBody,
-  UpdateConnectionBody,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
@@ -51,7 +50,6 @@ export type UpdateConnectionAppInput = UpdateConnectionAppBody;
 export type RemoveConnectionAppResult = ConnectionAppRemoved;
 export type Connection = ConnectionWire;
 export type ConnectionPage = ConnectionPageWire;
-export type UpdateConnectionInput = UpdateConnectionBody;
 export type ConnectRequest = ConnectRequestWire;
 export type ConnectInput = CreateConnectRequestBody;
 export type StartConnectInput = StartConnectBody;
@@ -112,12 +110,6 @@ export interface ConnectionsClient {
   list(filter?: ListConnectionsFilter): Promise<ConnectionPage>;
   /** @wire GET /v1/connections/:connectionId */
   get(connectionId: string): Promise<Connection>;
-  /** @wire PATCH /v1/connections/:connectionId — renames it (`label`). */
-  update(
-    connectionId: string,
-    input: UpdateConnectionInput,
-    options?: MutationOptions,
-  ): Promise<Connection>;
   /** @wire DELETE /v1/connections/:connectionId — withdraws access at the app where it can. */
   disconnect(connectionId: string, options?: MutationOptions): Promise<Connection>;
   /** @wire POST /v1/connections — makes a connect request. */
@@ -226,14 +218,6 @@ export function makeConnectionsClient(transport: Transport): ConnectionsClient {
       return transport.request<Connection>({
         method: 'GET',
         path: `/v1/connections/${encodeURIComponent(connectionId)}`,
-      });
-    },
-    async update(connectionId, input, options) {
-      return transport.request<Connection>({
-        method: 'PATCH',
-        path: `/v1/connections/${encodeURIComponent(connectionId)}`,
-        body: input,
-        ...idempotency(options),
       });
     },
     async disconnect(connectionId, options) {

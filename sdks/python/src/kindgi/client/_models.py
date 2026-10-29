@@ -11034,10 +11034,6 @@ class Connection(BaseModel):
     """
     owner: ConnectionOwner
     account: ConnectionAccount
-    label: str | None = None
-    """
-    The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.
-    """
     permissions: list[str]
     """
     The entry's permission keys the app granted.
@@ -11096,17 +11092,6 @@ class Connection(BaseModel):
     """
 
 
-class UpdateConnectionBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    label: Annotated[str, Field(max_length=100, min_length=1)]
-    """
-    The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded.
-    """
-
-
 class ConnectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -11141,10 +11126,6 @@ class CreateConnectRequestBody(BaseModel):
     for_: Annotated[Literal["me", "company"] | None, Field(alias="for")] = "me"
     """
     `me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.
-    """
-    label: Annotated[str | None, Field(max_length=100, min_length=1)] = None
-    """
-    The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.
     """
 
 
@@ -16474,10 +16455,6 @@ class ConnectRequest(BaseModel):
     reconnects: UUID | None = None
     """
     The connection it connects again; the same account is required.
-    """
-    label: str | None = None
-    """
-    The name asked for the connection it makes. A reconnect keeps the connection's.
     """
     run_id: Annotated[str | None, Field(alias="runId")] = None
     """
