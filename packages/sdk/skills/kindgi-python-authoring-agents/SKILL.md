@@ -219,6 +219,19 @@ then "Tool responded: …", and the turn carries the `fallback-provider` and
 takes over: see `kindgi-authoring-providers`
 (`kindgi providers register --preset=anthropic`).
 
+**How much the model thinks:** the agent names a model-settings block with
+`model_settings={"id": "acme.reply-model", "version": "^1.0.0"}`.
+It's a settings block, such as `blocks/reply-model.json`, whose values may
+set `temperature`, `maxOutputTokens` and `thinking`:
+`{ "id": "acme.reply-model", "version": "1.0.0", "kind": "settings", "content": { "values": { "thinking": "low" } } }`.
+The block's `thinking` (`lowest`, `minimal`, `low`, `medium`, `high`,
+`xhigh` or `max`) is sent; else the `thinking.default` the model's provider
+registration gives it (runtime 0.3.0 or later; see
+`kindgi-authoring-providers`); else no level, and the model thinks as its
+vendor sets. A level the model doesn't take goes as the
+next one up that it takes, or its highest, with a `thinking-level-adjusted`
+warning. A guardrail's or an eval's model judge asks for `lowest`.
+
 ## Iterating
 
 Save the file; `kindgi dev` re-indexes and the next run uses it. No

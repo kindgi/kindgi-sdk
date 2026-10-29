@@ -76,6 +76,17 @@ terminal, say), `kindgi dev` exits with code 3 and prints where it is
 (its pid, the console and the API): use that one. Don't start another,
 and don't stop theirs.
 
+Each linked git worktree runs its own `kindgi dev`, side by side. Its
+database, `kindgi_<project>__<worktree>`, gives it its own dev tenant,
+user and token, in its own `.kindgirc.json`. When port 4000 is taken
+(another worktree's `kindgi dev`), it takes the next free one and says so,
+`⚠ port 4000 is in use (another kindgi dev?): using 4001`; that
+worktree's `.kindgirc.json` records it, so the CLI there follows. Read the
+API URL from the banner or `.kindgirc.json`, never assume 4000. A
+`--port` that's taken is refused. The providers the config declares are
+registered in each worktree as it starts; one registered by hand, and the
+env files, belong to one worktree.
+
 `kindgi dev` needs Docker and Postgres. It starts Postgres in Docker unless
 `KINDGI_DATABASE_URL` points at yours. It checks the JDK (`JAVA_HOME`'s, or
 `dev.javaHome` in `kindgi.config.json`) and Maven (the pack's `mvnw`, or

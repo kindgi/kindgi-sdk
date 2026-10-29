@@ -25,6 +25,13 @@ The config is `kindgi.config.json`.
   (`[{"preset": "anthropic"}]`, or `"openai"`, `"gemini-api"`, `"groq"`,
   `"openrouter"`) to `kindgi.config.json`: `kindgi dev` then registers it on
   every boot, in every worktree.
+  How much a model thinks: `thinking` in the agent's `modelSettings`
+  block, else the model's registered `thinking.default` (runtime 0.3.0 or
+  later), else its vendor's own.
+- Each git worktree runs its own `kindgi dev`, with its own database, dev
+  tenant and token. When port 4000 is taken (another worktree's, say), it
+  takes the next free one, prints it and records it in `.kindgirc.json`.
+  The getting-started skill has the details.
 
 ## Skills
 

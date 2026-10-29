@@ -20,6 +20,13 @@ starts with `_`. The config is `[tool.kindgi]` in `pyproject.toml`.
   `"openrouter"`) to `pyproject.toml`: `kindgi dev` then registers it
   on every boot, in every worktree. Other providers and per-agent model
   choice: the `kindgi-authoring-providers` skill.
+  How much a model thinks: `thinking` in the agent's `model_settings`
+  block, else the model's registered `thinking.default` (runtime 0.3.0 or
+  later), else its vendor's own.
+- Each git worktree runs its own `kindgi dev`, with its own database, dev
+  tenant and token. When port 4000 is taken (another worktree's, say), it
+  takes the next free one, prints it and records it in `.kindgirc.json`.
+  The getting-started skill has the details.
 
 ## Skills
 

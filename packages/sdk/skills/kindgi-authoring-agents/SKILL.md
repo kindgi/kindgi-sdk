@@ -131,6 +131,18 @@ export default defined.value;
   `(provider, model)` tuples whose model matches. To require a model
   rather than prefer it, add a hard requirement to the capability:
   `capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['gemini-3.8-flash'] } }] }]`.
+- **`modelSettings`** — optional: a model-settings block by range,
+  `{ id: 'acme.reply-model', version: '^1.0.0' }`. It's a settings block,
+  such as `blocks/reply-model.json`, whose values may set `temperature`,
+  `maxOutputTokens` and `thinking`:
+  `{ "id": "acme.reply-model", "version": "1.0.0", "kind": "settings", "content": { "values": { "thinking": "low" } } }`.
+  **How much the model thinks:** the block's `thinking` (`lowest`,
+  `minimal`, `low`, `medium`, `high`, `xhigh` or `max`); else the
+  `thinking.default` the model's provider registration gives it (runtime
+  0.3.0 or later; see `kindgi-authoring-providers`); else no level, and
+  the model thinks as its vendor sets. A level the model doesn't take goes as the
+  next one up that it takes, or its highest, with a `thinking-level-adjusted`
+  warning. A guardrail's or an eval's model judge asks for `lowest`.
 - **`conversationPolicy`** — optional. Absent = each turn loads the
   conversation's full history and no HITL gates apply. `historyLimit`
   caps how many prior messages are loaded; `hitl` configures approval

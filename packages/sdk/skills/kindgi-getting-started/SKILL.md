@@ -135,6 +135,17 @@ terminal, say), `kindgi dev` exits with code 3 and prints where it is
 (its pid, the console and the API): use that one. Don't start another,
 and don't stop theirs.
 
+Each linked git worktree runs its own `kindgi dev`, side by side. Its
+database, `kindgi_<project>__<worktree>`, gives it its own dev tenant,
+user and token, in its own `.kindgirc.json`. When port 4000 is taken
+(another worktree's `kindgi dev`), it takes the next free one and says so,
+`⚠ port 4000 is in use (another kindgi dev?): using 4001`; that
+worktree's `.kindgirc.json` records it, so the CLI there follows. Read the
+API URL from the banner or `.kindgirc.json`, never assume 4000. A
+`--port` that's taken is refused. The providers the config declares are
+registered in each worktree as it starts; one registered by hand, and the
+env files, belong to one worktree.
+
 Give the person the console's address as the banner prints it (its
 `Console` line). Never guess a console URL: an approval's own link is
 `/console/approvals/<approval id>`, which finds its tenant and project by
