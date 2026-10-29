@@ -29,6 +29,14 @@ export type {
   UnpinLiveInput,
 } from './resources/agents.js';
 export type {
+  PinHistoryPage,
+  PinMutationOptions,
+  PinVersionInput,
+  PinnedVersionsClient,
+  PinnedWhere,
+  UnpinVersionInput,
+} from './resources/pinned-versions.js';
+export type {
   GatePoliciesClient,
   GatePolicyFilter,
   GatePolicyVersionsClient,
@@ -162,7 +170,11 @@ export type {
   MemoryClient,
   MemoryErasuresClient,
 } from './resources/memory.js';
-export type { ProvenanceClient, ProvenanceExportInput } from './resources/provenance.js';
+export type {
+  ProvenanceClient,
+  ProvenanceExportInput,
+  ProvenancePage,
+} from './resources/provenance.js';
 export type { RenameTenantInput, TenantClient, TenantConfigClient } from './resources/tenant.js';
 export type {
   BudgetsClient,
@@ -222,10 +234,13 @@ export type {
   ListProjectsFilter,
   ProjectMembershipPage,
   ListProjectAccessFilter,
+  ListProjectPinnedVersionsFilter,
   ListTeamGrantsFilter,
   ProjectAccessClient,
   ProjectAccessPage,
   ProjectAccessShape,
+  ProjectPinnedVersionPage,
+  ProjectPinnedVersionsClient,
   ProjectMembershipsClient,
   ProjectTeamGrantsClient,
   ProjectPage,
@@ -304,6 +319,13 @@ export type {
   GatePolicyRef,
   GatePolicyResolution,
   GatePolicySpec,
+  PinActor,
+  PinScope,
+  PinnedVersion,
+  PinnedVersionChange,
+  PinnedVersionChangePage,
+  PinnedVersionList,
+  PinnedVersionResolution,
   Promotion,
   PromotionCheck,
   PromotionPage,
@@ -329,12 +351,15 @@ export type {
 export type { ArtifactFilter, ArtifactsClient } from './resources/artifacts.js';
 export type {
   ListScheduleFiresFilter,
+  ListScheduleVersionsFilter,
   ListSchedulesFilter,
   RegisterScheduleInput,
   Schedule,
   ScheduleFire,
   ScheduleFirePage,
   SchedulePage,
+  ScheduleVersion,
+  ScheduleVersionPage,
   SchedulesClient,
   UnregisterScheduleResult,
   UpdateScheduleInput,
@@ -395,6 +420,7 @@ export type {
 } from './resources/webhook-endpoints.js';
 export type {
   ListWebhookFiresFilter,
+  ListWebhookTriggerVersionsFilter,
   ListWebhookTriggersFilter,
   RegisterWebhookTriggerInput,
   UnregisterWebhookTriggerResult,
@@ -404,16 +430,21 @@ export type {
   WebhookSignature,
   WebhookTrigger,
   WebhookTriggerPage,
+  WebhookTriggerVersion,
+  WebhookTriggerVersionPage,
   WebhooksClient,
 } from './resources/webhooks.js';
 export type {
   ListMailFiresFilter,
+  ListMailTriggerVersionsFilter,
   ListMailTriggersFilter,
   MailFire,
   MailFirePage,
   MailTrigger,
   MailTriggerMailbox,
   MailTriggerPage,
+  MailTriggerVersion,
+  MailTriggerVersionPage,
   MailTriggersClient,
   RegisterMailTriggerInput,
   UnregisterMailTriggerResult,
@@ -432,6 +463,7 @@ export type {
   ExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
 export type { LicenseClient, LicenseStatus, LicenseUsage } from './resources/license.js';
+export type { RuntimeClient, RuntimeInfo } from './resources/runtime.js';
 export type {
   MintedSystemKey,
   RevokedSystemKey,

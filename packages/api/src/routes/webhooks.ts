@@ -19,7 +19,7 @@ import type {
   WebhookSignatureScheme,
 } from '@kindgi/types';
 
-import { callerRef } from '../caller.js';
+import { callerIdentity, callerRef } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
@@ -41,6 +41,7 @@ import {
   WEBHOOK_BODY_LIMITS,
   WEBHOOK_RATE_LIMITS,
   type WebhookTriggerRecord,
+  type WebhookTriggerVersionRecord,
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { generateSigningSecret } from '../webhook-signing-secret.js';
@@ -71,6 +72,7 @@ import {
   sameToolList,
   toolsAllowedUnattendedProblem,
 } from './trigger-tools.js';
+import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
 import { auditWrite } from './write-audit.js';
 
@@ -414,6 +416,7 @@ export function webhooksRouter(
     const registerInput: RegisterWebhookTriggerInput = {
       kind: 'webhook',
       tenantId,
+      by: callerIdentity(c),
       flowId: flowId.value,
       flowVersion: flowVersion.value,
       ...(project !== undefined && { projectId: project as ProjectId }),
@@ -484,6 +487,7 @@ export function webhooksRouter(
         correlationId: requestId,
         log: c.get('log'),
         ...(resolved.projectAccount === true && { projectAccount: true }),
+        ...versionField(result.value),
       });
     }
     if (tools.kind === 'ok' && tools.value.length > 0) {
@@ -498,6 +502,7 @@ export function webhooksRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     c.status(201);
@@ -683,13 +688,16 @@ export function webhooksRouter(
       kind: 'webhook',
       tenantId,
       triggerId,
+      by: callerIdentity(c),
       ...(hmacSecretScope !== undefined && { hmacSecretScope }),
       ...(Object.keys(cfg).length > 0 && { config: cfg }),
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
       ...(typeof body.flowVersion === 'string' && { flowVersion: body.flowVersion }),
       ...(typeof body.hmacSecretName === 'string' && { hmacSecretName: body.hmacSecretName }),
       ...delivery.value,
-      ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
+      // The same tools in another order change nothing: no version, as no audit entry.
+      ...(tools.kind === 'ok' &&
+        !sameToolList(kept, tools.value) && { toolsAllowedUnattended: tools.value }),
     };
 
     // What it runs: its flow version, its input, its tool list, its signing
@@ -731,6 +739,7 @@ export function webhooksRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     const after = result.value as WebhookTriggerRecord;
@@ -750,6 +759,7 @@ export function webhooksRouter(
       ...(runs.includes('hmacSecretName') && {
         hmacSecretName: { before: found.value.hmacSecretName, after: after.hmacSecretName },
       }),
+      ...versionField(result.value),
     });
     return webhookJson(c, after);
   });
@@ -834,6 +844,33 @@ export function webhooksRouter(
     });
   });
 
+  /** Versions, their owners named as a trigger's is. */
+  const versionsJson = async (
+    c: Context<AppEnv>,
+    versions: readonly WebhookTriggerVersionRecord[],
+  ) => {
+    const named = await ownerNamesOf(
+      names,
+      c.get('tenantId') as TenantId,
+      versions.map((v) => v.definition.owner),
+    );
+    return versions.map((v) => serializeWebhookVersion(v, named));
+  };
+
+  // ---------- GET /:triggerId/versions (newest first) ----------
+  r.get('/:triggerId/versions', async (c) => {
+    const found = await webhookFor(c, 'read');
+    if (found.kind === 'err') return found.response;
+    return versionsPage(c, binding, found.value.triggerId, 'webhook', (v) => versionsJson(c, v));
+  });
+
+  // ---------- GET /:triggerId/versions/:version ----------
+  r.get('/:triggerId/versions/:version', async (c) => {
+    const found = await webhookFor(c, 'read');
+    if (found.kind === 'err') return found.response;
+    return versionOne(c, binding, found.value.triggerId, 'webhook', (v) => versionsJson(c, v));
+  });
+
   // ---------- POST /:triggerId/owner (take ownership) ----------
   r.post('/:triggerId/owner', async (c) => {
     const requestId = c.get('requestId');
@@ -879,7 +916,12 @@ export function webhooksRouter(
     if (resolved.kind === 'refused') return resolved.response;
     const { tenantId, triggerId } = found.value;
     const previousOwner = found.value.owner;
-    const result = await binding.setOwner({ tenantId, triggerId, owner: resolved.owner });
+    const result = await binding.setOwner({
+      tenantId,
+      triggerId,
+      owner: resolved.owner,
+      by: callerIdentity(c),
+    });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     // Every owner change is audited, a plain caller take-over included.
     await recordOwnerSet({
@@ -897,6 +939,7 @@ export function webhooksRouter(
         toolsAllowedUnattended: found.value.toolsAllowedUnattended,
       }),
       ...(resolved.projectAccount === true && { projectAccount: true }),
+      ...versionField(result.value),
     });
     tellTakenOver(c, ownerNotices, owned(found.value), 'webhook');
     return webhookJson(c, result.value as WebhookTriggerRecord);
@@ -1104,6 +1147,7 @@ function serializeWebhook(
     label: r.label,
     status: r.status,
     ...(r.statusReason !== undefined && { statusReason: r.statusReason }),
+    ...(r.version !== undefined && { version: r.version }),
     ...(r.suppressedRefusals !== undefined && { suppressedRefusals: r.suppressedRefusals }),
     ...(r.toolsAllowedUnattended !== undefined &&
       r.toolsAllowedUnattended.length > 0 && {
@@ -1122,10 +1166,41 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     firedAt: f.firedAt,
     outcome: f.outcome,
     ...(f.runId !== undefined && { runId: f.runId }),
+    ...(f.version !== undefined && { version: f.version }),
     ...(f.detail !== undefined && { detail: f.detail }),
     ...(f.countsTowardPause !== undefined && { countsTowardPause: f.countsTowardPause }),
     ...(f.duplicates !== undefined && f.duplicates > 0 && { duplicates: f.duplicates }),
     ...(f.lastDuplicateAt !== undefined && { lastDuplicateAt: f.lastDuplicateAt }),
+  };
+}
+
+/** A version, its definition named as a webhook trigger's own fields are (the secret by name). */
+function serializeWebhookVersion(
+  v: WebhookTriggerVersionRecord,
+  names: ReadonlyMap<string, OwnerFacts>,
+): Record<string, unknown> {
+  const d = v.definition;
+  return {
+    triggerId: v.triggerId as unknown as string,
+    ...versionFields(v),
+    definition: {
+      flowId: d.flowId,
+      flowVersion: d.flowVersion,
+      projectId: d.projectId as unknown as string,
+      owner: ownerJson(d.owner, names),
+      ...(d.config.input !== undefined && { input: d.config.input }),
+      hmacSecretName: d.hmacSecretName,
+      ...(d.hmacSecretScope !== undefined && { hmacSecretScope: d.hmacSecretScope }),
+      signature: d.signature,
+      ...(d.deliveryIdHeader !== undefined && { deliveryIdHeader: d.deliveryIdHeader }),
+      bodyLimitBytes: d.bodyLimitBytes,
+      rateLimitPerMinute: d.rateLimitPerMinute,
+      label: d.label,
+      ...(d.toolsAllowedUnattended !== undefined &&
+        d.toolsAllowedUnattended.length > 0 && {
+          toolsAllowedUnattended: [...d.toolsAllowedUnattended],
+        }),
+    },
   };
 }
 

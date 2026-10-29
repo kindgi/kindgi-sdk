@@ -171,6 +171,23 @@ Each record is one model call:
 | `projectId`, `agentId`, `agentVersion`, `conversationId` | Where the call belongs. |
 | `providerRequestId` | The provider's id for the request, to quote to its support. Not every provider sends one. |
 | `callId` | The call's id. The model call's node in the turn's [provenance](../trace-an-answer/) has the same `callId`. |
+| `thinking` | How much the call asked its model to think. `asked` is the level it asked for: the agent's model settings, or a guardrail judge's `lowest`. `level` is the level sent, and `sent` the vendor's own fields as they went out. Absent when the call neither asked nor sent one. |
+
+A call to a model that thinks carries what it sent. Here, an agent asked for
+`max` of Gemini 3.8 Flash, whose highest level is `high`:
+
+```json excerpt
+"thinking": { "asked": "max", "level": "high", "sent": { "thinkingLevel": "HIGH" } }
+```
+
+- **`asked` and `level` differ:** the level was rounded to one the model
+  takes, and the turn carried a `thinking-level-adjusted` warning, as
+  [Temperature and thinking](../../models/#temperature-and-thinking)
+  describes.
+- **`asked` without `level`:** nothing was sent, since the model doesn't
+  think or its adapter didn't send the level.
+- **`level` without `asked`:** the call asked none, and got the model's
+  registered `thinking.default`.
 
 To see the usage exactly as the provider sent it, add `includeRawUsage: true`,
 or `include="rawUsage"` in Python. Each record then has `rawUsage`:
@@ -225,6 +242,26 @@ val calls = kindgi.cost().records().list(CostRecordsListParams.builder().rootRun
 
 Each record's `runId` is the agent step's run, and its `rootRunId` is the
 flow's run.
+
+To see what each step cost, read the flow run's provenance record. Once the
+run has finished, `GET /v1/provenance/{runId}` with the flow run's id returns
+`stepUsage` beside the record's graph. It has each step's calls, their cost
+in USD and their tokens, keyed by the step's node id in the record
+(`step:classify`), and it sums every run
+the step started and the runs under those:
+
+```json excerpt
+  "stepUsage": {
+    "step:classify": {"calls": 1, "costUsd": 0, "tokens": {"prompt": 20, "completion": 6, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0}}
+  }
+```
+
+A step that made no model calls has no entry. A step the record has no node
+for has no entry either, such as one cut from a record over its size limit,
+so the entries can sum to less than the whole tree. In a loop, each
+iteration's step has its own entry, and a long loop's folded iterations
+share their `#folded` node's entry.
+[A flow's answers](../trace-an-answer/#a-flows-answers) reads the record.
 
 ## One customer's month
 

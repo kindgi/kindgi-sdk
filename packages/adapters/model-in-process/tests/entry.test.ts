@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { ProviderMetadata } from '@kindgi/capabilities';
+import { type ProviderMetadata, adapterConfigKeyProblems } from '@kindgi/capabilities';
 
 import {
   DEFAULT_LOCAL_MODEL,
@@ -52,6 +52,19 @@ describe('inProcessAdapterEntry', () => {
       );
     },
   );
+
+  test("it takes no adapter_config: any key is the registration's to refuse, and a stored one builds unread", () => {
+    expect(adapterConfigKeyProblems(inProcessAdapterEntry, { model: DEFAULT_LOCAL_MODEL })).toEqual(
+      [
+        {
+          path: '/adapter_config/model',
+          message: "adapter_config.model isn't a setting of this adapter: it takes none.",
+        },
+      ],
+    );
+    const input = { metadata: metadata(DEFAULT_LOCAL_MODEL), config: { model: 'gpt-9' } };
+    expect(inProcessAdapterEntry.factory(input).metadata.id).toBe('acme-local');
+  });
 
   test('the entry carries the check and the model download', () => {
     expect(inProcessAdapterEntry).toMatchObject({

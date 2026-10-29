@@ -24,7 +24,7 @@ A docs suggestion names a page of docs.kindgi.com and what's wrong with it.
 
 - **A hand-written page** lives at `site/src/content/docs/<path>.md` or
   `.mdx`, where `<path>` is the URL's path without the version
-  (`https://docs.kindgi.com/v0.1/guides/runs/start-a-run/` →
+  (`https://docs.kindgi.com/v0.2/guides/runs/start-a-run/` →
   `site/src/content/docs/guides/runs/start-a-run.mdx`; a section's overview
   is its `index.md`).
 - **A reference page is generated.** Change its source, never the page:
@@ -70,9 +70,11 @@ self-contained packages, routes, specs). For docs:
   section's overview.
 - **No real company, customer or person names** in examples: use `acme`.
 
-A skill (`packages/sdk/skills/<name>/SKILL.md`) also needs its `version`
-bumped. A change to a package's behaviour or to a skill needs a changeset
-(`pnpm changeset`); a change to docs pages only doesn't.
+A skill (`packages/sdk/skills/<name>/`: its `SKILL.md` and the files beside
+it) also needs the `version` in its `SKILL.md` bumped when any of its files
+changes; CI checks it (`pnpm run check:skill-versions`). A change to a
+package's behaviour or to a skill needs a changeset (`pnpm changeset`); a
+change to docs pages only doesn't.
 
 ## 3. Run the checks for what changed
 

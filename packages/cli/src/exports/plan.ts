@@ -276,6 +276,18 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/flows/{flowId}/versions/{version}'],
   },
   {
+    name: 'flow-pinned-versions',
+    route: '/v1/flows/{flowId}/pinned-versions',
+    paging: whole,
+    parent: { kind: 'flows', params: { flowId: 'id' } },
+  },
+  {
+    name: 'flow-pin-history',
+    route: '/v1/flows/{flowId}/pin-history',
+    paging: cursor,
+    parent: { kind: 'flows', params: { flowId: 'id' } },
+  },
+  {
     name: 'tools',
     route: '/v1/tools',
     paging: cursor,
@@ -289,6 +301,18 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     parent: { kind: 'tools', params: { toolId: 'id' } },
     query: { includeTombstoned: 'true' },
     covers: ['/v1/tools/{toolId}/versions/{version}'],
+  },
+  {
+    name: 'tool-pinned-versions',
+    route: '/v1/tools/{toolId}/pinned-versions',
+    paging: whole,
+    parent: { kind: 'tools', params: { toolId: 'id' } },
+  },
+  {
+    name: 'tool-pin-history',
+    route: '/v1/tools/{toolId}/pin-history',
+    paging: cursor,
+    parent: { kind: 'tools', params: { toolId: 'id' } },
   },
   {
     name: 'guardrails',
@@ -396,12 +420,26 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     paging: cursor,
     parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
   },
+  {
+    name: 'schedule-versions',
+    route: '/v1/schedules/{triggerId}/versions',
+    paging: cursor,
+    parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
+    covers: ['/v1/schedules/{triggerId}/versions/{version}'],
+  },
   { name: 'webhooks', route: '/v1/webhooks', paging: cursor, covers: ['/v1/webhooks/{triggerId}'] },
   {
     name: 'webhook-fires',
     route: '/v1/webhooks/{triggerId}/fires',
     paging: cursor,
     parent: { kind: 'webhooks', params: { triggerId: 'triggerId' } },
+  },
+  {
+    name: 'webhook-versions',
+    route: '/v1/webhooks/{triggerId}/versions',
+    paging: cursor,
+    parent: { kind: 'webhooks', params: { triggerId: 'triggerId' } },
+    covers: ['/v1/webhooks/{triggerId}/versions/{version}'],
   },
   {
     name: 'mail-triggers',
@@ -414,6 +452,13 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/mail-triggers/{triggerId}/fires',
     paging: cursor,
     parent: { kind: 'mail-triggers', params: { triggerId: 'triggerId' } },
+  },
+  {
+    name: 'mail-trigger-versions',
+    route: '/v1/mail-triggers/{triggerId}/versions',
+    paging: cursor,
+    parent: { kind: 'mail-triggers', params: { triggerId: 'triggerId' } },
+    covers: ['/v1/mail-triggers/{triggerId}/versions/{version}'],
   },
   {
     name: 'webhook-endpoints',
@@ -557,6 +602,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/openapi.json': 'the server, not the workspace',
   '/v1/license': 'the server, not the workspace',
   '/v1/license/usage': 'the server, not the workspace',
+  '/v1/runtime': 'the server, not the workspace',
   '/v1/adapters': 'the server, not the workspace: the adapters the deployment wired at boot',
   '/v1/adapters/{adapterId}':
     'the server, not the workspace: the adapters the deployment wired at boot',
@@ -593,6 +639,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/agents/{agentId}/live': 'computed from agent-live-versions',
   '/v1/agents/{agentId}/gate-policy': 'computed from gate-policies',
   '/v1/agents/{agentId}/projects': 'computed from agent-versions and deployments',
+  '/v1/flows/{flowId}/pinned': 'computed from flow-pinned-versions and flow-versions',
+  '/v1/tools/{toolId}/pinned': 'computed from tool-pinned-versions and tool-versions',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',
   '/v1/projects/{projectId}/judging-rules/preview': 'computed from judging-rules and runs',
   '/v1/projects/{projectId}/judging-rules/{ruleId}/results': 'computed from judgments',
@@ -600,6 +648,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from project-memberships, team-project-grants, orgs and users',
   '/v1/projects/default': 'one of projects',
   '/v1/projects/{projectId}/team-grants': 'the same records as team-project-grants',
+  '/v1/projects/{projectId}/pinned-versions': 'the same records as agent-live-versions',
   '/v1/environment-orders/tenant': 'the same records as environment-orders',
   '/v1/environment-orders/orgs/{orgId}': 'the same records as environment-orders',
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",

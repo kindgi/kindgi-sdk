@@ -1,5 +1,47 @@
 # @kindgi/guardrails
 
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [08dedca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [e019e64]
+- Updated dependencies [68e0d57]
+- Updated dependencies [119ac78]
+  - @kindgi/compliance@0.2.0
+  - @kindgi/schema@0.2.0
+  - @kindgi/capabilities@0.2.0
+  - @kindgi/bounds@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- Updated dependencies [b6e20ca]
+  - @kindgi/compliance@0.2.0-rc.1
+  - @kindgi/capabilities@0.2.0-rc.1
+  - @kindgi/schema@0.2.0-rc.1
+  - @kindgi/bounds@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [08dedca]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [e019e64]
+- Updated dependencies [68e0d57]
+- Updated dependencies [119ac78]
+  - @kindgi/compliance@0.2.0-rc.0
+  - @kindgi/schema@0.2.0-rc.0
+  - @kindgi/capabilities@0.2.0-rc.0
+  - @kindgi/bounds@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

@@ -442,6 +442,21 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'run-held-by-parent': {
+    description:
+      "The run is a subflow's child run, left for its parent run's next resume, which resumes it too. Only the parent's resume resumes it, so a resume of the child itself is refused.",
+    details: [
+      {
+        key: 'runId',
+        meaning: 'the run',
+      },
+      {
+        key: 'parentRunId',
+        meaning: 'its parent run, whose resume resumes it',
+      },
+    ],
+    seeAlso: ['concepts/runs'],
+  },
   'idempotency-key-body-mismatch': {
     description:
       'You reused an Idempotency-Key with a different request body. Send the original body to get its answer back, or use a fresh key.',
@@ -465,6 +480,11 @@ export const ERROR_ENTRIES = {
         meaning: 'when it succeeded, as an ISO timestamp',
       },
     ],
+  },
+  'idempotency-store-unavailable': {
+    description:
+      "A write sent with an Idempotency-Key couldn't be checked against its key, because the store that keeps the keys couldn't be read, so the write didn't run and changed nothing. Retry with the same key after the `Retry-After` header.",
+    details: [],
   },
   'hitl-required': {
     description:
@@ -709,7 +729,7 @@ export const ERROR_ENTRIES = {
   },
   'environment-takes-promotions': {
     description:
-      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. Nothing is written.",
+      "The project you named (or the Default project, when you named none) is a later environment of an environment order, and a later environment takes builds only by promotion from the one before it. Deploy into the order's first environment and promote the build from there. A publish through the API into a later environment is refused the same way, and so is an edited version of an agent that names one: new versions are made in the first environment. A tool's pin for a later environment is refused too: a tool's pin acts when an agent or flow version is made, which is in the first environment, so pin the tool there. Nothing is written.",
     details: [
       {
         key: 'firstProjectId',
@@ -774,6 +794,21 @@ export const ERROR_ENTRIES = {
       "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written.",
     details: [],
     seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
+  },
+  'pin-scope-spans-environments': {
+    description:
+      "A flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once. Pin a flow in each environment's project, and a tool in the order's first environment, where agent and flow versions are made.",
+    details: [],
+  },
+  'tool-not-pinnable': {
+    description:
+      "The tool follows its server (a tool an MCP endpoint's catalog lists: its metadata has the catalog's `kindgi.mcp` key) or the runtime (a tool the runtime ships), so a pin couldn't keep it still. Reference it with a version range instead.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: 'the tool',
+      },
+    ],
   },
   'live-scope-spans-environments': {
     description:
@@ -908,7 +943,7 @@ export const ERROR_ENTRIES = {
   },
   'guardrail-violation': {
     description:
-      "A blocking guardrail stopped the agent's turn, or a halting guardrail's check couldn't run. The run fails; the violations say which guardrails fired.",
+      "A blocking guardrail stopped the agent's turn, a halting guardrail's check couldn't run, or a `retry` guardrail's attempts ran out: at the final answer it sends each answer it fails back to the model for a new one, and in the agent loop it refuses a call, withholds a result or sends a reply back, until it has failed `retry.maxAttempts` answers or replies. The run fails; the violations say which guardrails fired, and `point` says where in the turn.",
     details: [
       {
         key: 'violations',
@@ -917,6 +952,20 @@ export const ERROR_ENTRIES = {
       {
         key: 'evaluationErrors',
         meaning: "guardrails whose check couldn't run (missing check, bad config)",
+      },
+      {
+        key: 'attempts',
+        meaning:
+          "the attempts the turn had when a `retry` guardrail's ran out, the first one included: its answers at the final answer, or in the agent loop its replies the guardrail sent back or refused or withheld a call of; absent when a `halt` guardrail stopped it",
+      },
+      {
+        key: 'point',
+        meaning:
+          'where in the turn the guardrails stopped it: `before-tool`, `after-tool` or `model-step`; absent at the final answer',
+      },
+      {
+        key: 'callId',
+        meaning: "at `before-tool` and `after-tool`: the model's id for the call",
       },
       {
         key: 'runId',
@@ -980,7 +1029,7 @@ export const ERROR_ENTRIES = {
   },
   'model-invocation-failed': {
     description:
-      "The model provider call failed, for example it refused the key or was rate limited. The message carries the provider's own words.",
+      "The model provider call failed, for example it refused the key or was rate limited, or the model's reply can't be used (for example, two of its tool calls share an id). When the call failed, the message carries the provider's own words.",
     details: [
       {
         key: 'runId',
@@ -1380,6 +1429,16 @@ export const ERROR_ENTRIES = {
       {
         key: 'runId',
         meaning: 'the run id that was looked up',
+      },
+      {
+        key: 'recordState',
+        meaning:
+          "why the run has no record yet: `being-written` while it's being written, after a flow run ends; `failed` when writing it failed. Absent when the run has no record at all. More states may come",
+      },
+      {
+        key: 'reason',
+        meaning:
+          "with `recordState: failed`, why: `read-failed` (its journal couldn't be read), `build-failed` (the record couldn't be built from it) or `write-failed` (it couldn't be saved). More codes may come",
       },
     ],
     seeAlso: ['GET /v1/provenance/{runId}'],
@@ -1894,7 +1953,7 @@ export const ERROR_ENTRIES = {
   },
   'not-pinned': {
     description:
-      "The scope has no live version of its own, so there's nothing to roll back or unpin. Pin a version for the scope first.",
+      "The scope has no pin of its own (for an agent, no live version of its own), so there's nothing to roll back or unpin. Pin a version for the scope first.",
     details: [],
   },
   'gate-failed': {
@@ -2446,6 +2505,42 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'flow-version-pinned': {
+    description:
+      "The flow version is pinned in one or more scopes, so it can't be unregistered, and the flow can't be deleted while any of its versions is. Move the pin to another version, or unpin it, first.",
+    details: [
+      {
+        key: 'flowId',
+        meaning: 'the flow',
+      },
+      {
+        key: 'version',
+        meaning: 'the version',
+      },
+      {
+        key: 'scopes',
+        meaning: 'the scopes where it is pinned',
+      },
+    ],
+  },
+  'tool-version-pinned': {
+    description:
+      "The tool version is pinned in one or more scopes, so it can't be unregistered, and the tool can't be deleted while any of its versions is. Move the pin to another version, or unpin it, first.",
+    details: [
+      {
+        key: 'toolId',
+        meaning: 'the tool',
+      },
+      {
+        key: 'version',
+        meaning: 'the version',
+      },
+      {
+        key: 'scopes',
+        meaning: 'the scopes where it is pinned',
+      },
+    ],
+  },
   'artifact-too-large': {
     description: 'The uploaded artifact is larger than the upload cap. Upload a smaller file.',
     details: [
@@ -2504,6 +2599,10 @@ export const ERROR_ENTRIES = {
   },
   'guardrail-outcomes-not-supported': {
     description: "This deployment doesn't record guardrail outcomes.",
+    details: [],
+  },
+  'pinned-versions-not-supported': {
+    description: "This deployment can't list a project's pinned versions.",
     details: [],
   },
   'eval-run-already-terminal': {
@@ -3555,6 +3654,25 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['POST /v1/schedules/{triggerId}/owner'],
+  },
+  'trigger-version-not-found': {
+    description:
+      'The trigger exists, but has no version with the number you asked for. Versions count from 1, one more for each change to the trigger.',
+    details: [
+      {
+        key: 'triggerId',
+        meaning: 'the trigger',
+      },
+      {
+        key: 'version',
+        meaning: 'the version number that was not found',
+      },
+    ],
+    seeAlso: [
+      'GET /v1/schedules/{triggerId}/versions/{version}',
+      'GET /v1/webhooks/{triggerId}/versions/{version}',
+      'GET /v1/mail-triggers/{triggerId}/versions/{version}',
+    ],
   },
   'trigger-invalid-config': {
     description:

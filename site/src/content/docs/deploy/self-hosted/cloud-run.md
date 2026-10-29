@@ -141,8 +141,8 @@ digest, with every platform it was built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.10" \
-  quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3
+docker buildx imagetools create --tag "$REPO/runtime:0.2.0" \
+  registry.kindgi.com/kindgi/runtime:0.2.0@sha256:76251214ab450d96995af8d4fecefd747aef1dd6611518221e209e386443aed8
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -581,7 +581,14 @@ server_secret_env = {
 - **After an upgrade that adds a step per tenant,**
   `kindgi-runtime tenants repair --all` has to run once: a server serving
   many tenants sets nothing up per tenant at boot. This module runs no such
-  job.
+  job. It also takes away access a tenant's record doesn't back (runtime
+  0.3.0 or later): it finishes a removal that stopped part way, and revokes
+  a service account's admin, membership or project role that its grants
+  don't give. And it takes away the access an older runtime gave
+  `00000000-0000-0000-0000-000000000000`, the id it named as the creator of
+  what a key with no person behind it made; no person has that id.
+  `--dry-run` shows what it would put back and take away, per tenant, and
+  changes nothing.
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would
   seed a new tenant at every start, so upgrade the runtime first.
 
@@ -869,16 +876,26 @@ The two can go in two Google Cloud projects, or in one:
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
-  it, `terraform plan` stops and asks for it.
-- **Or upgrade with the module's `upgrade.sh`:** a small dev deployment
-  (`network_mode = "none"`, on runtime 0.1.8 or later) can run it instead,
-  to 0.2.0 or later. It copies the new image from `registry.kindgi.com`, so
-  [log in there](../pull-the-runtime-image/) first. It runs the upgrade
-  checks against the database, then backs the database up, and changes the
-  running deployment only when you type `yes`, which applies exactly the
-  saved plan it showed. Terraform made that plan with every
-  `*.auto.tfvars.json` in the folder too, your pack's env among them. If
-  the new revision doesn't
+  it, `terraform plan` stops and asks for it. From a module copy that set
+  only Terraform's deletion protection, the next apply also turns on
+  Google's in the instance, in place, while `database_deletion_protection`
+  is on (the default). If the plan says the instance `must be replaced`,
+  stop: a replace deletes the database.
+- **Or upgrade with the module's `upgrade.sh`:** a deployment of the
+  module on runtime 0.1.8 or later, in any `network_mode`, can run it
+  instead, to 0.2.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes
+  `network_mode = "none"` only. It copies the new image from
+  `registry.kindgi.com`, so [log in there](../pull-the-runtime-image/)
+  first. It runs the upgrade checks against the database, then backs the
+  database up, and changes the running deployment only when you type
+  `yes`. Before it asks, it checks the plan: it stops if the plan creates,
+  deletes or replaces anything, or changes anything but the new image and
+  what the releases crossed change in place. So a var file left off the
+  command, whose variables the plan would empty, stops it: give it one
+  `--var-file` for each file your variables are in, since Terraform loads
+  only `terraform.tfvars` and `*.auto.tfvars` (and their `.json`) on its
+  own. `yes` applies exactly that plan, which it keeps next to the
+  var-file's copy. If the new revision doesn't
   come up, it prints the way back rather than rolling back on its own. To
   see what it would do first, add `--dry-run`: it lists every change a real
   run would make, in order, and shows Terraform's plan for the new image,
@@ -887,7 +904,9 @@ The two can go in two Google Cloud projects, or in one:
   the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
   you're upgrading to, or, before that release is out, its newest
   `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
-  and refuses a later `--to`. A server-only release, such as 0.2.0.1, is a
+  and refuses a later `--to`. With an earlier `--to` it still plans its own
+  module, whose changes past the target's release it lists and allows, and
+  it says so. A server-only release, such as 0.2.0.1, is a
   server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
   `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. The
   module's README has the rest, under
@@ -923,6 +942,8 @@ The two can go in two Google Cloud projects, or in one:
   holding the server's URL to it. The module's own instance stays as it is.
   The module's README has the steps, under
   [Serving from a restored instance](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#serving-from-a-restored-instance):
+  - the new instance's deletion protection, which the module doesn't manage
+    there: turn it on before it serves;
   - the new instance's URL, and the server's read access to it;
   - the erasure replay before it serves
     ([Erasures and backups](../back-up-and-restore/#erasures-and-backups));
@@ -986,9 +1007,11 @@ The two can go in two Google Cloud projects, or in one:
 
 ## Upgrade by hand
 
-`upgrade.sh` covers the small dev shape only. With `network_mode`
-`direct` or `connector`, upgrade by hand, staging first
-([Staging and production](#staging-and-production)). Run the steps in the
+`upgrade.sh` runs these steps for you. Upgrade by hand instead if you'd
+rather, or with `network_mode` `direct` or `connector` and an `upgrade.sh`
+from before the `@kindgi/sdk@0.3.0` tag, which takes `"none"` only. Upgrade
+staging first ([Staging and production](#staging-and-production)). Run the
+steps in the
 module's folder, as the identity that deploys the module, with `gcloud` set
 to this deployment's project, the `project_id` in its var-file:
 
@@ -1175,8 +1198,10 @@ database:
 
 ## Tear it down
 
-Terraform won't delete Cloud SQL while `database_deletion_protection` is
-on (the default). Set it to `false` and apply first. The KMS key ring and
+Cloud SQL can't be deleted while `database_deletion_protection` is on (the
+default). It turns on Terraform's deletion protection and Google's, which
+refuses a delete from the console, gcloud or the Cloud SQL API as well. Set
+it to `false` and apply first: the apply turns both off. The KMS key ring and
 key outlive `terraform destroy`: Google Cloud never deletes them. Take them
 out of Terraform's state, destroy the rest, then schedule the key's versions
 for destruction:

@@ -18,6 +18,7 @@ import type {
   ProjectCollectionPage,
   ProjectMembershipCollectionPage,
   ProjectPatch as ProjectPatchBody,
+  ProjectPinnedVersionPage as ProjectPinnedVersionPageWire,
   ProjectProduction as ProjectProductionWire,
   ProjectRole as ProjectRoleWire,
   ProjectSpec as ProjectSpecBody,
@@ -78,6 +79,29 @@ export interface ListProjectAccessFilter {
 export interface ProjectAccessClient {
   /** @wire GET /v1/projects/:projectId/access */
   list(projectId: string, filter?: ListProjectAccessFilter): Promise<ProjectAccessPage>;
+}
+
+export type ProjectPinnedVersionPage = ProjectPinnedVersionPageWire;
+
+export interface ListProjectPinnedVersionsFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+/**
+ * Every agent's pinned versions that cover a project: the tenant's, the
+ * project's org's, the project's own and its segments', ordered by agent
+ * id, then scope. Takes `read` on the project, and shows only the pins of
+ * agents and versions the caller can read, so a page can hold fewer than
+ * `limit`, or none, with `hasMore`: page on `nextCursor`. `501
+ * pinned-versions-not-supported` from a runtime that can't list them.
+ */
+export interface ProjectPinnedVersionsClient {
+  /** @wire GET /v1/projects/:projectId/pinned-versions */
+  list(
+    projectId: string,
+    filter?: ListProjectPinnedVersionsFilter,
+  ): Promise<ProjectPinnedVersionPage>;
 }
 
 /** A team's role on a project, with the team's and the project's names. */
@@ -174,6 +198,7 @@ export interface ProjectsClient {
   /** The sites that sign their own people in to the project (tenant admins). */
   readonly sites: SitesClient;
   readonly access: ProjectAccessClient;
+  readonly pinnedVersions: ProjectPinnedVersionsClient;
 }
 
 export interface ProjectMembershipsClient {
@@ -307,6 +332,18 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         return transport.request<ProjectAccessPage>({
           method: 'GET',
           path: `/v1/projects/${seg(projectId)}/access`,
+          query: {
+            ...(filter?.limit !== undefined && { limit: filter.limit }),
+            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          },
+        });
+      },
+    },
+    pinnedVersions: {
+      async list(projectId, filter) {
+        return transport.request<ProjectPinnedVersionPage>({
+          method: 'GET',
+          path: `/v1/projects/${seg(projectId)}/pinned-versions`,
           query: {
             ...(filter?.limit !== undefined && { limit: filter.limit }),
             ...(filter?.cursor !== undefined && { cursor: filter.cursor }),

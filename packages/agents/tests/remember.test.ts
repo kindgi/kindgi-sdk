@@ -155,6 +155,8 @@ async function rememberTurn(options: {
     usage: { steps: 1, promptTokens: 0, completionTokens: 0, totalCostUsd: 0 },
     provenance,
     hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
+    // The loop's messages are the step's own (`nextMessages: []`).
+    initialMessageCount: 0,
   } as unknown as TurnContext;
   ctx.tools = withRememberTool(ctx, {
     definitions: [{ name: lookup.id, description: lookup.description, inputSchema: {} }],

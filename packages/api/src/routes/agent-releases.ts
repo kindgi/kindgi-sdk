@@ -18,6 +18,7 @@ import type { ItemRights } from '../item-rights.js';
 import type { JudgedComparisonSummary } from '../judged-dispatcher.js';
 import type {
   AgentReleaseBindings,
+  LivePin,
   LiveResolveInput,
   PromoteInput,
   Promotion,
@@ -93,21 +94,8 @@ export function mountAgentReleaseRoutes(
   /** Rights on an agent more than one project serves (`item-rights.ts`); absent → the agent's own. */
   itemRights?: ItemRights,
 ): void {
-  /**
-   * The versions among `versions` the caller can see: all of them, unless
-   * more than one project serves the agent (`item-rights.ts`, rule 2).
-   */
-  async function seen(
-    c: Ctx,
-    agentId: string,
-    versions: readonly string[],
-  ): Promise<ReadonlySet<string>> {
-    const projects = await itemRights?.multi(c, 'agent', agentId);
-    if (itemRights === undefined || projects === undefined) return new Set(versions);
-    return new Set(
-      await itemRights.visibleVersions(c, 'agent', agentId, projects, versions, (v) => v),
-    );
-  }
+  const seen = (c: Ctx, agentId: string, versions: readonly string[]) =>
+    seenVersions(itemRights, c, agentId, versions);
   /** A promotion the caller can see: every version it names is one. */
   const named = (p: Promotion): string[] =>
     [p.fromVersion, p.toVersion].filter((v): v is Semver => v !== null).map(String);
@@ -202,15 +190,7 @@ export function mountAgentReleaseRoutes(
       all.map((p) => p.version as unknown as string),
     );
     const pins = all.filter((p) => visible.has(p.version as unknown as string));
-    return c.json({
-      data: pins.map((p) => ({
-        agentId: p.agentId,
-        scope: liveScopeToWire(p.scope),
-        version: p.version as unknown as string,
-        promotionId: p.promotionId,
-        setAt: p.setAt as unknown as string,
-      })),
-    });
+    return c.json({ data: pins.map(serializeLivePin) });
   });
 
   r.post('/:agentId/promotions', async (c) => {
@@ -368,6 +348,70 @@ export function mountAgentReleaseRoutes(
 }
 
 type Ctx = Context<AppEnv>;
+
+/**
+ * The versions among `versions` of an agent the caller can see: all of
+ * them, unless more than one project serves the agent (`item-rights.ts`,
+ * rule 2).
+ */
+export async function seenVersions(
+  itemRights: ItemRights | undefined,
+  c: Ctx,
+  agentId: string,
+  versions: readonly string[],
+): Promise<ReadonlySet<string>> {
+  return visibleOf(itemRights, c, agentId, await itemRights?.multi(c, 'agent', agentId), versions);
+}
+
+/**
+ * The pins among `pins` whose version the caller can see, in order, by the
+ * rule `seenVersions` applies to each pin's agent. One ask finds the agents
+ * more than one project serves; only their versions are read further.
+ */
+export async function seenPins<P extends Pick<LivePin, 'agentId' | 'version'>>(
+  itemRights: ItemRights | undefined,
+  c: Ctx,
+  pins: readonly P[],
+): Promise<P[]> {
+  if (itemRights === undefined || pins.length === 0) return [...pins];
+  const versionOf = (p: P) => p.version as unknown as string;
+  const multi = await itemRights.multiOfMany(
+    c,
+    'agent',
+    pins.map((p) => p.agentId),
+  );
+  const visible = new Map<string, ReadonlySet<string>>();
+  for (const [agentId, projects] of multi) {
+    const versions = [...new Set(pins.filter((p) => p.agentId === agentId).map(versionOf))];
+    visible.set(agentId, await visibleOf(itemRights, c, agentId, projects, versions));
+  }
+  return pins.filter((p) => visible.get(p.agentId)?.has(versionOf(p)) ?? true);
+}
+
+/** A pin on the wire (`LivePin`), as an agent's and a project's lists show it. */
+export function serializeLivePin(p: LivePin) {
+  return {
+    agentId: p.agentId,
+    scope: liveScopeToWire(p.scope),
+    version: p.version as unknown as string,
+    promotionId: p.promotionId,
+    setAt: p.setAt as unknown as string,
+  };
+}
+
+/** Rule 2 for one agent, given its projects when more than one serves it. */
+async function visibleOf(
+  itemRights: ItemRights | undefined,
+  c: Ctx,
+  agentId: string,
+  projects: readonly ProjectId[] | undefined,
+  versions: readonly string[],
+): Promise<ReadonlySet<string>> {
+  if (itemRights === undefined || projects === undefined) return new Set(versions);
+  return new Set(
+    await itemRights.visibleVersions(c, 'agent', agentId, projects, versions, (v) => v),
+  );
+}
 
 /** A promotion request's outcome: recorded, refused before recording, or unsupported here. */
 export type PromotionRequestOutcome =

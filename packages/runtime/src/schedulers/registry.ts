@@ -41,6 +41,17 @@ export interface TriggerRegistryBinding {
   ): Promise<{ readonly triggerId: TriggerId; readonly unregistered: boolean }>;
 
   /**
+   * A trigger's versions, newest first: one for each definition it has
+   * had ({@link TriggerVersionRecord}). Empty for a trigger with none yet
+   * (registered before versions, until its first edit or fire), and for
+   * an id the tenant has no trigger with.
+   */
+  listVersions(input: ListTriggerVersionsInput): Promise<TriggerVersionPage>;
+
+  /** One of a trigger's versions; `null` when the tenant's trigger has no such version. */
+  getVersion(input: GetTriggerVersionInput): Promise<TriggerVersionRecord | null>;
+
+  /**
    * The receiver's lookup: the webhook trigger with this routable id,
    * paused or unregistered too (`unregistered`), so the receiver verifies
    * a request with the trigger's own secret before it answers that the
@@ -89,11 +100,16 @@ export interface TriggerRegistryBinding {
 
   /**
    * Make `owner` the principal a schedule's runs act as (an admin re-owns
-   * a schedule whose owner left). Optional: without it, the route answers
-   * `501`.
+   * a schedule whose owner left). A new owner makes the trigger's next
+   * version (cause `owner`); the owner it already has makes none.
+   * Optional: without it, the route answers `501`.
    */
   setOwner?(
-    input: TriggerLifecycleInput & { readonly owner: TriggerOwner },
+    input: TriggerLifecycleInput & {
+      readonly owner: TriggerOwner;
+      /** Who made the change, as `UpdateBase.by`. */
+      readonly by: string;
+    },
   ): Promise<Result<TriggerRecord, TriggerLifecycleError>>;
 }
 
@@ -291,6 +307,11 @@ export interface TriggerFire {
     | 'failed';
   /** The run it started, when it started one. */
   readonly runId?: string;
+  /**
+   * The trigger's version its start used: the newest when it started.
+   * Absent until it starts, and on a fire from before versions.
+   */
+  readonly version?: number;
   /** The improvement pass it started, for an `improve` schedule. */
   readonly passId?: string;
   /** Why it was refused, skipped or failed, or why a `pending` mail fire waits (`thread-busy:`). */
@@ -340,6 +361,12 @@ export type RegisterTriggerInput =
 export interface RegisterCronTriggerInput {
   readonly kind: 'cron';
   readonly tenantId: TenantId;
+  /**
+   * Who registers it: the authenticated caller, as audit records name an
+   * actor (`user:<id>`, `service_account:<id>`, …). Its version 1 names
+   * them (`TriggerVersionRecord.createdBy`). The route sets it, never a body.
+   */
+  readonly by: string;
   readonly target: TriggerTarget;
   /** The schedule's project; absent → the tenant's default project. */
   readonly projectId?: ProjectId;
@@ -364,6 +391,8 @@ export interface RegisterCronTriggerInput {
 export interface RegisterEventTriggerInput {
   readonly kind: 'event';
   readonly tenantId: TenantId;
+  /** As `RegisterCronTriggerInput.by`. */
+  readonly by: string;
   readonly flowId: string;
   readonly flowVersion: string;
   readonly config: EventTriggerConfig;
@@ -373,6 +402,8 @@ export interface RegisterEventTriggerInput {
 export interface RegisterWebhookTriggerInput {
   readonly kind: 'webhook';
   readonly tenantId: TenantId;
+  /** As `RegisterCronTriggerInput.by`. */
+  readonly by: string;
   /** The flow it starts, at an exact version. */
   readonly flowId: string;
   readonly flowVersion: string;
@@ -419,6 +450,8 @@ export interface RegisterWebhookTriggerInput {
 export interface RegisterMailTriggerInput {
   readonly kind: 'mail';
   readonly tenantId: TenantId;
+  /** As `RegisterCronTriggerInput.by`. */
+  readonly by: string;
   readonly target: MailTriggerTarget;
   /** The trigger's project; absent → the tenant's default project. */
   readonly projectId?: ProjectId;
@@ -456,9 +489,15 @@ export type UpdateTriggerInput =
   | UpdateWebhookTriggerInput
   | UpdateMailTriggerInput;
 
+/**
+ * An update that changes the trigger's definition makes its next version
+ * (cause `edit`); one that changes nothing makes none.
+ */
 interface UpdateBase {
   readonly tenantId: TenantId;
   readonly triggerId: TriggerId;
+  /** Who made the change, as `RegisterCronTriggerInput.by`: the version it makes names them. */
+  readonly by: string;
   /** `null` clears the label; omitted leaves it unchanged. */
   readonly label?: string | null;
   /** Pin the trigger to a different flow version. */
@@ -526,6 +565,12 @@ interface TriggerRecordBase {
   readonly lastFiredAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Its current version: the newest of its {@link TriggerVersionRecord}s,
+   * whose definition is this record's. Absent until its first (a trigger
+   * registered before versions has none until its first edit or fire).
+   */
+  readonly version?: number;
 }
 
 /** An event trigger or an inbound webhook starts a flow at an exact version. */
@@ -650,6 +695,141 @@ export interface GetTriggerInput {
 export interface TriggerLifecycleInput {
   readonly tenantId: TenantId;
   readonly triggerId: TriggerId;
+}
+
+// ---------- versions (discriminated on kind) ----------
+
+/**
+ * What made a version: `register` (version 1), `edit` (an update that
+ * changed the definition), `owner` (a take-ownership to another owner),
+ * `first-fire` (a trigger registered before versions, at its first fire or
+ * poll: its definition as it was), `unversioned-edit` (at a fire or poll,
+ * or just before an edit or take-ownership, a definition its newest version
+ * doesn't hold, as when a release from before versions changed it during
+ * an upgrade: the definition as it is), or `pin` (the runtime pinned a
+ * company mailbox to its only connection).
+ */
+export const TRIGGER_VERSION_CAUSES = [
+  'register',
+  'edit',
+  'owner',
+  'first-fire',
+  'unversioned-edit',
+  'pin',
+] as const;
+export type TriggerVersionCause = (typeof TRIGGER_VERSION_CAUSES)[number];
+
+/**
+ * A schedule's definition: the fields whose change makes a new version.
+ * Never its state (status, claims, next and last fire, counters).
+ */
+export type CronTriggerDefinition = Pick<
+  CronTriggerRecord,
+  | 'target'
+  | 'projectId'
+  | 'owner'
+  | 'config'
+  | 'catchUp'
+  | 'overlap'
+  | 'startingDeadlineSeconds'
+  | 'label'
+  | 'toolsAllowedUnattended'
+>;
+
+/** An event trigger's definition, as {@link CronTriggerDefinition}. */
+export type EventTriggerDefinition = Pick<
+  EventTriggerRecord,
+  'flowId' | 'flowVersion' | 'config' | 'label'
+>;
+
+/**
+ * A webhook trigger's definition, as {@link CronTriggerDefinition}: its
+ * secret by name only. Its `webhookId` is who it is, never edited.
+ */
+export type WebhookTriggerDefinition = Pick<
+  WebhookTriggerRecord,
+  | 'flowId'
+  | 'flowVersion'
+  | 'projectId'
+  | 'owner'
+  | 'config'
+  | 'hmacSecretName'
+  | 'hmacSecretScope'
+  | 'signature'
+  | 'deliveryIdHeader'
+  | 'bodyLimitBytes'
+  | 'rateLimitPerMinute'
+  | 'label'
+  | 'toolsAllowedUnattended'
+>;
+
+/** A mail trigger's definition, as {@link CronTriggerDefinition}. */
+export type MailTriggerDefinition = Pick<
+  MailTriggerRecord,
+  'target' | 'projectId' | 'owner' | 'config' | 'label' | 'toolsAllowedUnattended'
+>;
+
+interface TriggerVersionBase {
+  readonly triggerId: TriggerId;
+  /** From 1, one more for each version of the trigger. */
+  readonly version: number;
+  readonly createdAt: string;
+  /**
+   * Who made it: the `by` of the register, update or take-ownership.
+   * Absent only when the runtime made it (`first-fire`, `unversioned-edit`, `pin`).
+   */
+  readonly createdBy?: string;
+  readonly cause: TriggerVersionCause;
+}
+
+export interface CronTriggerVersionRecord extends TriggerVersionBase {
+  readonly kind: 'cron';
+  readonly definition: CronTriggerDefinition;
+}
+
+export interface EventTriggerVersionRecord extends TriggerVersionBase {
+  readonly kind: 'event';
+  readonly definition: EventTriggerDefinition;
+}
+
+export interface WebhookTriggerVersionRecord extends TriggerVersionBase {
+  readonly kind: 'webhook';
+  readonly definition: WebhookTriggerDefinition;
+}
+
+export interface MailTriggerVersionRecord extends TriggerVersionBase {
+  readonly kind: 'mail';
+  readonly definition: MailTriggerDefinition;
+}
+
+/**
+ * One version of a trigger: its definition as it was, who made it and
+ * why. Never changed once made, and kept with every input it had. A
+ * fire's start uses the newest (`TriggerFire.version`), and its run keeps
+ * that one (`RunTriggerRef.version`).
+ */
+export type TriggerVersionRecord =
+  | CronTriggerVersionRecord
+  | EventTriggerVersionRecord
+  | WebhookTriggerVersionRecord
+  | MailTriggerVersionRecord;
+
+export interface ListTriggerVersionsInput {
+  readonly tenantId: TenantId;
+  readonly triggerId: TriggerId;
+  readonly limit?: number;
+  readonly cursor?: Cursor;
+}
+
+export interface TriggerVersionPage {
+  readonly data: readonly TriggerVersionRecord[];
+  readonly nextCursor?: Cursor;
+}
+
+export interface GetTriggerVersionInput {
+  readonly tenantId: TenantId;
+  readonly triggerId: TriggerId;
+  readonly version: number;
 }
 
 // ---------- errors ----------

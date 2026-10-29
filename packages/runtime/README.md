@@ -15,6 +15,8 @@ dependency on a runtime implementation.
 ### Wire vocabulary
 - `RunStatus`, `RunResult`, `RunOptions`
 - `JournalEntry`, `JournalKind`
+- `JournalEntryFacts`, `JournalEntryPosition`: an entry's scalar position
+  facts, kept beside its payload, for a reader that must not read values
 - All fanout / subgraph / iteration / step payload types
 - Kernel error shapes (`KernelError`, `RunNotFoundError`,
   `HandlerMissingError`, `WaitpointError`, …)

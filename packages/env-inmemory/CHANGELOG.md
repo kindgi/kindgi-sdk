@@ -1,5 +1,119 @@
 # @kindgi/env-inmemory
 
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [19b0a86]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [6fc48e9]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [354c801]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [8564e06]
+- Updated dependencies [bf30268]
+- Updated dependencies [a458bf4]
+- Updated dependencies [af37c1a]
+- Updated dependencies [af2f5db]
+- Updated dependencies [68e0d57]
+- Updated dependencies [98104be]
+- Updated dependencies [e019e64]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [119ac78]
+- Updated dependencies [b6e20ca]
+  - @kindgi/api@0.2.0
+  - @kindgi/compliance@0.2.0
+  - @kindgi/log@0.2.0
+  - @kindgi/audit-events@0.2.0
+  - @kindgi/platform@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/api@0.2.0-rc.1
+  - @kindgi/compliance@0.2.0-rc.1
+  - @kindgi/log@0.2.0-rc.1
+  - @kindgi/audit-events@0.2.0-rc.1
+  - @kindgi/platform@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [19b0a86]
+- Updated dependencies [6fc48e9]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [354c801]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [8564e06]
+- Updated dependencies [bf30268]
+- Updated dependencies [a458bf4]
+- Updated dependencies [af37c1a]
+- Updated dependencies [af2f5db]
+- Updated dependencies [68e0d57]
+- Updated dependencies [98104be]
+- Updated dependencies [e019e64]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [08dedca]
+- Updated dependencies [119ac78]
+  - @kindgi/api@0.2.0-rc.0
+  - @kindgi/compliance@0.2.0-rc.0
+  - @kindgi/audit-events@0.2.0-rc.0
+  - @kindgi/log@0.2.0-rc.0
+  - @kindgi/platform@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

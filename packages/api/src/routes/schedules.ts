@@ -9,7 +9,7 @@ import { type Action, type ResourceRef, ref, targetAccess } from '@kindgi/authz'
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
-import { callerRef } from '../caller.js';
+import { callerIdentity, callerRef } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn, writeWhereMade } from '../item-rights.js';
@@ -22,6 +22,7 @@ import {
 } from '../reference-scope.js';
 import {
   type CronTriggerRecord,
+  type CronTriggerVersionRecord,
   type RegisterCronTriggerInput,
   SCHEDULE_DEFAULTS,
   type ScheduleCatchUp,
@@ -63,6 +64,7 @@ import {
   sameToolList,
   toolsAllowedUnattendedProblem,
 } from './trigger-tools.js';
+import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
 
 /**
@@ -282,6 +284,7 @@ export function schedulesRouter(
     const registerInput: RegisterCronTriggerInput = {
       kind: 'cron',
       tenantId,
+      by: callerIdentity(c),
       target: target.value,
       ...(project !== undefined && { projectId: project as ProjectId }),
       owner,
@@ -316,6 +319,7 @@ export function schedulesRouter(
         correlationId: requestId,
         log: c.get('log'),
         ...(resolved.projectAccount === true && { projectAccount: true }),
+        ...versionField(result.value),
       });
     }
     if (tools.kind === 'ok' && tools.value.length > 0) {
@@ -330,6 +334,7 @@ export function schedulesRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     c.status(201);
@@ -515,11 +520,14 @@ export function schedulesRouter(
       kind: 'cron',
       tenantId,
       triggerId,
+      by: callerIdentity(c),
       ...(Object.keys(cfg).length > 0 && { config: cfg }),
       ...(target !== undefined && { target: target.value }),
       ...policy.value,
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
-      ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
+      // The same tools in another order change nothing: no version, as no audit entry.
+      ...(tools.kind === 'ok' &&
+        !sameToolList(kept, tools.value) && { toolsAllowedUnattended: tools.value }),
     };
 
     // What it runs: its target or version, its input, its tool list. On a
@@ -566,6 +574,7 @@ export function schedulesRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     await noteChangeForOwner(c, {
@@ -578,6 +587,7 @@ export function schedulesRouter(
       ...(fields.includes('target') && {
         target: { before: targetFields(found.value.target), after: targetFields(nextTarget) },
       }),
+      ...versionField(result.value),
     });
     return scheduleJson(c, result.value as CronTriggerRecord);
   });
@@ -659,6 +669,33 @@ export function schedulesRouter(
     });
   });
 
+  /** Versions, their owners named as a schedule's is. */
+  const versionsJson = async (
+    c: Context<AppEnv>,
+    versions: readonly CronTriggerVersionRecord[],
+  ) => {
+    const named = await ownerNamesOf(
+      names,
+      c.get('tenantId') as TenantId,
+      versions.map((v) => v.definition.owner),
+    );
+    return versions.map((v) => serializeScheduleVersion(v, named));
+  };
+
+  // ---------- GET /:triggerId/versions (newest first) ----------
+  r.get('/:triggerId/versions', async (c) => {
+    const found = await scheduleFor(c, 'read');
+    if (found.kind === 'err') return found.response;
+    return versionsPage(c, binding, found.value.triggerId, 'cron', (v) => versionsJson(c, v));
+  });
+
+  // ---------- GET /:triggerId/versions/:version ----------
+  r.get('/:triggerId/versions/:version', async (c) => {
+    const found = await scheduleFor(c, 'read');
+    if (found.kind === 'err') return found.response;
+    return versionOne(c, binding, found.value.triggerId, 'cron', (v) => versionsJson(c, v));
+  });
+
   // ---------- POST /:triggerId/run-now ----------
   r.post('/:triggerId/run-now', async (c) => {
     const requestId = c.get('requestId');
@@ -732,7 +769,12 @@ export function schedulesRouter(
     if (resolved.kind === 'refused') return resolved.response;
     const { tenantId, triggerId } = found.value;
     const previousOwner = found.value.owner;
-    const result = await binding.setOwner({ tenantId, triggerId, owner: resolved.owner });
+    const result = await binding.setOwner({
+      tenantId,
+      triggerId,
+      owner: resolved.owner,
+      by: callerIdentity(c),
+    });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     // Every owner change is audited, a plain caller take-over included.
     await recordOwnerSet({
@@ -750,6 +792,7 @@ export function schedulesRouter(
         toolsAllowedUnattended: found.value.toolsAllowedUnattended,
       }),
       ...(resolved.projectAccount === true && { projectAccount: true }),
+      ...versionField(result.value),
     });
     tellTakenOver(c, ownerNotices, owned(found.value), 'cron');
     return scheduleJson(c, result.value as CronTriggerRecord);
@@ -835,6 +878,7 @@ function serializeSchedule(
     label: r.label,
     status: r.status,
     ...(r.statusReason !== undefined && { statusReason: r.statusReason }),
+    ...(r.version !== undefined && { version: r.version }),
     nextFireAt: r.nextFireAt,
     ...(r.upcoming !== undefined && { upcoming: r.upcoming }),
     ...(r.toolsAllowedUnattended !== undefined &&
@@ -856,11 +900,41 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     firedAt: f.firedAt,
     outcome: f.outcome,
     ...(f.runId !== undefined && { runId: f.runId }),
+    ...(f.version !== undefined && { version: f.version }),
     ...(f.passId !== undefined && { passId: f.passId }),
     ...(f.detail !== undefined && { detail: f.detail }),
     ...(f.countsTowardPause !== undefined && { countsTowardPause: f.countsTowardPause }),
     ...(f.missedCount !== undefined && { missedCount: f.missedCount }),
     ...(f.manual === true && { manual: true }),
+  };
+}
+
+/** A version, its definition named as a schedule's own fields are. */
+function serializeScheduleVersion(
+  v: CronTriggerVersionRecord,
+  names: ReadonlyMap<string, OwnerFacts>,
+): Record<string, unknown> {
+  const d = v.definition;
+  return {
+    scheduleId: v.triggerId as unknown as string,
+    triggerId: v.triggerId as unknown as string,
+    ...versionFields(v),
+    definition: {
+      ...targetFields(d.target),
+      projectId: d.projectId as unknown as string,
+      owner: ownerJson(d.owner, names),
+      cronExpression: d.config.cronExpression,
+      ...(d.config.timezone !== undefined && { timezone: d.config.timezone }),
+      ...(d.config.input !== undefined && { input: d.config.input }),
+      catchUp: d.catchUp,
+      overlap: d.overlap,
+      startingDeadlineSeconds: d.startingDeadlineSeconds,
+      label: d.label,
+      ...(d.toolsAllowedUnattended !== undefined &&
+        d.toolsAllowedUnattended.length > 0 && {
+          toolsAllowedUnattended: [...d.toolsAllowedUnattended],
+        }),
+    },
   };
 }
 

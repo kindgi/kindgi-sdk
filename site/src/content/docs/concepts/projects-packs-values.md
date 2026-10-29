@@ -28,6 +28,21 @@ which gives every id the new pack's id.
 [Deploy a client's pack into its project](../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)
 shows how.
 
+A copy runs on a runtime that runs each deployment as a service of its
+own (`KINDGI_PACK_ROUTING=per-deployment`, which only a runtime serving
+many tenants can set). Unset, a runtime runs one pack service for every
+deployment, whether it serves one tenant or many, and that service runs
+only the pack it was given, so a copy's code wouldn't run there. There, a
+second project gets the same items through an environment order, when
+both projects are in the same org or neither is in an org: put both in one
+order (`kindgi environments set`), the second right after the first, and
+`kindgi promote` the build from the first to the second instead of
+deploying it. Projects in two orgs, or one in an org and one not, can't
+share an order unless one moves (`orgId` on
+`PATCH /v1/projects/{projectId}`, for a project in no order), which also
+changes who in the orgs reaches it. The `409` names the fix your runtime
+has.
+
 An environment order, such as staging and then production, is the one way
 a build reaches more than one project: `kindgi promote` carries the same
 build on to the order's next project. Its items still belong to the project
@@ -36,6 +51,8 @@ deployment that isn't retired carried the build to, so a change to one of
 them reaches each. For an agent,
 `GET /v1/agents/{agentId}/projects` lists those projects, its first one
 first, naming only the ones you can read.
+[Environments in order](../../deploy/ship-from-ci/#environments-in-order)
+sets an order up and promotes a build along it, by hand or from CI.
 
 ## What a project's runs can use
 

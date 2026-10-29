@@ -935,6 +935,22 @@ describe('a connect request: read, start and finish', () => {
     expect((await call(app, 'ana', 'GET', path)).status).toBe(404);
   });
 
+  test("a request id that isn't a UUID is a 400, on the request and under it, before the binding", async () => {
+    const { app, calls } = makeApp();
+    for (const [method, path] of [
+      ['GET', '/v1/connections/requests/not-a-uuid'],
+      ['POST', '/v1/connections/requests/not-a-uuid/start'],
+    ] as const) {
+      const res = await call(app, 'ana', method, path);
+      expect(res.status).toBe(400);
+      expect(res.json.error).toMatchObject({
+        code: 'bad-input',
+        message: '`requestId` must be a connect request id (a UUID)',
+      });
+    }
+    expect(calls.startRequest).toBeUndefined();
+  });
+
   test("the owner starts it, and gets the app's consent page", async () => {
     const { app, calls } = makeApp();
     const requestId = await requested(app, 'ana');

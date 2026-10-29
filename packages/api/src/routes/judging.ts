@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
@@ -60,38 +60,35 @@ export function judgingRouter(
   const { authorizer, judgments, reviewers, projects } = deps;
   const r = new Hono<AppEnv>();
 
-  for (const path of [
-    '/:projectId/judging-rules',
-    '/:projectId/judging-rules/*',
-    '/:projectId/judging-queue',
-    '/:projectId/judging-queue/*',
-  ]) {
-    r.use(path, async (c, next) => {
-      const projectId = c.req.param('projectId') as string;
-      if (!UUID.test(projectId)) {
-        return fail(c, 'bad-input', `"${projectId}" isn't a project id`);
-      }
-      if (authorizer !== undefined) {
-        const action = c.req.method === 'GET' ? 'read' : 'write';
-        let allowed = false;
-        const answer = await authorizer.authorize(action, () => ref('project', projectId))(
-          c,
-          async () => {
-            allowed = true;
-          },
-        );
-        if (!allowed) return answer as Response;
-      }
-      if (
-        projects !== undefined &&
-        (await projects.get(c.get('tenantId') as TenantId, projectId as never)) === undefined
-      ) {
-        return fail(c, 'project-not-found', `No project with id "${projectId}"`, { projectId });
-      }
-      await next();
-      return undefined;
-    });
-  }
+  const projectGate: MiddlewareHandler<AppEnv> = async (c, next) => {
+    const projectId = c.req.param('projectId') as string;
+    if (!UUID.test(projectId)) {
+      return fail(c, 'bad-input', `"${projectId}" isn't a project id`);
+    }
+    if (authorizer !== undefined) {
+      const action = c.req.method === 'GET' ? 'read' : 'write';
+      let allowed = false;
+      const answer = await authorizer.authorize(action, () => ref('project', projectId))(
+        c,
+        async () => {
+          allowed = true;
+        },
+      );
+      if (!allowed) return answer as Response;
+    }
+    if (
+      projects !== undefined &&
+      (await projects.get(c.get('tenantId') as TenantId, projectId as never)) === undefined
+    ) {
+      return fail(c, 'project-not-found', `No project with id "${projectId}"`, { projectId });
+    }
+    await next();
+    return undefined;
+  };
+  // A trailing '/*' matches the bare path too ('/:projectId/judging-rules'
+  // itself): each gate is registered once, so a request is checked once.
+  r.use('/:projectId/judging-rules/*', projectGate);
+  r.use('/:projectId/judging-queue/*', projectGate);
 
   const inProject = (c: Context<AppEnv>) => ({
     tenantId: c.get('tenantId') as TenantId,

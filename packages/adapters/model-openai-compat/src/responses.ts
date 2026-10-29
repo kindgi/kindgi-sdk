@@ -25,6 +25,7 @@ import type {
   ModelMessage,
   ModelToolCall,
   ModelToolDefinition,
+  ThinkingLevel,
   UsageCounters,
 } from '@kindgi/capabilities';
 import type { AttemptCounter } from '@kindgi/capabilities/attempts';
@@ -48,6 +49,12 @@ export const EXTRA_BODY_RESERVED_RESPONSES = [
   'store',
 ] as const;
 
+/** The reasoning effort a call sends, and the level it stands for (`ModelCallResult.thinking`). */
+export interface Reasoning {
+  readonly level: ThinkingLevel;
+  readonly effort: string;
+}
+
 /** One call on the Responses path, as `invoke` hands it over. */
 export interface ResponsesCall {
   readonly client: OpenAI;
@@ -63,11 +70,11 @@ export interface ResponsesCall {
   /** The temperature to send; absent sends none. */
   readonly temperature?: number;
   /**
-   * The reasoning effort to send (`reasoning.effort`): the model's lowest,
-   * when the call asks for as little thinking as it allows. Absent: the
-   * model's default, or a registration's `extraBody.reasoning`.
+   * The reasoning effort to send (`reasoning.effort`), and the level it
+   * stands for. Absent: the model's default, or a registration's
+   * `extraBody.reasoning`.
    */
-  readonly reasoningEffort?: string;
+  readonly reasoning?: Reasoning;
   /** Warnings about the call, for the answer's `warnings`. */
   readonly warnings?: readonly ModelCallWarning[];
   /** The tool id a call's tool name stands for (`toolIdsBySentName`). Default: undo the encoding. */
@@ -114,10 +121,10 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
               },
             }),
             ...(call.temperature !== undefined && { temperature: call.temperature }),
-            ...(call.reasoningEffort !== undefined && {
+            ...(call.reasoning !== undefined && {
               reasoning: {
                 ...(isRecord(call.extraBody.reasoning) ? call.extraBody.reasoning : {}),
-                effort: call.reasoningEffort as OpenAI.ReasoningEffort,
+                effort: call.reasoning.effort as OpenAI.ReasoningEffort,
               },
             }),
             ...(input.maxOutputTokens !== undefined && {
@@ -160,6 +167,12 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
     // An injected client sends with its own fetch: nothing was counted.
     ...(counted.attempts > 0 && { attempts: counted.attempts }),
     ...(response.usage !== undefined && { rawUsage: { ...response.usage } }),
+    ...(call.reasoning !== undefined && {
+      thinking: {
+        level: call.reasoning.level,
+        sent: { 'reasoning.effort': call.reasoning.effort },
+      },
+    }),
     ...(warnings.length > 0 && { warnings: [...warnings] }),
   };
 }

@@ -28,6 +28,7 @@ export type {
   LicenseStatusBinding,
   LicenseUsage,
 } from './routes/license.js';
+export type { RuntimeInfo, RuntimeInfoInput } from './routes/runtime.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
 export type { EgressAddresses } from './routes/tenant.js';
@@ -424,7 +425,7 @@ export type {
   AdapterTestInput,
   AdapterTestOutcome,
 } from './adapter-binding.js';
-export { SCHEDULE_DEFAULTS, TRIGGER_KINDS } from './trigger-binding.js';
+export { SCHEDULE_DEFAULTS, TRIGGER_KINDS, TRIGGER_VERSION_CAUSES } from './trigger-binding.js';
 export {
   DEFAULT_PUBLIC_RUN_TOKEN_TTL_SECONDS,
   MAX_PUBLIC_RUN_TOKEN_RUNS,
@@ -488,8 +489,10 @@ export type {
   CronTriggerRecord,
   EventTriggerRecord,
   GetTriggerInput,
+  GetTriggerVersionInput,
   ListTriggerFiresInput,
   ListTriggersInput,
+  ListTriggerVersionsInput,
   RegisterCronTriggerInput,
   RegisterEventTriggerInput,
   RegisterTriggerError,
@@ -507,6 +510,9 @@ export type {
   TriggerRecord,
   TriggerRegistryBinding,
   TriggerTarget,
+  TriggerVersionCause,
+  TriggerVersionPage,
+  TriggerVersionRecord,
   UpdateCronTriggerInput,
   UpdateEventTriggerInput,
   UpdateTriggerError,
@@ -736,6 +742,7 @@ export type {
 } from './block-binding.js';
 export type {
   AgentReleaseBindings,
+  ListCoveringPinsInput,
   ListPromotionsInput,
   LivePin,
   LiveResolution,
@@ -753,6 +760,21 @@ export type {
   RollbackInput,
   UnpinInput,
 } from './live-version-binding.js';
+export type {
+  ListPinnedVersionChangesInput,
+  PinActor,
+  PinVersionInput,
+  PinVersionOutcome,
+  PinnedResolution,
+  PinnedResolveInput,
+  PinnedVersion,
+  PinnedVersionBinding,
+  PinnedVersionChange,
+  PinnedVersionChangeAction,
+  PinnedVersionError,
+  PinnedVersionErrorCode,
+  UnpinVersionInput,
+} from './pinned-version-binding.js';
 export type {
   GateMetricName,
   GateMetricSpec,
@@ -1225,6 +1247,9 @@ export type {
   ProvenanceBindingError,
   ProvenanceListCursor,
   ProvenanceRecordSummary,
+  StepRunsUsage,
+  StepUsage,
+  StepUsageByNodeId,
 } from './provenance-binding.js';
 export type { KeyManagementBinding, KmsError } from './key-management-binding.js';
 export { createInMemoryRotationStatusStore } from './rotation-status-store.js';

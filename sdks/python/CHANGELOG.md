@@ -13,12 +13,106 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
+  tenant.** A run that names no flow version takes the version pinned for its
+  project (the project's own pin, then its org's, then the tenant's), else the
+  newest version the project reaches, so a new version can be published and
+  tried by naming it without going into use. `resolve`, `list`, `pin`, `unpin`
+  and `history`, sync and async. A run says how its version was chosen, in
+  `flow_version_via` (`explicit`, `pinned` or `latest`) and, for a pin,
+  `flow_pinned_scope`.
+- `kindgi`: **`client.tools.pinned` pins a tool's version per project, org or
+  tenant.** An agent or flow version made in a project a pin covers locks the
+  tool at the pinned version (an agent's tool range, when the pinned version
+  is in it), so a new tool version can be published without reaching what's
+  made there. The same five calls as `client.flows.pinned`, sync and async.
+- `kindgi`: **`DeploymentPromotion.pinned_flows`** lists each carried flow
+  version a promotion with `make_live` pinned in the target project.
+
+- `kindgi`: **a `retry` guardrail sends a failed answer back to the model,
+  for a new one**, until it has failed `maxAttempts` answers (2 when left
+  out), and then the turn fails with `guardrail-violation`.
+  `GuardrailViolationError.attempts` says how many answers the turn had
+  (`None` when a `halt` guardrail stopped it). The `@guardrail` docstring
+  says what `retry` does.
+- `kindgi`: **a trigger's versions.** `client.schedules.list_versions(trigger_id)` pages a schedule's versions, newest first (`GET /v1/schedules/{triggerId}/versions`), and `get_version(trigger_id, version)` reads one; `client.webhooks` and `client.mail_triggers` have the same. Each says when it was made (`created_at`), by whom (`created_by`), why (`cause`) and what the trigger was then (`definition`). A trigger's `version` names its newest, and a fire's and a run's `trigger.version` the one its run used; all three are absent from an older runtime. A version the trigger doesn't have is `404 trigger-version-not-found`.
 - `kindgi`: **a mail trigger on the company's mailbox names the company connection it reads with.** `MailTriggerMailbox` gains `connection_id` (`connectionId` on the wire), only with `as` `company`: one of the project's company connections of the app, as `GET /v1/connection-choices/candidates` lists them. A trigger registered, or moved to the company's mailbox, with none named stores the project's only one; with several, the call is `409 connection-not-chosen`, its `details.choices` listing each one's `connectionId` and `name`, sorted by name, and `details.field` `config.mailbox.connectionId`. Naming one that isn't a candidate is `404 connection-not-found`, and naming one for a person's mailbox, or a person's connection, is `400 bad-input`. Pointing a trigger at another connection is a change of mailbox, as another app is. A trigger's `status_reason` can be `connection-not-chosen`: it names no connection and the project has several, and it doesn't poll until it names one.
 - `kindgi`: **an approval shows the company connection a call would use, with its name.** `ApprovalConnection` (on an approval, and in a run's `waitingFor`) is now set for a company connection too, not only a person's own, and carries the connection's `name`. When a call needs a company connection of an app the project has several of, and the agent has no choice of one, its run fails with `connection-not-chosen` (`409` when the call waits for the run), naming the connections to choose from in `details.choices`.
 - `kindgi`: **a project's admins choose which company connection an agent or a flow uses for an app.** `client.connection_choices.set(project_id=..., agent_id=..., connection_id=...)` (or `flow_id=`) makes the choice (`PUT /v1/connection-choices`), for the connection's app; `list(project_id=...)` lists the project's live choices (`include_removed=True` the removed ones too, with `removed_at` and `removed_by`), `remove(choice_id)` removes one, and `candidates(project_id=...)` lists the company connections a choice may name, each with their async twins. A person's own connection is `400 bad-input`, another that can't be chosen `404 connection-not-found`, and an unknown or removed choice `404 connection-choice-not-found`. `ConnectionChoice` carries its `version`; `ConnectionCandidate` carries only `connectionId` and `name` for a member who isn't an admin.
 - `kindgi`: **the company keeps one connection per account, and a connect can name the one it reconnects.** `client.connections.connect(...)` takes an optional `reconnects`, the id of a live connection of the connect's own owner on that registration and environment; any other id is `404 connection-not-found`, and the same account is required at the finish. A company connect without it lands on the company's connection of the account signed in to, or makes a new one. `ConnectFinish` carries `reconnected` (whether it landed on one already there, which keeps its name) and `label_taken` (the name a new connection was to get, when another had it; it's named `<name> 2` and so on instead).
 - `kindgi`: **a connection has a name, its `label`.** `client.connections.connect(...)` takes an optional `label`, the name to give the connection it makes, else it takes its account's. `client.connections.update(connection_id, label=...)` renames one (`PATCH /v1/connections/{connectionId}`), with its async twin. A name another of the owner's live connections to that app has is `409 connection-label-taken`. `Connection` and `ConnectRequest` carry `label` when they have one.
 - `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
+- `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a model
+  step asks for on its own.** By default an agent now runs a step's calls to
+  read-only tools (`mutating=False`, no changing effect) that come one after
+  another at the same time, up to 8 at once, and any other call on its own, in
+  the order the model asked; the results reach the conversation in that order
+  either way. A call that may wait, for another system's answer or for the
+  person who started the run to connect an app, runs on its own too. The
+  indexer writes it as the agent's `parallelToolCalls`, and `Agent` refuses a
+  value that isn't `True` or `False`. The client's `Agent` and
+  `PublishAgentBody` models gain `parallel_tool_calls`. `mutating`'s
+  description says it decides what runs together.
+- `kindgi`: **A union's members are named by the value that tells them
+  apart.** The members of five inline unions in `kindgi.client.models` had
+  numbered names, and four other models' numbered names would have shifted
+  into the freed ones. These names change, and no old name is kept:
+  - **A union's members, by their discriminator:**
+    - `Config`, `Config1`, `Config2` (an MCP endpoint's config: stdio,
+      http-sse, streamable-http): `MCPEndpointConfigStdio`,
+      `MCPEndpointConfigHttpSse`, `MCPEndpointConfigStreamableHttp`.
+    - `Config3` to `5` (the same, in a registration's body):
+      `RegisterMCPEndpointBodyConfigStdio`,
+      `RegisterMCPEndpointBodyConfigHttpSse`,
+      `RegisterMCPEndpointBodyConfigStreamableHttp`.
+    - `Content2`, `Content3` (an MCP prompt message's content: text, image):
+      `MCPPromptMessageContentText`, `MCPPromptMessageContentImage`.
+    - `Resume`, `Resume1` (how completing an approval resumed its run: ok,
+      failed): `CompleteApprovalResultResumeOk`,
+      `CompleteApprovalResultResumeFailed`.
+    - `Baseline`, `Baseline1` (what a judged comparison compared with:
+      recorded runs, a version): `JudgedComparisonSummaryBaselineRecorded`,
+      `JudgedComparisonSummaryBaselineVersion`.
+  - **Named after their field, so no freed name passes to them:**
+    - `Config6`, `Config7` (a schedule's config, registering and patching):
+      `RegisterScheduleBodyConfig`, `PatchScheduleBodyConfig`.
+    - `Config8` (a webhook trigger's config, in both bodies): now one class
+      per body, `RegisterWebhookTriggerBodyConfig` and
+      `PatchWebhookTriggerBodyConfig`. A mapping works for either; an
+      instance of one isn't taken by the other.
+    - `Baseline2` (a compared case's baseline score):
+      `ComparisonCaseResultBaseline`.
+
+  Code that imports an old name fails at the import, and an `isinstance` or
+  `match` on one needs the new name. The client's generation now keeps a
+  dropped name dropped, so no later model takes `Config` or `Baseline` with
+  another meaning. (#938)
+- `kindgi`: **An error inside a field is logged like `err`, and a value that
+  raises when read never fails the log call.** An error nested in a field (in a
+  mapping or a list) was written as its scrubbed `str()`, so its `name`, `code`
+  and causes were lost. It's now written as `err` is — its `name` (its class's),
+  scrubbed `message` and `code`, and its causes — without its stack at any
+  level. The message is written as the error gives it, with known secret shapes
+  masked; a database driver's message can itself quote the statement and the
+  values it was bound to (SQLAlchemy appends `[SQL: …]` and `[parameters: …]`
+  unless the engine has `hide_parameters=True`, and libpq keeps a `DETAIL:`
+  line), so when that matters log a field such as the SQLSTATE rather than the
+  error. None of the error's other attributes are written. An attribute that
+  raises when read counts as missing (a message that can't be read is empty), a
+  value that raises when read is `[unreadable]`, and fields whose keys can't be
+  listed are left out; the record is still written.
+- `kindgi`: **a guardrail the client reads or registers carries where in the
+  agent's turn it runs.** `at` is `"before-tool"`, `"after-tool"`,
+  `"model-step"` or `"final-answer"` (left out, the final answer); `sees` is
+  `"turn"` or `"conversation"`; and the scope's `tools` names the tools a
+  guardrail at a tool point checks. Registering one with a built-in check
+  that doesn't run at its `at` answers `guardrail-config-invalid`; a pack
+  check's points aren't checked then, and at such a point the guardrail
+  fails as a check that can't run (`check-point-unsupported`). The Python
+  pack's `@guardrail` doesn't take them yet.
+
+## 0.2.0
+
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a
   mail someone sent or a page a search found. An agent reads each result of the
@@ -26,6 +120,185 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   history. It changes what the model is told, not what the tool may do: pair it
   with approvals for anything an agent could do with what it read. The pack's
   index carries it as `resultIsOutsideData`; left out, nothing changes.
+- `kindgi`: **a tool's schema derived from a model or a type is checked as
+  the runtime compiles it, as one given as a dict is.** `@tool` and
+  `http_tool` raise `DefinitionError` for a derived input or output schema
+  the runtime would refuse when it registers or deploys the tool: a keyword
+  `json_schema_extra` adds (`strict mode: unknown keyword: "x-acme-unit"`), a
+  `format` pydantic writes that the runtime doesn't know (`"format": "path"`
+  for a `pathlib.Path` field; `UUID4`, `IPvAnyAddress`, `FilePath`,
+  `Base64Bytes`, `PostgresDsn`, `MongoDsn` and `NatsDsn` write one too), or
+  a schema that isn't valid Draft 2020-12. Before, only a derived schema's
+  patterns were checked, and the deploy refused the rest. For such a field, a
+  plain `uuid.UUID` or `str`, or pydantic's `WithJsonSchema`, gives a schema
+  the runtime compiles. A pattern only JavaScript and pydantic read, such as
+  `\p{L}`, still passes, since pydantic checks the data. A guardrail's config
+  schema derived from a model still has only its patterns checked: the
+  runtime checks a config against it non-strict. Matches the TypeScript
+  `@kindgi/tools` definition check.
+- `kindgi`: **a tool or an agent whose model has a pydantic tagged union
+  deploys.** With `Field(discriminator=...)`, pydantic writes OpenAPI's
+  `discriminator` keyword beside the union's `oneOf`, and the runtime refused
+  a tool's input or output, or an agent's typed answer, when it was
+  registered or deployed (`strict mode: unknown keyword: "discriminator"`).
+  The wire schema now leaves it out: each member's tag is a `const` (an
+  `enum` for several values), so the `oneOf` picks the member. Each member
+  also lists its tag in `required`, since pydantic refuses a value without
+  its tag, even when the tag has a default.
+- `kindgi`: **a union whose member a callable `Discriminator` picks takes
+  every value pydantic takes.** pydantic writes it as a plain `oneOf`, and its
+  members can overlap: a value that fit two of them was refused, as a tool's
+  input or output or an agent's typed answer, though pydantic took it. The
+  wire schema now writes it as an `anyOf`.
+- `kindgi`: **a tool can pause its run until another system answers.**
+  `@tool(pauses=True)`: the handler hands `ctx.wait_token.url` to that system
+  and returns `ctx.pause(timeout_ms=..., name=...)`, 24 hours by default and
+  at most 24 days. Annotate it `-> Answer | PauseAnswer`: the output schema is
+  `Answer`'s. A call from a runtime that sends no wait token fails with
+  `pause-not-available`: reading `ctx.wait_token` raises `PauseNotAvailable`
+  first, so the tool hands nothing on. `ToolContext.for_test(wait_token=...)`
+  tests one. New: `PauseAnswer`, `PauseNotAvailable` and `WaitToken`. The
+  client's `Tool` model carries `pauses`.
+- `kindgi`: **the client answers a run's wait for another system.**
+  `runs.resume(run_id, waitpoint_id=..., value=...)` takes a `pause:` waitpoint
+  from `runs.get(run_id).waiting_for.tokens` (`RunWaitingToken`), with the
+  tool's output as `value`. Any other waitpoint is refused with
+  `run-resume-not-supported`. New error codes: `wait-token-not-found`,
+  `wait-token-closed`, `wait-token-output-invalid` and `unsupported-media-type`.
+- `kindgi`: **a run says whom it acts for.** The client's `Run` gains
+  `acts_for`: `user:<id>` (a person) or `service_account:<id>` (a service
+  account), whose access the run has. A schedule's or a webhook's run acts
+  for the trigger's owner, and a child run for its parent's. It is an id,
+  never a name, and it is `None` on a run that acts for no one and on older
+  runs.
+- `kindgi`: **`SecretRevokeOutcome` and `SecretRevokeResult` gain an optional
+  `recoverable_until`**: when a hard revoke left a copy your secret manager can
+  still recover, until when it keeps it. It's `None` on a soft revoke, and
+  when a hard revoke left nothing recoverable.
+- `kindgi`: **connections to other apps.** The client gains
+  `connection_entries.list`; `connection_apps.list`, `create`, `get`,
+  `update` and `remove`; `connections.list`, `connect`, `finish`, `get` and
+  `disconnect`; and `connections.requests.get` and `start`, with their async
+  twins. A tool reads its connections from `ToolContext.connections`, a
+  mapping of each declared name to a `ToolConnection` (`connection_id`,
+  `app`, `app_name`, `access_token`, `account` as a `ConnectionAccount`,
+  `expires_at`), empty when the tool declares none; no `repr` shows a token.
+  A tool whose app refuses the token raises `ConnectionRejected(name)` (or
+  its own error `from` it), and the pack answers `connection-rejected` naming
+  the connection (pack protocol 2.9.0).
+- `kindgi`: **`ScheduleRecord`, `WebhookTriggerRecord`, their register and
+  patch bodies, and `Run` gain `tools_allowed_unattended`**: the tools whose
+  calls in a webhook's or a schedule's runs needn't wait for a person's yes.
+  Naming it takes `admin` on the trigger's project, and each id must be a tool
+  the trigger's flow or agent calls. A take-over keeps it.
+- `kindgi`: **a judgment can carry an expert's correction, graded when a
+  version is replayed on the run.** `judgments.create` takes `correction`
+  (`Correction`): `calls`, the tool calls the agent should have made, each an
+  `ExpectedCall` with its `tool` and, in `args`, the argument fields that
+  matter; and `not_called`, the tools it should not have called at all. A
+  correction judges the run's whole output, so it goes on the reserved item
+  `kindgi:correction` at pointer `""`, one per run per expert: saving again
+  replaces it. A `Judgment` returns it as `correction`, and a judged test
+  set's cases carry theirs (`JudgedEvalCase.corrections`,
+  `JudgedEvalCaseCorrection`). A judged comparison grades each one: a case
+  result gains `corrections` (`ComparisonCaseResultCorrection`: `pass_` and
+  how many repetitions passed) and `correction_differences`
+  (`CorrectionDifference`: by judgment, the first repetition that failed and
+  how its calls differed, each a `CallDifferenceCount`,
+  `CallDifferenceMustNotCall`, `CallDifferenceMissingField` or
+  `CallDifferenceFieldValue`), and the summary's `corrections`
+  (`Corrections`) counts those `checked` and `passed`, and lists each by
+  judgment (`judgments`, `JudgedComparisonSummaryCorrectionsJudgment`). Shown
+  for a promotion gate, not enforced. `correction_differences` quotes argument
+  values, so an erasure clears it; the verdicts and counts stay in
+  `corrections`. Matches the TypeScript client's.
+- `kindgi`: **a test set's cases name their judgments, and a proposal says
+  how many it rests on.** A judged case's items gain `judgment_ids`, and their
+  `restricted` gains `judgment_ids` too. A proposal's `evidence` is now the
+  `ProposalEvidence` model, with `judgment_count` beside `judgment_ids`. The
+  create body's `Evidence1` is unchanged.
+- `kindgi`: **a proposal says how it was kept, what the replays cost and
+  which decisions held.** A proposal's `evaluation` gains `rule` (`better` or
+  `cheaper`), `cost_usd` (`ProposalCost`) and `decisions`
+  (`ProposalDecisions`). A proposal kept as `cheaper` is `evaluated` with
+  `better` false. A judged comparison's summary gains `cost_usd`
+  (`JudgedComparisonCost`), and each case result gains `cost_usd`, one per
+  repetition.
+- `kindgi`: **`secrets.revoke`'s docstrings say what a hard revoke does**: it
+  erases the value at Kindgi and hard-deletes it in a secret manager, and
+  can't be undone; backups, and a secret manager's own retention, may keep
+  copies for a time. They no longer call it cryptographic erasure.
+- `kindgi`: **a tool's `needs_spec` is checked, and a test can fill its
+  `env`.** `@tool(..., needs_spec=...)` is refused at definition
+  (`DefinitionError`) when a schema under `env` or `secrets` doesn't compile
+  as the runtime compiles it (it isn't valid Draft 2020-12, or it or a schema
+  inside it has a keyword or a `format` the runtime doesn't know, a misspelled
+  one say, or a `$ref` that points nowhere), or an `env` default isn't a
+  string (`None` included).
+  `ToolContext.for_test(tool=...)` builds a context whose `env` is what the
+  tool declares under `needs_spec["env"]` — each name from the `env=` you pass
+  or its schema's string default, checked against its schema — so a handler
+  test resolves env the way the runtime does; names the tool doesn't declare
+  are dropped and `secrets=` pass through.
+  Matches the TypeScript `@kindgi/tools` definition check and test context.
+- `kindgi`: **a tool's schema given as a dict is checked when the tool is
+  defined.** `@tool(input={...}, output={...})` and `http_tool` raise
+  `DefinitionError` when the runtime would refuse the schema (it isn't valid
+  JSON Schema Draft 2020-12, or it has a keyword or a `format` the runtime
+  doesn't know, or a `$ref` that points nowhere), the check `needs_spec`'s
+  schemas get. Before, such a schema reached the pack index as written, and
+  the deploy refused it (under `kindgi dev`, the tool's first call failed).
+  Matches the TypeScript `@kindgi/tools` definition check.
+- `kindgi`: **the definition check refuses what the runtime's strict
+  compile refuses besides unknown names**, word for word as the runtime
+  says it:
+  - a keyword with no `type` it applies to (`minLength` with no
+    `"type": "string"`, say), or a `type` its context can't be;
+  - a `required` property nothing defines;
+  - a `prefixItems` tuple without matching `minItems` and `maxItems`
+    (or `items: false`);
+  - `nullable` without a `type`;
+  - `then`/`else` without `if`, and `minContains`/`maxContains` without
+    `contains`;
+  - an empty `enum`;
+  - a format bound without a `format` it can compare;
+  - a `patternProperties` pattern that matches a property `properties`
+    also names;
+  - a chain of `$ref`s that only leads back to itself.
+
+  A corpus of schemas, with the runtime's answer to each, keeps the two in
+  step.
+- `kindgi`: **a pattern is checked as the runtime's JavaScript reads it.**
+  When a tool is defined, a `pattern`, or a `patternProperties` pattern,
+  that the runtime's `RegExp` refuses raises `DefinitionError` in the
+  runtime's words (`Invalid regular expression: /(/u: Unterminated group`),
+  in a schema given as a dict and in one derived from a model alike. Before,
+  a dict's went by Python's `re` and a model's wasn't checked: a pattern only
+  Python or pydantic reads, such as `(?P<name>…)`, reached the deploy, which
+  refused it. In a dict, a pattern only JavaScript reads, such as `\p{L}`, is
+  still refused, since the SDK checks data against it with Python's `re`. In
+  a model, pydantic checks the data, and reads `\p{L}`. A `"format": "regex"`
+  value is checked as the runtime checks it, too.
+- `kindgi`: **`proposals.improve`'s docstrings say how a refusal names why an
+  Improve run has nothing to work on**: a `validation-failed` error's
+  `details.reason` is `no-tunable-keys` or, on the agent's instructions (the
+  `prompt` tier), `no-pinned-prompt-block`.
+- `kindgi`: **`refused_writes` and `max_refused_writes` say what they count:
+  every tool call the replay refused, reads included.** The names don't
+  change. `stopped` says "a refused tool call" where it said "a refused
+  write".
+
+## 0.2.0rc1
+
+- `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
+  says the tool's results are text from outside that nobody checked, such as a
+  mail someone sent or a page a search found. An agent reads each result of the
+  tool as data, not instructions, in that turn and in every later turn's
+  history. It changes what the model is told, not what the tool may do: pair it
+  with approvals for anything an agent could do with what it read. The pack's
+  index carries it as `resultIsOutsideData`; left out, nothing changes.
+
+## 0.2.0rc0
 
 - `kindgi`: **a tool's schema derived from a model or a type is checked as
   the runtime compiles it, as one given as a dict is.** `@tool` and

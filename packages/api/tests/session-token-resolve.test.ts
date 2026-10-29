@@ -3,8 +3,9 @@
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { createLogger } from '@kindgi/log';
 import type { SessionId, TenantId, Timestamp } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -266,5 +267,142 @@ describe('session store without resolveToken (older stores)', () => {
     const res = await whoami(app, `${SESSION_TOKEN_PREFIX}${created.sessionId}`);
     expect(res.status).toBe(200);
     expect(seen[0]).toBe(MULTI_TENANT_LOOKUP as string);
+  });
+});
+
+describe("a touch the store couldn't write", () => {
+  const WARNING =
+    "the session's activity wasn't recorded: its inactivity timeout still counts from the touch before, and its next request touches again";
+
+  interface LogRecord {
+    level?: string;
+    subsystem?: string;
+    message?: string;
+    tenantId?: string;
+    err?: { message?: string; cause?: { message?: string } };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A failed query in Drizzle's shape: its message the SQL and the values bound to it. */
+  function queryError(sessionId: string): Error {
+    return Object.assign(
+      new Error(
+        `Failed query: update "sessions" set "last_active_at" = $1 where "id" = $2\nparams: 2026-10-16T00:00:00.000Z,${sessionId}`,
+      ),
+      {
+        query: 'update "sessions" set "last_active_at" = $1 where "id" = $2',
+        params: ['2026-10-16T00:00:00.000Z', sessionId],
+      },
+    );
+  }
+
+  /** The token-owning store, its `touch` answered by `touch` (after counting the call). */
+  function storeWhoseTouch(touch: (sessionId: string) => Promise<{ touched: boolean }>) {
+    const made = makeTokenOwningStore();
+    const store: SessionStoreBinding = {
+      ...made.store,
+      async touch({ tenantId, sessionId }) {
+        made.calls.touch.push({ tenantId: tenantId as string, sessionId: sessionId as string });
+        return touch(sessionId as string);
+      },
+    };
+    return { store, calls: made.calls };
+  }
+
+  function appWithLog(store: SessionStoreBinding, lines: string[]) {
+    return createApp({
+      ...createStubAppBindings(),
+      resolveToken: bearerResolver,
+      runHandler: noopRunHandler,
+      sessionStore: store,
+      identityProvider: noProviders,
+      logger: createLogger({ write: (line) => lines.push(line) }),
+    });
+  }
+
+  const warnings = (lines: readonly string[]) =>
+    lines.filter((line) => (JSON.parse(line) as LogRecord).message === WARNING);
+
+  /** Let the touch the request left running settle. */
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  test('the request still answers, and the failure is one warning naming the tenant, never the session, its token or the query', async () => {
+    const { store } = storeWhoseTouch(async (sessionId) => {
+      throw new Error('Could not touch the session', { cause: queryError(sessionId) });
+    });
+    const lines: string[] = [];
+    const app = appWithLog(store, lines);
+    const { token, sessionId } = await mint(store);
+    expect((await whoami(app, token)).status).toBe(200);
+    await settle();
+    const said = warnings(lines);
+    expect(said).toHaveLength(1);
+    const record = JSON.parse(said[0] as string) as LogRecord;
+    expect(record).toMatchObject({ level: 'warn', subsystem: 'http', tenantId: tenantA });
+    expect(record.err?.message).toBe('Could not touch the session');
+    expect(record.err?.cause?.message).toBe('A database query failed.');
+    for (const secret of [sessionId as string, token, 'Failed query', 'params:']) {
+      expect(said[0]).not.toContain(secret);
+    }
+  });
+
+  test("the session's next request touches again, where after one that landed it waits out the throttle", async () => {
+    let fail = true;
+    const failedOnce = storeWhoseTouch(async () => {
+      if (fail) {
+        fail = false;
+        throw new Error('connection lost');
+      }
+      return { touched: true };
+    });
+    const landed = storeWhoseTouch(async () => ({ touched: true }));
+    for (const { store, calls, touches } of [
+      { ...failedOnce, touches: 2 },
+      { ...landed, touches: 1 },
+    ]) {
+      const lines: string[] = [];
+      const app = appWithLog(store, lines);
+      const { token } = await mint(store);
+      for (let request = 0; request < 2; request++) {
+        expect((await whoami(app, token)).status).toBe(200);
+        await settle();
+      }
+      expect(calls.touch).toHaveLength(touches);
+      expect(warnings(lines)).toHaveLength(touches - 1);
+    }
+  });
+
+  test("a touch that fails after a later one landed leaves the later one's throttle", async () => {
+    let rejectFirst: (reason: Error) => void = () => {};
+    const first = new Promise<{ touched: boolean }>((_, reject) => {
+      rejectFirst = reject;
+    });
+    let call = 0;
+    const { store, calls } = storeWhoseTouch(async () => {
+      call += 1;
+      return call === 1 ? first : { touched: true };
+    });
+    const lines: string[] = [];
+    const app = appWithLog(store, lines);
+    const { token } = await mint(store);
+    const t0 = Date.now();
+    const clock = vi.spyOn(Date, 'now');
+    // The first touch is still out when the throttle lets a second through, which lands.
+    clock.mockReturnValue(t0);
+    expect((await whoami(app, token)).status).toBe(200);
+    clock.mockReturnValue(t0 + 60_000);
+    expect((await whoami(app, token)).status).toBe(200);
+    await settle();
+    rejectFirst(new Error('connection lost'));
+    await settle();
+    expect(warnings(lines)).toHaveLength(1);
+    // Inside the second touch's throttle: no third.
+    clock.mockReturnValue(t0 + 60_001);
+    expect((await whoami(app, token)).status).toBe(200);
+    await settle();
+    expect(calls.touch).toHaveLength(2);
   });
 });

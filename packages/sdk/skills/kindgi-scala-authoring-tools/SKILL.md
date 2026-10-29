@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -156,7 +156,7 @@ object Citator {
   it writes to (`Option(ctx.idempotencyKey).foreach(k => request.header("Idempotency-Key", k))`)
   or looks for it there first: a refund never goes out twice. A UUID; `null`
   outside a run and from a runtime before 0.1.6. Docs:
-  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  https://docs.kindgi.com/v0.2/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.projectId`, `ctx.orgId`: the run's project, and its org (`null` when
   it has none). The runtime sets them from the run, never from the input.
   To check an id the input names, compare it with these.
@@ -229,7 +229,7 @@ val tool: Tool[Input, Output] = Tool[Input, Output]("my-pack.send-mail")
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `.readOnly` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `.readOnly`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `com.kindgi.pack.ToolContext.forTest(java.util.Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null)))`; the last argument, when the token expires, can be `null`. `ctx.connections` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.2/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -245,10 +245,16 @@ Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
 **`readOnly`** declares a tool that changes nothing outside itself (a lookup,
 a search, a calculation): it's `mutating(false)`. A dry run
 (`./kindgiw runs start --dry-run`) runs it. Leave it off for anything that
-writes, sends, charges or deletes: such a tool stops a dry run. It's also
-the tool's approval default: an agent that turns approval gates on
+writes, sends, charges or deletes: such a tool stops a dry run. It's also the
+tool's approval default: an agent that turns approval gates on
 (`conversationPolicy.hitl`) asks before any tool that isn't read-only on its
-first use.
+first use. And it decides what runs together: when a model step asks for
+several calls at once, an agent runs calls to read-only tools (no changing
+effect either) that come one after another at the same time, up to 8 of them,
+and any other call on its own, in the order the model asked (an agent with
+`set("parallelToolCalls", false)` runs every call on its own). A call that may
+wait, for another system's answer or for the person who started the run to
+connect an app, runs on its own too.
 
 In a run a new mail started, a call of a tool that isn't read-only waits
 for a person's yes, unless the mail trigger's `toolsAllowedUnattended`
@@ -322,7 +328,7 @@ In a run a person started (signed in, or with their own API key), the agent's ru
     .needsApprovalWhenUnattended(true)
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.2/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Results that are text from outside: `resultIsOutsideData`
 
@@ -420,7 +426,7 @@ changes (a removed field, a narrower type), not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `kindgi.config.json`: `"dev": {"sandbox": {"allowRead": ["~/.aws"]}}`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.2/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

@@ -47,6 +47,27 @@ const FIRE = {
   outcome: 'pending',
   detail: 'thread-busy: an earlier mail of its thread runs first',
 };
+const VERSIONS = {
+  data: [
+    {
+      triggerId: ID,
+      version: 2,
+      createdAt: '2026-10-27T00:00:00.000Z',
+      createdBy: BOT,
+      cause: 'owner',
+      definition: { agentId: 'acme.support' },
+    },
+    {
+      triggerId: ID,
+      version: 1,
+      createdAt: '2026-10-26T01:00:00.000Z',
+      cause: 'unversioned-edit',
+      definition: { agentId: 'acme.support' },
+    },
+  ],
+  hasMore: true,
+  nextCursor: 'c-2',
+};
 
 type Record_ = (name: string, result: unknown) => (...args: unknown[]) => Promise<unknown>;
 
@@ -78,6 +99,8 @@ async function mailTriggers(
         mailTriggers: {
           list: record('list', { data: [TRIGGER], hasMore: false }),
           get: record('get', TRIGGER),
+          getVersion: record('getVersion', VERSIONS.data[0]),
+          versions: record('versions', VERSIONS),
           register: record('register', TRIGGER),
           update: record('update', TRIGGER),
           pause: record('pause', TRIGGER),
@@ -326,6 +349,56 @@ describe('kindgi mail-triggers', () => {
     expect(update.exitCode, update.stderr).toBe(0);
     expect(update.stdout).toContain("A flag left out keeps the trigger's value");
     expect(update.stdout).not.toContain('default');
+  });
+
+  test("versions: a mail trigger's versions, paged; the table names who made each, or Kindgi", async () => {
+    const { out, calls } = await mailTriggers(['versions', ID, '--limit=2', '--cursor=c-1']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['versions', ID, { limit: 2, cursor: 'c-1' }]]);
+    expect(JSON.parse(out.stdout)).toEqual(VERSIONS);
+    const table = await mailTriggers(['versions', ID, '--table']);
+    expect(table.out.exitCode, table.out.stderr).toBe(0);
+    expect(table.out.stdout).toMatch(/^VERSION\s+CREATED\s+BY\s+CAUSE/);
+    expect(table.out.stdout).toMatch(
+      new RegExp(`2\\s+2026-10-27T00:00:00\\.000Z\\s+${BOT}\\s+owner`),
+    );
+    expect(table.out.stdout).toMatch(/1\s+2026-10-26T01:00:00\.000Z\s+Kindgi\s+unversioned-edit/);
+    expect(table.out.stderr).toContain('c-2');
+  });
+
+  test('get <trigger-id> <version> reads that version', async () => {
+    const { out, calls } = await mailTriggers(['get', ID, '2']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['getVersion', ID, 2]]);
+    expect(JSON.parse(out.stdout)).toEqual(VERSIONS.data[0]);
+    expect((await mailTriggers(['get', ID])).calls).toEqual([['get', ID]]);
+  });
+
+  test('get: a <version> that is not a whole number from 1 is refused before any call', async () => {
+    for (const bad of ['0', '01', '1.0.0', 'abc', '9007199254740993']) {
+      const { out, calls } = await mailTriggers(['get', ID, bad]);
+      expect(out.exitCode, bad).not.toBe(0);
+      expect(out.stderr).toContain(`<version> must be a whole number from 1, got "${bad}"`);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("list --table: the VERSION column is the trigger's current version, empty before its first", async () => {
+    const versioned = await mailTriggers(['list', '--table'], TRIGGER, (record) => ({
+      mailTriggers: {
+        list: record('list', { data: [{ ...TRIGGER, version: 3 }], hasMore: false }),
+      },
+    }));
+    expect(versioned.out.exitCode, versioned.out.stderr).toBe(0);
+    expect(versioned.out.stdout).toMatch(/^ID\s+VERSION\s+RUNS/);
+    expect(versioned.out.stdout).toMatch(new RegExp(`${ID}\\s+3\\s+agent acme\\.support`));
+    const before = await mailTriggers(['list', '--table']);
+    expect(before.out.stdout).toMatch(new RegExp(`${ID}\\s+agent acme\\.support`));
+  });
+
+  test('help lists versions', async () => {
+    const { out } = await mailTriggers(['--help']);
+    expect(out.stdout).toMatch(/^ {2}versions /m);
   });
 });
 

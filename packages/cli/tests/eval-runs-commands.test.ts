@@ -327,6 +327,47 @@ describe('kindgi eval-runs start --wait', () => {
     expect(JSON.parse(out.stdout)).toEqual({ id: 'er-1', status: 'completed' });
     expect(calls.map((c) => c[0])).toEqual(['start', 'get']);
   });
+
+  test.each(['failed', 'cancelled'])(
+    'a run that ends %s is printed, and the answer is no: exit 3',
+    async (status) => {
+      const { rec } = recorder();
+      const out = await run(
+        ['eval-runs', 'start', 'acme.matches', '--project=p-1', '--agent=a', '--wait'],
+        {
+          evalRuns: {
+            start: rec('start', { runId: 'er-1' }),
+            get: async (id: string) => ({ id, status }),
+          },
+        },
+      );
+      expect(out.exitCode).toBe(3);
+      expect(JSON.parse(out.stdout)).toEqual({ id: 'er-1', status });
+    },
+  );
+
+  test('without --wait, a started run exits 0 whatever comes of it', async () => {
+    const { rec } = recorder();
+    const out = await run(['eval-runs', 'start', 'acme.matches', '--project=p-1', '--agent=a'], {
+      evalRuns: { start: rec('start', { runId: 'er-1', status: 'pending' }) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toEqual({ runId: 'er-1', status: 'pending' });
+  });
+});
+
+describe('kindgi eval-runs rescore --wait', () => {
+  test('a rescore that fails is printed: exit 3', async () => {
+    const { rec } = recorder();
+    const out = await run(['eval-runs', 'rescore', 'er-1', '--wait'], {
+      evalRuns: {
+        rescore: rec('rescore', { runId: 'er-2' }),
+        get: async (id: string) => ({ id, status: 'failed' }),
+      },
+    });
+    expect(out.exitCode).toBe(3);
+    expect(JSON.parse(out.stdout)).toEqual({ id: 'er-2', status: 'failed' });
+  });
 });
 
 describe('kindgi eval-runs rescore', () => {

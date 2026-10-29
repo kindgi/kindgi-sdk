@@ -12,12 +12,17 @@ Record what went into a run's output (inputs, prompts, retrievals, model calls, 
   - **`Provenance`** — one record per run: `id`, `runId`, `tenantId`, `version`, `createdAt`, optional `flowRef` (`{ id, version }`), `nodes`, `edges`, optional `signature`.
   - **`ProvenanceNode`** — `id`, `kind`, `timestamp`, and optional `actor`, `contentHash`, `contentRef` (for payloads stored outside the record), `modelVersion`, `policyDecisionId`, `attributes`.
   - **`ProvenanceEdge`** — `{ from, to, kind }`.
-  - **`NODE_KINDS`** / **`NodeKind`** — `input`, `prompt`, `retrieval`, `tool-call`, `tool-result`, `model-call`, `model-output`, `artifact`, `guardrail-check`, `event`, `policy-decision`, `memory-read`, `memory-write`, `wait`, `resume`.
+  - **`NODE_KINDS`** / **`NodeKind`** — `input`, `prompt`, `retrieval`, `tool-call`, `tool-result`, `model-call`, `model-output`, `artifact`, `guardrail-check`, `event`, `policy-decision`, `memory-read`, `memory-write`, `wait`, `resume`, `step` (a flow run's step, from record version `1.1.0`).
   - **`EDGE_KINDS`** / **`EdgeKind`** — `caused-by`, `influenced-by`, `retrieved-from`, `invoked`, `produced`, `checked-against`, `waited-on`, `resumed-from`.
   - **`Signature`** — `{ algorithm: 'ed25519', keyId, value, signedAt }`.
 - **Building**
-  - **`newBuilder(options: BuilderOptions)`** — returns a `ProvenanceBuilder` for one run. `BuilderOptions`: `id`, `runId`, `tenantId`, optional `flowRef`, `version` (default `'1.0.0'`), `createdAt`.
+  - **`newBuilder(options: BuilderOptions)`** — returns a `ProvenanceBuilder` for one run. `BuilderOptions`: `id`, `runId`, `tenantId`, optional `flowRef`, `version` (default `'1.1.0'`), `createdAt`.
   - **`ProvenanceBuilder`** — `addNode(node)`, `addEdge(edge)`, `snapshot()` (the unsigned record so far), `finalize(keyProvider)` (the signed record, as a `Result`). A builder is not safe to share across concurrent runs.
+- **A finished flow run's record**
+  - **`flowProvenanceBuilder(run: FlowProvenanceRun)`** — returns a `FlowProvenanceBuilder` that builds the record from the run's journal, read without payloads (`JournalEntryPosition` from `@kindgi/runtime`): `add(entries)` page by page in sequence order, `skip(gap)` once where entries weren't read (`FlowJournalGap`), then `finish()`, the unsigned record. It holds ids, kinds, statuses, times and codes, never a value or a digest of one. `FlowProvenanceRun` names the run's definition, status, end, the child runs its steps started (`FlowProvenanceChild`) and the results they reused (`FlowReusedSource`).
+  - **`flowProvenanceId(runId)`** — the record's id: a version 5 UUID of `[runId, "flow-provenance"]` under **`FLOW_PROVENANCE_NAMESPACE`**, known before the record is written.
+  - **`stepNodePlacer(nodes)`** — returns a `FlowStepNodePlace`: given a child run's `parentNodeId` and `parentScope` (as in `FlowProvenanceChild`), the id of the node in a flow record's `nodes` that counts it. That's its step's own node, or, when its iteration was folded, the folded node of the innermost loop whose `from`..`to` holds the iteration. `undefined` when the record has neither: the step was cut with the record's middle, or the record has no such step. The node ids it computes, digest forms included, are part of the record's format.
+  - **`FLOW_PROVENANCE_VERSION`** (`'1.1.0'`) and **`FLOW_PROVENANCE_LIMITS`** — the record version a flow record is written at, and its caps on nodes, bytes, a node's attributes, ids and a loop's iterations.
 - **Keys**
   - **`KeyProvider`** — caller-implemented key store: `signingKey(tenantId)`, `verificationKey(keyId)`, `deploymentKey()`, `describe()`. An implementation can return a per-tenant key or fall back to a deployment key; the chosen `keyId` is recorded in the signature.
   - **`KeyMaterial`** — `keyId`, `publicKey`, optional `privateKey` (absent for verification-only providers). Keys are base64-encoded DER: SPKI for the public key, PKCS#8 for the private key.

@@ -157,12 +157,12 @@ After an upgrade, a start that brings the store up to the new version's model
 logs one line for it ([Operate](../self-hosted/operate/#from-013-to-014) has the line).
 
 :::caution[Keep the seed user]
-With authorization on, keep the seed user the same. Set `KINDGI_SEED_USER_ID`,
-or keep `KINDGI_API_TOKEN` unchanged: the runtime then keeps the token's user
-across restarts. Each boot makes its seed user a tenant admin. But what was
-granted to an earlier one stays with that user, such as a project role and
-the keys minted for them. A runtime started with a new token and no
-`KINDGI_SEED_USER_ID` says so when it starts:
+With authorization on, keep the seed user the same. Set `KINDGI_SEED_USER_ID`
+to a UUID, or keep `KINDGI_API_TOKEN` unchanged: the runtime then keeps the
+token's user across restarts. Each boot makes its seed user a tenant admin.
+But what was granted to an earlier one stays with that user, such as a
+project role and the keys minted for them. A runtime started with a new
+token and no `KINDGI_SEED_USER_ID` says so when it starts:
 `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 :::
 
@@ -479,6 +479,12 @@ of the project:
 - **A direct role with `joinedAt`** is a membership: change or remove it with
   `…/memberships/<user-id>`. One without `joinedAt` has no membership behind
   it, such as the creator of a project an older runtime made.
+- **A project made with a service account's key has no creator** (runtime
+  0.3.0 or later). It lists only who was given access to it, and the
+  tenant's admins (and its org's, if it's in one). One an older runtime made
+  lists `00000000-0000-0000-0000-000000000000` as its owner, an id no person
+  has: `kindgi-runtime tenants repair --all` (or `--tenant <id>`) takes it
+  away.
 - **A team's role** is changed on its grant (`…/team-grants/<team-id>`).
 
 Reading it takes `write` on the project: its editors and admins. Emails show

@@ -318,6 +318,21 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "flows.pinned.resolve": Operation(
+        "flows.pinned.resolve", "GET", "/v1/flows/{flowId}/pinned", "json", False
+    ),
+    "flows.pinned.list": Operation(
+        "flows.pinned.list", "GET", "/v1/flows/{flowId}/pinned-versions", "json", False
+    ),
+    "flows.pinned.pin": Operation(
+        "flows.pinned.pin", "POST", "/v1/flows/{flowId}/pinned/pin", "json", True
+    ),
+    "flows.pinned.unpin": Operation(
+        "flows.pinned.unpin", "POST", "/v1/flows/{flowId}/pinned/unpin", "json", True
+    ),
+    "flows.pinned.history": Operation(
+        "flows.pinned.history", "GET", "/v1/flows/{flowId}/pin-history", "json", False
+    ),
     "tools.list": Operation("tools.list", "GET", "/v1/tools", "json", False),
     "tools.register": Operation("tools.register", "POST", "/v1/tools", "json", True),
     "tools.get": Operation("tools.get", "GET", "/v1/tools/{toolId}", "json", False),
@@ -336,6 +351,21 @@ OPERATIONS: dict[str, Operation] = {
         "/v1/tools/{toolId}/versions/{version}/reinstate",
         "json",
         True,
+    ),
+    "tools.pinned.resolve": Operation(
+        "tools.pinned.resolve", "GET", "/v1/tools/{toolId}/pinned", "json", False
+    ),
+    "tools.pinned.list": Operation(
+        "tools.pinned.list", "GET", "/v1/tools/{toolId}/pinned-versions", "json", False
+    ),
+    "tools.pinned.pin": Operation(
+        "tools.pinned.pin", "POST", "/v1/tools/{toolId}/pinned/pin", "json", True
+    ),
+    "tools.pinned.unpin": Operation(
+        "tools.pinned.unpin", "POST", "/v1/tools/{toolId}/pinned/unpin", "json", True
+    ),
+    "tools.pinned.history": Operation(
+        "tools.pinned.history", "GET", "/v1/tools/{toolId}/pin-history", "json", False
     ),
     "guardrails.list": Operation("guardrails.list", "GET", "/v1/guardrails", "json", False),
     "guardrails.register": Operation("guardrails.register", "POST", "/v1/guardrails", "json", True),
@@ -446,6 +476,7 @@ OPERATIONS: dict[str, Operation] = {
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
     "license.get": Operation("license.get", "GET", "/v1/license", "json", False),
+    "runtime.get": Operation("runtime.get", "GET", "/v1/runtime", "json", False),
     "license.usage": Operation("license.usage", "GET", "/v1/license/usage", "json", False),
     "exportSigningKeys.list": Operation(
         "exportSigningKeys.list", "GET", "/v1/export-signing-keys", "json", False
@@ -943,6 +974,13 @@ OPERATIONS: dict[str, Operation] = {
     "projects.access.list": Operation(
         "projects.access.list", "GET", "/v1/projects/{projectId}/access", "json", False
     ),
+    "projects.pinnedVersions.list": Operation(
+        "projects.pinnedVersions.list",
+        "GET",
+        "/v1/projects/{projectId}/pinned-versions",
+        "json",
+        False,
+    ),
     "projects.production.set": Operation(
         "projects.production.set", "PUT", "/v1/projects/{projectId}/production", "json", True
     ),
@@ -1056,6 +1094,12 @@ OPERATIONS: dict[str, Operation] = {
     "schedules.fires": Operation(
         "schedules.fires", "GET", "/v1/schedules/{triggerId}/fires", "json", False
     ),
+    "schedules.listVersions": Operation(
+        "schedules.listVersions", "GET", "/v1/schedules/{triggerId}/versions", "json", False
+    ),
+    "schedules.getVersion": Operation(
+        "schedules.getVersion", "GET", "/v1/schedules/{triggerId}/versions/{version}", "json", False
+    ),
     "schedules.runNow": Operation(
         "schedules.runNow", "POST", "/v1/schedules/{triggerId}/run-now", "json", True
     ),
@@ -1079,6 +1123,12 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "webhooks.fires": Operation(
         "webhooks.fires", "GET", "/v1/webhooks/{triggerId}/fires", "json", False
+    ),
+    "webhooks.listVersions": Operation(
+        "webhooks.listVersions", "GET", "/v1/webhooks/{triggerId}/versions", "json", False
+    ),
+    "webhooks.getVersion": Operation(
+        "webhooks.getVersion", "GET", "/v1/webhooks/{triggerId}/versions/{version}", "json", False
     ),
     "webhooks.takeOwnership": Operation(
         "webhooks.takeOwnership", "POST", "/v1/webhooks/{triggerId}/owner", "json", True
@@ -1104,6 +1154,16 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "mailTriggers.fires": Operation(
         "mailTriggers.fires", "GET", "/v1/mail-triggers/{triggerId}/fires", "json", False
+    ),
+    "mailTriggers.listVersions": Operation(
+        "mailTriggers.listVersions", "GET", "/v1/mail-triggers/{triggerId}/versions", "json", False
+    ),
+    "mailTriggers.getVersion": Operation(
+        "mailTriggers.getVersion",
+        "GET",
+        "/v1/mail-triggers/{triggerId}/versions/{version}",
+        "json",
+        False,
     ),
     "mailTriggers.takeOwnership": Operation(
         "mailTriggers.takeOwnership", "POST", "/v1/mail-triggers/{triggerId}/owner", "json", True
@@ -3404,11 +3464,127 @@ class GatePoliciesResource:
         )
 
 
+class FlowsPinnedResource:
+    """`client.flows.pinned` — the `flows.pinned` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def resolve(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        org_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionResolution:
+        """The version in use for a project. `GET /v1/flows/{flowId}/pinned`
+
+        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over. `via` says which; `pinnedScope` names the pin that matched.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.resolve"],
+            path={"flowId": flow_id},
+            query={"projectId": project_id, "orgId": org_id},
+            headers={},
+            response=_models.PinnedVersionResolution,
+            timeout=timeout,
+        )
+
+    def list(
+        self, flow_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PinnedVersionList:
+        """List a flow's pinned versions. `GET /v1/flows/{flowId}/pinned-versions`
+
+        Every scope with a version pinned, and the change that set it.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.list"],
+            path={"flowId": flow_id},
+            query={},
+            headers={},
+            response=_models.PinnedVersionList,
+            timeout=timeout,
+        )
+
+    def pin(
+        self,
+        flow_id: str | UUID,
+        body: _models.PinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Pin a version for a scope. `POST /v1/flows/{flowId}/pinned/pin`
+
+        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the flow.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.pin"],
+            path={"flowId": flow_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    def unpin(
+        self,
+        flow_id: str | UUID,
+        body: _models.UnpinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Remove a scope's pin. `POST /v1/flows/{flowId}/pinned/unpin`
+
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the flow.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.unpin"],
+            path={"flowId": flow_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    def history(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionChangePage:
+        """List a flow's pin changes. `GET /v1/flows/{flowId}/pin-history`
+
+        Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.
+        """
+        return self._client._request(
+            _OPERATIONS["flows.pinned.history"],
+            path={"flowId": flow_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.PinnedVersionChangePage,
+            timeout=timeout,
+        )
+
+
 class FlowsResource:
     """`client.flows` — the `flows` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.pinned = FlowsPinnedResource(client)
 
     def list(
         self,
@@ -3566,11 +3742,127 @@ class FlowsResource:
         )
 
 
+class ToolsPinnedResource:
+    """`client.tools.pinned` — the `tools.pinned` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def resolve(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        org_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionResolution:
+        """The version in use for a project. `GET /v1/tools/{toolId}/pinned`
+
+        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest active version, the one a flow version made now would lock its tool step to. `via` says which; `pinnedScope` names the pin that matched.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.resolve"],
+            path={"toolId": tool_id},
+            query={"projectId": project_id, "orgId": org_id},
+            headers={},
+            response=_models.PinnedVersionResolution,
+            timeout=timeout,
+        )
+
+    def list(
+        self, tool_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PinnedVersionList:
+        """List a tool's pinned versions. `GET /v1/tools/{toolId}/pinned-versions`
+
+        Every scope with a version pinned, and the change that set it.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.list"],
+            path={"toolId": tool_id},
+            query={},
+            headers={},
+            response=_models.PinnedVersionList,
+            timeout=timeout,
+        )
+
+    def pin(
+        self,
+        tool_id: str | UUID,
+        body: _models.PinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Pin a version for a scope. `POST /v1/tools/{toolId}/pinned/pin`
+
+        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the tool.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.pin"],
+            path={"toolId": tool_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    def unpin(
+        self,
+        tool_id: str | UUID,
+        body: _models.UnpinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Remove a scope's pin. `POST /v1/tools/{toolId}/pinned/unpin`
+
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the tool.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.unpin"],
+            path={"toolId": tool_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    def history(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionChangePage:
+        """List a tool's pin changes. `GET /v1/tools/{toolId}/pin-history`
+
+        Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.
+        """
+        return self._client._request(
+            _OPERATIONS["tools.pinned.history"],
+            path={"toolId": tool_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.PinnedVersionChangePage,
+            timeout=timeout,
+        )
+
+
 class ToolsResource:
     """`client.tools` — the `tools` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.pinned = ToolsPinnedResource(client)
 
     def list(
         self,
@@ -3815,7 +4107,7 @@ class GuardrailsResource:
     ) -> _models.GuardrailOutcomes:
         """What a guardrail's checks came to in a project. `GET /v1/guardrails/{guardrailId}/outcomes`
 
-        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
+        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back; or a `retry` sent it back for a new one), `blocked` (a `halt` failed the turn, or a `retry` whose attempts had run out) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. A check is counted per answer it judged: a guardrail judges a turn's final answer, and, in a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
         """
         return self._client._request(
             _OPERATIONS["guardrails.outcomes"],
@@ -4670,12 +4962,13 @@ class ProvenanceResource:
         scope_id: str | UUID | None = None,
         run_id: str | UUID | None = None,
         agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         created_after: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProvenanceCollectionPage:
         """List provenance records. `GET /v1/provenance`
 
-        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
+        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?flowId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
         """
         return self._client._request(
             _OPERATIONS["provenance.list"],
@@ -4687,6 +4980,7 @@ class ProvenanceResource:
                 "scopeId": scope_id,
                 "runId": run_id,
                 "agentId": agent_id,
+                "flowId": flow_id,
                 "createdAfter": created_after,
             },
             headers={},
@@ -4699,7 +4993,7 @@ class ProvenanceResource:
     ) -> _models.ProvenanceRecord:
         """Fetch the full provenance DAG for a run. `GET /v1/provenance/{runId}`
 
-        Returns the full DAG (nodes + edges) plus record metadata. 404 when no provenance was emitted for the run (e.g. the deployment does not run the emitter, or the run was pre-provenance).
+        Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. From the run's end until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a run still running, a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.
         """
         return self._client._request(
             _OPERATIONS["provenance.get"],
@@ -4744,7 +5038,7 @@ class LicenseResource:
     def get(self, /, *, timeout: float | None = None) -> _models.LicenseStatus:
         """Where the deployment's license key stands. `GET /v1/license`
 
-        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.
+        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.
         """
         return self._client._request(
             _OPERATIONS["license.get"],
@@ -4766,6 +5060,27 @@ class LicenseResource:
             query={"since": since},
             headers={},
             response=_models.LicenseUsage,
+            timeout=timeout,
+        )
+
+
+class RuntimeResource:
+    """`client.runtime` — the `runtime` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
+        """Which runtime answers. `GET /v1/runtime`
+
+        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["runtime.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.RuntimeInfo,
             timeout=timeout,
         )
 
@@ -5071,7 +5386,7 @@ class ProvidersResource:
     ) -> _models.ProviderCheckResult:
         """Check a provider's registration. `GET /v1/providers/{providerId}/check`
 
-        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `warnings` lists the `adapter_config` keys its adapter doesn't take: the runtime builds it without reading them. `checked` is false when this runtime has no check for the provider's adapter and the adapter declares no keys.
         """
         return self._client._request(
             _OPERATIONS["providers.check"],
@@ -7261,7 +7576,7 @@ class IdentityMeResource:
     def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
         """What I may do. `GET /v1/identity/me/permissions`
 
-        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Whether the deployment's license is held back from the caller whatever its role (`licenseOperatorOnly`), so a console doesn't ask `GET /v1/license`. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
         """
         return self._client._request(
             _OPERATIONS["identity.me.permissions"],
@@ -8435,6 +8750,35 @@ class ProjectsAccessResource:
         )
 
 
+class ProjectsPinnedVersionsResource:
+    """`client.projects.pinned_versions` — the `projects.pinnedVersions` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectPinnedVersionPage:
+        """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
+
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.pinnedVersions.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectPinnedVersionPage,
+            timeout=timeout,
+        )
+
+
 class ProjectsProductionResource:
     """`client.projects.production` — the `projects.production` operations."""
 
@@ -8796,6 +9140,7 @@ class ProjectsResource:
         self.judging_queue = ProjectsJudgingQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
         self.access = ProjectsAccessResource(client)
+        self.pinned_versions = ProjectsPinnedVersionsResource(client)
         self.production = ProjectsProductionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
         self.sites = ProjectsSitesResource(client)
@@ -9598,7 +9943,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
         """
         return self._client._request(
             _OPERATIONS["schedules.update"],
@@ -9695,6 +10040,41 @@ class SchedulesResource:
             timeout=timeout,
         )
 
+    def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleVersionPage:
+        """A schedule's versions. `GET /v1/schedules/{triggerId}/versions`
+
+        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.
+        """
+        return self._client._request(
+            _OPERATIONS["schedules.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ScheduleVersionPage,
+            timeout=timeout,
+        )
+
+    def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.ScheduleVersion:
+        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`"""
+        return self._client._request(
+            _OPERATIONS["schedules.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.ScheduleVersion,
+            timeout=timeout,
+        )
+
     def run_now(
         self,
         trigger_id: str | UUID,
@@ -9728,7 +10108,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the schedule's owner, so its runs act as the caller from the next run that starts. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`, naming the schedule's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -9818,7 +10198,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after), never their values.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after) and the trigger's version after it, never their values.
         """
         return self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -9915,6 +10295,41 @@ class WebhooksResource:
             timeout=timeout,
         )
 
+    def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerVersionPage:
+        """A webhook trigger's versions. `GET /v1/webhooks/{triggerId}/versions`
+
+        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.
+        """
+        return self._client._request(
+            _OPERATIONS["webhooks.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.WebhookTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.WebhookTriggerVersion:
+        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`"""
+        return self._client._request(
+            _OPERATIONS["webhooks.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.WebhookTriggerVersion,
+            timeout=timeout,
+        )
+
     def take_ownership(
         self,
         trigger_id: str | UUID,
@@ -9927,7 +10342,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`, naming the trigger's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -10017,7 +10432,7 @@ class MailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
 
-        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. The company's mailbox it reads now, sent again with no `connectionId`, is the same mailbox: it keeps the one it reads with, or stores the only one. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. The company's mailbox it reads now, sent again with no `connectionId`, is the same mailbox: it keeps the one it reads with, or stores the only one. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.update"],
@@ -10111,6 +10526,41 @@ class MailTriggersResource:
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerVersionPage:
+        """A mail trigger's versions. `GET /v1/mail-triggers/{triggerId}/versions`
+
+        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.
+        """
+        return self._client._request(
+            _OPERATIONS["mailTriggers.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerVersion:
+        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`"""
+        return self._client._request(
+            _OPERATIONS["mailTriggers.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.MailTriggerVersion,
             timeout=timeout,
         )
 
@@ -12895,11 +13345,127 @@ class AsyncGatePoliciesResource:
         )
 
 
+class AsyncFlowsPinnedResource:
+    """`client.flows.pinned` — the `flows.pinned` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def resolve(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        org_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionResolution:
+        """The version in use for a project. `GET /v1/flows/{flowId}/pinned`
+
+        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over. `via` says which; `pinnedScope` names the pin that matched.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.resolve"],
+            path={"flowId": flow_id},
+            query={"projectId": project_id, "orgId": org_id},
+            headers={},
+            response=_models.PinnedVersionResolution,
+            timeout=timeout,
+        )
+
+    async def list(
+        self, flow_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PinnedVersionList:
+        """List a flow's pinned versions. `GET /v1/flows/{flowId}/pinned-versions`
+
+        Every scope with a version pinned, and the change that set it.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.list"],
+            path={"flowId": flow_id},
+            query={},
+            headers={},
+            response=_models.PinnedVersionList,
+            timeout=timeout,
+        )
+
+    async def pin(
+        self,
+        flow_id: str | UUID,
+        body: _models.PinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Pin a version for a scope. `POST /v1/flows/{flowId}/pinned/pin`
+
+        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the flow.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.pin"],
+            path={"flowId": flow_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    async def unpin(
+        self,
+        flow_id: str | UUID,
+        body: _models.UnpinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Remove a scope's pin. `POST /v1/flows/{flowId}/pinned/unpin`
+
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the flow.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.unpin"],
+            path={"flowId": flow_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    async def history(
+        self,
+        flow_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionChangePage:
+        """List a flow's pin changes. `GET /v1/flows/{flowId}/pin-history`
+
+        Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.
+        """
+        return await self._client._request(
+            _OPERATIONS["flows.pinned.history"],
+            path={"flowId": flow_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.PinnedVersionChangePage,
+            timeout=timeout,
+        )
+
+
 class AsyncFlowsResource:
     """`client.flows` — the `flows` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.pinned = AsyncFlowsPinnedResource(client)
 
     async def list(
         self,
@@ -13057,11 +13623,127 @@ class AsyncFlowsResource:
         )
 
 
+class AsyncToolsPinnedResource:
+    """`client.tools.pinned` — the `tools.pinned` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def resolve(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID | None = None,
+        org_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionResolution:
+        """The version in use for a project. `GET /v1/tools/{toolId}/pinned`
+
+        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest active version, the one a flow version made now would lock its tool step to. `via` says which; `pinnedScope` names the pin that matched.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.resolve"],
+            path={"toolId": tool_id},
+            query={"projectId": project_id, "orgId": org_id},
+            headers={},
+            response=_models.PinnedVersionResolution,
+            timeout=timeout,
+        )
+
+    async def list(
+        self, tool_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.PinnedVersionList:
+        """List a tool's pinned versions. `GET /v1/tools/{toolId}/pinned-versions`
+
+        Every scope with a version pinned, and the change that set it.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.list"],
+            path={"toolId": tool_id},
+            query={},
+            headers={},
+            response=_models.PinnedVersionList,
+            timeout=timeout,
+        )
+
+    async def pin(
+        self,
+        tool_id: str | UUID,
+        body: _models.PinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Pin a version for a scope. `POST /v1/tools/{toolId}/pinned/pin`
+
+        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the tool.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.pin"],
+            path={"toolId": tool_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    async def unpin(
+        self,
+        tool_id: str | UUID,
+        body: _models.UnpinVersionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PinnedVersionChange:
+        """Remove a scope's pin. `POST /v1/tools/{toolId}/pinned/unpin`
+
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the tool.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.unpin"],
+            path={"toolId": tool_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UnpinVersionBody, body, fields),
+            response=_models.PinnedVersionChange,
+            timeout=timeout,
+        )
+
+    async def history(
+        self,
+        tool_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.PinnedVersionChangePage:
+        """List a tool's pin changes. `GET /v1/tools/{toolId}/pin-history`
+
+        Every pin and unpin of the item, newest first: what each scope pinned before and after, who asked and why.
+        """
+        return await self._client._request(
+            _OPERATIONS["tools.pinned.history"],
+            path={"toolId": tool_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.PinnedVersionChangePage,
+            timeout=timeout,
+        )
+
+
 class AsyncToolsResource:
     """`client.tools` — the `tools` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.pinned = AsyncToolsPinnedResource(client)
 
     async def list(
         self,
@@ -13306,7 +13988,7 @@ class AsyncGuardrailsResource:
     ) -> _models.GuardrailOutcomes:
         """What a guardrail's checks came to in a project. `GET /v1/guardrails/{guardrailId}/outcomes`
 
-        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
+        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back; or a `retry` sent it back for a new one), `blocked` (a `halt` failed the turn, or a `retry` whose attempts had run out) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. A check is counted per answer it judged: a guardrail judges a turn's final answer, and, in a turn with a `retry` guardrail, its `halt` and `retry` guardrails judge each answer. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
         """
         return await self._client._request(
             _OPERATIONS["guardrails.outcomes"],
@@ -14163,12 +14845,13 @@ class AsyncProvenanceResource:
         scope_id: str | UUID | None = None,
         run_id: str | UUID | None = None,
         agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         created_after: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProvenanceCollectionPage:
         """List provenance records. `GET /v1/provenance`
 
-        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
+        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?flowId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
         """
         return await self._client._request(
             _OPERATIONS["provenance.list"],
@@ -14180,6 +14863,7 @@ class AsyncProvenanceResource:
                 "scopeId": scope_id,
                 "runId": run_id,
                 "agentId": agent_id,
+                "flowId": flow_id,
                 "createdAfter": created_after,
             },
             headers={},
@@ -14192,7 +14876,7 @@ class AsyncProvenanceResource:
     ) -> _models.ProvenanceRecord:
         """Fetch the full provenance DAG for a run. `GET /v1/provenance/{runId}`
 
-        Returns the full DAG (nodes + edges) plus record metadata. 404 when no provenance was emitted for the run (e.g. the deployment does not run the emitter, or the run was pre-provenance).
+        Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. From the run's end until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a run still running, a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.
         """
         return await self._client._request(
             _OPERATIONS["provenance.get"],
@@ -14237,7 +14921,7 @@ class AsyncLicenseResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.LicenseStatus:
         """Where the deployment's license key stands. `GET /v1/license`
 
-        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.
+        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused: `GET /v1/identity/me/permissions` says so before asking (`licenseOperatorOnly`, with `tenant.admin`). A deployment that doesn't report it answers 404.
         """
         return await self._client._request(
             _OPERATIONS["license.get"],
@@ -14259,6 +14943,27 @@ class AsyncLicenseResource:
             query={"since": since},
             headers={},
             response=_models.LicenseUsage,
+            timeout=timeout,
+        )
+
+
+class AsyncRuntimeResource:
+    """`client.runtime` — the `runtime` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
+        """Which runtime answers. `GET /v1/runtime`
+
+        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["runtime.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.RuntimeInfo,
             timeout=timeout,
         )
 
@@ -14564,7 +15269,7 @@ class AsyncProvidersResource:
     ) -> _models.ProviderCheckResult:
         """Check a provider's registration. `GET /v1/providers/{providerId}/check`
 
-        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `checked` is false when this runtime has no check for the provider's adapter.
+        Runs the provider's adapter check over its stored registration (its `adapter_config`, its metadata, whether it names a `secret_ref`): the check `POST /v1/providers` runs before it stores one. Static: no network call, no secret read. `issues` lists what would keep the runtime from building the provider, each with a JSON-pointer `path`; an adapter this runtime doesn't have is one (`/adapter_id`). `warnings` lists the `adapter_config` keys its adapter doesn't take: the runtime builds it without reading them. `checked` is false when this runtime has no check for the provider's adapter and the adapter declares no keys.
         """
         return await self._client._request(
             _OPERATIONS["providers.check"],
@@ -16764,7 +17469,7 @@ class AsyncIdentityMeResource:
     async def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
         """What I may do. `GET /v1/identity/me/permissions`
 
-        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Whether the deployment's license is held back from the caller whatever its role (`licenseOperatorOnly`), so a console doesn't ask `GET /v1/license`. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
         """
         return await self._client._request(
             _OPERATIONS["identity.me.permissions"],
@@ -17938,6 +18643,35 @@ class AsyncProjectsAccessResource:
         )
 
 
+class AsyncProjectsPinnedVersionsResource:
+    """`client.projects.pinned_versions` — the `projects.pinnedVersions` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectPinnedVersionPage:
+        """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
+
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.pinnedVersions.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectPinnedVersionPage,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsProductionResource:
     """`client.projects.production` — the `projects.production` operations."""
 
@@ -18299,6 +19033,7 @@ class AsyncProjectsResource:
         self.judging_queue = AsyncProjectsJudgingQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
         self.access = AsyncProjectsAccessResource(client)
+        self.pinned_versions = AsyncProjectsPinnedVersionsResource(client)
         self.production = AsyncProjectsProductionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
         self.sites = AsyncProjectsSitesResource(client)
@@ -19103,7 +19838,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
         """
         return await self._client._request(
             _OPERATIONS["schedules.update"],
@@ -19200,6 +19935,41 @@ class AsyncSchedulesResource:
             timeout=timeout,
         )
 
+    async def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleVersionPage:
+        """A schedule's versions. `GET /v1/schedules/{triggerId}/versions`
+
+        Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.
+        """
+        return await self._client._request(
+            _OPERATIONS["schedules.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ScheduleVersionPage,
+            timeout=timeout,
+        )
+
+    async def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.ScheduleVersion:
+        """Fetch one version of a schedule. `GET /v1/schedules/{triggerId}/versions/{version}`"""
+        return await self._client._request(
+            _OPERATIONS["schedules.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.ScheduleVersion,
+            timeout=timeout,
+        )
+
     async def run_now(
         self,
         trigger_id: str | UUID,
@@ -19233,7 +20003,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
 
-        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the schedule's owner, so its runs act as the caller from the next run that starts. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`, naming the schedule's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["schedules.takeOwnership"],
@@ -19323,7 +20093,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
 
-        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after), never their values.
+        Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after) and the trigger's version after it, never their values.
         """
         return await self._client._request(
             _OPERATIONS["webhooks.update"],
@@ -19420,6 +20190,41 @@ class AsyncWebhooksResource:
             timeout=timeout,
         )
 
+    async def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerVersionPage:
+        """A webhook trigger's versions. `GET /v1/webhooks/{triggerId}/versions`
+
+        Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.
+        """
+        return await self._client._request(
+            _OPERATIONS["webhooks.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.WebhookTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    async def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.WebhookTriggerVersion:
+        """Fetch one version of a webhook trigger. `GET /v1/webhooks/{triggerId}/versions/{version}`"""
+        return await self._client._request(
+            _OPERATIONS["webhooks.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.WebhookTriggerVersion,
+            timeout=timeout,
+        )
+
     async def take_ownership(
         self,
         trigger_id: str | UUID,
@@ -19432,7 +20237,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
 
-        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`, naming the trigger's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.takeOwnership"],
@@ -19522,7 +20327,7 @@ class AsyncMailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Update a mail trigger. `PATCH /v1/mail-triggers/{triggerId}`
 
-        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. The company's mailbox it reads now, sent again with no `connectionId`, is the same mailbox: it keeps the one it reads with, or stores the only one. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
+        Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). A new company mailbox's connection is decided as at registration: the one `connectionId` names, else the project's only one; another connection, or one named where none was, is another mailbox. The company's mailbox it reads now, sent again with no `connectionId`, is the same mailbox: it keeps the one it reads with, or stores the only one. To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.update"],
@@ -19616,6 +20421,41 @@ class AsyncMailTriggersResource:
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.MailFirePage,
+            timeout=timeout,
+        )
+
+    async def list_versions(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MailTriggerVersionPage:
+        """A mail trigger's versions. `GET /v1/mail-triggers/{triggerId}/versions`
+
+        Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.
+        """
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.listVersions"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MailTriggerVersionPage,
+            timeout=timeout,
+        )
+
+    async def get_version(
+        self, trigger_id: str | UUID, version: int, /, *, timeout: float | None = None
+    ) -> _models.MailTriggerVersion:
+        """Fetch one version of a mail trigger. `GET /v1/mail-triggers/{triggerId}/versions/{version}`"""
+        return await self._client._request(
+            _OPERATIONS["mailTriggers.getVersion"],
+            path={"triggerId": trigger_id, "version": version},
+            query={},
+            headers={},
+            response=_models.MailTriggerVersion,
             timeout=timeout,
         )
 
@@ -20295,6 +21135,7 @@ class Resources:
     improvement_passes: ImprovementPassesResource
     provenance: ProvenanceResource
     license: LicenseResource
+    runtime: RuntimeResource
     export_signing_keys: ExportSigningKeysResource
     artifacts: ArtifactsResource
     observations: ObservationsResource
@@ -20356,6 +21197,7 @@ class Resources:
         self.improvement_passes = ImprovementPassesResource(client)
         self.provenance = ProvenanceResource(client)
         self.license = LicenseResource(client)
+        self.runtime = RuntimeResource(client)
         self.export_signing_keys = ExportSigningKeysResource(client)
         self.artifacts = ArtifactsResource(client)
         self.observations = ObservationsResource(client)
@@ -20419,6 +21261,7 @@ class AsyncResources:
     improvement_passes: AsyncImprovementPassesResource
     provenance: AsyncProvenanceResource
     license: AsyncLicenseResource
+    runtime: AsyncRuntimeResource
     export_signing_keys: AsyncExportSigningKeysResource
     artifacts: AsyncArtifactsResource
     observations: AsyncObservationsResource
@@ -20480,6 +21323,7 @@ class AsyncResources:
         self.improvement_passes = AsyncImprovementPassesResource(client)
         self.provenance = AsyncProvenanceResource(client)
         self.license = AsyncLicenseResource(client)
+        self.runtime = AsyncRuntimeResource(client)
         self.export_signing_keys = AsyncExportSigningKeysResource(client)
         self.artifacts = AsyncArtifactsResource(client)
         self.observations = AsyncObservationsResource(client)
