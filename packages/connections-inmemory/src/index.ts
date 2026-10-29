@@ -563,6 +563,44 @@ export function createInMemoryConnections(
     return undefined;
   }
 
+  /** The live connection `connectionId`, if it's the owner's through the registration in the env. */
+  function ownConnection(
+    of: Pick<ConnectRequestRecord, 'tenantId' | 'appId' | 'owner' | 'envName'>,
+    connectionId: string,
+  ): StoredConnection | undefined {
+    const stored = connections.get(connectionId);
+    const c = stored?.record;
+    return c !== undefined &&
+      c.tenantId === of.tenantId &&
+      c.appId === of.appId &&
+      c.envName === of.envName &&
+      ownerKey(c.owner) === ownerKey(of.owner) &&
+      c.state !== 'removed'
+      ? stored
+      : undefined;
+  }
+
+  /** The company's live connection of the account through the registration in the env. */
+  function companyConnection(
+    of: Pick<ConnectRequestRecord, 'tenantId' | 'appId' | 'envName'>,
+    accountId: string,
+  ): StoredConnection | undefined {
+    for (const stored of connections.values()) {
+      const c = stored.record;
+      if (
+        c.tenantId === of.tenantId &&
+        c.appId === of.appId &&
+        c.envName === of.envName &&
+        c.owner.kind === 'company' &&
+        c.account.id === accountId &&
+        c.state !== 'removed'
+      ) {
+        return stored;
+      }
+    }
+    return undefined;
+  }
+
   /**
    * Another live connection of the app, owner and env named `label`, by
    * `comparableName` (names that look the same);
@@ -595,18 +633,21 @@ export function createInMemoryConnections(
   /**
    * A new connection's label: the request's, else the account's made to fit
    * in 100 characters (`fitName`). When another has it, the first free
-   * `<label> 2`, `<label> 3`, and so on, the label cut to fit the number: a
-   * finish isn't failed for it.
+   * `<label> 2`, `<label> 3`, and so on, the label cut to fit the number, and
+   * `taken` is the one it was to get: a finish isn't failed for it.
    */
-  function newLabel(request: ConnectRequestRecord, account: ConnectionAccount): string | undefined {
+  function newLabel(
+    request: ConnectRequestRecord,
+    account: ConnectionAccount,
+  ): { readonly label?: string; readonly taken?: string } {
     const label = request.label ?? fitName(account.label, MAX_LABEL_LENGTH);
-    if (label.length === 0) return undefined;
-    if (!labelTaken(request, label)) return label;
+    if (label.length === 0) return {};
+    if (!labelTaken(request, label)) return { label };
     for (let n = 2; ; n += 1) {
       const suffix = ` ${n}`;
       // A label of one character longer than the cut leaves only the number.
       const next = `${fitName(label, MAX_LABEL_LENGTH - suffix.length)}${suffix}`.trimStart();
-      if (!labelTaken(request, next)) return next;
+      if (!labelTaken(request, next)) return { label: next, taken: label };
     }
   }
 
@@ -802,6 +843,29 @@ export function createInMemoryConnections(
       : ok(app);
   }
 
+  /**
+   * The connection a connect reconnects: the one `reconnects` names, which
+   * must be the owner's through the registration in the env, else a
+   * person's own. The company's of an account is known only at the finish.
+   */
+  function reconnectedBy(
+    input: ConnectRequestCreateInput,
+    appId: string,
+  ): Outcome<StoredConnection | undefined> {
+    if (input.reconnects === undefined) {
+      return ok(
+        input.owner.kind === 'member'
+          ? liveConnection(input.tenantId, appId, input.owner, input.envName)
+          : undefined,
+      );
+    }
+    const named = ownConnection({ ...input, appId }, input.reconnects);
+    // Another owner's, registration's or env's, a removed one or none: one answer.
+    return named !== undefined
+      ? ok(named)
+      : refuse('connection-not-found', 'No such connection to reconnect', { field: 'reconnects' });
+  }
+
   function createRequest(input: ConnectRequestCreateInput): Outcome<ConnectRequestRecord> {
     const entry = entries.get(input.app);
     if (entry === undefined) {
@@ -813,7 +877,9 @@ export function createInMemoryConnections(
     if (asked.kind === 'err') return asked;
     const app = registrationFor(entry, input);
     if (app.kind === 'err') return app;
-    const existing = liveConnection(input.tenantId, app.value.appId, input.owner, input.envName);
+    const reconnects = reconnectedBy(input, app.value.appId);
+    if (reconnects.kind === 'err') return reconnects;
+    const existing = reconnects.value;
     // A reconnect keeps the connection's label, so the one asked isn't checked.
     if (existing === undefined && input.label !== undefined && labelTaken(input, input.label)) {
       return refuse('connection-label-taken', `Another connection is named "${input.label}"`, {
@@ -1076,12 +1142,15 @@ export function createInMemoryConnections(
     return ok(found);
   }
 
-  /** The connection a finish makes or reconnects, with what was granted. A reconnect keeps its label. */
+  /**
+   * The connection a finish makes or reconnects, with what was granted. A
+   * reconnect keeps its label; a new one's may have been taken.
+   */
   function storeConnection(
     request: ConnectRequestRecord,
     live: StoredConnection | undefined,
     made: SignedIn & { readonly granted: readonly string[] },
-  ): StoredConnection {
+  ): { readonly stored: StoredConnection; readonly labelTaken?: string } {
     const at = iso();
     const installation = made.installationId !== undefined && {
       installationId: made.installationId,
@@ -1097,9 +1166,9 @@ export function createInMemoryConnections(
         connectedAt: at,
         updatedAt: at,
       };
-      return live;
+      return { stored: live };
     }
-    const label = newLabel(request, made.account);
+    const { label, taken } = newLabel(request, made.account);
     const connection: StoredConnection = {
       record: {
         connectionId: randomUUID(),
@@ -1120,7 +1189,7 @@ export function createInMemoryConnections(
       },
     };
     connections.set(connection.record.connectionId, connection);
-    return connection;
+    return { stored: connection, ...(taken !== undefined && { labelTaken: taken }) };
   }
 
   /**
@@ -1145,6 +1214,7 @@ export function createInMemoryConnections(
           { kind: 'connected', connectionId },
         ),
         connection: live.record,
+        reconnected: true,
       });
     }
     const missing = union(request.permissions, held).filter((p) => !kept.includes(p));
@@ -1154,12 +1224,20 @@ export function createInMemoryConnections(
     });
   }
 
-  /** The working connection a finish lands on: the one it reconnects, or the owner's. */
-  function landsOn(request: ConnectRequestRecord): StoredConnection | undefined {
-    const target =
-      (request.reconnects !== undefined ? connections.get(request.reconnects) : undefined) ??
-      liveConnection(request.tenantId, request.appId, request.owner, request.envName);
-    return target !== undefined && target.record.state !== 'removed' ? target : undefined;
+  /**
+   * The live connection a finish lands on: the one it reconnects, checked
+   * again; else a person's own, or the company's of the account signed in to.
+   */
+  function landsOn(
+    request: ConnectRequestRecord,
+    account: ConnectionAccount,
+  ): StoredConnection | undefined {
+    const named =
+      request.reconnects !== undefined ? ownConnection(request, request.reconnects) : undefined;
+    if (named !== undefined) return named;
+    return request.owner.kind === 'member'
+      ? liveConnection(request.tenantId, request.appId, request.owner, request.envName)
+      : companyConnection(request, account.id);
   }
 
   /**
@@ -1202,7 +1280,9 @@ export function createInMemoryConnections(
     gave: { readonly refreshToken: boolean; readonly expiresIn: boolean },
   ): Promise<Outcome<ConnectFinishOutcome>> {
     const request = stored.record;
-    const live = landsOn(request);
+    // Nothing is awaited from here to the store, so two finishes of one
+    // account can't both make a connection.
+    const live = landsOn(request, signedIn.account);
     if (live !== undefined && live.record.account.id !== signedIn.account.id) {
       await settle(stored, { state: 'failed', failure: 'account-mismatch' });
       return refuse(
@@ -1234,7 +1314,10 @@ export function createInMemoryConnections(
       await settle(stored, { state: 'failed', failure: 'app-refused' });
       return refuse('connection-app-refused', refused);
     }
-    const connection = storeConnection(request, live, { ...signedIn, granted: kept });
+    const { stored: connection, labelTaken } = storeConnection(request, live, {
+      ...signedIn,
+      granted: kept,
+    });
     issueFirstToken(connection, renews === 'renews');
     const connectionId = connection.record.connectionId;
     if (missing.length > 0) {
@@ -1255,6 +1338,8 @@ export function createInMemoryConnections(
         { kind: 'connected', connectionId },
       ),
       connection: connection.record,
+      reconnected: live !== undefined,
+      ...(labelTaken !== undefined && { labelTaken }),
     });
   }
 
@@ -1746,7 +1831,12 @@ export function createInMemoryConnections(
           : registrationsFor(input.tenantId, input.app, undefined)[0];
       if (app === undefined)
         throw new TypeError(`No registration of ${entry.name}: seed one first`);
-      if (liveConnection(input.tenantId, app.appId, input.owner, input.envName) !== undefined) {
+      // A person has one live connection through the registration; the company one per account.
+      const held =
+        input.owner.kind === 'member'
+          ? liveConnection(input.tenantId, app.appId, input.owner, input.envName)
+          : companyConnection({ ...input, appId: app.appId }, input.account.id);
+      if (held !== undefined) {
         throw new TypeError('That owner already has a connection through the registration');
       }
       const label = seededLabel(input);
