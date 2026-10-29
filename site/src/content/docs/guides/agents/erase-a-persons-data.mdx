@@ -206,7 +206,9 @@ Once it completes, new turns for the person start again.
 - **The runs that served them:** each run's input, output and journal, its
   snapshots and waitpoints, and what it left in provenance. The run itself
   stays, with `contentErasedAt`. Correcting such a run is refused,
-  `410 run-erased`.
+  `410 run-erased`. The provenance records of those runs, and of the
+  [flows they ran in](#shared-flows), are marked as erased, with the time:
+  a flow's record too, though it holds no text to clear.
 - **The reasons in its ratings:** a correction of such a run keeps its
   verdict, who corrected it and when, and loses its reason,
   [what it says the run should have done](../../evals/judge-a-runs-output/#say-what-it-should-have-done)

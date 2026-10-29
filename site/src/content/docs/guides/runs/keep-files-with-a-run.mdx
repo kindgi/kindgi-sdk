@@ -83,6 +83,17 @@ pnpm exec kindgi artifacts download <blob-id> -o report.pdf
   new file behind: the file's name, then 8 hex digits, then `.partial`, such
   as `report.pdf.1a2b3c4d.partial`. You can delete it.
 
+A download is checked against the sha256 and size kept for the artifact. If
+its bytes were changed in their store outside the runtime, on disk or in the
+bucket, the download stops part way: the runtime closes the connection
+before the last of its `Content-Length` bytes. `download` then fails with
+`the download stopped part way (…): report.pdf wasn't written`, and writes
+no file. In TypeScript, reading `download`'s body throws. The runtime logs
+each one at `ERROR`, as
+`Artifact <blob-id>'s stored bytes aren't the ones put; the read was stopped`,
+with its tenant, where its bytes are kept, the sha256 and size kept for it,
+and what was read. The log line never holds the file's content.
+
 With [authorization](../../../deploy/authorization/) on, listing and
 downloading need `read` on the artifact's project, and uploading and deleting
 need `write`. An artifact you can't read answers `404`, as if it weren't
