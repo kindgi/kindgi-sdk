@@ -893,7 +893,7 @@ The runtime's log says what happened, with the endpoint's id for `<id>`:
   `sync failed:` with the same reason.
 - **At `WARN`, at a start:**
   `MCP endpoint "<id>" skipped: another replica's sync holds tool <tool id>'s lock`.
-  That start doesn't list the endpoint's tools.
+  That start leaves the endpoint's tools to the sync that holds the lock.
 
 If the server is down when a tool is called, the call fails and the next one
 reconnects:
