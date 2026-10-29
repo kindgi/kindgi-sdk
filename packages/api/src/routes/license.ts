@@ -116,13 +116,41 @@ export interface LicenseStatusBinding {
   soleTenant?(): TenantId | null | Promise<TenantId | null>;
 }
 
-/** The refusal of a caller who may not read the license. */
+/**
+ * The refusal of a caller who may not read the license. A tenant caller
+ * reads it in its access audit too (the refusal's `reason`): plain words.
+ */
 export const LICENSE_OPERATOR_ONLY_MESSAGE =
-  "The license is this deployment's: read it with the deployment's own token (KINDGI_API_TOKEN), or a system key holding system:license. A tenant admin reads its standing only where the deployment serves that one tenant.";
+  "Only this deployment's operator reads its license: with the deployment's own token, or a system key holding system:license. A tenant admin reads the license's countdown only where the deployment serves that one tenant.";
 
 /** The refusal of a caller who may not read the deployment's use: every caller but its own token or a `system:license` key. */
 export const LICENSE_USAGE_OPERATOR_ONLY_MESSAGE =
-  "The deployment's use counts every tenant's: only the deployment's own token (KINDGI_API_TOKEN), or a system key holding system:license, reads it.";
+  "The deployment's use counts every tenant's: only its operator reads it, with the deployment's own token or a system key holding system:license.";
+
+/**
+ * Whether the deployment serves `tenantId` alone, so that tenant's admins
+ * read the license's countdown: the binding's `soleTenant`, asked now.
+ * Without `soleTenant`, it serves no tenant alone.
+ */
+async function servesOnlyTenant(binding: LicenseStatusBinding, tenantId: string): Promise<boolean> {
+  const sole = binding.soleTenant === undefined ? null : await binding.soleTenant();
+  return sole !== null && (sole as unknown as string) === tenantId;
+}
+
+/**
+ * Whether `GET /v1/license` refuses the caller whatever its role: it isn't
+ * the deployment's own token (or a `system:license` key), and the
+ * deployment doesn't serve its tenant alone. The same checks the route
+ * makes, so `GET /v1/identity/me/permissions` (`licenseOperatorOnly`)
+ * never says otherwise than the route does.
+ */
+export async function licenseOperatorOnlyFor(
+  c: Context<AppEnv>,
+  binding: LicenseStatusBinding,
+): Promise<boolean> {
+  if (readsAsOperator(c)) return false;
+  return !(await servesOnlyTenant(binding, c.get('tenantId') as unknown as string));
+}
 
 /**
  * How far ahead of this runtime's clock `since` may be: a key issued
@@ -186,13 +214,23 @@ function previewView(preview: LicensePreview): LicensePreview {
  * Whether the caller reads the license as the operator does: the
  * deployment's own token (`kindgi:system`), or a system key holding
  * `system:license` (the renewal job's). A tenant's key never gets that
- * scope.
+ * scope. It only asks: `servesAsOperator` marks the scope used.
  */
 function readsAsOperator(c: Context<AppEnv>): boolean {
   if (hasCapability(c, 'kindgi:system')) return true;
-  if (c.get('systemPrincipal') === undefined) return false;
-  if (!holdsSystemScope(c.get('capabilities'), 'system:license')) return false;
-  c.set('systemScopeUsed', 'system:license');
+  return (
+    c.get('systemPrincipal') !== undefined &&
+    holdsSystemScope(c.get('capabilities'), 'system:license')
+  );
+}
+
+/**
+ * `readsAsOperator`, for a route about to answer the caller as the
+ * operator: a system key's request is recorded as using `system:license`.
+ */
+function servesAsOperator(c: Context<AppEnv>): boolean {
+  if (!readsAsOperator(c)) return false;
+  if (!hasCapability(c, 'kindgi:system')) c.set('systemScopeUsed', 'system:license');
   return true;
 }
 
@@ -205,7 +243,9 @@ function readsAsOperator(c: Context<AppEnv>): boolean {
  * - on a deployment serving exactly one tenant, that tenant's admins read
  *   the countdown (`tenantAdminLicenseView`), for the console's warning;
  * - anyone else, and every tenant of a deployment serving several, is
- *   refused (`403 license-operator-only`, recorded).
+ *   refused (`403 license-operator-only`, recorded). A client learns that
+ *   before asking: `GET /v1/identity/me/permissions` says
+ *   `licenseOperatorOnly` (`licenseOperatorOnlyFor`).
  *
  * With an authorizer, "tenant admin" is its `admin` on the tenant; without
  * one, any caller of the tenant, as for every tenant setting there.
@@ -216,12 +256,11 @@ export function licenseRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.get('/', async (c) => {
-    if (readsAsOperator(c)) {
+    if (servesAsOperator(c)) {
       return c.json(operatorLicenseView(await binding.status()));
     }
     const tenantId = c.get('tenantId') as unknown as string;
-    const sole = binding.soleTenant === undefined ? null : await binding.soleTenant();
-    const onlyThisTenant = sole !== null && (sole as unknown as string) === tenantId;
+    const onlyThisTenant = await servesOnlyTenant(binding, tenantId);
     if (
       onlyThisTenant &&
       (authorizer === undefined || (await authorizer.can(c, 'admin', ref('tenant', tenantId))))
@@ -245,7 +284,7 @@ export function licenseRouter(
     // reads the license (its own token, or a system key holding
     // `system:license`): it's every tenant's.
     r.get('/usage', async (c) => {
-      if (!readsAsOperator(c)) {
+      if (!servesAsOperator(c)) {
         return refused(c, authorizer, {
           action: 'read',
           resource: ref('tenant', c.get('tenantId') as unknown as string),

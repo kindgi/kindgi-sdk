@@ -16,7 +16,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.16"
+version: "0.3.18"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -342,22 +342,22 @@ doesn't have yet, then serving. Migrations only go forward: an upgrade
 starts with a backup of the database, and going back means restoring it and
 running the older version on it.
 
-- **On Cloud Run, a small dev deployment** (`network_mode = "none"`, on
-  runtime 0.1.8 or later): the Cloud Run module's `./upgrade.sh`, as of the
-  `@kindgi/sdk@<version>` tag of the release you're upgrading to, since it
-  knows the steps up to its own release. Run `./upgrade.sh --dry-run` first:
-  it changes nothing, and lists what a real run would change. Its plan also
-  reads every `*.auto.tfvars.json` in the module's folder (the pack's env),
-  and `yes` applies exactly the saved plan it showed. The module README's
-  Upgrading section has the rest:
+- **On Cloud Run, a deployment of the module** (on runtime 0.1.8 or later,
+  in any `network_mode`; before the `@kindgi/sdk@0.3.0` tag, `"none"` only):
+  the module's `./upgrade.sh`, as of the `@kindgi/sdk@<version>` tag of the
+  release you're upgrading to, since it knows the steps up to its own
+  release. It takes a `--var-file` for each file the deployment's variables
+  are in. Run `./upgrade.sh --dry-run` first: it changes nothing, and lists
+  what a real run would change. A real run's `yes` applies exactly the
+  saved plan it showed. The module README's Upgrading section has the rest:
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
   https://docs.kindgi.com/v0.1/deploy/self-hosted/cloud-run/#upgrade-by-hand
-- **On Azure Container Apps:** the "Operate it" section of its page,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it.
-- **Otherwise:** the operate page's upgrade steps,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime.
+- **On Azure Container Apps:** the "Operate it" section of its page:
+  https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it
+- **Otherwise:** the operate page's upgrade steps:
+  https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

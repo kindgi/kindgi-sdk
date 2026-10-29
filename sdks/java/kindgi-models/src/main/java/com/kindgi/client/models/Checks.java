@@ -24,13 +24,35 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>Every check skips a {@code null} value: whether a property is required is checked when a
  * model is constructed.
+ *
+ * <p>The checks for a request body about to be sent ({@link #sending()}) also refuse a value this
+ * client doesn't know: an enum value or a union variant read from a newer runtime ({@link #known},
+ * {@link #unrecognized}). Other checks ({@code new Checks()}, as a builder's {@code build()} uses)
+ * keep such a value, so an answer that carries one can be copied and changed.
  */
 public final class Checks {
   private final List<String> violations = new ArrayList<>();
   private final Deque<String> path = new ArrayDeque<>();
+  private final boolean sending;
 
   /** An empty set of checks. */
-  public Checks() {}
+  public Checks() {
+    this(false);
+  }
+
+  private Checks(boolean sending) {
+    this.sending = sending;
+  }
+
+  /**
+   * An empty set of checks for a request body about to be sent: they also refuse a value this
+   * client doesn't know.
+   *
+   * @return the checks
+   */
+  public static Checks sending() {
+    return new Checks(true);
+  }
 
   // ---------------------------------------------------------------------------------------------
   // Construction (static): what a record's constructor enforces.
@@ -138,6 +160,24 @@ public final class Checks {
    */
   public void throwIfAny(String subject) {
     if (!violations.isEmpty()) {
+      throw new ValidationException(subject, violations);
+    }
+  }
+
+  /**
+   * Throws when any check failed, naming the checked value by its class: a nested model after the
+   * classes it's in ({@code CreateSystemTenantBody.FirstAdmin}), a union's variant after its union
+   * ({@code StartRunBody.WithAgent}), as the API's other checks name its fields.
+   *
+   * @param type the checked value's class
+   * @throws ValidationException listing every problem
+   */
+  public void throwIfAny(Class<?> type) {
+    if (!violations.isEmpty()) {
+      String subject = type.getSimpleName();
+      for (Class<?> outer = type.getEnclosingClass(); outer != null; outer = outer.getEnclosingClass()) {
+        subject = outer.getSimpleName() + "." + subject;
+      }
       throw new ValidationException(subject, violations);
     }
   }
@@ -301,7 +341,53 @@ public final class Checks {
   }
 
   /**
-   * Checks a nested value: a model, or a list or map of them.
+   * A value from a list this client knows that a newer runtime may add to: refused only when
+   * {@link #sending()}.
+   *
+   * @param name the property
+   * @param value the text
+   * @param allowed the values this client knows
+   */
+  public void known(String name, @Nullable String value, List<String> allowed) {
+    if (sending) {
+      oneOf(name, value, allowed);
+    }
+  }
+
+  /**
+   * An enum value: refused only when {@link #sending()} and this client doesn't know it.
+   *
+   * @param name the property
+   * @param value the value
+   */
+  public void known(String name, @Nullable OpenEnum value) {
+    if (value != null) {
+      known(name, value.asString(), value.knownValues());
+    }
+  }
+
+  /**
+   * A union variant this client doesn't know, told apart by a tag: refused only when {@link
+   * #sending()}.
+   *
+   * @param tag the tag property
+   * @param allowed the tags this client knows
+   */
+  public void unrecognized(String tag, List<String> allowed) {
+    if (sending) {
+      fail(tag, "must be one of " + String.join(", ", allowed));
+    }
+  }
+
+  /** A union variant this client doesn't know, with no tag: refused only when {@link #sending()}. */
+  public void unrecognized() {
+    if (sending) {
+      fail("", "a variant this client doesn't know can't be sent");
+    }
+  }
+
+  /**
+   * Checks a nested value: a model or an enum value, or a list or map of them.
    *
    * @param name the property
    * @param value the value
@@ -314,6 +400,8 @@ public final class Checks {
       } finally {
         path.removeLast();
       }
+    } else if (value instanceof OpenEnum) {
+      known(name, (OpenEnum) value);
     } else if (value instanceof List) {
       int i = 0;
       for (Object item : (List<?>) value) {

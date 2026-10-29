@@ -13,7 +13,7 @@ import { environmentTakesPromotionsResponse, laterEnvironment } from '../environ
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js';
-import { resolveFlowPins } from '../flow-pins.js';
+import { type FlowPinsSubflows, resolveFlowPins, unnamedSubflowIssues } from '../flow-pins.js';
 import {
   type ItemRights,
   type ItemServing,
@@ -59,10 +59,12 @@ import { parseScopeParams } from './scope-params.js';
  * pinned: each tool it runs resolves once, at publish, to its latest
  * version, and each agent it runs at no named version to what a run in
  * the flow's project would get, its live version there with
- * `pinning.live`, else its latest. Every run of that version uses those
- * (`pins`, see `resolveFlowPins`); one with no published version refuses
- * the publish. Without `pinning`, versions carry no pins and bind the
- * latest versions per run.
+ * `pinning.live`, else its latest, and each sub-flow it runs at no named
+ * version to the newest version of it the flow's project reaches. Every
+ * run of that version uses those (`pins`, see `resolveFlowPins`); one
+ * with no version to pin refuses the publish. Without `pinning`, versions
+ * carry no pins and bind the latest versions per run, and a sub-flow step
+ * that names no version is refused: nothing would fix its child's version.
  */
 export function flowsRouter(
   binding: FlowRegistryBinding,
@@ -126,6 +128,7 @@ export function flowsRouter(
     });
     // An item more than one project serves is checked on those projects
     // instead (`item-rights.ts`).
+    // '/:flowId/*' matches '/:flowId' too: this one gate decides both, once.
     r.use(
       '/:flowId/*',
       itemMiddleware({
@@ -135,18 +138,6 @@ export function flowsRouter(
         id: (c) => c.req.param('flowId') ?? '',
         today: (c) => (c.req.method === 'GET' ? 'read' : 'admin'),
         check: itemPathCheck,
-        versionNotFound: flowVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:flowId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'flow',
-        id: (c) => c.req.param('flowId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: flowVersionNotFound,
       }),
     );
@@ -445,10 +436,15 @@ export function flowsRouter(
     );
     if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
 
-    // Pin the version: every tool and unversioned agent resolves now,
-    // once, to the version its runs use. One with no published version
-    // refuses the publish rather than store a partly pinned version.
-    const pinned = await pinFlow(pinning, tenantId, projectId, loaded.value);
+    // Pin the version: every tool, and every agent and sub-flow with no
+    // version, resolves now, once, to the version its runs use. One with
+    // no version to pin refuses the publish rather than store a partly
+    // pinned version.
+    const pinned = await pinFlow(pinning, tenantId, projectId, loaded.value, {
+      flows: binding,
+      ...(referenceScope !== undefined && { referenceScope }),
+      projectId,
+    });
     if (pinned.kind === 'unpinnable') {
       c.status(statusFor('validation-failed') as never);
       return c.json(toWireError(unpinnableFlow(loaded.value, pinned.issues), requestId));
@@ -589,23 +585,32 @@ export interface FlowPinning {
   readonly live?: LiveVersionBinding;
 }
 
-/** The flow with its pins, or the references with no published version; as it is without `pinning`. */
+/**
+ * The flow with its pins, or the references with no version to pin.
+ * Without `pinning`, the flow as it is, unless a sub-flow step names no
+ * version (`unnamedSubflowIssues`).
+ */
 async function pinFlow(
   pinning: FlowPinning | undefined,
   tenantId: TenantId,
   projectId: ProjectId,
   flow: Flow,
+  subflows: FlowPinsSubflows,
 ): Promise<
   | { readonly kind: 'ok'; readonly flow: Flow }
   | { readonly kind: 'unpinnable'; readonly issues: readonly UnpinnableRef[] }
 > {
-  if (pinning === undefined) return { kind: 'ok', flow };
+  if (pinning === undefined) {
+    const issues = unnamedSubflowIssues(flow);
+    return issues.length > 0 ? { kind: 'unpinnable', issues } : { kind: 'ok', flow };
+  }
   const resolved = await resolveFlowPins(
     pinning.tools,
     pinning.agents,
     tenantId,
     flow,
     pinning.live !== undefined ? { binding: pinning.live, projectId } : undefined,
+    subflows,
   );
   if (resolved.kind === 'unpinnable') return resolved;
   return {
@@ -614,11 +619,11 @@ async function pinFlow(
   };
 }
 
-/** The `validation-failed` error naming each tool or agent a flow runs that isn't published. */
+/** The `validation-failed` error naming each tool, agent or sub-flow a flow runs that it can't pin. */
 function unpinnableFlow(flow: Flow, issues: readonly UnpinnableRef[]) {
   return {
     code: 'validation-failed' as const,
-    message: `Flow "${flow.id as unknown as string}" runs tools or agents that aren't published (${issues.length} issue${issues.length === 1 ? '' : 's'})`,
+    message: `Flow "${flow.id as unknown as string}" runs tools, agents or sub-flows it can't pin (${issues.length} issue${issues.length === 1 ? '' : 's'})`,
     issues: issues as unknown as Record<string, unknown>[],
   };
 }

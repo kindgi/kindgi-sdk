@@ -9,6 +9,11 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import { OPERATIONS, generateOpenApiDocument, honoToOpenapiPath } from '../src/index.js';
+import {
+  READS_WITHOUT_STORAGE,
+  answersDatabaseBusy,
+  answersIdempotencyStoreUnavailable,
+} from '../src/openapi/operations.js';
 import { RunEventSchema } from '../src/openapi/schemas.js';
 
 import { fullAppInput, noopResolveToken, noopRunHandler } from './support/full-app.js';
@@ -101,6 +106,111 @@ describe('OpenAPI — generated document', () => {
       } else {
         expect(method?.security).toEqual([{ bearerAuth: [] }]);
       }
+    }
+  });
+
+  test('every served read declares the 503 the database answers when busy', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const reads = OPERATIONS.filter((o) => o.unserved === undefined && answersDatabaseBusy(o));
+    // Guard against a filter that selects nothing (which would pass vacuously):
+    // there are well over a hundred served reads.
+    expect(reads.length).toBeGreaterThan(100);
+    for (const op of reads) {
+      const method = doc.paths[op.openapiPath]?.[op.method];
+      expect(method, `${op.method} ${op.openapiPath} missing`).toBeTruthy();
+      const response = method?.responses['503'];
+      expect(
+        response,
+        `${op.operationId} (${op.method} ${op.openapiPath}) must declare a 503 (database-busy)`,
+      ).toBeDefined();
+      // The 503 must name the busy answer, so a read that keeps its own 503
+      // can't quietly drop it (`identity.me.permissions` names both causes).
+      expect(response?.description, `${op.operationId} 503 must name database-busy`).toContain(
+        'database-busy',
+      );
+    }
+  });
+
+  test('a read that never reaches storage is left out of the 503', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<string, Record<string, { responses: Record<string, unknown> }>>;
+    };
+    expect(READS_WITHOUT_STORAGE.size).toBeGreaterThan(0);
+    for (const id of READS_WITHOUT_STORAGE) {
+      const op = OPERATIONS.find((o) => o.operationId === id);
+      expect(op, `no operation ${id}`).toBeTruthy();
+      const method = op === undefined ? undefined : doc.paths[op.openapiPath]?.[op.method];
+      expect(method, `${id} missing`).toBeTruthy();
+      expect(
+        (method as { responses: Record<string, unknown> }).responses['503'],
+        `${id} never reaches storage, so it declares no 503`,
+      ).toBeUndefined();
+    }
+  });
+
+  test('a read with its own 503 keeps it, not the shared database-busy one', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<string, Record<string, { responses: Record<string, { description: string }> }>>;
+    };
+    // `identity.me.permissions` declares its own 503 (`authz-backend-unavailable`,
+    // widened to name `database-busy` too); the generator keeps it rather than
+    // replacing it with the shared response.
+    const method = doc.paths['/v1/identity/me/permissions']?.get;
+    expect(method, 'identity.me.permissions missing').toBeTruthy();
+    expect(method?.responses['503']?.description).toContain('authz-backend-unavailable');
+  });
+
+  test('every served write that takes an Idempotency-Key declares the 503 its key store answers', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const writes = OPERATIONS.filter(
+      (o) => o.unserved === undefined && answersIdempotencyStoreUnavailable(o),
+    );
+    // Guard against a filter that selects nothing (which would pass vacuously):
+    // well over a hundred writes take the key.
+    expect(writes.length).toBeGreaterThan(100);
+    for (const op of writes) {
+      const response = doc.paths[op.openapiPath]?.[op.method]?.responses['503'];
+      expect(
+        response,
+        `${op.operationId} (${op.method} ${op.openapiPath}) must declare a 503 (idempotency-store-unavailable)`,
+      ).toBeDefined();
+      // A write that keeps its own 503 must name this one too.
+      expect(
+        response?.description,
+        `${op.operationId} 503 must name idempotency-store-unavailable`,
+      ).toContain('idempotency-store-unavailable');
+    }
+  });
+
+  test('an operation without the key never declares it: reads, and writes that take no key', () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { responses: Record<string, { description?: string }> }>
+      >;
+    };
+    const others = OPERATIONS.filter(
+      (o) => o.unserved === undefined && !answersIdempotencyStoreUnavailable(o),
+    );
+    // Both kinds are there, so neither half passes vacuously.
+    expect(others.some((o) => o.method === 'get')).toBe(true);
+    expect(others.some((o) => o.method === 'post')).toBe(true);
+    for (const op of others) {
+      const response = doc.paths[op.openapiPath]?.[op.method]?.responses['503'];
+      expect(
+        response?.description ?? '',
+        `${op.operationId} takes no Idempotency-Key`,
+      ).not.toContain('idempotency-store-unavailable');
     }
   });
 

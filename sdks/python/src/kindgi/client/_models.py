@@ -161,6 +161,25 @@ class LiveScopeSegment(BaseModel):
     path: Annotated[list[ScopeSegment], Field(max_length=8, min_length=1)]
 
 
+class AgentProject(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class AgentProjectList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[AgentProject]
+    """
+    Its first project first, then the others, each once.
+    """
+
+
 class RequestedBy(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1797,32 +1816,6 @@ class CompleteApprovalBody(BaseModel):
     """
 
 
-class Resume(BaseModel):
-    """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["ok"]
-
-
-class Resume1(BaseModel):
-    """
-    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["failed"]
-    code: str
-    message: str
-
-
 class Reviewer(BaseModel):
     """
     Reviewer roster row. Deactivation is soft (audit trail survives offboarding). `deactivatedAt` present → reviewer no longer receives approvals.
@@ -1925,6 +1918,29 @@ class ExportSigningKeyList(BaseModel):
     data: list[ExportSigningKey]
     """
     Active first. Empty when the deployment doesn't sign exports.
+    """
+
+
+class RuntimeInfo(BaseModel):
+    """
+    Which runtime answers: what a client says about the runtime it's connected to.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The runtime's version: its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none).
+    """
+    tenancy: Annotated[Literal["single", "multi"] | str, _open.OPEN]
+    """
+    `single` when the runtime serves one tenant, `multi` when it serves many.
+    """
+    development: bool
+    """
+    The runtime runs in development mode, which allows development-only settings.
     """
 
 
@@ -2842,7 +2858,10 @@ class PinChange(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["tool", "prompt", "setting", "agent"] | str, _open.OPEN]
+    kind: Annotated[Literal["tool", "prompt", "setting", "agent", "flow"] | str, _open.OPEN]
+    """
+    `flow`: a flow's sub-flow (`FlowPins.flows`). Not sent by older servers.
+    """
     id: str
     from_: Annotated[str | None, Field(alias="from")] = None
     """
@@ -2908,7 +2927,7 @@ class AgentPinSwaps(BaseModel):
 
 class FlowPins(BaseModel):
     """
-    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).
+    The exact tool, agent and sub-flow versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, each agent it runs at no named version, and each sub-flow it runs at no named version, resolves once then, and every run of that flow version uses those versions. Absent on a version published before pins existed (it binds the latest versions per run).
     """
 
     model_config = ConfigDict(
@@ -2923,11 +2942,15 @@ class FlowPins(BaseModel):
     """
     Agent id → exact version, for agent nodes that name no version.
     """
+    flows: dict[str, str] | None = None
+    """
+    Flow id → exact version, for sub-flow steps that name no version. Absent when there are none, and from older servers.
+    """
 
 
 class FlowVersionOverrides(BaseModel):
     """
-    Agents and tools a flow runs at other exact versions than the flow version's pins ("this flow, with `acme.scorer` at 0.4.0"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.
+    Agents and tools a flow runs at other exact versions than the flow version's pins ("this flow, with `acme.scorer` at 0.4.0"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow or one of its sub-flows uses.
     """
 
     model_config = ConfigDict(
@@ -2994,6 +3017,10 @@ class PublishAgentBody(BaseModel):
     tags: list[str] | None = None
     output: AgentOutputSpec | None = None
     tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
+    """
+    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
+    """
 
 
 class Warning(BaseModel):
@@ -3409,8 +3436,11 @@ class GuardrailAction(BaseModel):
     """
 
 
-class Tool1(RootModel[str]):
+class GuardrailToolMatch(RootModel[str]):
     root: Annotated[str, Field(min_length=1, pattern="^[^*]*\\*?$")]
+    """
+    A tool id, or a prefix of one followed by `*`, which matches every id that starts with it.
+    """
 
 
 class GuardrailScope(BaseModel):
@@ -3422,7 +3452,7 @@ class GuardrailScope(BaseModel):
     agents: list[str] | None = None
     flows: list[str] | None = None
     tenants: list[str] | None = None
-    tools: Annotated[list[Tool1] | None, Field(min_length=1)] = None
+    tools: Annotated[list[GuardrailToolMatch] | None, Field(min_length=1)] = None
     """
     At `before-tool` and `after-tool`: the tools whose calls it checks, by id. A trailing `*` matches every id with that prefix, and a `*` anywhere else is refused. Absent: every tool.
     """
@@ -5555,62 +5585,9 @@ class ProviderCheckResult(BaseModel):
     """
 
 
-class Config(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["stdio"]
-    command: Annotated[str, Field(min_length=1)]
-    args: list[str] | None = None
-    env: dict[str, str] | None = None
-
-
-class Config1(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["http-sse"]
-    url: AnyUrl
-    sse_url: Annotated[AnyUrl | None, Field(alias="sseUrl")] = None
-    """
-    Optional distinct SSE endpoint if the server splits them.
-    """
-    headers: dict[str, str] | None = None
-    """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
-    """
-
-
-class Config2(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["streamable-http"]
-    url: AnyUrl
-    headers: dict[str, str] | None = None
-    """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
-    """
-
-
 class MCPEndpointSecretRef(BaseModel):
     """
-    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.
+    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value; in `secretEnv`, a variable's value for a stdio server. The endpoint keeps only this reference.
     """
 
     model_config = ConfigDict(
@@ -5693,59 +5670,6 @@ class MCPAuthHeader(BaseModel):
     """
 
 
-class Config3(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["stdio"]
-    command: Annotated[str, Field(min_length=1)]
-    args: list[str] | None = None
-    env: dict[str, str] | None = None
-
-
-class Config4(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["http-sse"]
-    url: AnyUrl
-    sse_url: Annotated[AnyUrl | None, Field(alias="sseUrl")] = None
-    """
-    Optional distinct SSE endpoint if the server splits them.
-    """
-    headers: dict[str, str] | None = None
-    """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
-    """
-
-
-class Config5(BaseModel):
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    transport: Literal["streamable-http"]
-    url: AnyUrl
-    headers: dict[str, str] | None = None
-    """
-    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
-    """
-
-
 class RegisterMCPEndpointResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -5822,28 +5746,6 @@ class MCPPromptCollection(BaseModel):
         populate_by_name=True,
     )
     data: list[MCPPrompt]
-
-
-class Content2(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    type: Literal["text"]
-    text: str
-
-
-class Content3(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    type: Literal["image"]
-    data: str
-    """
-    Base64-encoded image bytes.
-    """
-    mime_type: Annotated[str, Field(alias="mimeType")]
 
 
 class GetMCPPromptBody(BaseModel):
@@ -6894,46 +6796,6 @@ class Suite1(BaseModel):
     version: str
 
 
-class Version(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_id: Annotated[str | None, Field(alias="agentId")] = None
-    flow_id: Annotated[str | None, Field(alias="flowId")] = None
-    version: str
-    cases: Annotated[int, Field(ge=0)]
-
-
-class Baseline(BaseModel):
-    """
-    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["recorded"]
-    versions: list[Version]
-
-
-class Baseline1(BaseModel):
-    """
-    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["version"]
-    agent_id: Annotated[str, Field(alias="agentId")]
-    version: str
-    via: Literal["explicit", "live"]
-    live_scope: Annotated[dict[str, Any] | None, Field(alias="liveScope")] = None
-
-
 class Model3(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7009,26 +6871,6 @@ class Fresh(BaseModel):
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
     items: Annotated[int, Field(ge=1)]
-
-
-class Baseline2(BaseModel):
-    """
-    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    yes_weight: Annotated[float, Field(alias="yesWeight")]
-    total_weight: Annotated[float, Field(alias="totalWeight")]
-    items: Annotated[int, Field(ge=0)]
-    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
-    top_k: Annotated[TopK, Field(alias="topK")]
-    fresh: Fresh | None = None
-    """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
-    """
 
 
 class CandidateItem(BaseModel):
@@ -7182,7 +7024,7 @@ class EvalRunCollectionPage(BaseModel):
 
 class StartEvalRunBody(BaseModel):
     """
-    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
+    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id that neither the flow nor one of its sub-flows uses, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
     """
 
     model_config = ConfigDict(
@@ -10257,32 +10099,6 @@ class ScheduleFirePage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class Config6(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
-    timezone: str | None = None
-    input: Any | None = None
-    """
-    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
-    """
-
-
-class Config7(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    cron_expression: Annotated[str | None, Field(alias="cronExpression")] = None
-    timezone: str | None = None
-    input: Any | None = None
-    """
-    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
-    """
-
-
 class ScheduleUnregisterResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -10392,14 +10208,6 @@ class WebhookReceipt(BaseModel):
     """
     A WooCommerce save-time ping: answered, nothing started.
     """
-
-
-class Config8(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    input: Any | None = None
 
 
 class TakeTriggerOwnerBody(BaseModel):
@@ -11807,6 +11615,32 @@ class AuditAuthzListResponse(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
+class CompleteApprovalResultResumeOk(BaseModel):
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["ok"]
+
+
+class CompleteApprovalResultResumeFailed(BaseModel):
+    """
+    How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["failed"]
+    code: str
+    message: str
+
+
 class JudgeClassScopeTenant(BaseModel):
     """
     Where a judge class applies: the whole tenant, one project, or one agent in a project.
@@ -11931,6 +11765,62 @@ class CodeArtifactRefFilesystem(BaseModel):
     module_path: Annotated[str, Field(alias="modulePath", min_length=1)]
 
 
+class MCPEndpointConfigStdio(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["stdio"]
+    command: Annotated[str, Field(min_length=1)]
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    """
+    Variables for the server's process, stored as given. Not for a credential: a name `config.headers` would refuse, its parts split on `_` as well as `-` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`), is refused (`invalid-mcp-endpoint`, reason `credential-in-env`). Give it by reference through `secretEnv`. An empty name, a name with `=` or a NUL, a value with a NUL, or a value of `[redacted]` is refused too (reason `invalid-stdio-env`). Every value reads back as `[redacted]`, its name kept, on endpoints registered before as well, so an export holds the names, not the values.
+    """
+
+
+class MCPEndpointConfigHttpSse(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["http-sse"]
+    url: AnyUrl
+    sse_url: Annotated[AnyUrl | None, Field(alias="sseUrl")] = None
+    """
+    Optional distinct SSE endpoint if the server splits them.
+    """
+    headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
+
+
+class MCPEndpointConfigStreamableHttp(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["streamable-http"]
+    url: AnyUrl
+    headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
+
+
 class RecordedSecretScopeTenant(BaseModel):
     """
     Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.
@@ -11967,6 +11857,84 @@ class RecordedSecretScopeProject(BaseModel):
     )
     kind: Literal["project"]
     project_id: Annotated[UUID, Field(alias="projectId")]
+
+
+class RegisterMCPEndpointBodyConfigStdio(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["stdio"]
+    command: Annotated[str, Field(min_length=1)]
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    """
+    Variables for the server's process, stored as given. Not for a credential: a name `config.headers` would refuse, its parts split on `_` as well as `-` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`), is refused (`invalid-mcp-endpoint`, reason `credential-in-env`). Give it by reference through `secretEnv`. An empty name, a name with `=` or a NUL, a value with a NUL, or a value of `[redacted]` is refused too (reason `invalid-stdio-env`). Every value reads back as `[redacted]`, its name kept, on endpoints registered before as well, so an export holds the names, not the values.
+    """
+
+
+class RegisterMCPEndpointBodyConfigHttpSse(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["http-sse"]
+    url: AnyUrl
+    sse_url: Annotated[AnyUrl | None, Field(alias="sseUrl")] = None
+    """
+    Optional distinct SSE endpoint if the server splits them.
+    """
+    headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
+
+
+class RegisterMCPEndpointBodyConfigStreamableHttp(BaseModel):
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    transport: Literal["streamable-http"]
+    url: AnyUrl
+    headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
+
+
+class MCPPromptMessageContentText(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: Literal["text"]
+    text: str
+
+
+class MCPPromptMessageContentImage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    type: Literal["image"]
+    data: str
+    """
+    Base64-encoded image bytes.
+    """
+    mime_type: Annotated[str, Field(alias="mimeType")]
 
 
 class Overrides(BaseModel):
@@ -12017,6 +11985,46 @@ class ComparisonCandidateFlow(BaseModel):
     flow_id: Annotated[str, Field(alias="flowId")]
     version: str
     versions: FlowVersionOverrides | None = None
+
+
+class Version(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    version: str
+    cases: Annotated[int, Field(ge=0)]
+
+
+class JudgedComparisonSummaryBaselineRecorded(BaseModel):
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["recorded"]
+    versions: list[Version]
+
+
+class JudgedComparisonSummaryBaselineVersion(BaseModel):
+    """
+    What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["version"]
+    agent_id: Annotated[str, Field(alias="agentId")]
+    version: str
+    via: Literal["explicit", "live"]
+    live_scope: Annotated[dict[str, Any] | None, Field(alias="liveScope")] = None
 
 
 class CallDifferenceCount(BaseModel):
@@ -12308,6 +12316,10 @@ class Call(BaseModel):
     tool_id: Annotated[str, Field(alias="toolId")]
     arguments: Any | None = None
     result: Any | None = None
+    from_event: Annotated[Literal[True] | None, Field(alias="fromEvent")] = None
+    """
+    An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.
+    """
 
 
 class Step(BaseModel):
@@ -12393,6 +12405,26 @@ class JudgedComparisonSummaryCorrectionsJudgment(BaseModel):
     )
     judgment_id: Annotated[str, Field(alias="judgmentId")]
     pass_: Annotated[bool, Field(alias="pass")]
+
+
+class ComparisonCaseResultBaseline(BaseModel):
+    """
+    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+    items: Annotated[int, Field(ge=0)]
+    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    top_k: Annotated[TopK, Field(alias="topK")]
+    fresh: Fresh | None = None
+    """
+    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    """
 
 
 class ComparisonCaseResultTool(BaseModel):
@@ -12539,6 +12571,48 @@ class PromotionMovesGuardrail(BaseModel):
     """
     Absent for guardrails, which have no version.
     """
+
+
+class RegisterScheduleBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
+    timezone: str | None = None
+    input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
+    """
+
+
+class PatchScheduleBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    cron_expression: Annotated[str | None, Field(alias="cronExpression")] = None
+    timezone: str | None = None
+    input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
+    """
+
+
+class RegisterWebhookTriggerBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    input: Any | None = None
+
+
+class PatchWebhookTriggerBodyConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    input: Any | None = None
 
 
 class ConnectionEntrySignInTenant(BaseModel):
@@ -13711,7 +13785,9 @@ class CompleteApprovalResult(BaseModel):
     ] = None
     resume: (
         Annotated[
-            Resume | Resume1 | CompleteApprovalResultResumeUnrecognized,
+            CompleteApprovalResultResumeOk
+            | CompleteApprovalResultResumeFailed
+            | CompleteApprovalResultResumeUnrecognized,
             _open.OpenUnion("kind", CompleteApprovalResultResumeUnrecognized),
         ]
         | None
@@ -14018,6 +14094,10 @@ class Agent(BaseModel):
     tags: list[str] | None = None
     output: AgentOutputSpec | None = None
     tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
+    parallel_tool_calls: Annotated[bool | None, Field(alias="parallelToolCalls")] = None
+    """
+    Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.
+    """
     pins: AgentPins | None = None
     derived_from: Annotated[VersionDerivation | None, Field(alias="derivedFrom")] = None
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
@@ -14158,7 +14238,7 @@ class RegisterToolBody(BaseModel):
     metadata: dict[str, Any] | None = None
     mutating: bool | None = None
     """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
     """
     needs_approval_when_unattended: Annotated[
         bool | None, Field(alias="needsApprovalWhenUnattended")
@@ -14660,7 +14740,9 @@ class MCPPromptMessage(BaseModel):
     )
     role: Annotated[Literal["user", "assistant"] | str, _open.OPEN]
     content: Annotated[
-        Content2 | Content3 | MCPPromptMessageContentUnrecognized,
+        MCPPromptMessageContentText
+        | MCPPromptMessageContentImage
+        | MCPPromptMessageContentUnrecognized,
         _open.OpenUnion("type", MCPPromptMessageContentUnrecognized),
     ]
 
@@ -14814,7 +14896,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
     """
-    baseline: Baseline | Baseline1
+    baseline: JudgedComparisonSummaryBaselineRecorded | JudgedComparisonSummaryBaselineVersion
     """
     What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
     """
@@ -14904,7 +14986,7 @@ class ComparisonCaseResult(BaseModel):
     """
     The candidate's replay runs, one per repetition.
     """
-    baseline: Baseline2
+    baseline: ComparisonCaseResultBaseline
     """
     An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
     """
@@ -15153,6 +15235,10 @@ class MyPermissions(BaseModel):
     read_only_notice: Annotated[str | None, Field(alias="readOnlyNotice", max_length=280)] = None
     """
     The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.
+    """
+    license_operator_only: Annotated[bool | None, Field(alias="licenseOperatorOnly")] = None
+    """
+    Whether `GET /v1/license` refuses this caller whatever its role (`license-operator-only`): the license is the deployment operator's, held back from this caller. It's about this caller, not a setting of the deployment. `true` when the caller isn't the deployment's own token and the deployment doesn't serve the caller's tenant alone, as on a runtime serving many tenants: a console doesn't ask. `false` when it isn't held back and the caller's role decides: the deployment's own token gets `false` and reads it, and so does an admin of the one tenant the deployment serves (`tenant.admin` says whether this caller is one); that tenant's other callers get `false` too, and are still refused. Absent when the deployment has no license to read, or its tenants couldn't be read just then: ask `GET /v1/license` as before.
     """
 
 
@@ -15839,7 +15925,7 @@ class RegisterWebhookTriggerBody(BaseModel):
     """
     The trigger's project; absent: the tenant's Default project.
     """
-    config: Config8 | None = None
+    config: RegisterWebhookTriggerBodyConfig | None = None
     hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
     """
     The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).
@@ -15897,7 +15983,7 @@ class PatchWebhookTriggerBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    config: Config8 | None = None
+    config: PatchWebhookTriggerBodyConfig | None = None
     label: str | None = None
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     hmac_secret_name: Annotated[str | None, Field(alias="hmacSecretName", min_length=1)] = None
@@ -16504,7 +16590,7 @@ class Tool(BaseModel):
     metadata: dict[str, Any] | None = None
     mutating: bool | None = None
     """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
     """
     needs_approval_when_unattended: Annotated[
         bool | None, Field(alias="needsApprovalWhenUnattended")
@@ -16617,7 +16703,7 @@ class ToolVersionRow(BaseModel):
     metadata: dict[str, Any] | None = None
     mutating: bool | None = None
     """
-    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.
+    Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.
     """
     needs_approval_when_unattended: Annotated[
         bool | None, Field(alias="needsApprovalWhenUnattended")
@@ -16717,11 +16803,18 @@ class RegisterMCPEndpointBody(BaseModel):
     """
     MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
     """
-    config: Config3 | Config4 | Config5
+    config: (
+        RegisterMCPEndpointBodyConfigStdio
+        | RegisterMCPEndpointBodyConfigHttpSse
+        | RegisterMCPEndpointBodyConfigStreamableHttp
+    )
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
     """
     secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
+    """
+    The secret sent as the endpoint's bearer. HTTP transports only: on a `stdio` endpoint it's refused (`invalid-mcp-endpoint`, reason `secret-ref-on-stdio`), since a stdio server gets no headers; give it its secret through `secretEnv`. An endpoint registered with one before keeps it, and the runtime reads it for no one.
+    """
     auth: (
         Annotated[
             MCPBasicAuth
@@ -16734,6 +16827,13 @@ class RegisterMCPEndpointBody(BaseModel):
     ) = None
     """
     How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
+    """
+    secret_env: Annotated[
+        dict[constr(pattern=r"^[^=\u0000]+$", min_length=1), MCPEndpointSecretRef] | None,
+        Field(alias="secretEnv", max_length=16, min_length=1),
+    ] = None
+    """
+    A stdio server's secrets, as variables of its process: each variable's name (`GITHUB_TOKEN`) with the secret its value is read from, at the endpoint's recorded scope, when the runtime starts the server. The value is never stored or answered. 1 to 16 variables, each name without `=`, and none also in `config.env` (`invalid-mcp-endpoint`, reason `secret-env-twice`); otherwise reason `invalid-secret-env`. Each secret counts for the provider-key guard and the env a runtime serves, as `secretRef`'s does. `stdio` only: on an HTTP endpoint it's refused (reason `secret-env-on-http`). An older runtime refuses the field as unknown. A runtime rolled back to one without it starts the server without these variables, so the server fails its own calls; no value is exposed.
     """
     instructions: str | None = None
     """
@@ -16948,7 +17048,7 @@ class RegisterScheduleBody(BaseModel):
     """
     `true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the schedule's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
     """
-    config: Config6
+    config: RegisterScheduleBodyConfig
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
     """
     Default `latest`.
@@ -16996,7 +17096,7 @@ class PatchScheduleBody(BaseModel):
     """
     Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
     """
-    config: Config7 | None = None
+    config: PatchScheduleBodyConfig | None = None
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
     """
     Default `latest`.
@@ -17143,13 +17243,19 @@ class MCPEndpoint(BaseModel):
     MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
     """
     config: Annotated[
-        Config | Config1 | Config2 | MCPEndpointConfigUnrecognized,
+        MCPEndpointConfigStdio
+        | MCPEndpointConfigHttpSse
+        | MCPEndpointConfigStreamableHttp
+        | MCPEndpointConfigUnrecognized,
         _open.OpenUnion("transport", MCPEndpointConfigUnrecognized),
     ]
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
     """
     secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
+    """
+    The secret sent as the endpoint's bearer. HTTP transports only: on a `stdio` endpoint it's refused (`invalid-mcp-endpoint`, reason `secret-ref-on-stdio`), since a stdio server gets no headers; give it its secret through `secretEnv`. An endpoint registered with one before keeps it, and the runtime reads it for no one.
+    """
     auth: (
         Annotated[
             MCPBasicAuth
@@ -17162,6 +17268,13 @@ class MCPEndpoint(BaseModel):
     ) = None
     """
     How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
+    """
+    secret_env: Annotated[
+        dict[constr(pattern=r"^[^=\u0000]+$", min_length=1), MCPEndpointSecretRef] | None,
+        Field(alias="secretEnv", max_length=16, min_length=1),
+    ] = None
+    """
+    A stdio server's secrets, as variables of its process: each variable's name (`GITHUB_TOKEN`) with the secret its value is read from, at the endpoint's recorded scope, when the runtime starts the server. The value is never stored or answered. 1 to 16 variables, each name without `=`, and none also in `config.env` (`invalid-mcp-endpoint`, reason `secret-env-twice`); otherwise reason `invalid-secret-env`. Each secret counts for the provider-key guard and the env a runtime serves, as `secretRef`'s does. `stdio` only: on an HTTP endpoint it's refused (reason `secret-env-on-http`). An older runtime refuses the field as unknown. A runtime rolled back to one without it starts the server without these variables, so the server fails its own calls; no value is exposed.
     """
     instructions: str | None = None
     """

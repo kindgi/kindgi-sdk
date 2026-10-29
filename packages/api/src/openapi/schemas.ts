@@ -319,6 +319,26 @@ export const LivePinListSchema: JsonSchema = {
   properties: { data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } } },
 };
 
+export const AgentProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId'],
+  properties: { projectId: { type: 'string', format: 'uuid' } },
+};
+
+export const AgentProjectListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      description: 'Its first project first, then the others, each once.',
+      items: { $ref: '#/components/schemas/AgentProject' },
+    },
+  },
+};
+
 export const PromotionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -2796,6 +2816,29 @@ export const ExportSigningKeySchema: JsonSchema = {
   },
 };
 
+export const RuntimeInfoSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'tenancy', 'development'],
+  description: "Which runtime answers: what a client says about the runtime it's connected to.",
+  properties: {
+    version: {
+      type: 'string',
+      description:
+        "The runtime's version: its release, such as `0.3.0`, or what its build gave otherwise (`dev` when it gave none).",
+    },
+    tenancy: {
+      type: 'string',
+      enum: ['single', 'multi'],
+      description: '`single` when the runtime serves one tenant, `multi` when it serves many.',
+    },
+    development: {
+      type: 'boolean',
+      description: 'The runtime runs in development mode, which allows development-only settings.',
+    },
+  },
+};
+
 export const LicenseStatusSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3232,6 +3275,11 @@ export const AgentSchema: JsonSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     output: { $ref: '#/components/schemas/AgentOutputSpec' },
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
+    parallelToolCalls: {
+      type: 'boolean',
+      description:
+        "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.",
+    },
     pins: { $ref: '#/components/schemas/AgentPins' },
     derivedFrom: { $ref: '#/components/schemas/VersionDerivation' },
     unregisteredAt: {
@@ -3403,6 +3451,11 @@ export const PublishAgentBodySchema: JsonSchema = {
     tags: { type: 'array', items: { type: 'string' } },
     output: { $ref: '#/components/schemas/AgentOutputSpec' },
     toolErrors: { $ref: '#/components/schemas/ToolErrorsSpec' },
+    parallelToolCalls: {
+      type: 'boolean',
+      description:
+        "Whether calls to read-only tools (`mutating: false`, no changing effect) that a model step asks for one after another run at the same time, up to 8 at once. A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default `true`. `false`: every call runs on its own, in the order the model asked for them. Either way, the step's results reach the conversation and the model in that order, and once a call needs a review, the step's calls that haven't started run one at a time. It doesn't change what the model may ask for.",
+    },
   },
 };
 
@@ -3551,7 +3604,7 @@ export const FlowSchema: JsonSchema = {
 
 export const FlowPinsSchema: JsonSchema = {
   description:
-    'The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).',
+    'The exact tool, agent and sub-flow versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, each agent it runs at no named version, and each sub-flow it runs at no named version, resolves once then, and every run of that flow version uses those versions. Absent on a version published before pins existed (it binds the latest versions per run).',
   type: 'object',
   additionalProperties: false,
   required: ['tools', 'agents'],
@@ -3561,12 +3614,17 @@ export const FlowPinsSchema: JsonSchema = {
       ...PinMapSchema,
       description: 'Agent id → exact version, for agent nodes that name no version.',
     },
+    flows: {
+      ...PinMapSchema,
+      description:
+        'Flow id → exact version, for sub-flow steps that name no version. Absent when there are none, and from older servers.',
+    },
   },
 };
 
 export const FlowVersionOverridesSchema: JsonSchema = {
   description:
-    "Agents and tools a flow runs at other exact versions than the flow version's pins (\"this flow, with `acme.scorer` at 0.4.0\"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.",
+    "Agents and tools a flow runs at other exact versions than the flow version's pins (\"this flow, with `acme.scorer` at 0.4.0\"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow or one of its sub-flows uses.",
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -3987,7 +4045,7 @@ export const ToolSchema: JsonSchema = {
     mutating: {
       type: 'boolean',
       description:
-        'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use.',
+        'Semantic marker: `true` when this tool causes observable side effects (writes state, calls external APIs with mutations, sends messages). Read-only tools set `false`. Absent defaults to `true`. Consumed by the HITL default classifier — a read-only tool passes straight through, a mutating tool asks on first use. It also decides what runs together: calls to read-only tools that a model step asks for one after another run at the same time, up to 8 at once, unless the agent sets `parallelToolCalls: false`; a call to a mutating tool runs on its own, and so does a call to a read-only tool that pauses or declares connections, since it may wait.',
     },
     needsApprovalWhenUnattended: {
       type: 'boolean',
@@ -4159,6 +4217,14 @@ export const GuardrailActionSchema: JsonSchema = {
   },
 };
 
+export const GuardrailToolMatchSchema: JsonSchema = {
+  type: 'string',
+  minLength: 1,
+  pattern: '^[^*]*\\*?$',
+  description:
+    'A tool id, or a prefix of one followed by `*`, which matches every id that starts with it.',
+};
+
 export const GuardrailScopeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -4170,7 +4236,7 @@ export const GuardrailScopeSchema: JsonSchema = {
     tools: {
       type: 'array',
       minItems: 1,
-      items: { type: 'string', minLength: 1, pattern: '^[^*]*\\*?$' },
+      items: { $ref: '#/components/schemas/GuardrailToolMatch' },
       description:
         'At `before-tool` and `after-tool`: the tools whose calls it checks, by id. A trailing `*` matches every id with that prefix, and a `*` anywhere else is refused. Absent: every tool.',
     },
@@ -5047,6 +5113,12 @@ export const JudgedRunContextSchema: JsonSchema = {
               toolId: { type: 'string' },
               arguments: {},
               result: {},
+              fromEvent: {
+                type: 'boolean',
+                const: true,
+                description:
+                  "An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.",
+              },
             },
           },
         },
@@ -7356,7 +7428,7 @@ export const MCPEndpointSecretRefSchema: JsonSchema = {
   additionalProperties: false,
   required: ['envName', 'name'],
   description:
-    "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.",
+    "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value; in `secretEnv`, a variable's value for a stdio server. The endpoint keeps only this reference.",
   properties: {
     envName: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,62}$' },
     name: { type: 'string', minLength: 1, maxLength: 256 },
@@ -7482,9 +7554,17 @@ const MCP_CONFIG_HEADERS: JsonSchema = {
     'Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`, `auth`, `authorization` or `authentication`, or the parts `api-key`, `access-key`, `private-key`, `auth-key`, `subscription-key`, `functions-key`, `application-key`, `app-key`, `master-key`, `client-key` or `partner-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.',
 };
 
+/** A stdio endpoint's `config.env`: plain variables, never a credential. */
+const MCP_STDIO_ENV: JsonSchema = {
+  type: 'object',
+  additionalProperties: { type: 'string' },
+  description:
+    "Variables for the server's process, stored as given. Not for a credential: a name `config.headers` would refuse, its parts split on `_` as well as `-` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `SLACK_BOT_TOKEN`), is refused (`invalid-mcp-endpoint`, reason `credential-in-env`). Give it by reference through `secretEnv`. An empty name, a name with `=` or a NUL, a value with a NUL, or a value of `[redacted]` is refused too (reason `invalid-stdio-env`). Every value reads back as `[redacted]`, its name kept, on endpoints registered before as well, so an export holds the names, not the values.",
+};
+
 /**
  * Wire shape for a registered MCP endpoint. Secrets never appear —
- * `secretRef` names a secret in the deployment's store.
+ * `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store.
  */
 export const MCPEndpointSchema: JsonSchema = {
   type: 'object',
@@ -7510,10 +7590,7 @@ export const MCPEndpointSchema: JsonSchema = {
             transport: { const: 'stdio' },
             command: { type: 'string', minLength: 1 },
             args: { type: 'array', items: { type: 'string' } },
-            env: {
-              type: 'object',
-              additionalProperties: { type: 'string' },
-            },
+            env: MCP_STDIO_ENV,
           },
         },
         {
@@ -7543,11 +7620,24 @@ export const MCPEndpointSchema: JsonSchema = {
         },
       ],
     },
-    secretRef: { $ref: '#/components/schemas/MCPEndpointSecretRef' },
+    secretRef: {
+      $ref: '#/components/schemas/MCPEndpointSecretRef',
+      description:
+        "The secret sent as the endpoint's bearer. HTTP transports only: on a `stdio` endpoint it's refused (`invalid-mcp-endpoint`, reason `secret-ref-on-stdio`), since a stdio server gets no headers; give it its secret through `secretEnv`. An endpoint registered with one before keeps it, and the runtime reads it for no one.",
+    },
     auth: {
       $ref: '#/components/schemas/MCPEndpointAuth',
       description:
         "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.",
+    },
+    secretEnv: {
+      type: 'object',
+      minProperties: 1,
+      maxProperties: 16,
+      propertyNames: { minLength: 1, pattern: '^[^=\\u0000]+$' },
+      additionalProperties: { $ref: '#/components/schemas/MCPEndpointSecretRef' },
+      description:
+        "A stdio server's secrets, as variables of its process: each variable's name (`GITHUB_TOKEN`) with the secret its value is read from, at the endpoint's recorded scope, when the runtime starts the server. The value is never stored or answered. 1 to 16 variables, each name without `=`, and none also in `config.env` (`invalid-mcp-endpoint`, reason `secret-env-twice`); otherwise reason `invalid-secret-env`. Each secret counts for the provider-key guard and the env a runtime serves, as `secretRef`'s does. `stdio` only: on an HTTP endpoint it's refused (reason `secret-env-on-http`). An older runtime refuses the field as unknown. A runtime rolled back to one without it starts the server without these variables, so the server fails its own calls; no value is exposed.",
     },
     instructions: {
       type: 'string',
@@ -9442,7 +9532,7 @@ export const StartEvalRunBodySchema: JsonSchema = {
     sample: { $ref: '#/components/schemas/EvalSample' },
   },
   description:
-    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
+    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id that neither the flow nor one of its sub-flows uses, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
 };
 
 export const StartEvalRunResultSchema: JsonSchema = {
@@ -10568,6 +10658,11 @@ export const MyPermissionsSchema: JsonSchema = {
       description:
         "The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.",
     },
+    licenseOperatorOnly: {
+      type: 'boolean',
+      description:
+        "Whether `GET /v1/license` refuses this caller whatever its role (`license-operator-only`): the license is the deployment operator's, held back from this caller. It's about this caller, not a setting of the deployment. `true` when the caller isn't the deployment's own token and the deployment doesn't serve the caller's tenant alone, as on a runtime serving many tenants: a console doesn't ask. `false` when it isn't held back and the caller's role decides: the deployment's own token gets `false` and reads it, and so does an admin of the one tenant the deployment serves (`tenant.admin` says whether this caller is one); that tenant's other callers get `false` too, and are still refused. Absent when the deployment has no license to read, or its tenants couldn't be read just then: ask `GET /v1/license` as before.",
+    },
   },
 };
 
@@ -11106,7 +11201,11 @@ export const PinChangeSchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind', 'id'],
   properties: {
-    kind: { type: 'string', enum: ['tool', 'prompt', 'setting', 'agent'] },
+    kind: {
+      type: 'string',
+      enum: ['tool', 'prompt', 'setting', 'agent', 'flow'],
+      description: "`flow`: a flow's sub-flow (`FlowPins.flows`). Not sent by older servers.",
+    },
     id: { type: 'string' },
     from: { type: 'string', description: "The earlier version's pin; absent when it had none." },
     to: { type: 'string', description: "The later version's pin; absent when it has none." },
@@ -15425,6 +15524,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LiveVersionResolution', LiveVersionResolutionSchema],
   ['LivePin', LivePinSchema],
   ['LivePinList', LivePinListSchema],
+  ['AgentProject', AgentProjectSchema],
+  ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
   ['GateCheck', GateCheckSchema],
@@ -15529,6 +15630,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['LicenseStatus', LicenseStatusSchema],
+  ['RuntimeInfo', RuntimeInfoSchema],
   ['UsageGroup', UsageGroupSchema],
   ['UsagePage', UsagePageSchema],
   ['LicenseUsage', LicenseUsageSchema],
@@ -15617,6 +15719,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ToolVersionRow', ToolVersionRowSchema],
   ['ToolVersionCollectionPage', ToolVersionCollectionPageSchema],
   ['GuardrailAction', GuardrailActionSchema],
+  ['GuardrailToolMatch', GuardrailToolMatchSchema],
   ['GuardrailScope', GuardrailScopeSchema],
   ['Guardrail', GuardrailSchema],
   ['RegisterGuardrailBody', RegisterGuardrailBodySchema],

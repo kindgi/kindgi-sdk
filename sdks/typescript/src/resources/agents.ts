@@ -7,6 +7,7 @@ import type { AgentId, Semver } from '@kindgi/types';
 import type {
   Agent,
   AgentCollectionPage,
+  AgentProjectList,
   DeriveAgentVersionBody,
   GatePolicyResolution,
   LivePinList,
@@ -52,6 +53,15 @@ export interface AgentsClient {
 
   /** @wire GET /v1/agents/:agentId — latest active version (`GetLatestOptions`) */
   get(agentId: AgentId, options?: GetLatestOptions): Promise<Agent>;
+
+  /**
+   * The projects the agent runs in: its first project first, then each
+   * project a deployment that isn't retired shipped a version of it into,
+   * among those the caller can read. A retired agent still answers.
+   *
+   * @wire GET /v1/agents/:agentId/projects
+   */
+  projects(agentId: AgentId | string): Promise<AgentProjectList>;
 
   readonly versions: AgentVersionsClient;
 
@@ -371,6 +381,12 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         method: 'GET',
         path: `/v1/agents/${seg(agentId as unknown as string)}`,
         query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
+      });
+    },
+    async projects(agentId) {
+      return transport.request<AgentProjectList>({
+        method: 'GET',
+        path: `/v1/agents/${seg(agentId as string)}/projects`,
       });
     },
     versions,

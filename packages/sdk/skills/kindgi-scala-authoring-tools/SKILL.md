@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.4"
+version: "0.1.5"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -245,10 +245,16 @@ Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
 **`readOnly`** declares a tool that changes nothing outside itself (a lookup,
 a search, a calculation): it's `mutating(false)`. A dry run
 (`./kindgiw runs start --dry-run`) runs it. Leave it off for anything that
-writes, sends, charges or deletes: such a tool stops a dry run. It's also
-the tool's approval default: an agent that turns approval gates on
+writes, sends, charges or deletes: such a tool stops a dry run. It's also the
+tool's approval default: an agent that turns approval gates on
 (`conversationPolicy.hitl`) asks before any tool that isn't read-only on its
-first use.
+first use. And it decides what runs together: when a model step asks for
+several calls at once, an agent runs calls to read-only tools (no changing
+effect either) that come one after another at the same time, up to 8 of them,
+and any other call on its own, in the order the model asked (an agent with
+`set("parallelToolCalls", false)` runs every call on its own). A call that may
+wait, for another system's answer or for the person who started the run to
+connect an app, runs on its own too.
 
 In a run a new mail started, a call of a tool that isn't read-only waits
 for a person's yes, unless the mail trigger's `toolsAllowedUnattended`

@@ -163,6 +163,67 @@ describe('kindgi eval-runs start', () => {
     ]);
   });
 
+  test("--with reaches the agents and tools of the flow version's sub-flows, at the version each runs", async () => {
+    const { calls, rec } = recorder();
+    const subflow = (id: string, flowId: string, version?: string) => ({
+      id,
+      kind: 'subgraph',
+      flowRef: { flowId, ...(version !== undefined && { version }) },
+    });
+    const flows: Record<string, unknown> = {
+      'acme.intake@1.0.0': {
+        id: 'acme.intake',
+        version: '1.0.0',
+        nodes: [
+          subflow('grade', 'acme.grading'),
+          subflow('gone', 'acme.gone', '1.0.0'),
+          { id: 'draft', kind: 'agent', ref: 'acme.drafter' },
+        ],
+        edges: [],
+        pins: { tools: {}, agents: {}, flows: { 'acme.grading': '1.1.0' } },
+      },
+      'acme.grading@1.1.0': {
+        id: 'acme.grading',
+        version: '1.1.0',
+        nodes: [{ id: 'g', kind: 'tool', ref: 'acme.grader' }],
+        edges: [],
+      },
+    };
+    const get = async (flowId: string, version: string) => {
+      calls.push(['getVersion', flowId, version]);
+      const found = flows[`${flowId}@${version}`];
+      if (found === undefined) throw { code: 'not-found', message: 'No such flow version' };
+      return found;
+    };
+    const out = await run(
+      [
+        'eval-runs',
+        'start',
+        'acme.matches',
+        '--project=p-1',
+        '--flow=acme.intake',
+        '--flow-version=1.0.0',
+        '--with=acme.grader@2.0.0',
+      ],
+      { evalRuns: { start: rec('start', { runId: 'er-1' }) }, flows: { versions: { get } } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['getVersion', 'acme.intake', '1.0.0'],
+      ['getVersion', 'acme.grading', '1.1.0'],
+      ['getVersion', 'acme.gone', '1.0.0'],
+      [
+        'start',
+        'acme.matches',
+        {
+          flowRef: { flowId: 'acme.intake', version: '1.0.0' },
+          versions: { tools: { 'acme.grader': '2.0.0' } },
+        },
+        { projectId: 'p-1' },
+      ],
+    ]);
+  });
+
   test('errors: --with that the flow does not use, names twice, is malformed, or has no flow version', async () => {
     const flow = {
       id: 'acme.intake',
@@ -173,7 +234,7 @@ describe('kindgi eval-runs start', () => {
     for (const [flags, message] of [
       [
         ['--flow=acme.intake', '--flow-version=1.0.0', '--with=acme.x@1.0.0'],
-        "flow acme.intake 1.0.0 doesn't use acme.x",
+        "flow acme.intake 1.0.0 doesn't use acme.x, nor do its sub-flows you can read",
       ],
       [
         [

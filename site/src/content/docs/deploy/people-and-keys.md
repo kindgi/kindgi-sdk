@@ -380,6 +380,16 @@ a role.
 - **`capabilities`:** what each project role allows on the project and on
   each kind of object in it, read from the runtime's authorization model.
   Your project role's entry is what you may do there.
+- **`licenseOperatorOnly`:** `true` when `GET /v1/license` refuses you
+  whatever your role, because the license is the deployment operator's, as
+  on a runtime serving many tenants; the console doesn't ask it then.
+  `false` when your role decides: the deployment's own token reads it, and
+  where the deployment is set up to serve one tenant (without
+  `KINDGI_TENANCY=multi`) and its database holds only yours, its admins
+  (`tenant.admin`) read the license's countdown and its other people are
+  still refused. It's absent when the deployment has no license to read, or
+  couldn't read its tenants just then, and on an older runtime: ask
+  `GET /v1/license` as before.
 - **`readOnlyNotice`:** the line the console shows someone who may only
   view a project, when a tenant admin set one. It's in the tenant config,
   `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at

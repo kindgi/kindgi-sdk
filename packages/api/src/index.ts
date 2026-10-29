@@ -28,6 +28,7 @@ export type {
   LicenseStatusBinding,
   LicenseUsage,
 } from './routes/license.js';
+export type { RuntimeInfo, RuntimeInfoInput } from './routes/runtime.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
 export type { EgressAddresses } from './routes/tenant.js';
@@ -591,13 +592,16 @@ export {
   valuesDepsFor,
 } from './routes/deployment-promotions.js';
 export {
+  isCredentialEnvName,
   isCredentialHeaderName,
   MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
+  MCP_SECRET_ENV_MAX,
   MCP_TRANSPORTS,
   mcpAuthSecretRefs,
   mcpEndpointSecretNames,
+  REDACTED_ENV_VALUE,
   REDACTED_HEADER_VALUE,
 } from './mcp-endpoint-binding.js';
 export type {

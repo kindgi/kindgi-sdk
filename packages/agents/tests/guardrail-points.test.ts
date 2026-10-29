@@ -50,6 +50,7 @@ const tenantId = 'acme' as TenantId;
 const runId = '00000000-0000-0000-0000-0000000000ee' as RunId;
 const REFUND = 'acme.woo.refund';
 const LOOKUP = 'acme.woo.lookup';
+const STATUS = 'acme.woo.status';
 
 /** A guardrail at `at`, naming `check`, with `on-violation` and its other fields. */
 function guardrail(
@@ -215,7 +216,9 @@ function turn(guardrails: readonly Guardrail[], options: TurnOptions = {}) {
       options.lookup ?? (() => ({ order: 'A-1042' })),
       options.outside === true ? { resultIsOutsideData: true } : {},
     ),
-    toolOf(seen, REFUND, (args) => ({ refunded: args.amount })),
+    // A refund changes something, so it runs alone; lookups run together.
+    toolOf(seen, REFUND, (args) => ({ refunded: args.amount }), { mutating: true }),
+    toolOf(seen, STATUS, (args) => ({ status: 'shipped', order: args.q })),
   ];
   const agent = {
     id: 'acme.helper',
@@ -746,6 +749,102 @@ describe('after-tool: what a call came to, before the model sees it', () => {
     expect(seen.runs.get(LOOKUP)).toBeUndefined();
     expect(JSON.stringify(seen.stored)).not.toContain('secret code');
     expect(String(toolMessages(seen)[0]?.content)).toContain('its result is withheld');
+  });
+});
+
+describe('read-only calls that run together: each call has its points', () => {
+  const DENY = guardrail('acme.no-denied-lookup', 'acme.no-denied-lookup', 'before-tool', 'retry', {
+    scope: { tools: [LOOKUP] },
+  });
+  const SECRET = guardrail('acme.no-secret', 'acme.no-secret', 'after-tool', 'retry');
+  const lookups = [
+    call('call-1', LOOKUP, { q: 'A-1042' }),
+    call('call-2', LOOKUP, { q: 'deny' }),
+    call('call-3', LOOKUP, { q: 'A-1043' }),
+  ];
+  /** The second lookup's result says a secret word. */
+  const secondSaysSecret = (args: Record<string, unknown>) =>
+    args.q === 'deny' ? { text: 'the secret code is 7' } : { order: args.q };
+  const at = (seen: Seen, kind: TurnEvent['kind'], callId: string) =>
+    seen.events.findIndex(
+      (e) => e.kind === kind && (e as { invocationId?: string }).invocationId === callId,
+    );
+  const callIds = (seen: Seen) =>
+    toolMessages(seen).map((m) => (m.toolCall as { invocationId: string }).invocationId);
+
+  test('a call refused at the head of a batch runs nothing; the others run together, and the results go in call order', async () => {
+    const { ctx, seen } = turn([DENY]);
+    const out = await step(ctx, seen, [
+      call('call-1', LOOKUP, { q: 'deny' }),
+      call('call-2', STATUS, { q: 'A-1042' }),
+      call('call-3', STATUS, { q: 'A-1043' }),
+    ]);
+    expect(seen.runs.get(LOOKUP)).toBeUndefined();
+    expect(seen.runs.get(STATUS)).toBe(2);
+    // One batch: the third call starts before the second one's result is stored.
+    expect(at(seen, 'tool.started', 'call-3')).toBeLessThan(at(seen, 'tool.completed', 'call-2'));
+    expect(callIds(seen)).toEqual(['call-1', 'call-2', 'call-3']);
+    expect(String(toolMessages(seen)[0]?.content)).toContain("This call didn't run");
+    expect(out.nextMessages.slice(-3).map((m) => m.guardrailNote)).toEqual([
+      ['acme.no-denied-lookup'],
+      undefined,
+      undefined,
+    ]);
+    expect(out.ranCalls).toEqual(['101:call-2', '101:call-3']);
+  });
+
+  test('a call a before-tool guardrail judges never joins the calls before it: its check sees them ran', async () => {
+    const { ctx, seen } = turn([DENY]);
+    await step(ctx, seen, [
+      call('call-1', STATUS, { q: 'A-1042' }),
+      call('call-2', STATUS, { q: 'A-1043' }),
+      call('call-3', LOOKUP, { q: 'A-1042' }),
+      call('call-4', STATUS, { q: 'A-1044' }),
+    ]);
+    const [judged] = seen.traces.get('acme.no-denied-lookup') ?? [];
+    expect(judged?.call?.callId).toBe('call-3');
+    expect(judged?.toolResults.map((r) => r.toolCallId)).toEqual(['call-1', 'call-2']);
+    expect(at(seen, 'tool.started', 'call-3')).toBeGreaterThan(
+      at(seen, 'tool.completed', 'call-2'),
+    );
+    // It starts a batch: the call after it runs alongside.
+    expect(at(seen, 'tool.started', 'call-4')).toBeLessThan(at(seen, 'tool.completed', 'call-3'));
+    expect(callIds(seen)).toEqual(['call-1', 'call-2', 'call-3', 'call-4']);
+  });
+
+  test("a result withheld in a batch is that call's only: the others are stored and told as they came", async () => {
+    const { ctx, seen } = turn([SECRET], { lookup: secondSaysSecret });
+    const out = await step(ctx, seen, lookups);
+    expect(seen.runs.get(LOOKUP)).toBe(3);
+    expect(at(seen, 'tool.started', 'call-3')).toBeLessThan(at(seen, 'tool.completed', 'call-1'));
+    expect(JSON.stringify(seen.stored)).not.toContain('secret code');
+    expect(callIds(seen)).toEqual(['call-1', 'call-2', 'call-3']);
+    expect(String(toolMessages(seen)[1]?.content)).toContain('its result is withheld');
+    expect(toolMessages(seen)[2]?.content).toEqual({ order: 'A-1043' });
+    expect(out.nextMessages.slice(-3).map((m) => m.guardrailNote)).toEqual([
+      undefined,
+      ['acme.no-secret'],
+      undefined,
+    ]);
+    // Each result judged once, in call order.
+    const judged = (seen.traces.get('acme.no-secret') ?? []).map((t) => t.call?.callId);
+    expect(judged).toEqual(['call-1', 'call-2', 'call-3']);
+    expect(out.ranCalls).toEqual(['101:call-1', '101:call-2', '101:call-3']);
+  });
+
+  test('a halt at a result in a batch stores none after it', async () => {
+    const { ctx, seen } = turn(
+      [guardrail('acme.no-secret', 'acme.no-secret', 'after-tool', 'halt')],
+      { lookup: secondSaysSecret },
+    );
+    const error = await failureOf(() => step(ctx, seen, lookups));
+    expect(error).toMatchObject({
+      code: 'guardrail-violation',
+      point: 'after-tool',
+      callId: 'call-2',
+    });
+    expect(callIds(seen)).toEqual(['call-1']);
+    expect(JSON.stringify(seen.stored)).not.toContain('secret code');
   });
 });
 

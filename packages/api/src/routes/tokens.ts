@@ -10,6 +10,7 @@ import type { ApiTokenId, ProjectId, TenantId } from '@kindgi/types';
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
 
 import { statusFor, toWireError } from '../errors.js';
+import { tokenSignInKey } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import { FULL_SYSTEM_CAPABILITY, isSystemCapability } from '../system.js';
@@ -24,7 +25,6 @@ import type { AppEnv } from '../types.js';
 import { type Refusal, recordRefusal, refusalError } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
-import { tokenSignInKey } from './token-sign-in.js';
 
 /**
  * API keys: mint, list, read, revoke. A key acts for one principal (a

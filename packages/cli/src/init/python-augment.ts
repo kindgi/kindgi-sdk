@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path';
 import { IMAGE_UV_VERSION, PACK_UV_REQUIRED_VERSION } from '../build/python-image.js';
 import { satisfiesSpecifiers } from '../build/version-specifier.js';
 import { PACK_ID_REGEX } from '../commands/init.js';
-import { syncSkills } from '../commands/skills.js';
+import { skillCopyPaths, syncSkills } from '../commands/skills.js';
 import type { CommandResult } from '../commands/types.js';
 import { type OutputFormat, renderJson } from '../output.js';
 import { type BinRunner, binDisplay } from '../package-manager.js';
@@ -133,9 +133,11 @@ export async function runInitPythonAugment(
       dryRun: false,
     });
     for (const o of report.outcomes) {
-      const target = join(inputs.targetDir, o.folder, o.name, 'SKILL.md');
-      if (o.status === 'added' || o.status === 'updated') created.push(target);
-      else if (o.status !== 'local-only') skipped.push(target);
+      if (o.status === 'added' || o.status === 'updated') {
+        created.push(...skillCopyPaths(inputs.targetDir, o, 'written'));
+      } else if (o.status !== 'local-only') {
+        skipped.push(...skillCopyPaths(inputs.targetDir, o, 'files'));
+      }
     }
   }
   const gitignorePath = join(inputs.targetDir, '.gitignore');

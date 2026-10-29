@@ -119,8 +119,11 @@ class Tool(Generic[P, R]):
     is_async: bool
     effects: Sequence[Mapping[str, Any]] = ()
     mutating: bool | None = None
-    """`False`: read-only — it runs in a dry run, and approval gates don't ask before it by
-    default. `None` (the default) means it may change something, as `True` does."""
+    """`False`: read-only — it runs in a dry run, approval gates don't ask before it by
+    default, and the calls a model step asks for together to read-only tools run at the same
+    time (unless the agent sets `parallel_tool_calls=False`), but not one to a tool that pauses
+    or declares connections, since it may wait. `None` (the default) means it may change
+    something, as `True` does: each call runs on its own."""
     needs_approval_when_unattended: bool | None = None
     """`True`: each call waits for a person's approval in a run no person started (a webhook, a
     schedule, an event, or a service account's key); a flow's tool step that calls it is refused.
@@ -185,8 +188,11 @@ def tool(
     """Declare a tool. The handler is `(input)` or `(input, ctx: ToolContext)`, sync or async.
 
     `version` defaults to the pack's version; `description` to the docstring.
-    `mutating=False` declares it read-only: it runs in a dry run, and an agent's
-    approval gates don't ask before it by default. `needs_approval_when_unattended=True`
+    `mutating=False` declares it read-only: it runs in a dry run, an agent's approval
+    gates don't ask before it by default, and an agent runs a step's calls to read-only
+    tools that come one after another at the same time, up to 8 at once (not one that pauses
+    or declares connections, since it may wait).
+    `needs_approval_when_unattended=True`
     makes each call wait for a person's approval in a run no person started (a webhook, a
     schedule, an event, or a service account's key). `result_is_outside_data=True` says the
     tool's results are text from outside that nobody checked (a mail someone sent, a page a
@@ -580,6 +586,14 @@ class Agent:
     output: Any = None
     tool_errors: Mapping[str, Any] | None = None
     """How turns retry failed tool calls: `{"maxRetries": 2, "retryOn": [...]}`."""
+    parallel_tool_calls: bool | None = None
+    """Whether calls to read-only tools (`mutating=False`, no changing effect) that a model
+    step asks for one after another run at the same time, up to 8 at once. A call to a
+    read-only tool that pauses or declares connections runs on its own, since it may wait.
+    Default: on. `False`: every call runs on its own, in the order the model asked for them.
+    Either way, a step's results reach the conversation and the model in that order, and
+    once a call needs a review, the step's calls that haven't started run one at a time. It
+    doesn't change what the model may ask for."""
     settings: Sequence[Mapping[str, str]] = ()
     """Settings blocks by range: `[{"id": "acme.weights", "version": "^1.0.0"}]`."""
     model_settings: Mapping[str, str] | None = None
@@ -605,6 +619,9 @@ class Agent:
                     f"{where}: instructions must be a string, "
                     'or a prompt block {"prompt", "version"}'
                 )
+        parallel = cast("object", self.parallel_tool_calls)  # a caller may pass any value
+        if parallel is not None and not isinstance(parallel, bool):
+            raise DefinitionError(f"{where}: parallel_tool_calls must be True or False")
 
 
 @dataclass(eq=False)

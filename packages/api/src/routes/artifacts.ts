@@ -16,6 +16,7 @@ import { takeBody } from '../middleware/request-body.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
+import { savedFileHeaders } from './stored-bytes.js';
 
 /** The default upload cap: 100 MiB. */
 export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
@@ -357,7 +358,7 @@ function serializeMeta(m: BlobMeta): Record<string, unknown> {
 
 function downloadHeaders(meta: BlobMeta, requestId: string): Record<string, string> {
   return {
-    'Content-Type': meta.contentType,
+    ...savedFileHeaders(meta),
     'Content-Length': String(meta.size),
     'X-Kindgi-Blob-Hash': meta.hash,
     'X-Kindgi-Blob-Name': encodeURIComponent(meta.name),

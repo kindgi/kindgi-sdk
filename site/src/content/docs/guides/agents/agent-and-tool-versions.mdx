@@ -109,6 +109,40 @@ its agent steps that don't name a version, to their latest at publish. A tool
 change reaches a flow through a new agent version and a new flow version, in
 one deploy, with a line for each.
 
+**A sub-flow step can leave out its version too** (`flowRef.version`).
+Publishing the flow (`POST /v1/flows`) or deploying it pins the step to the
+newest version of that flow this project runs, in the flow version's
+`pins.flows`, and each run of the flow version runs that one. A step that
+names its version keeps it. A deploy registers a flow before the flows that
+run it with no version, so they pin the version that deploy registered. A
+new version of it gives each of them a new version, with a line for each:
+
+```text
+flow acme-ops.handle-request: registered new version 1.2.1 (1.2.0's pins changed: flow acme-ops.suggest-articles 0.1.0 → 0.2.0); set version: '1.2.1' in acme-ops.handle-request to match
+```
+
+The publish or the deploy is refused (`400 validation-failed`, each under
+`details.issues`) when this project runs no version of the sub-flow, when a
+step runs its own flow with no version, or when flows of one deploy run each
+other with no version:
+
+```text
+flows "acme-ops.handle-request" → "acme-ops.suggest-articles" → "acme-ops.handle-request" run each other as sub-flows with no version, so neither can be pinned first; name the version in one of them
+```
+
+A comparison's versions, and `--with`, reach the tools and agents of a
+flow's sub-flows too
+([Try a flow version on the test cases](../../evals/compare-an-agent-version/#try-a-flow-version-on-the-test-cases)).
+
+**Where a version runs.** An agent version runs in the project it was
+published in, and in each project a deployment that isn't retired shipped
+it into, such as the next environment `kindgi promote` carried its build to.
+So a change to the agent reaches each of them. `client.agents.projects(agentId)`
+(`GET /v1/agents/{agentId}/projects`) lists them, the agent's first project
+first, naming only the ones you can read. A project stays on the list after
+the versions shipped there are unregistered, because reinstating one would
+run there again.
+
 **An agent version published without pins,** such as by an older runtime,
 gets a pinned next version at the first deploy:
 
@@ -282,6 +316,14 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   `unregisteredAt`. Ask with `?includeTombstoned=true`, or
   `kindgi agents versions <id> --include-unregistered`, and the same for
   `flows` and `tools`.
+- **A deploy brings a tool version back:** deploying an image whose pack
+  has an unregistered tool version reinstates it, as `kindgi tools
+  reinstate` does, so the same image deploys again after a deploy that
+  failed and rolled back. A tool version that names a model provider's key
+  stays unregistered: the pack's tool names it too, and the deploy is
+  refused with `400 deployment-validation-failed`, as for any tool that
+  names one
+  ([A model provider's key isn't a tool's](../../tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools)).
 - **One with every version unregistered is retired:** fetching it answers
   `410`, such as `agent-gone`. Its list leaves it out unless you ask with
   `?includeRetired=true`, or `kindgi agents list --include-retired`, and the

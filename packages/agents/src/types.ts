@@ -490,7 +490,12 @@ export interface Agent {
    * once per turn, on the final response before it is stored (the
    * default), or inside the turn's loop, on each tool call before it
    * runs, each call's result before the model sees it, or each model
-   * reply before its calls run.
+   * reply before its calls run. On the final response, with a `retry`
+   * guardrail, each answer the model finishes is judged on the turn's
+   * `halt` and `retry` guardrails: a `halt` failure fails the turn at
+   * once, and a `retry` failure sends the answer back for a new one, up
+   * to `retry.maxAttempts`; past it, the turn fails with
+   * `guardrail-violation`.
    */
   readonly guardrails: readonly string[];
   /**
@@ -557,6 +562,18 @@ export interface Agent {
    * A tenant's `tool-errors` policy can lower it. See `ToolErrorsSpec`.
    */
   readonly toolErrors?: ToolErrorsSpec;
+  /**
+   * Whether calls to read-only tools (`mutating: false`, no changing
+   * effect) that a model step asks for one after another run at the same
+   * time, up to 8 at once. A call to a read-only tool that pauses or
+   * declares connections runs on its own, since it may wait. Default: on.
+   * `false`: every call runs on its own, in the order the model asked for
+   * them. Either way, a step's results reach the conversation and the
+   * model in that order, and once a call needs a review, the step's calls
+   * that haven't started run one at a time. It doesn't change what the
+   * model may ask for.
+   */
+  readonly parallelToolCalls?: boolean;
   /**
    * The exact block versions this agent version runs, resolved by the
    * runtime when the version was published (see `AgentPins`). Never

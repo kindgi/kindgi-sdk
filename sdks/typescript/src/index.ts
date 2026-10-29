@@ -291,6 +291,8 @@ export type {
 export { followRun, subscribeToRun } from './run-follow.js';
 export { comparisonOf } from './resources/eval-runs.js';
 export type {
+  AgentProject,
+  AgentProjectList,
   LivePin,
   LivePinList,
   LiveScope,
@@ -420,6 +422,7 @@ export type {
   ExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
 export type { LicenseClient, LicenseStatus, LicenseUsage } from './resources/license.js';
+export type { RuntimeClient, RuntimeInfo } from './resources/runtime.js';
 export type {
   MintedSystemKey,
   RevokedSystemKey,

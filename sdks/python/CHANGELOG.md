@@ -19,6 +19,25 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `GuardrailViolationError.attempts` says how many answers the turn had
   (`None` when a `halt` guardrail stopped it). The `@guardrail` docstring
   says what `retry` does.
+- `kindgi`: **a flow's sub-flow step can leave out `flowRef.version`** (flow
+  schema 1.10.0). When the flow version is published, the runtime pins the
+  newest version of the child that its project reaches, and every run of the
+  flow version runs that one. The client's flow pins have `flows` for those;
+  absent when there are none, and from older servers.
+- `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
+
+- `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a model
+  step asks for on its own.** By default an agent now runs a step's calls to
+  read-only tools (`mutating=False`, no changing effect) that come one after
+  another at the same time, up to 8 at once, and any other call on its own, in
+  the order the model asked; the results reach the conversation in that order
+  either way. A call that may wait, for another system's answer or for the
+  person who started the run to connect an app, runs on its own too. The
+  indexer writes it as the agent's `parallelToolCalls`, and `Agent` refuses a
+  value that isn't `True` or `False`. The client's `Agent` and
+  `PublishAgentBody` models gain `parallel_tool_calls`. `mutating`'s
+  description says it decides what runs together.
+
 - `kindgi`: **`@tool` and `http_tool` take `result_is_outside_data`.** `True`
   says the tool's results are text from outside that nobody checked, such as a
   mail someone sent or a page a search found. An agent reads each result of the
@@ -43,6 +62,56 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   schema derived from a model still has only its patterns checked: the
   runtime checks a config against it non-strict. Matches the TypeScript
   `@kindgi/tools` definition check.
+
+- `kindgi`: **A union's members are named by the value that tells them
+  apart.** The members of five inline unions in `kindgi.client.models` had
+  numbered names, and four other models' numbered names would have shifted
+  into the freed ones. These names change, and no old name is kept:
+  - **A union's members, by their discriminator:**
+    - `Config`, `Config1`, `Config2` (an MCP endpoint's config: stdio,
+      http-sse, streamable-http): `MCPEndpointConfigStdio`,
+      `MCPEndpointConfigHttpSse`, `MCPEndpointConfigStreamableHttp`.
+    - `Config3` to `5` (the same, in a registration's body):
+      `RegisterMCPEndpointBodyConfigStdio`,
+      `RegisterMCPEndpointBodyConfigHttpSse`,
+      `RegisterMCPEndpointBodyConfigStreamableHttp`.
+    - `Content2`, `Content3` (an MCP prompt message's content: text, image):
+      `MCPPromptMessageContentText`, `MCPPromptMessageContentImage`.
+    - `Resume`, `Resume1` (how completing an approval resumed its run: ok,
+      failed): `CompleteApprovalResultResumeOk`,
+      `CompleteApprovalResultResumeFailed`.
+    - `Baseline`, `Baseline1` (what a judged comparison compared with:
+      recorded runs, a version): `JudgedComparisonSummaryBaselineRecorded`,
+      `JudgedComparisonSummaryBaselineVersion`.
+  - **Named after their field, so no freed name passes to them:**
+    - `Config6`, `Config7` (a schedule's config, registering and patching):
+      `RegisterScheduleBodyConfig`, `PatchScheduleBodyConfig`.
+    - `Config8` (a webhook trigger's config, in both bodies): now one class
+      per body, `RegisterWebhookTriggerBodyConfig` and
+      `PatchWebhookTriggerBodyConfig`. A mapping works for either; an
+      instance of one isn't taken by the other.
+    - `Baseline2` (a compared case's baseline score):
+      `ComparisonCaseResultBaseline`.
+
+  Code that imports an old name fails at the import, and an `isinstance` or
+  `match` on one needs the new name. The client's generation now keeps a
+  dropped name dropped, so no later model takes `Config` or `Baseline` with
+  another meaning. (#938)
+
+- `kindgi`: **An error inside a field is logged like `err`, and a value that
+  raises when read never fails the log call.** An error nested in a field (in a
+  mapping or a list) was written as its scrubbed `str()`, so its `name`, `code`
+  and causes were lost. It's now written as `err` is — its `name` (its class's),
+  scrubbed `message` and `code`, and its causes — without its stack at any
+  level. The message is written as the error gives it, with known secret shapes
+  masked; a database driver's message can itself quote the statement and the
+  values it was bound to (SQLAlchemy appends `[SQL: …]` and `[parameters: …]`
+  unless the engine has `hide_parameters=True`, and libpq keeps a `DETAIL:`
+  line), so when that matters log a field such as the SQLSTATE rather than the
+  error. None of the error's other attributes are written. An attribute that
+  raises when read counts as missing (a message that can't be read is empty), a
+  value that raises when read is `[unreadable]`, and fields whose keys can't be
+  listed are left out; the record is still written.
 - `kindgi`: **a tool or an agent whose model has a pydantic tagged union
   deploys.** With `Field(discriminator=...)`, pydantic writes OpenAPI's
   `discriminator` keyword beside the union's `oneOf`, and the runtime refused

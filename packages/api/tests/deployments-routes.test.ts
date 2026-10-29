@@ -11,6 +11,7 @@ import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
+import type { LogFields, Logger } from '@kindgi/log';
 import type { Project, ProjectBinding } from '@kindgi/platform';
 import { latestVersion } from '@kindgi/tools';
 import type {
@@ -426,6 +427,14 @@ let lastAgentPublishProjectId: ProjectId | undefined;
 /** The project an agent of `elsewhereAgentId` belongs to, in these tests. */
 const ELSEWHERE_PROJECT_ID = randomUUID() as ProjectId;
 
+/** What a runtime routing pack calls per deployment passes. */
+const PER_DEPLOYMENT = {
+  systemDeployments: {
+    binding: {} as never,
+    endpointHostAllowed: () => false,
+  },
+} as const;
+
 function makeInMemoryAgentRegistry(
   opts: { failOnAgentId?: string; refuseAgentId?: string; elsewhereAgentId?: string } = {},
 ): AgentRegistryBinding {
@@ -710,7 +719,8 @@ function makeApp(opts: {
   flowRegistry?: FlowRegistryBinding;
   /** More of the app's bindings, as given (e.g. `agentReleases`). */
   extra?: Partial<Parameters<typeof createApp>[0]>;
-  omit?: 'deployment' | 'signing' | 'image';
+  /** A binding the app goes without (`tools`: no tool registry, so agents and flows register unpinned). */
+  omit?: 'deployment' | 'signing' | 'image' | 'tools';
   omitProjectBinding?: boolean;
   extraTrust?: readonly TrustEntry[];
   extraImages?: readonly FakeImage[];
@@ -761,7 +771,7 @@ function makeApp(opts: {
     ...(opts.omit === 'deployment' ? {} : { deploymentRegistry }),
     ...(opts.omit === 'signing' ? {} : { signingKeyRegistry }),
     ...(opts.omit === 'image' ? {} : { imageRegistry }),
-    toolRegistry,
+    ...(opts.omit === 'tools' ? {} : { toolRegistry }),
     guardrailRegistry,
     agentRegistry,
     flowRegistry,
@@ -1216,6 +1226,50 @@ describe('POST /v1/deployments — happy path', () => {
       },
     ]);
     expect(await toolRegistry.get({ tenantId, toolId: 'acme.summarize' as never })).toBeNull();
+  });
+
+  test('a tool naming a reserved `kindgi.` secret is refused, with no provider registered', async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.relay',
+            description: "Relay with a token of the runtime's own.",
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/relay.js',
+            needsSpec: { secrets: { 'kindgi.connection-token': { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+    const { app, toolRegistry } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; details: { issues: unknown[] } } };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details.issues).toEqual([
+      {
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.relay',
+        path: '/secrets/kindgi.connection-token',
+        message:
+          '`kindgi.connection-token` uses the reserved "kindgi." prefix: a tool never names one. Those names are Kindgi\'s own; store the secret under a name of its own and use that',
+      },
+    ]);
+    expect(await toolRegistry.get({ tenantId, toolId: 'acme.relay' as never })).toBeNull();
   });
 
   test('signed deployment → 201 with all primitives registered', async () => {
@@ -2153,6 +2207,51 @@ describe('POST /v1/deployments — manifest validation', () => {
     }
   });
 
+  test("an agent's parallelToolCalls that isn't true or false → 400 at /parallelToolCalls", async () => {
+    const index = indexWith(undefined);
+    const fixture = buildSignedDeploy({
+      index: { ...index, agents: index.agents.map((a) => ({ ...a, parallelToolCalls: 'false' })) },
+    });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { details?: { issues?: Array<Record<string, unknown>> } };
+    };
+    expect(body.error.details?.issues).toEqual([
+      {
+        primitive: 'agent',
+        index: 0,
+        id: 'acme.summary',
+        path: '/parallelToolCalls',
+        message: 'agent.parallelToolCalls must be true or false',
+      },
+    ]);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test("an agent's parallelToolCalls: false deploys, and its agent is registered with it", async () => {
+    const index = indexWith(undefined);
+    const fixture = buildSignedDeploy({
+      index: { ...index, agents: index.agents.map((a) => ({ ...a, parallelToolCalls: false })) },
+    });
+    const agents = makeInMemoryAgentRegistry();
+    const written: Agent[] = [];
+    const { app } = makeApp({
+      fixture,
+      agentRegistry: {
+        ...agents,
+        publish: async (input) => {
+          written.push(input.agent);
+          return agents.publish(input);
+        },
+      },
+    });
+    const res = await post(app, fixture.wire);
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(written.map((a) => a.parallelToolCalls)).toEqual([false]);
+  });
+
   test('an agent whose output schema compiles deploys', async () => {
     const fixture = buildSignedDeploy({
       index: indexWith({
@@ -2396,6 +2495,44 @@ describe('POST /v1/deployments — 500s route through the central handler', () =
 
 // ---------------- rollback ----------------
 
+/** A deployment record that throws for the first `failures` deploys, then records them. */
+function makeFailingDeploymentBinding(failures: number): DeploymentBinding {
+  let left = failures;
+  const records = makeInMemoryDeploymentBinding();
+  return {
+    ...records,
+    register: async (input) => {
+      if (left > 0) {
+        left -= 1;
+        throw new Error('the deployment record failed');
+      }
+      return records.register(input);
+    },
+  };
+}
+
+/** A logger that keeps each warn; a child is the same logger. */
+function recordingLogger(): Logger & {
+  warns: { readonly message: string; readonly fields: LogFields | undefined }[];
+} {
+  const warns: { readonly message: string; readonly fields: LogFields | undefined }[] = [];
+  const log: Logger & { warns: typeof warns } = {
+    warns,
+    error: () => undefined,
+    warn: (message, fields) => void warns.push({ message, fields }),
+    info: () => undefined,
+    debug: () => undefined,
+    trace: () => undefined,
+    child: () => log,
+    isLevelEnabled: () => true,
+  };
+  return log;
+}
+
+/** The rollback's warns `logger` kept. */
+const rollbackWarns = (logger: ReturnType<typeof recordingLogger>) =>
+  logger.warns.filter((w) => w.message.startsWith('deploy rollback'));
+
 describe('POST /v1/deployments — rollback', () => {
   test('agent publish throw mid-transaction → 500 + tool/guardrail rolled back', async () => {
     const fixture = buildSignedDeploy({
@@ -2584,74 +2721,93 @@ describe('POST /v1/deployments — rollback', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
-  test('an agent that belongs to another project → 409 agent-project-mismatch, rolled back, nothing deployed', async () => {
-    const fixture = buildSignedDeploy({
-      index: {
-        v: 1,
-        artifactVersion: '20260920.1',
-        publishedAt: '2026-09-20T14:32:07.104Z',
-        tools: [
-          {
-            id: 'acme.verify-citation',
-            description: 'x',
-            version: '1.0.0',
-            input: { type: 'object' },
-            output: { type: 'object' },
-          },
-        ],
-        guardrails: [
-          {
-            id: 'acme.no-fabricated-quotes',
-            kind: 'zero-llm',
-            check: 'must-cite',
-            action: { 'on-violation': 'halt' },
-          },
-        ],
-        agents: [
-          {
-            id: 'acme.drafting',
-            version: '1.0.0',
-            name: 'Drafting',
-            instructions: 'do it',
-            capabilities: [{ feature: 'model.text.chat' }],
-            tools: [],
-          },
-        ],
-        flows: [],
-      },
-    });
-    const deploymentRegistry = makeInMemoryDeploymentBinding();
-    const { app, toolRegistry, guardrailRegistry } = makeApp({
-      fixture,
-      agentRegistry: makeInMemoryAgentRegistry({ elsewhereAgentId: 'acme.drafting' }),
-      deploymentRegistry,
-    });
-    const res = await app.request('/v1/deployments', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(fixture.wire),
-    });
-    expect(res.status).toBe(409);
-    const text = await res.text();
-    const body = JSON.parse(text) as {
-      error: { code: string; message: string; details?: Record<string, unknown> };
-    };
-    expect(body.error.code).toBe('agent-project-mismatch');
-    expect(body.error.message).toBe(
-      "The agent acme.drafting@1.0.0 wasn't published: it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id); nothing was deployed",
-    );
-    expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
-    // The project it belongs to stays off the wire.
-    expect(text).not.toContain(ELSEWHERE_PROJECT_ID);
-    // A deploy never moves it: what it published before is rolled back.
-    expect(
-      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
-    ).toBeNull();
-    expect(
-      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
-    ).toBeNull();
-    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
-  });
+  test.each([
+    {
+      runs: 'a pack service per deployment',
+      extra: PER_DEPLOYMENT,
+      fix: ' (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id)',
+    },
+    {
+      runs: 'one pack service, with environment orders',
+      extra: { environmentOrders: environmentOrders([]) },
+      fix: " (this runtime runs one pack service, so a copy of the pack wouldn't run: if both projects are in the same org, or neither is in an org, put them in one environment order (`kindgi environments set`), this one right after the one it belongs to, and `kindgi promote` the build to this one instead of deploying it; otherwise they can't share an order until both are in the same org, or neither is in an org (a project not in an order can move))",
+    },
+    { runs: 'one pack service, no environment orders', extra: {}, fix: '' },
+  ])(
+    'an agent that belongs to another project, on a runtime with $runs → 409 agent-project-mismatch naming the fix it has, rolled back, nothing deployed',
+    async ({ extra, fix }) => {
+      const fixture = buildSignedDeploy({
+        index: {
+          v: 1,
+          artifactVersion: '20260920.1',
+          publishedAt: '2026-09-20T14:32:07.104Z',
+          tools: [
+            {
+              id: 'acme.verify-citation',
+              description: 'x',
+              version: '1.0.0',
+              input: { type: 'object' },
+              output: { type: 'object' },
+            },
+          ],
+          guardrails: [
+            {
+              id: 'acme.no-fabricated-quotes',
+              kind: 'zero-llm',
+              check: 'must-cite',
+              action: { 'on-violation': 'halt' },
+            },
+          ],
+          agents: [
+            {
+              id: 'acme.drafting',
+              version: '1.0.0',
+              name: 'Drafting',
+              instructions: 'do it',
+              capabilities: [{ feature: 'model.text.chat' }],
+              tools: [],
+            },
+          ],
+          flows: [],
+        },
+      });
+      const deploymentRegistry = makeInMemoryDeploymentBinding();
+      const { app, toolRegistry, guardrailRegistry } = makeApp({
+        fixture,
+        agentRegistry: makeInMemoryAgentRegistry({ elsewhereAgentId: 'acme.drafting' }),
+        deploymentRegistry,
+        extra,
+      });
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+      expect(res.status).toBe(409);
+      const text = await res.text();
+      const body = JSON.parse(text) as {
+        error: { code: string; message: string; details?: Record<string, unknown> };
+      };
+      expect(body.error.code).toBe('agent-project-mismatch');
+      expect(body.error.message).toBe(
+        `The agent acme.drafting@1.0.0 wasn't published: it belongs to another project${fix}; nothing was deployed`,
+      );
+      expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
+      // The project it belongs to stays off the wire.
+      expect(text).not.toContain(ELSEWHERE_PROJECT_ID);
+      // A deploy never moves it: what it published before is rolled back.
+      expect(
+        await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+      ).toBeNull();
+      expect(
+        await guardrailRegistry.get({
+          tenantId,
+          guardrailId: 'acme.no-fabricated-quotes' as never,
+        }),
+      ).toBeNull();
+      expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    },
+  );
 
   test('a flow refused with a typed outcome → its 404, the tool it shipped with rolled back (T205)', async () => {
     const fixture = buildSignedDeploy({
@@ -2703,6 +2859,47 @@ describe('POST /v1/deployments — rollback', () => {
     );
     expect(await toolRegistry.get({ tenantId, toolId: 'inline' as never })).toBeNull();
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test("a guardrail the rollback can't unregister is warned, by name, and the tool before it is still unregistered", async () => {
+    const fixture = buildSignedDeploy({
+      artifactVersion: '20260920.1',
+      index: indexWith('20260920.1'),
+    });
+    const logger = recordingLogger();
+    const { app, toolRegistry } = makeApp({
+      fixture,
+      deploymentRegistry: makeFailingDeploymentBinding(1),
+      extra: {
+        logger,
+        guardrailRegistry: {
+          ...makeInMemoryGuardrailRegistry(),
+          unregister: async () => {
+            throw new Error('the guardrail store is down');
+          },
+        },
+      },
+    });
+
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    expect(rollbackWarns(logger)).toEqual([
+      {
+        message: `deploy rollback: couldn't unregister guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
+        fields: {
+          primitive: 'guardrail',
+          id: 'acme.no-fabricated-quotes',
+          err: new Error('the guardrail store is down'),
+        },
+      },
+    ]);
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
   });
 });
 
@@ -4446,6 +4643,8 @@ function pinnedPack(opts: {
   instructions?: string;
   artifactVersion?: string;
   flowVersion?: string;
+  /** The tool's `needsSpec`, when it names any. */
+  needsSpec?: Record<string, unknown>;
 }): SignedDeploy {
   const artifactVersion = opts.artifactVersion ?? '20261005.1';
   const publishedAt = '2026-10-05T00:00:00.000Z';
@@ -4464,6 +4663,7 @@ function pinnedPack(opts: {
           input: { type: 'object', properties: { q: { type: 'string' } } },
           output: { type: 'object', properties: { score: { type: 'number' } } },
           modulePath: `./tools/score-${opts.toolVersion}.js`,
+          ...(opts.needsSpec !== undefined && { needsSpec: opts.needsSpec }),
         },
       ],
       guardrails: [],
@@ -4975,6 +5175,720 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
   });
 });
 
+// ---------------- a redeploy after a rolled-back deploy ----------------
+
+/**
+ * A tool registry keyed by (id, version) whose `unregister` retires a
+ * version, as the runtime's does: its number stays taken (`publish`
+ * answers `already-registered`), `listVersions` lists it only with
+ * `includeTombstoned` (with `unregisteredAt`), and `reinstateVersion`
+ * makes it active again.
+ */
+function makeRetiringToolRegistry(opts: { versionsPerPage?: number } = {}): ToolRegistryBinding & {
+  /** Each version, as `id@version active|unregistered`. */
+  states: () => string[];
+  /** Every reinstate asked, as `id@version`. */
+  reinstated: string[];
+  /** Store `tool` as a version an earlier deploy published, since unregistered. */
+  seedRetired: (tool: Record<string, unknown>) => void;
+  /** Store `tool` as a version an earlier deploy published. */
+  seedActive: (tool: Record<string, unknown>) => void;
+} {
+  const rows = new Map<
+    string,
+    { readonly tool: Record<string, unknown>; unregisteredAt: string | undefined }
+  >();
+  const key = (id: unknown, version: unknown) => `${id as string}@${version as string}`;
+  const reinstated: string[] = [];
+  return {
+    states: () =>
+      [...rows.entries()]
+        .map(([k, r]) => `${k} ${r.unregisteredAt === undefined ? 'active' : 'unregistered'}`)
+        .sort(),
+    reinstated,
+    seedRetired: (tool) =>
+      rows.set(key(tool.id, tool.version), { tool, unregisteredAt: '2026-10-01T00:00:00.000Z' }),
+    seedActive: (tool) => rows.set(key(tool.id, tool.version), { tool, unregisteredAt: undefined }),
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion({ toolId, version }) {
+      return (rows.get(key(toolId, version))?.tool as never) ?? null;
+    },
+    async headExists({ toolId }) {
+      return [...rows.keys()].some((k) => k.startsWith(key(toolId, '')));
+    },
+    async listVersions({ toolId, includeTombstoned, cursor }) {
+      const all = [...rows.entries()]
+        .filter(([k]) => k.startsWith(key(toolId, '')))
+        .filter(([, r]) => includeTombstoned === true || r.unregisteredAt === undefined)
+        .map(([, r]) => ({
+          ...r.tool,
+          ...(r.unregisteredAt !== undefined && { unregisteredAt: r.unregisteredAt }),
+        }));
+      // Pages of `versionsPerPage`, the cursor the next page's first index.
+      const from = cursor === undefined ? 0 : Number(cursor);
+      const to = from + (opts.versionsPerPage ?? all.length);
+      return {
+        data: all.slice(from, to) as never[],
+        ...(to < all.length && { nextCursor: String(to) as never }),
+      };
+    },
+    async resolve({ toolId }) {
+      return { kind: 'not-found', toolId };
+    },
+    async publish({ tool }) {
+      const k = key(tool.id, tool.version);
+      if (rows.has(k)) {
+        return { kind: 'already-registered', toolId: tool.id, version: tool.version as never };
+      }
+      rows.set(k, { tool: tool as never, unregisteredAt: undefined });
+      return { kind: 'ok', toolId: tool.id, version: tool.version as never };
+    },
+    async unregister({ toolId, version }) {
+      const row = rows.get(key(toolId, version));
+      if (row === undefined || row.unregisteredAt !== undefined) return { unregistered: false };
+      row.unregisteredAt = new Date().toISOString();
+      return { unregistered: true };
+    },
+    async reinstateVersion({ toolId, version }) {
+      reinstated.push(key(toolId, version));
+      const row = rows.get(key(toolId, version));
+      if (row === undefined) return { kind: 'not-found', toolId, version };
+      const wasTombstoned = row.unregisteredAt !== undefined;
+      row.unregisteredAt = undefined;
+      return { kind: 'ok', toolId, version, wasTombstoned };
+    },
+  };
+}
+
+describe('POST /v1/deployments — a redeploy after a rolled-back deploy', () => {
+  const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.0.0', flowVersion: '1.0.0' });
+  /** `acme.score@1.0.0` as a deploy of `pack` stores it: the pack's tool, with its code's place. */
+  const scoreTool = {
+    id: 'acme.score',
+    description: 'Scores a match.',
+    version: '1.0.0',
+    input: { type: 'object', properties: { q: { type: 'string' } } },
+    output: { type: 'object', properties: { score: { type: 'number' } } },
+    codeArtifactRef: {
+      kind: 'oci',
+      imageRef: pack.imageRef,
+      modulePath: './tools/score-1.0.0.js',
+      artifactVersion: '20261005.1',
+    },
+  };
+
+  /** One app over `tools`; its deployment record throws for the first `failures` deploys. */
+  function setup(
+    tools: ToolRegistryBinding,
+    opts: {
+      failures?: number;
+      packs?: readonly SignedDeploy[];
+      extra?: Partial<Parameters<typeof createApp>[0]>;
+    } = {},
+  ) {
+    const deploymentRegistry = makeFailingDeploymentBinding(opts.failures ?? 0);
+    const packs = opts.packs ?? [pack];
+    const flows = makeVersionedFlowRegistry();
+    const { app } = makeApp({
+      deploymentRegistry,
+      toolRegistry: tools,
+      agentRegistry: makeVersionedAgentRegistry(),
+      flowRegistry: flows,
+      ...(opts.extra !== undefined && { extra: opts.extra }),
+      extraTrust: packs.map((f) => ({
+        keyId: KEY_ID,
+        tenantId,
+        publicKey: Buffer.from(f.publicKeyRaw).toString('base64'),
+      })),
+      extraImages: packs.map((f) => ({
+        imageRef: f.imageRef,
+        digest: f.digest,
+        indexBytes: f.indexBytes,
+      })),
+    });
+    const deploy = async (f: SignedDeploy = pack) => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(f.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { flows, deploy };
+  }
+
+  test('a deploy that failed after its tool publish unregistered the tool; the same image deploys again, and its agent and flow pin the tool', async () => {
+    const tools = makeRetiringToolRegistry();
+    const { flows, deploy } = setup(tools, { failures: 1 });
+
+    const failed = await deploy();
+    expect(failed.status).toBe(500);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+
+    const again = await deploy();
+    expect(again.status).toBe(201);
+    expect(tools.reinstated).toEqual(['acme.score@1.0.0']);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+    expect(again.body.contents.tools).toEqual([{ id: 'acme.score', version: '1.0.0' }]);
+    expect(flows.versions()[0]?.pins).toEqual({
+      tools: { 'acme.score': '1.0.0' },
+      agents: { 'acme.matcher': '1.0.0' },
+    });
+  });
+
+  test('a redeploy that fails again unregisters the version it reinstated', async () => {
+    const tools = makeRetiringToolRegistry();
+    const { deploy } = setup(tools, { failures: 2 });
+
+    expect((await deploy()).status).toBe(500);
+    expect((await deploy()).status).toBe(500);
+    expect(tools.reinstated).toEqual(['acme.score@1.0.0']);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+
+    expect((await deploy()).status).toBe(201);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
+
+  test("a version past its registry's first page of versions is found, and reinstated", async () => {
+    const tools = makeRetiringToolRegistry({ versionsPerPage: 1 });
+    tools.seedActive({ ...scoreTool, version: '0.9.0' });
+    tools.seedRetired(scoreTool);
+    const { deploy } = setup(tools);
+
+    expect((await deploy()).status).toBe(201);
+    expect(tools.reinstated).toEqual(['acme.score@1.0.0']);
+    expect(tools.states()).toEqual(['acme.score@0.9.0 active', 'acme.score@1.0.0 active']);
+  });
+
+  test("a version reinstated since its registry listed it isn't this deploy's to unregister rolling back", async () => {
+    const tools = makeRetiringToolRegistry();
+    tools.seedRetired(scoreTool);
+    const { deploy } = setup(
+      {
+        ...tools,
+        // Another caller reinstates it first: this deploy's reinstate finds it active.
+        reinstateVersion: async (input) => {
+          await tools.reinstateVersion(input);
+          return tools.reinstateVersion(input);
+        },
+      },
+      { failures: 1 },
+    );
+
+    expect((await deploy()).status).toBe(500);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
+
+  test("an active tool version isn't reinstated (as under kindgi dev, whose registry answers every publish already-registered and every reinstate not-found)", async () => {
+    const tools = makeRetiringToolRegistry();
+    const asked: string[] = [];
+    const dev: ToolRegistryBinding = {
+      ...tools,
+      reinstateVersion: async ({ toolId, version }) => {
+        asked.push(`${toolId as unknown as string}@${version as unknown as string}`);
+        return { kind: 'not-found', toolId, version };
+      },
+    };
+    const next = pinnedPack({
+      toolVersion: '1.0.0',
+      agentVersion: '1.0.0',
+      flowVersion: '1.0.0',
+      artifactVersion: '20261005.2',
+      instructions: 'Match the request, briefly.',
+    });
+    const { deploy } = setup(dev, { packs: [pack, next] });
+
+    expect((await deploy()).status).toBe(201);
+    // A new image of the same pack: its tool version is already published, and active.
+    expect((await deploy(next)).status).toBe(201);
+    expect(asked).toEqual([]);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
+
+  test('a reinstate its registry answers not-found is a 500, and nothing else is written', async () => {
+    const tools = makeRetiringToolRegistry();
+    tools.seedRetired(scoreTool);
+    const { flows, deploy } = setup({
+      ...tools,
+      reinstateVersion: async ({ toolId, version }) => ({ kind: 'not-found', toolId, version }),
+    });
+
+    const res = await deploy();
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('internal-server-error');
+    expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+    expect(flows.versions()).toEqual([]);
+  });
+
+  test("a reinstate its registry refuses as another kind (an MCP endpoint's tool) is a 409 tool-kind-mismatch, as its publish is; it stays unregistered, and nothing else is written", async () => {
+    const tools = makeRetiringToolRegistry();
+    tools.seedRetired(scoreTool);
+    const { flows, deploy } = setup({
+      ...tools,
+      reinstateVersion: async ({ toolId, version }) => ({
+        kind: 'kind-mismatch',
+        toolId,
+        version,
+        endpointId: 'acme',
+      }),
+    });
+
+    const res = await deploy();
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('tool-kind-mismatch');
+    expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+    expect(flows.versions()).toEqual([]);
+  });
+
+  test("an unregistered version naming a model provider's key stays unregistered: the pack's tool names it too, and the deploy is refused before any write", async () => {
+    const needsSpec = { secrets: { ANTHROPIC_API_KEY: { type: 'string' } } };
+    const keyed = pinnedPack({
+      toolVersion: '1.0.0',
+      agentVersion: '1.0.0',
+      flowVersion: '1.0.0',
+      artifactVersion: '20261005.2',
+      needsSpec,
+    });
+    const tools = makeRetiringToolRegistry();
+    // A deploy keeps a version only with the pack's definition, so the
+    // stored version names the key as the pack's tool does.
+    tools.seedRetired({ ...scoreTool, needsSpec });
+    const { flows, deploy } = setup(tools, {
+      packs: [keyed],
+      extra: {
+        providerRegistry: {
+          resolveForRuntime: async () => [
+            {
+              metadata: { id: 'anthropic-main' },
+              adapterId: '@kindgi/adapter-model-anthropic',
+              secretRef: { envName: 'local', name: 'ANTHROPIC_API_KEY' },
+            },
+          ],
+          register: async () => ({ kind: 'ok', providerId: 'anthropic-main' }),
+          list: async () => ({ data: [] }),
+          get: async () => null,
+        } as never,
+      },
+    });
+
+    const res = await deploy(keyed);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('deployment-validation-failed');
+    expect(res.body.error.details.issues).toEqual([
+      {
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.score',
+        path: '/secrets/ANTHROPIC_API_KEY',
+        message: expect.stringMatching(
+          /^`ANTHROPIC_API_KEY` is the key of model provider "anthropic-main"/,
+        ),
+      },
+    ]);
+    expect(tools.reinstated).toEqual([]);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 unregistered']);
+    expect(flows.versions()).toEqual([]);
+  });
+
+  /** `tools`, its unregister failing. */
+  const unregisterFails = (tools: ToolRegistryBinding): ToolRegistryBinding => ({
+    ...tools,
+    unregister: async () => {
+      throw new Error('the tool store is down');
+    },
+  });
+  const toolWarn = {
+    message: `deploy rollback: couldn't unregister tool "acme.score@1.0.0", so it stays as this deploy left it`,
+    fields: { primitive: 'tool', id: 'acme.score@1.0.0', err: new Error('the tool store is down') },
+  };
+
+  test("a tool version the rollback can't unregister is warned, by name", async () => {
+    const tools = makeRetiringToolRegistry();
+    const logger = recordingLogger();
+    const { deploy } = setup(unregisterFails(tools), { failures: 1, extra: { logger } });
+
+    expect((await deploy()).status).toBe(500);
+    expect(rollbackWarns(logger)).toEqual([toolWarn]);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
+
+  test("a reinstated tool version the rollback can't unregister again is warned, by name", async () => {
+    const tools = makeRetiringToolRegistry();
+    tools.seedRetired(scoreTool);
+    const logger = recordingLogger();
+    const { deploy } = setup(unregisterFails(tools), { failures: 1, extra: { logger } });
+
+    expect((await deploy()).status).toBe(500);
+    expect(tools.reinstated).toEqual(['acme.score@1.0.0']);
+    expect(rollbackWarns(logger)).toEqual([toolWarn]);
+    expect(tools.states()).toEqual(['acme.score@1.0.0 active']);
+  });
+});
+
+/**
+ * Agent or flow versions keyed by (id, version), whose `unregister`
+ * retires a version as the runtime's does: its number stays taken
+ * (`publish` answers `already-registered`), `getVersion` reads it with
+ * `unregisteredAt`, and `reinstateVersion` makes it active again.
+ */
+function makeRetiringVersions() {
+  const rows = new Map<
+    string,
+    { readonly definition: Record<string, unknown>; unregisteredAt: string | undefined }
+  >();
+  const key = (id: unknown, version: unknown) => `${id as string}@${version as string}`;
+  const reinstated: string[] = [];
+  return {
+    /** Each version, as `id@version active|unregistered`. */
+    states: () =>
+      [...rows.entries()]
+        .map(([k, r]) => `${k} ${r.unregisteredAt === undefined ? 'active' : 'unregistered'}`)
+        .sort(),
+    /** Every reinstate asked, as `id@version`. */
+    reinstated,
+    /** Store `definition` as a version an earlier deploy published, since unregistered. */
+    seedRetired: (definition: Record<string, unknown>) =>
+      rows.set(key(definition.id, definition.version), {
+        definition: { ...definition, projectId: DEFAULT_PROJECT_ID },
+        unregisteredAt: '2026-10-01T00:00:00.000Z',
+      }),
+    read: (id: unknown, version: unknown) => {
+      const row = rows.get(key(id, version));
+      if (row === undefined) return null;
+      return {
+        ...row.definition,
+        ...(row.unregisteredAt !== undefined && { unregisteredAt: row.unregisteredAt }),
+      } as never;
+    },
+    /** Whether `definition` is newly stored: `false` when its number is taken. */
+    publish: (
+      definition: { readonly id: unknown; readonly version: unknown },
+      projectId: ProjectId,
+    ) => {
+      const k = key(definition.id, definition.version);
+      if (rows.has(k)) return false;
+      rows.set(k, { definition: { ...definition, projectId }, unregisteredAt: undefined });
+      return true;
+    },
+    unregister: (id: unknown, version: unknown) => {
+      const row = rows.get(key(id, version));
+      if (row === undefined || row.unregisteredAt !== undefined) return false;
+      row.unregisteredAt = new Date().toISOString();
+      return true;
+    },
+    /** `undefined` for a version never stored, else whether it was unregistered. */
+    reinstate: (id: unknown, version: unknown) => {
+      reinstated.push(key(id, version));
+      const row = rows.get(key(id, version));
+      if (row === undefined) return undefined;
+      const wasTombstoned = row.unregisteredAt !== undefined;
+      row.unregisteredAt = undefined;
+      return wasTombstoned;
+    },
+  };
+}
+
+type RetiringVersions = ReturnType<typeof makeRetiringVersions>;
+
+function makeRetiringAgentRegistry(versions: RetiringVersions): AgentRegistryBinding {
+  return {
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion({ agentId, version }) {
+      return versions.read(agentId, version);
+    },
+    async headExists() {
+      return false;
+    },
+    async listVersions() {
+      return { data: [] };
+    },
+    async publish({ projectId, agent }) {
+      return versions.publish(agent, projectId)
+        ? { kind: 'ok', agentId: agent.id, version: agent.version }
+        : { kind: 'already-registered', agentId: agent.id, version: agent.version };
+    },
+    async unregister({ agentId, version }) {
+      return { unregistered: versions.unregister(agentId, version) };
+    },
+    async reinstateVersion({ agentId, version }) {
+      const wasTombstoned = versions.reinstate(agentId, version);
+      return wasTombstoned === undefined
+        ? { kind: 'not-found', agentId, version }
+        : { kind: 'ok', agentId, version, wasTombstoned };
+    },
+  };
+}
+
+function makeRetiringFlowRegistry(versions: RetiringVersions): FlowRegistryBinding {
+  return {
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion({ flowId, version }) {
+      return versions.read(flowId, version);
+    },
+    async headExists() {
+      return false;
+    },
+    async listVersions() {
+      return { data: [] };
+    },
+    async publish({ projectId, flow }) {
+      return versions.publish(flow, projectId)
+        ? { kind: 'ok', flowId: flow.id, version: flow.version }
+        : { kind: 'already-registered', flowId: flow.id, version: flow.version };
+    },
+    async unregister({ flowId, version }) {
+      return { unregistered: versions.unregister(flowId, version) };
+    },
+    async reinstateVersion({ flowId, version }) {
+      const wasTombstoned = versions.reinstate(flowId, version);
+      return wasTombstoned === undefined
+        ? { kind: 'not-found', flowId, version }
+        : { kind: 'ok', flowId, version, wasTombstoned };
+    },
+  };
+}
+
+describe('POST /v1/deployments — a redeploy after a rolled-back deploy, its agents and flows unpinned', () => {
+  const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.0.0', flowVersion: '1.0.0' });
+  /** `acme.matcher@1.0.0` and `acme.review@1.0.0` as their registries store them. */
+  const matcher = {
+    id: 'acme.matcher',
+    version: '1.0.0',
+    name: 'Matcher',
+    instructions: 'Match the request.',
+    capabilities: [{ feature: 'model.text.chat' }],
+    tools: [{ id: 'acme.score', version: '^1.0.0' }],
+  };
+  const review = {
+    id: 'acme.review',
+    version: '1.0.0',
+    nodes: [
+      { id: 'score', kind: 'tool', ref: 'acme.score' },
+      { id: 'match', kind: 'agent', ref: 'acme.matcher' },
+    ],
+    edges: [
+      { id: 'e0', from: '$start', to: 'score' },
+      { id: 'e1', from: 'score', to: 'match' },
+      { id: 'e2', from: 'match', to: '$end' },
+    ],
+  };
+  /** A reference scope that reaches all but `acme.elsewhere`. */
+  const scope: Partial<Parameters<typeof createApp>[0]> = {
+    referenceScope: { reachable: async ({ ref }) => ref.id !== 'acme.elsewhere' },
+  };
+
+  /**
+   * One app with no tool registry, so its agents and flows register
+   * unpinned; its deployment record throws for the first `failures`
+   * deploys.
+   */
+  function setup(
+    opts: {
+      failures?: number;
+      agents?: (registry: AgentRegistryBinding) => AgentRegistryBinding;
+      flows?: (registry: FlowRegistryBinding) => FlowRegistryBinding;
+      extra?: Partial<Parameters<typeof createApp>[0]>;
+    } = {},
+  ) {
+    const deploymentRegistry = makeFailingDeploymentBinding(opts.failures ?? 0);
+    const agents = makeRetiringVersions();
+    const flows = makeRetiringVersions();
+    const agentRegistry = makeRetiringAgentRegistry(agents);
+    const flowRegistry = makeRetiringFlowRegistry(flows);
+    const { app } = makeApp({
+      fixture: pack,
+      deploymentRegistry,
+      omit: 'tools',
+      agentRegistry: opts.agents?.(agentRegistry) ?? agentRegistry,
+      flowRegistry: opts.flows?.(flowRegistry) ?? flowRegistry,
+      ...(opts.extra !== undefined && { extra: opts.extra }),
+    });
+    const deploy = async () => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(pack.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { agents, flows, deploy };
+  }
+
+  test('a deploy that failed after its agent and flow publish unregistered them; the same image deploys again, each reinstated', async () => {
+    const { agents, flows, deploy } = setup({ failures: 1 });
+
+    expect((await deploy()).status).toBe(500);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 unregistered']);
+
+    expect((await deploy()).status).toBe(201);
+    expect(agents.reinstated).toEqual(['acme.matcher@1.0.0']);
+    expect(flows.reinstated).toEqual(['acme.review@1.0.0']);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 active']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 active']);
+
+    // Deployed again, both are active: nothing to reinstate.
+    expect((await deploy()).status).toBe(200);
+    expect(agents.reinstated).toEqual(['acme.matcher@1.0.0']);
+    expect(flows.reinstated).toEqual(['acme.review@1.0.0']);
+  });
+
+  test('a redeploy that fails again unregisters the agent and flow versions it reinstated', async () => {
+    const { agents, flows, deploy } = setup({ failures: 2 });
+
+    expect((await deploy()).status).toBe(500);
+    expect((await deploy()).status).toBe(500);
+    expect(agents.reinstated).toEqual(['acme.matcher@1.0.0']);
+    expect(flows.reinstated).toEqual(['acme.review@1.0.0']);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 unregistered']);
+
+    expect((await deploy()).status).toBe(201);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 active']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 active']);
+  });
+
+  test("an agent version reinstated since its registry read it isn't this deploy's to unregister rolling back", async () => {
+    const { agents, deploy } = setup({
+      failures: 1,
+      agents: (registry) => ({
+        ...registry,
+        // Another caller reinstates it first: this deploy's reinstate finds it active.
+        reinstateVersion: async (input) => {
+          await registry.reinstateVersion(input);
+          return registry.reinstateVersion(input);
+        },
+      }),
+    });
+    agents.seedRetired(matcher);
+
+    expect((await deploy()).status).toBe(500);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 active']);
+  });
+
+  test('an agent reinstate its registry answers not-found is a 500, and no flow is written', async () => {
+    const { agents, flows, deploy } = setup({
+      agents: (registry) => ({
+        ...registry,
+        reinstateVersion: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
+      }),
+    });
+    agents.seedRetired(matcher);
+
+    const res = await deploy();
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('internal-server-error');
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+    expect(flows.states()).toEqual([]);
+  });
+
+  test("an unregistered agent version naming what its project doesn't reach stays unregistered: the deploy is refused, as the same name in the pack's agent is", async () => {
+    const { agents, flows, deploy } = setup({ extra: scope });
+    // The stored version names a tool its project doesn't reach; the pack's agent, at the same version, doesn't.
+    agents.seedRetired({ ...matcher, tools: [{ id: 'acme.elsewhere', version: '^1.0.0' }] });
+
+    const res = await deploy();
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('reference-out-of-scope');
+    expect(res.body.error.message).toBe(
+      `This project can't reference tool "acme.elsewhere": it isn't registered in this project, its org or the tenant`,
+    );
+    expect(res.body.error.details.issues).toEqual([
+      {
+        path: '/agents/0',
+        kind: 'tool',
+        id: 'acme.elsewhere',
+        message: `version 1.0.0 of this agent is unregistered and can't be reinstated: tool "acme.elsewhere" isn't registered in this project, its org or the tenant. Publish the agent under a new version`,
+      },
+    ]);
+    expect(agents.reinstated).toEqual([]);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+    expect(flows.states()).toEqual([]);
+  });
+
+  test("an unregistered flow version naming what its project doesn't reach stays unregistered, and the deploy is refused", async () => {
+    const { agents, flows, deploy } = setup({ extra: scope });
+    flows.seedRetired({
+      ...review,
+      nodes: [
+        { id: 'score', kind: 'tool', ref: 'acme.elsewhere' },
+        { id: 'match', kind: 'agent', ref: 'acme.matcher' },
+      ],
+    });
+
+    const res = await deploy();
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('reference-out-of-scope');
+    expect(res.body.error.details.issues).toEqual([
+      {
+        path: '/flows/0',
+        kind: 'tool',
+        id: 'acme.elsewhere',
+        message: `version 1.0.0 of this flow is unregistered and can't be reinstated: tool "acme.elsewhere" isn't registered in this project, its org or the tenant. Publish the flow under a new version`,
+      },
+    ]);
+    expect(flows.reinstated).toEqual([]);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 unregistered']);
+    // The agent this deploy published is rolled back with it.
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 unregistered']);
+  });
+
+  test("each undo the rollback can't do is warned, by name, last write first, and none stops the rest", async () => {
+    const logger = recordingLogger();
+    const fails =
+      <R extends AgentRegistryBinding | FlowRegistryBinding>(what: string) =>
+      (registry: R): R => ({
+        ...registry,
+        unregister: async () => {
+          throw new Error(`the ${what} store is down`);
+        },
+      });
+    const { agents, flows, deploy } = setup({
+      failures: 1,
+      agents: fails('agent'),
+      flows: fails('flow'),
+      extra: { logger },
+    });
+
+    expect((await deploy()).status).toBe(500);
+    expect(rollbackWarns(logger)).toEqual([
+      {
+        message: `deploy rollback: couldn't unregister flow "acme.review@1.0.0", so it stays as this deploy left it`,
+        fields: {
+          primitive: 'flow',
+          id: 'acme.review@1.0.0',
+          err: new Error('the flow store is down'),
+        },
+      },
+      {
+        message: `deploy rollback: couldn't unregister agent "acme.matcher@1.0.0", so it stays as this deploy left it`,
+        fields: {
+          primitive: 'agent',
+          id: 'acme.matcher@1.0.0',
+          err: new Error('the agent store is down'),
+        },
+      },
+    ]);
+    expect(agents.states()).toEqual(['acme.matcher@1.0.0 active']);
+    expect(flows.states()).toEqual(['acme.review@1.0.0 active']);
+  });
+});
+
 // ---------------- a guardrail id that's already live ----------------
 
 /** The fixture's index, its guardrail changed by `guardrail`, for `artifactVersion`. */
@@ -5018,7 +5932,12 @@ const SECOND_KEY_ID = 'aperture-staging-2026-02' as SigningKeyId;
 /** An app that trusts two images of the pack: the first (`opts.first`, else the fixture's), and a later one (`second`). */
 function twoImages(
   second: SignedDeploy,
-  opts: { refreshes?: boolean; first?: SignedDeploy; toolRegistry?: ToolRegistryBinding } = {},
+  opts: {
+    refreshes?: boolean;
+    first?: SignedDeploy;
+    toolRegistry?: ToolRegistryBinding;
+    logger?: Logger;
+  } = {},
 ) {
   const first =
     opts.first ??
@@ -5030,6 +5949,7 @@ function twoImages(
     fixture: first,
     ...(opts.refreshes === true && { refreshes: true }),
     ...(opts.toolRegistry !== undefined && { toolRegistry: opts.toolRegistry }),
+    ...(opts.logger !== undefined && { extra: { logger: opts.logger } }),
     extraTrust: [
       {
         keyId: SECOND_KEY_ID,
@@ -5084,7 +6004,8 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
     };
     expect(body.error.code).toBe('guardrail-project-mismatch');
     expect(body.error.message).toBe(
-      "The guardrail acme.no-fabricated-quotes wasn't published: it belongs to another project (one pack per client: `kindgi init` a copy of the pack for this client, with its own pack id); nothing was deployed",
+      // One pack service and no environment orders: no fix to name.
+      "The guardrail acme.no-fabricated-quotes wasn't published: it belongs to another project; nothing was deployed",
     );
     expect(body.error.details).toEqual({ primitive: 'guardrail', id: 'acme.no-fabricated-quotes' });
     // The project it belongs to stays off the wire.
@@ -5199,6 +6120,44 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
     expect(
       await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
     ).not.toBeNull();
+  });
+
+  test("registered again, then a guardrail the rollback can't unregister is warned, by name", async () => {
+    const fixture = buildSignedDeploy({ index: indexWith('20260920.1') });
+    const logger = recordingLogger();
+    const { app, guardrailRegistry } = makeApp({
+      fixture,
+      deploymentRegistry: makeFailingDeploymentBinding(1),
+      extra: { logger },
+    });
+    const register = guardrailRegistry.register.bind(guardrailRegistry);
+    let answered = false;
+    (guardrailRegistry as { register: GuardrailRegistryBinding['register'] }).register = async (
+      input,
+    ) => {
+      if (!answered) {
+        answered = true;
+        return { kind: 'already-registered', guardrailId: input.guardrail.id };
+      }
+      return register(input);
+    };
+    const down = new Error('the guardrail store is down');
+    (guardrailRegistry as { unregister: GuardrailRegistryBinding['unregister'] }).unregister =
+      async () => {
+        throw down;
+      };
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(500);
+    expect(rollbackWarns(logger)).toEqual([
+      {
+        message: `deploy rollback: couldn't unregister guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
+        fields: { primitive: 'guardrail', id: 'acme.no-fabricated-quotes', err: down },
+      },
+    ]);
   });
 });
 
@@ -5337,26 +6296,43 @@ describe("POST /v1/deployments — a tool version that's already published", () 
     expect(kept.codeArtifactRef.artifactVersion).toBe('20260920.1');
   });
 
-  /** A registry that lists the tool's version as unregistered (`unregisteredAt`). */
-  const listedUnregistered = (registry: ToolRegistryBinding) => {
+  /**
+   * A registry that lists the tool's versions as unregistered
+   * (`unregisteredAt`) until each is reinstated. Answers the versions it
+   * reinstated, as `id@version`.
+   */
+  const listedUnregistered = (registry: ToolRegistryBinding): string[] => {
+    const reinstated: string[] = [];
+    const overlay = registry as {
+      listVersions: ToolRegistryBinding['listVersions'];
+      reinstateVersion: ToolRegistryBinding['reinstateVersion'];
+    };
     const listVersions = registry.listVersions.bind(registry);
-    (registry as { listVersions: ToolRegistryBinding['listVersions'] }).listVersions = async (
-      input,
-    ) => {
+    overlay.listVersions = async (input) => {
       const page = await listVersions(input);
       return {
         ...page,
-        data: page.data.map((row) => ({ ...row, unregisteredAt: '2026-09-20T15:00:00.000Z' })),
+        data: page.data.map((row) =>
+          reinstated.includes(`${input.toolId}@${row.version}`)
+            ? row
+            : { ...row, unregisteredAt: '2026-09-20T15:00:00.000Z' },
+        ),
       };
     };
+    overlay.reinstateVersion = async ({ toolId, version }) => {
+      reinstated.push(`${toolId}@${version}`);
+      return { kind: 'ok', toolId, version, wasTombstoned: true };
+    };
+    return reinstated;
   };
 
-  test('unregistered, the same definition: kept as before, the deploy goes through', async () => {
+  test('unregistered, the same definition: kept and reinstated, the deploy goes through', async () => {
     const second = laterImage();
     const made = twoImages(second);
     expect((await made.deploy(made.first)).status).toBe(201);
-    listedUnregistered(made.toolRegistry);
+    const reinstated = listedUnregistered(made.toolRegistry);
     expect((await made.deploy(second)).status).toBe(201);
+    expect(reinstated).toEqual([`${TOOL_ID}@1.0.0`]);
   });
 
   test('unregistered, another definition: 409 tool-already-registered, saying it is unregistered', async () => {
@@ -5703,6 +6679,72 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
       guardrail: '20260920.1',
       schema: undefined,
       tool: '20260920.1',
+    });
+  });
+
+  test("an old pointer or schema the rollback can't put back is warned, by name, last write first", async () => {
+    // As above, but each put-back (the call that names `expected`) fails.
+    const index = indexWith('20260921.1', { configSchema: SCHEMA }) as { guardrails: unknown[] };
+    index.guardrails.push({
+      id: 'acme.elsewhere',
+      kind: 'zero-llm',
+      check: 'must-cite',
+      action: { 'on-violation': 'halt' },
+    });
+    const second = buildSignedDeploy({
+      artifactVersion: '20260921.1',
+      keyId: SECOND_KEY_ID,
+      index: index as Record<string, unknown>,
+    });
+    const logger = recordingLogger();
+    const made = twoImages(second, { refreshes: true, logger });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    await made.guardrailRegistry.register({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      guardrail: {
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      } as never,
+      enqueueTuples: () => [],
+    });
+    const refreshCode = made.toolRegistry.refreshCodeArtifactRef?.bind(made.toolRegistry);
+    const refreshFields = made.guardrailRegistry.refreshDeployedFields?.bind(
+      made.guardrailRegistry,
+    );
+    if (refreshCode === undefined || refreshFields === undefined) {
+      throw new Error('the registries take a refresh');
+    }
+    const down = new Error('the registry is down');
+    (made.toolRegistry as { refreshCodeArtifactRef: typeof refreshCode }).refreshCodeArtifactRef =
+      async (input) => {
+        if (input.expected !== undefined) throw down;
+        return refreshCode(input);
+      };
+    (
+      made.guardrailRegistry as { refreshDeployedFields: typeof refreshFields }
+    ).refreshDeployedFields = async (input) => {
+      if (input.expected !== undefined) throw down;
+      return refreshFields(input);
+    };
+
+    expect((await made.deploy(second)).status).toBe(409);
+    expect(rollbackWarns(logger)).toEqual([
+      {
+        message: `deploy rollback: couldn't put back the code pointer and config schema of guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
+        fields: { primitive: 'guardrail', id: 'acme.no-fabricated-quotes', err: down },
+      },
+      {
+        message: `deploy rollback: couldn't put back the code pointer of tool "acme.verify-citation@1.0.0", so it stays as this deploy left it`,
+        fields: { primitive: 'tool', id: 'acme.verify-citation@1.0.0', err: down },
+      },
+    ]);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260921.1',
+      schema: SCHEMA,
+      tool: '20260921.1',
     });
   });
 
@@ -6109,13 +7151,6 @@ describe("POST /v1/deployments: a pack check carries its pack's id where checks 
         flows: [],
       },
     });
-  /** What a runtime routing pack calls per deployment passes. */
-  const perDeployment = {
-    systemDeployments: {
-      binding: {} as never,
-      endpointHostAllowed: () => false,
-    },
-  } as const;
   const post = (app: ReturnType<typeof makeApp>['app'], wire: unknown) =>
     app.request('/v1/deployments', {
       method: 'POST',
@@ -6125,7 +7160,7 @@ describe("POST /v1/deployments: a pack check carries its pack's id where checks 
 
   test('an unprefixed pack check is refused, naming the fix; nothing is registered', async () => {
     const fixture = withCheck('shared.checks.contact');
-    const { app, guardrailRegistry } = makeApp({ fixture, extra: perDeployment });
+    const { app, guardrailRegistry } = makeApp({ fixture, extra: PER_DEPLOYMENT });
     const res = await post(app, fixture.wire);
     expect(res.status).toBe(400);
     const body = (await res.json()) as {
@@ -6153,11 +7188,11 @@ describe("POST /v1/deployments: a pack check carries its pack's id where checks 
   test('a prefixed pack check deploys; so does a built-in one the guardrail merely names', async () => {
     const prefixed = withCheck('acme-shop.checks.contact');
     expect(
-      (await post(makeApp({ fixture: prefixed, extra: perDeployment }).app, prefixed.wire)).status,
+      (await post(makeApp({ fixture: prefixed, extra: PER_DEPLOYMENT }).app, prefixed.wire)).status,
     ).toBe(201);
     const builtIn = withCheck('must-cite', true);
     expect(
-      (await post(makeApp({ fixture: builtIn, extra: perDeployment }).app, builtIn.wire)).status,
+      (await post(makeApp({ fixture: builtIn, extra: PER_DEPLOYMENT }).app, builtIn.wire)).status,
     ).toBe(201);
   });
 
@@ -6949,7 +7984,7 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('validation-failed');
     expect(res.body.error.message).toContain(
-      "use tool, agent or block versions that aren't published",
+      "use tool, agent, block or sub-flow versions that can't be pinned",
     );
     expect(JSON.stringify(res.body.error.details)).toContain(
       'prompt block \\"acme.reply\\": the pack brings version 2.0.0, which \\"^1.0.0\\" doesn\'t take; change the agent\'s range or the block\'s version',
@@ -7000,5 +8035,319 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     };
     expect(doc.info['x-kindgi-capabilities']).toContain('deploy-publishes-pack-blocks');
     expect(doc.info.version).toBe('0.1.0');
+  });
+});
+
+// ---------------- sub-flows: a flow step that runs another flow ----------------
+
+/** Versions of any flow; `registered()` lists them `id@version`, in the order they were written. */
+function makeFlowsRegistry(): FlowRegistryBinding & {
+  versions: (flowId: string) => Flow[];
+  registered: () => string[];
+} {
+  const rows = new Map<string, Flow>();
+  const of = (flowId: unknown) => [...rows.values()].filter((f) => f.id === flowId);
+  return {
+    versions: (flowId: string) => of(flowId),
+    registered: () => [...rows.keys()],
+    async list() {
+      return { data: [] };
+    },
+    async get() {
+      return null;
+    },
+    async getVersion({ flowId, version }: Parameters<FlowRegistryBinding['getVersion']>[0]) {
+      return rows.get(`${flowId as unknown as string}@${version}`) ?? null;
+    },
+    async headExists({ flowId }: Parameters<FlowRegistryBinding['headExists']>[0]) {
+      return of(flowId).length > 0;
+    },
+    async listVersions({ flowId }: Parameters<FlowRegistryBinding['listVersions']>[0]) {
+      return { data: of(flowId) };
+    },
+    async publish({ flow }: Parameters<FlowRegistryBinding['publish']>[0]) {
+      const key = `${flow.id as unknown as string}@${flow.version}`;
+      if (rows.has(key)) {
+        return { kind: 'already-registered', flowId: flow.id, version: flow.version };
+      }
+      rows.set(key, flow);
+      return { kind: 'ok', flowId: flow.id, version: flow.version };
+    },
+    async unregister({ flowId, version }: Parameters<FlowRegistryBinding['unregister']>[0]) {
+      return { unregistered: rows.delete(`${flowId as unknown as string}@${version}`) };
+    },
+    async reinstateVersion({
+      flowId,
+      version,
+    }: Parameters<FlowRegistryBinding['reinstateVersion']>[0]) {
+      return { kind: 'not-found', flowId, version };
+    },
+  } as unknown as FlowRegistryBinding & {
+    versions: (flowId: string) => Flow[];
+    registered: () => string[];
+  };
+}
+
+/** Flow `id` at 1.0.0 with one step: a sub-flow step running `child` (at `version` when given). */
+function parentFlow(id: string, child: string, version?: string): Record<string, unknown> {
+  return {
+    id,
+    version: '1.0.0',
+    nodes: [
+      {
+        id: 'run',
+        kind: 'subgraph',
+        flowRef: { flowId: child, ...(version !== undefined && { version }) },
+        inputMapping: {},
+        outputSchema: { type: 'object' },
+        convergence: 'settle-all',
+      },
+    ],
+    edges: [
+      { id: 'e0', from: '$start', to: 'run' },
+      { id: 'e1', from: 'run', to: '$end' },
+    ],
+  };
+}
+
+/** Flow `acme.child` at 1.0.0, which runs the tool `acme.score`. */
+const CHILD_FLOW = {
+  id: 'acme.child',
+  version: '1.0.0',
+  nodes: [{ id: 'score', kind: 'tool', ref: 'acme.score' }],
+  edges: [
+    { id: 'e0', from: '$start', to: 'score' },
+    { id: 'e1', from: 'score', to: '$end' },
+  ],
+};
+
+/** A pack with the tool `acme.score` at `toolVersion`, no agents, and `flows`. */
+function subflowPack(
+  toolVersion: string,
+  flows: readonly Record<string, unknown>[],
+  artifactVersion = '20261027.1',
+): SignedDeploy {
+  const publishedAt = '2026-10-27T00:00:00.000Z';
+  return buildSignedDeploy({
+    artifactVersion,
+    publishedAt,
+    index: {
+      v: 1,
+      artifactVersion,
+      publishedAt,
+      tools: [
+        {
+          id: 'acme.score',
+          description: 'Scores a match.',
+          version: toolVersion,
+          input: { type: 'object', properties: { q: { type: 'string' } } },
+          output: { type: 'object', properties: { score: { type: 'number' } } },
+          modulePath: `./tools/score-${toolVersion}.js`,
+        },
+      ],
+      guardrails: [],
+      agents: [],
+      flows,
+    },
+  });
+}
+
+describe('POST /v1/deployments — a sub-flow step that names no version is pinned', () => {
+  function setup(packs: readonly SignedDeploy[], reached?: ReadonlySet<string>, pinning = true) {
+    const tools = makeVersionedToolRegistry();
+    const flows = makeFlowsRegistry();
+    const { app } = makeApp({
+      toolRegistry: tools,
+      agentRegistry: makeVersionedAgentRegistry(),
+      flowRegistry: flows,
+      extra: {
+        ...(reached !== undefined && {
+          referenceScope: {
+            async reachable({ ref }) {
+              return ref.kind !== 'flow' || ref.version === undefined
+                ? true
+                : reached.has(`${ref.id}@${ref.version}`);
+            },
+          },
+        }),
+        // Without the agent registry, a deploy registers flows unpinned.
+        ...(!pinning && ({ agentRegistry: undefined } as unknown as object)),
+      },
+      extraTrust: packs.map((f) => ({
+        keyId: KEY_ID,
+        tenantId,
+        publicKey: Buffer.from(f.publicKeyRaw).toString('base64'),
+      })),
+      extraImages: packs.map((f) => ({
+        imageRef: f.imageRef,
+        digest: f.digest,
+        indexBytes: f.indexBytes,
+      })),
+    });
+    const deploy = async (f: SignedDeploy) => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(f.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { tools, flows, deploy };
+  }
+
+  const pinsOf = (flows: ReturnType<typeof makeFlowsRegistry>, id: string, version: string) =>
+    flows.versions(id).find((f) => f.version === version)?.pins;
+
+  test('to the version this deploy registers for it, written before the flow that runs it', async () => {
+    const pack = subflowPack('1.0.0', [parentFlow('acme.parent', 'acme.child'), CHILD_FLOW]);
+    const { flows, deploy } = setup([pack]);
+
+    const res = await deploy(pack);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    // The pack's order in the answer; children first in the registry.
+    expect(res.body.contents.flows).toEqual([
+      { id: 'acme.parent', version: '1.0.0' },
+      { id: 'acme.child', version: '1.0.0' },
+    ]);
+    expect(flows.registered()).toEqual(['acme.child@1.0.0', 'acme.parent@1.0.0']);
+    const pins = { tools: {}, agents: {}, flows: { 'acme.child': '1.0.0' } };
+    expect(pinsOf(flows, 'acme.parent', '1.0.0')).toEqual(pins);
+    expect(flows.versions('acme.parent')[0]?.pinsDigest).toBe(flowPinsDigest(pins));
+    expect(pinsOf(flows, 'acme.child', '1.0.0')).toEqual({
+      tools: { 'acme.score': '1.0.0' },
+      agents: {},
+    });
+  });
+
+  test('one tool change cascades through a sub-flow into the flow that runs it, in one deploy', async () => {
+    const flowsOf = () => [parentFlow('acme.parent', 'acme.child'), CHILD_FLOW];
+    const first = subflowPack('1.0.0', flowsOf());
+    const second = subflowPack('1.1.0', flowsOf());
+    const again = subflowPack('1.1.0', flowsOf(), '20261027.2');
+    const { flows, deploy } = setup([first, second, again]);
+
+    expect((await deploy(first)).status).toBe(201);
+    const two = await deploy(second);
+    expect(two.status, JSON.stringify(two.body)).toBe(201);
+    expect(two.body.contents.flows).toEqual([
+      {
+        id: 'acme.parent',
+        version: '1.0.1',
+        authoredVersion: '1.0.0',
+        reason: 'pins-changed',
+        newVersion: true,
+        pinChanges: [{ kind: 'flow', id: 'acme.child', from: '1.0.0', to: '1.0.1' }],
+      },
+      {
+        id: 'acme.child',
+        version: '1.0.1',
+        authoredVersion: '1.0.0',
+        reason: 'pins-changed',
+        newVersion: true,
+        pinChanges: [{ kind: 'tool', id: 'acme.score', from: '1.0.0', to: '1.1.0' }],
+      },
+    ]);
+    expect(pinsOf(flows, 'acme.parent', '1.0.1')).toEqual({
+      tools: {},
+      agents: {},
+      flows: { 'acme.child': '1.0.1' },
+    });
+
+    // A redeploy derives nothing more: the cascade ended in the one deploy.
+    const three = await deploy(again);
+    expect(three.body.contents.flows).toMatchObject([
+      { id: 'acme.parent', version: '1.0.1', newVersion: false },
+      { id: 'acme.child', version: '1.0.1', newVersion: false },
+    ]);
+    expect(flows.registered().sort()).toEqual([
+      'acme.child@1.0.0',
+      'acme.child@1.0.1',
+      'acme.parent@1.0.0',
+      'acme.parent@1.0.1',
+    ]);
+  });
+
+  test("a sub-flow the deploy doesn't bring pins to the newest version the project reaches", async () => {
+    const pack = subflowPack('1.0.0', [parentFlow('acme.parent', 'acme.child')]);
+    const { flows, deploy } = setup([pack], new Set(['acme.child@1.0.0']));
+    for (const version of ['1.0.0', '1.1.0']) {
+      await flows.publish({
+        tenantId,
+        projectId: DEFAULT_PROJECT_ID,
+        flow: { ...CHILD_FLOW, version } as unknown as Flow,
+        enqueueTuples: async () => {},
+      } as unknown as Parameters<FlowRegistryBinding['publish']>[0]);
+    }
+
+    const res = await deploy(pack);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(pinsOf(flows, 'acme.parent', '1.0.0')?.flows).toEqual({ 'acme.child': '1.0.0' });
+  });
+
+  test('a step that names its version is left as named, with no pin', async () => {
+    const pack = subflowPack('1.0.0', [
+      parentFlow('acme.parent', 'acme.child', '1.0.0'),
+      CHILD_FLOW,
+    ]);
+    const { flows, deploy } = setup([pack]);
+
+    expect((await deploy(pack)).status).toBe(201);
+    expect(pinsOf(flows, 'acme.parent', '1.0.0')).toEqual({ tools: {}, agents: {} });
+  });
+
+  test.each([
+    [
+      'flows that run each other',
+      [parentFlow('acme.a', 'acme.b'), parentFlow('acme.b', 'acme.a')],
+      'flows \\"acme.a\\" → \\"acme.b\\" → \\"acme.a\\" run each other as sub-flows with no version, so neither can be pinned first; name the version in one of them',
+    ],
+    [
+      'a flow that runs itself',
+      [parentFlow('acme.a', 'acme.a')],
+      'a sub-flow step runs flow \\"acme.a\\", this flow, with no version; name the version it runs',
+    ],
+    [
+      'a sub-flow with no published version',
+      [parentFlow('acme.a', 'acme.ghost')],
+      'flow \\"acme.ghost\\" has no published version this project runs; publish it first',
+    ],
+  ])(
+    '%s with no version is refused, before anything is written',
+    async (_label, defined, issue) => {
+      const pack = subflowPack('1.0.0', defined);
+      const { tools, flows, deploy } = setup([pack]);
+
+      const res = await deploy(pack);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('validation-failed');
+      expect(res.body.error.message).toContain(
+        "use tool, agent, block or sub-flow versions that can't be pinned (1 issue)",
+      );
+      expect(JSON.stringify(res.body.error.details)).toContain(issue);
+      expect(flows.registered()).toEqual([]);
+      expect(tools.versions('acme.score')).toEqual([]);
+    },
+  );
+
+  test('without the agent registry, one is refused before anything is written: nothing would pin it; a named one registers unpinned', async () => {
+    const pack = subflowPack('1.0.0', [parentFlow('acme.parent', 'acme.child'), CHILD_FLOW]);
+    const { tools, flows, deploy } = setup([pack], undefined, false);
+
+    const res = await deploy(pack);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(JSON.stringify(res.body.error.details)).toContain(
+      `flow \\"acme.parent\\": a sub-flow step runs flow \\"acme.child\\" with no version, and this server doesn't pin one; name the version it runs`,
+    );
+    expect(flows.registered()).toEqual([]);
+    expect(tools.versions('acme.score')).toEqual([]);
+
+    const named = subflowPack('1.0.0', [
+      parentFlow('acme.parent', 'acme.child', '1.0.0'),
+      CHILD_FLOW,
+    ]);
+    const unpinned = setup([named], undefined, false);
+    expect((await unpinned.deploy(named)).status).toBe(201);
+    expect(pinsOf(unpinned.flows, 'acme.parent', '1.0.0')).toBeUndefined();
   });
 });
