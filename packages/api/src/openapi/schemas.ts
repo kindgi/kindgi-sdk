@@ -71,7 +71,7 @@ import {
   RETENTION_DOMAINS,
   TOOL_ERROR_KINDS,
 } from '@kindgi/policy-contract';
-import { RUN_STARTED_BY, RUN_TRIGGER_KINDS } from '@kindgi/runtime';
+import { RUN_STARTED_BY, RUN_TRIGGER_KINDS, TRIGGER_VERSION_CAUSES } from '@kindgi/runtime';
 import { CORRECTION_ITEM } from '@kindgi/types';
 
 import {
@@ -216,6 +216,12 @@ export const RunTriggerSchema: JsonSchema = {
       type: 'string',
       format: 'date-time',
       description: "A schedule's fire: the occurrence the run is for.",
+    },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version the run started with (`GET …/versions/{version}`), which later edits don't change. Absent on a run from before versions.",
     },
   },
 };
@@ -3615,7 +3621,7 @@ export const FlowSchema: JsonSchema = {
 
 export const FlowPinsSchema: JsonSchema = {
   description:
-    'The exact tool, agent and sub-flow versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, each agent it runs at no named version, and each sub-flow it runs at no named version, resolves once then, and every run of that flow version uses those versions. Absent on a version published before pins existed (it binds the latest versions per run).',
+    'The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs, and each agent it runs at no named version, resolves once to its latest version then, which every run of that flow version uses. Absent on a version published before pins existed (it binds the latest versions per run).',
   type: 'object',
   additionalProperties: false,
   required: ['tools', 'agents'],
@@ -3625,17 +3631,12 @@ export const FlowPinsSchema: JsonSchema = {
       ...PinMapSchema,
       description: 'Agent id → exact version, for agent nodes that name no version.',
     },
-    flows: {
-      ...PinMapSchema,
-      description:
-        'Flow id → exact version, for sub-flow steps that name no version. Absent when there are none, and from older servers.',
-    },
   },
 };
 
 export const FlowVersionOverridesSchema: JsonSchema = {
   description:
-    "Agents and tools a flow runs at other exact versions than the flow version's pins (\"this flow, with `acme.scorer` at 0.4.0\"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow or one of its sub-flows uses.",
+    "Agents and tools a flow runs at other exact versions than the flow version's pins (\"this flow, with `acme.scorer` at 0.4.0\"), without publishing a new flow version: a comparison's flow candidate (`versions` on the start body and the run's `comparison`), and the flow runs that replay it (a run's `versions`). Each id must be an agent or tool the flow uses.",
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -9613,7 +9614,7 @@ export const StartEvalRunBodySchema: JsonSchema = {
     sample: { $ref: '#/components/schemas/EvalSample' },
   },
   description:
-    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id that neither the flow nor one of its sub-flows uses, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
+    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
 };
 
 export const StartEvalRunResultSchema: JsonSchema = {
@@ -11282,11 +11283,7 @@ export const PinChangeSchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind', 'id'],
   properties: {
-    kind: {
-      type: 'string',
-      enum: ['tool', 'prompt', 'setting', 'agent', 'flow'],
-      description: "`flow`: a flow's sub-flow (`FlowPins.flows`). Not sent by older servers.",
-    },
+    kind: { type: 'string', enum: ['tool', 'prompt', 'setting', 'agent'] },
     id: { type: 'string' },
     from: { type: 'string', description: "The earlier version's pin; absent when it had none." },
     to: { type: 'string', description: "The later version's pin; absent when it has none." },
@@ -13493,6 +13490,12 @@ export const ScheduleRecordSchema: JsonSchema = {
       description:
         'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.',
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     toolsAllowedUnattended: toolsAllowedUnattendedProperty(
       "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none.",
     ),
@@ -13629,6 +13632,12 @@ export const ScheduleFireSchema: JsonSchema = {
         "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
     passId: {
       type: 'string',
       format: 'uuid',
@@ -13816,6 +13825,12 @@ export const EventTriggerRecordSchema: JsonSchema = {
     },
     label: { type: ['string', 'null'] },
     status: { $ref: '#/components/schemas/TriggerStatus' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -14001,6 +14016,12 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
       description:
         "Why the runtime paused it (repeated refused or failed starts; a sender's failed proofs never count), when it did.",
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     suppressedRefusals: {
       type: 'object',
       additionalProperties: false,
@@ -14038,6 +14059,12 @@ export const WebhookFireSchema: JsonSchema = {
         "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
     detail: {
       type: 'string',
       description:
@@ -14354,6 +14381,12 @@ export const MailTriggerRecordSchema: JsonSchema = {
       description:
         "Why it isn't polling as it should: `connection-missing` (the mailbox's connection is gone or lapsed; polls go on, and work again once it's back), `owner-refused` (its owner was removed or may no longer run the target; polls go on and read nothing until that changes or an admin takes it over), or why the runtime paused it.",
     },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.",
+    },
     account: {
       type: 'object',
       additionalProperties: false,
@@ -14465,6 +14498,12 @@ export const MailFireSchema: JsonSchema = {
         "`pending` while its run starts, or while an earlier mail of its thread waits or that mail's run hasn't finished (`detail` starts `thread-busy:`). `skipped`: no run started, as `detail` says: the mail is from the mailbox's own address (`own-address`), an automatic reply (`auto-submitted`), received before the trigger began watching (`before-since`), found in a mailbox that changed account before it was read (`mailbox-changed`), gone by the time it was read (`not-found`), or already had by an earlier run of its thread (`mail-already-given:`); or the poll started afresh (`cursor-reset:`). `refused`: over the trigger's `runsPerHour` (`over-limit:`), the mailbox's connection missing, lapsed or lacking a scope (`connection-missing:` and why), or the app gave the mail no thread (`no-thread-id`); a refused mail doesn't run later. `failed`: the run couldn't start.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    version: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
+    },
     detail: {
       type: 'string',
       description: 'Why it was skipped, refused or failed, or why a `pending` fire waits.',
@@ -14498,6 +14537,219 @@ export const MailTriggerCollectionPageSchema: JsonSchema = {
     hasMore: { type: 'boolean' },
   },
 };
+
+// ---------- trigger versions (every kind) ----------
+
+export const TriggerVersionCauseSchema: JsonSchema = {
+  type: 'string',
+  enum: [...TRIGGER_VERSION_CAUSES],
+  description:
+    "What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).",
+};
+
+/**
+ * A kind's version definition: the fields of its record that make a new
+ * version when they change, as the record names and describes them.
+ */
+function triggerDefinitionSchema(
+  record: JsonSchema,
+  description: string,
+  fields: readonly string[],
+  required: readonly string[],
+): JsonSchema {
+  const properties = record.properties as Record<string, JsonSchema>;
+  return {
+    type: 'object',
+    additionalProperties: false,
+    description,
+    required: [...required],
+    properties: Object.fromEntries(
+      fields.map((f) => {
+        const property = properties[f];
+        if (property === undefined) throw new Error(`trigger record has no "${f}"`);
+        return [f, property];
+      }),
+    ),
+  };
+}
+
+/** A kind's version: its ids as its record names them, then the version's own fields. */
+function triggerVersionSchema(
+  ids: Record<string, JsonSchema>,
+  definition: string,
+  description: string,
+): JsonSchema {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    description,
+    required: [...Object.keys(ids), 'version', 'createdAt', 'cause', 'definition'],
+    properties: {
+      ...ids,
+      version: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Counts from 1, one more for each version.',
+      },
+      createdAt: { type: 'string', format: 'date-time' },
+      createdBy: {
+        type: 'string',
+        description:
+          'Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).',
+      },
+      cause: { $ref: '#/components/schemas/TriggerVersionCause' },
+      definition: { $ref: `#/components/schemas/${definition}` },
+    },
+  };
+}
+
+function triggerVersionPageSchema(version: string): JsonSchema {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    description: 'Newest first.',
+    required: ['data', 'hasMore'],
+    properties: {
+      data: { type: 'array', items: { $ref: `#/components/schemas/${version}` } },
+      hasMore: { type: 'boolean' },
+      nextCursor: { type: 'string' },
+    },
+  };
+}
+
+const VERSION_DEFINITION = 'and never its state (status, next or last fire).';
+const VERSION_KEEPS_INPUT =
+  'The versions keep every input the trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it.';
+
+export const ScheduleDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  ScheduleRecordSchema,
+  `What a schedule's version runs, when and as whom, as its record names them, ${VERSION_DEFINITION} ${VERSION_KEEPS_INPUT}`,
+  [
+    'flowId',
+    'flowVersion',
+    'agentId',
+    'agentVersion',
+    'improve',
+    'projectId',
+    'owner',
+    'cronExpression',
+    'timezone',
+    'input',
+    'catchUp',
+    'overlap',
+    'startingDeadlineSeconds',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  [
+    'projectId',
+    'owner',
+    'cronExpression',
+    'catchUp',
+    'overlap',
+    'startingDeadlineSeconds',
+    'label',
+  ],
+);
+
+export const ScheduleVersionSchema: JsonSchema = triggerVersionSchema(
+  {
+    scheduleId: { type: 'string', description: 'The same id as `triggerId`.' },
+    triggerId: { type: 'string' },
+  },
+  'ScheduleDefinition',
+  "One version of a schedule: what it was from `createdAt` until the next. A fire's run uses the newest when it starts, and keeps it.",
+);
+
+export const ScheduleVersionPageSchema: JsonSchema = triggerVersionPageSchema('ScheduleVersion');
+
+export const EventTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  EventTriggerRecordSchema,
+  `What an event trigger's version runs and on which event, as its record names them, ${VERSION_DEFINITION} ${VERSION_KEEPS_INPUT}`,
+  ['flowId', 'flowVersion', 'eventKind', 'input', 'label'],
+  ['flowId', 'flowVersion', 'eventKind', 'label'],
+);
+
+export const EventTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  {
+    eventTriggerId: { type: 'string', description: 'The same id as `triggerId`.' },
+    triggerId: { type: 'string' },
+  },
+  'EventTriggerDefinition',
+  "One version of an event trigger: what it was from `createdAt` until the next. A fire's run uses the newest when it starts, and keeps it.",
+);
+
+export const EventTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('EventTriggerVersion');
+
+export const WebhookTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  WebhookTriggerRecordSchema,
+  `What a webhook's version runs, as whom, and how it checks and limits a delivery, as its record names them (its secret by name), ${VERSION_DEFINITION} ${VERSION_KEEPS_INPUT}`,
+  [
+    'flowId',
+    'flowVersion',
+    'projectId',
+    'owner',
+    'input',
+    'hmacSecretName',
+    'hmacSecretScope',
+    'signature',
+    'deliveryIdHeader',
+    'bodyLimitBytes',
+    'rateLimitPerMinute',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  [
+    'flowId',
+    'flowVersion',
+    'projectId',
+    'owner',
+    'hmacSecretName',
+    'signature',
+    'bodyLimitBytes',
+    'rateLimitPerMinute',
+    'label',
+  ],
+);
+
+export const WebhookTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  { triggerId: { type: 'string' } },
+  'WebhookTriggerDefinition',
+  "One version of a webhook: what it was from `createdAt` until the next. A delivery's run uses the newest when it starts, and keeps it.",
+);
+
+export const WebhookTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('WebhookTriggerVersion');
+
+export const MailTriggerDefinitionSchema: JsonSchema = triggerDefinitionSchema(
+  MailTriggerRecordSchema,
+  `What a mail trigger's version runs, as whom, and which mailbox it reads at what pace, as its record names them, ${VERSION_DEFINITION}`,
+  [
+    'flowId',
+    'flowVersion',
+    'agentId',
+    'agentVersion',
+    'projectId',
+    'owner',
+    'mailbox',
+    'folder',
+    'pollSeconds',
+    'runsPerHour',
+    'label',
+    'toolsAllowedUnattended',
+  ],
+  ['projectId', 'owner', 'mailbox', 'pollSeconds', 'runsPerHour', 'label'],
+);
+
+export const MailTriggerVersionSchema: JsonSchema = triggerVersionSchema(
+  { triggerId: { type: 'string' } },
+  'MailTriggerDefinition',
+  "One version of a mail trigger: what it was from `createdAt` until the next. A new mail's run uses the newest when it starts, and keeps it.",
+);
+
+export const MailTriggerVersionPageSchema: JsonSchema =
+  triggerVersionPageSchema('MailTriggerVersion');
 
 // ---------- outbound webhook endpoints ----------
 
@@ -14932,11 +15184,6 @@ export const ConnectionSchema: JsonSchema = {
     app: { type: 'string', description: "The app's entry id." },
     owner: { $ref: '#/components/schemas/ConnectionOwner' },
     account: { $ref: '#/components/schemas/ConnectionAccount' },
-    label: {
-      type: 'string',
-      description:
-        "The name people know it by: the one asked for at the connect, else the account's label. Absent on a connection made before connections had names; show `account.label` then.",
-    },
     permissions: {
       type: 'array',
       items: { type: 'string' },
@@ -15034,11 +15281,6 @@ export const ConnectRequestSchema: JsonSchema = {
       format: 'uuid',
       description: 'The connection it connects again; the same account is required.',
     },
-    label: {
-      type: 'string',
-      description:
-        "The name asked for the connection it makes. A reconnect keeps the connection's.",
-    },
     runId: { type: 'string', description: 'The run that waits for it.' },
     name: { type: 'string', description: "The tool's name for the connection, when a run waits." },
     startedBy: {
@@ -15101,28 +15343,6 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
       default: 'me',
       description:
         "`me`: the caller's own account (signed in as a person). `company`: the company's account; a tenant admin only.",
-    },
-    label: {
-      type: 'string',
-      minLength: 1,
-      maxLength: 100,
-      description:
-        "The connection's name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded. Absent: the account's label. A reconnect keeps the connection's name, and doesn't check this one against the others.",
-    },
-  },
-};
-
-export const UpdateConnectionBodySchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['label'],
-  properties: {
-    label: {
-      type: 'string',
-      minLength: 1,
-      maxLength: 100,
-      description:
-        "The connection's new name, trimmed, with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators); another live connection of the same app, owner and env can't have it, ignoring case, an emoji's variation selector and how accented letters are encoded.",
     },
   },
 };
@@ -16264,6 +16484,19 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MailFire', MailFireSchema],
   ['MailFirePage', MailFirePageSchema],
   ['MailTriggerCollectionPage', MailTriggerCollectionPageSchema],
+  ['TriggerVersionCause', TriggerVersionCauseSchema],
+  ['ScheduleDefinition', ScheduleDefinitionSchema],
+  ['ScheduleVersion', ScheduleVersionSchema],
+  ['ScheduleVersionPage', ScheduleVersionPageSchema],
+  ['EventTriggerDefinition', EventTriggerDefinitionSchema],
+  ['EventTriggerVersion', EventTriggerVersionSchema],
+  ['EventTriggerVersionPage', EventTriggerVersionPageSchema],
+  ['WebhookTriggerDefinition', WebhookTriggerDefinitionSchema],
+  ['WebhookTriggerVersion', WebhookTriggerVersionSchema],
+  ['WebhookTriggerVersionPage', WebhookTriggerVersionPageSchema],
+  ['MailTriggerDefinition', MailTriggerDefinitionSchema],
+  ['MailTriggerVersion', MailTriggerVersionSchema],
+  ['MailTriggerVersionPage', MailTriggerVersionPageSchema],
   // Outbound webhook endpoints.
   ['WebhookEventType', WebhookEventTypeSchema],
   ['WebhookEndpointFilter', WebhookEndpointFilterSchema],
@@ -16290,7 +16523,6 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateConnectionAppBody', UpdateConnectionAppBodySchema],
   ['ConnectionAppRemoved', ConnectionAppRemovedSchema],
   ['Connection', ConnectionSchema],
-  ['UpdateConnectionBody', UpdateConnectionBodySchema],
   ['ConnectionPage', ConnectionPageSchema],
   ['ConnectRequest', ConnectRequestSchema],
   ['CreateConnectRequestBody', CreateConnectRequestBodySchema],

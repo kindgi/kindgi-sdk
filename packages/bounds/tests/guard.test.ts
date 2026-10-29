@@ -24,10 +24,6 @@ const ALLOWED: Readonly<Record<string, { readonly sites: number; readonly why: s
     why: 'the image reference grammar, on a name of at most 255 characters',
   },
   'api/src/middleware/public-run-routes.ts': { sites: 1, why: "Kindgi's own route paths" },
-  'api/src/routes/sites.ts': {
-    sites: 1,
-    why: 'its own hidden-character pattern again, with the g flag, for removing them',
-  },
   'api/src/routes/stored-bytes.ts': {
     sites: 1,
     why: 'the media type grammar, without backtracking, on a type of at most 255 characters',
@@ -112,7 +108,6 @@ describe('no tenant pattern skips compileTenantPattern', () => {
       'bounds/src/pattern.ts: listed, but has none',
       'api/src/image-ref.ts: listed, but has none',
       'api/src/middleware/public-run-routes.ts: listed, but has none',
-      'api/src/routes/sites.ts: listed, but has none',
       'api/src/routes/stored-bytes.ts: listed, but has none',
       'capabilities/src/tool-names.ts: listed, but has none',
       'connections/src/mail-text.ts: listed, but has none',

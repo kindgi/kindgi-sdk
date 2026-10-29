@@ -336,12 +336,15 @@ export type {
 export type { ArtifactFilter, ArtifactsClient } from './resources/artifacts.js';
 export type {
   ListScheduleFiresFilter,
+  ListScheduleVersionsFilter,
   ListSchedulesFilter,
   RegisterScheduleInput,
   Schedule,
   ScheduleFire,
   ScheduleFirePage,
   SchedulePage,
+  ScheduleVersion,
+  ScheduleVersionPage,
   SchedulesClient,
   UnregisterScheduleResult,
   UpdateScheduleInput,
@@ -367,7 +370,6 @@ export type {
   RemoveConnectionAppResult,
   StartConnectInput,
   UpdateConnectionAppInput,
-  UpdateConnectionInput,
 } from './resources/connections.js';
 export type {
   ApprovalRequestedEvent,
@@ -393,6 +395,7 @@ export type {
 } from './resources/webhook-endpoints.js';
 export type {
   ListWebhookFiresFilter,
+  ListWebhookTriggerVersionsFilter,
   ListWebhookTriggersFilter,
   RegisterWebhookTriggerInput,
   UnregisterWebhookTriggerResult,
@@ -402,16 +405,21 @@ export type {
   WebhookSignature,
   WebhookTrigger,
   WebhookTriggerPage,
+  WebhookTriggerVersion,
+  WebhookTriggerVersionPage,
   WebhooksClient,
 } from './resources/webhooks.js';
 export type {
   ListMailFiresFilter,
+  ListMailTriggerVersionsFilter,
   ListMailTriggersFilter,
   MailFire,
   MailFirePage,
   MailTrigger,
   MailTriggerMailbox,
   MailTriggerPage,
+  MailTriggerVersion,
+  MailTriggerVersionPage,
   MailTriggersClient,
   RegisterMailTriggerInput,
   UnregisterMailTriggerResult,

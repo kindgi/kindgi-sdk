@@ -1062,6 +1062,14 @@ const TriggerIdPathParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+const TriggerVersionPathParam: ParameterSpec = {
+  name: 'version',
+  in: 'path',
+  required: true,
+  description: "The version's number: 1 for the trigger's first, one more for each after.",
+  schema: { type: 'integer', minimum: 1 },
+};
+
 const WebhookEndpointIdPathParam: ParameterSpec = {
   name: 'endpointId',
   in: 'path',
@@ -10246,7 +10254,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.update',
     summary: 'Update a cron schedule',
     description:
-      "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed, never their values.",
+      "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10338,6 +10346,41 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/versions',
+    openapiPath: '/v1/schedules/{triggerId}/versions',
+    operationId: 'schedules.listVersions',
+    summary: "A schedule's versions",
+    description:
+      "Newest first: each version of the schedule, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A schedule from before versions has none until its next change or its first fire. The versions keep every input the schedule has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the schedule can read its versions.",
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of versions, newest first.', schema: ref('ScheduleVersionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/versions/:version',
+    openapiPath: '/v1/schedules/{triggerId}/versions/{version}',
+    operationId: 'schedules.getVersion',
+    summary: 'Fetch one version of a schedule',
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('ScheduleVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No cron trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/schedules/:triggerId/run-now',
     openapiPath: '/v1/schedules/{triggerId}/run-now',
@@ -10366,7 +10409,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.takeOwnership',
     summary: 'Take over a schedule',
     description:
-      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+      "The caller becomes the schedule's owner, so its runs act as the caller from the next run that starts. Needs `admin` on the schedule's project (without an authorization store, a tenant-admin key) and `execute` on what it runs. For a schedule whose owner left or lost access, or to make one shared or personal. It's the one way a schedule's owner changes, audited as `trigger-owner-set`, naming the schedule's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the schedule is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The schedule keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10504,6 +10547,46 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
     },
   },
+  {
+    method: 'get',
+    honoPath: '/v1/event-triggers/:triggerId/versions',
+    openapiPath: '/v1/event-triggers/{triggerId}/versions',
+    operationId: 'eventTriggers.listVersions',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    summary: "An event trigger's versions",
+    description:
+      "Newest first: each version of the event trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next: a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A fire's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). An event trigger from before versions has none until its next change or its first fire. The versions keep every input the event trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the event trigger can read its versions.",
+    tags: ['event-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('EventTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No event trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/event-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/event-triggers/{triggerId}/versions/{version}',
+    operationId: 'eventTriggers.getVersion',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
+    summary: 'Fetch one version of an event trigger',
+    tags: ['event-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('EventTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No event trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
 
   // ---------- webhooks (trigger surface) ----------
   {
@@ -10584,7 +10667,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhooks.update',
     summary: 'Update a webhook trigger',
     description:
-      "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after), never their values.",
+      "Changes the flow version (which needs `execute` on the flow, and must be a version the trigger's project runs), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new flow version too): naming it takes `admin` on the trigger's project, it's checked against the flow at the version the trigger will run, and every change is audited. A webhook trigger is personal or shared, and no change moves its owner: only `POST /v1/webhooks/{triggerId}/owner` does. A trigger a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A trigger a service account owns is shared: changing its flow version, its input, its `toolsAllowedUnattended` or `hmacSecretName` takes `admin` on its project, and the project's writers may change its label and delivery settings. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal trigger's owner is audited as `trigger-changed-for-owner`, naming the fields changed (and the signing secret's name before and after) and the trigger's version after it, never their values.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10673,13 +10756,51 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/webhooks/:triggerId/versions',
+    openapiPath: '/v1/webhooks/{triggerId}/versions',
+    operationId: 'webhooks.listVersions',
+    summary: "A webhook trigger's versions",
+    description:
+      "Newest first: each version of the webhook trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A delivery's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A webhook trigger from before versions has none until its next change or its first fire. The versions keep every input the webhook trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it. Whoever can read the webhook trigger can read its versions.",
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('WebhookTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No webhook trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/webhooks/:triggerId/versions/:version',
+    openapiPath: '/v1/webhooks/{triggerId}/versions/{version}',
+    operationId: 'webhooks.getVersion',
+    summary: 'Fetch one version of a webhook trigger',
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('WebhookTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No webhook trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/webhooks/:triggerId/owner',
     openapiPath: '/v1/webhooks/{triggerId}/owner',
     operationId: 'webhooks.takeOwnership',
     summary: 'Take over a webhook trigger',
     description:
-      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
+      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project (without an authorization store, a tenant-admin key) and `execute` on its flow. For a trigger whose owner left or lost access, or to make one shared or personal. It's the one way a trigger's owner changes, audited as `trigger-owner-set`, naming the trigger's version after it; a person it's taken from is told, where the server tells owners. Name `runAsServiceAccountId` instead to make a service account the owner: that needs `act_as` on the account (a tenant admin's), and the account must itself hold `execute` on the flow. With an authorization store, that's checked when the account is named: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Or name `runAsProject: true` to make the project's own service account the owner, made the first time with the `editor` role on the project, so the trigger is shared and runs as the project. It runs only what the project's editors can, and is checked the same way. The trigger keeps its `toolsAllowedUnattended`, now for the new owner's runs; a body naming it is refused (change it with PATCH).",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10781,7 +10902,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mailTriggers.update',
     summary: 'Update a mail trigger',
     description:
-      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
+      "Changes what it runs (which needs `execute` on the new target, and must be the project's to reach), its mailbox (replaced whole), folder, pace or label (`null` clears it). To watch the inbox again, name it as the folder: `INBOX` on Gmail, `inbox` on Outlook. No edit moves the owner: a personal trigger's change is its owner's (who needs `write` on the project) or a project admin's, a shared one's is a project admin's, and the company's mailbox, before or after, takes a project admin. Only a personal trigger's owner chooses what it reads from a person's mailbox, another of their mailboxes or another folder: anyone else, a project admin included, gets a `403`, and may take the trigger over to watch their own. A project admin's other changes to a person's trigger, such as what it runs, its pace or a move to the company's mailbox, keep its owner, so its runs go on acting as that person, and they're audited as `trigger-changed-for-owner`, naming the trigger's version after each. Since no edit moves the owner, with an authorization store a new target (another flow or agent) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it, a new version too), and a new target or mailbox while it lists any must name it again. Naming a list takes `admin` on the project; a personal trigger's owner may name `[]` with their own new target or mailbox.",
     tags: ['mail-triggers'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -10865,6 +10986,44 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No mail trigger with that id.'),
       '501': ErrorResponse(
         '`trigger-operation-unsupported`: this deployment keeps no fire history.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId/versions',
+    openapiPath: '/v1/mail-triggers/{triggerId}/versions',
+    operationId: 'mailTriggers.listVersions',
+    summary: "A mail trigger's versions",
+    description:
+      "Newest first: each version of the mail trigger, what it was from `createdAt` on, who made it (`createdBy`) and why (`cause`). Registering makes version 1, and each change makes the next (a PATCH that alters it, or a take-over to another owner): a PATCH that changes nothing makes none, nor do pausing, resuming or deleting. A version never changes once made. A new mail's run uses the newest when it starts, and keeps it whatever later edits make (the run's `trigger.version`). A mail trigger from before versions has none until its next change or its next look at the mailbox. Whoever can read the mail trigger can read its versions.",
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': {
+        description: 'Page of versions, newest first.',
+        schema: ref('MailTriggerVersionPage'),
+      },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No mail trigger with that id.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/mail-triggers/:triggerId/versions/:version',
+    openapiPath: '/v1/mail-triggers/{triggerId}/versions/{version}',
+    operationId: 'mailTriggers.getVersion',
+    summary: 'Fetch one version of a mail trigger',
+    tags: ['mail-triggers'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, TriggerVersionPathParam],
+    responses: {
+      '200': { description: 'The version.', schema: ref('MailTriggerVersion') },
+      '400': ErrorResponse("`version` isn't a positive integer (`bad-input`, `details.field`)."),
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        'No mail trigger with that id (`trigger-not-found`), or it has no version with that number (`trigger-version-not-found`).',
       ),
     },
   },
@@ -11410,14 +11569,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Connect request made.', schema: ref('ConnectRequest') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
+        "Malformed body or unknown field (`bad-input`, `details.field`); `for: 'me'` from a credential that is not a person (`bad-input`); or no registration that fits (`connection-app-invalid`, `connection-app-unknown-entry`).",
       ),
       '403': ErrorResponse(
         "`for: 'company'` from a caller who is not a tenant admin (`permission-denied`).",
       ),
       '404': ErrorResponse('No registration with that `appId` (`connection-app-not-found`).'),
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded, and the connect isn't a reconnect (`connection-label-taken`, `details.field` `label`); or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).",
+        'Idempotency-Key was reused with a different body; or the connection is still being disconnected: disconnect it again to finish, then connect (`connection-removing`).',
       ),
     },
   },
@@ -11521,35 +11680,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('`connectionId` is not a UUID (`bad-input`).'),
       '404': ErrorResponse(
         "No connection with that id, or not the caller's (`connection-not-found`).",
-      ),
-    },
-  },
-  {
-    method: 'patch',
-    honoPath: '/v1/connections/:connectionId',
-    openapiPath: '/v1/connections/{connectionId}',
-    operationId: 'connections.update',
-    summary: 'Rename a connection',
-    description:
-      "Changes its `label`, the name people know it by. Whoever may disconnect it: its owner or a tenant admin. Anyone else gets the `404` of a connection that doesn't exist.",
-    tags: ['connections'],
-    security: 'bearer',
-    parameters: [ConnectionIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('UpdateConnectionBody') },
-    responses: {
-      '200': { description: 'The connection, renamed.', schema: ref('Connection') },
-      ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "`connectionId` is not a UUID, or a malformed body, unknown field or a `label` that isn't 1 to 100 characters with no control, format or invisible characters (such as bidi overrides, zero-width characters or line separators) (`bad-input`, `details.field`).",
-      ),
-      '404': ErrorResponse(
-        "No connection with that id, it was disconnected, or it's not the caller's (`connection-not-found`).",
-      ),
-      '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; or another live connection of the same app, owner and env has that `label`, ignoring case, an emoji's variation selector and how accented letters are encoded (`connection-label-taken`, `details.field` `label`).",
-      ),
-      '503': ErrorResponse(
-        "The rename couldn't be stored just now (`connection-store-failed`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
       ),
     },
   },

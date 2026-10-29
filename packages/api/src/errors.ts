@@ -621,6 +621,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'env-store-error': 500,
   // Trigger HTTP surface.
   'trigger-not-found': 404,
+  /** The trigger is there, but has no version with that number. */
+  'trigger-version-not-found': 404,
   'trigger-invalid-config': 400,
   'trigger-webhook-id-conflict': 409,
   'trigger-already-in-state': 409,
@@ -664,12 +666,6 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'connection-state-expired': 410,
   /** A reconnect signed in to an account other than the connection's. */
   'connection-account-mismatch': 409,
-  /**
-   * A connect's or a rename's `label` another live connection of the same
-   * app, owner and env has, by `comparableName`: `details.field` is
-   * `label`.
-   */
-  'connection-label-taken': 409,
   /**
    * A connect, or its finish, for a connection still being disconnected:
    * disconnect it again to finish, then connect.

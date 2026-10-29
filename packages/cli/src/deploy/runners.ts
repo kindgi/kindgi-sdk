@@ -123,7 +123,7 @@ export interface DeployedVersionRecord {
   readonly reason?: 'pins-changed' | 'unpinned' | 'version-taken';
   readonly newVersion?: boolean;
   readonly pinChanges?: readonly {
-    readonly kind: 'tool' | 'prompt' | 'setting' | 'agent' | 'flow';
+    readonly kind: 'tool' | 'prompt' | 'setting' | 'agent';
     readonly id: string;
     readonly from?: string;
     readonly to?: string;

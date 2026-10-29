@@ -19,12 +19,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `GuardrailViolationError.attempts` says how many answers the turn had
   (`None` when a `halt` guardrail stopped it). The `@guardrail` docstring
   says what `retry` does.
-- `kindgi`: **a flow's sub-flow step can leave out `flowRef.version`** (flow
-  schema 1.10.0). When the flow version is published, the runtime pins the
-  newest version of the child that its project reaches, and every run of the
-  flow version runs that one. The client's flow pins have `flows` for those;
-  absent when there are none, and from older servers.
-- `kindgi`: **a connection has a name, its `label`.** `client.connections.connect(...)` takes an optional `label`, the name to give the connection it makes, else it takes its account's. `client.connections.update(connection_id, label=...)` renames one (`PATCH /v1/connections/{connectionId}`), with its async twin. A name another of the owner's live connections to that app has is `409 connection-label-taken`. `Connection` and `ConnectRequest` carry `label` when they have one.
+- `kindgi`: **a trigger's versions.** `client.schedules.list_versions(trigger_id)` pages a schedule's versions, newest first (`GET /v1/schedules/{triggerId}/versions`), and `get_version(trigger_id, version)` reads one; `client.webhooks` and `client.mail_triggers` have the same. Each says when it was made (`created_at`), by whom (`created_by`), why (`cause`) and what the trigger was then (`definition`). A trigger's `version` names its newest, and a fire's and a run's `trigger.version` the one its run used; all three are absent from an older runtime. A version the trigger doesn't have is `404 trigger-version-not-found`.
 - `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
 
 - `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a model

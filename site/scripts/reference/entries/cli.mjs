@@ -622,6 +622,10 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'schedules versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
   'webhooks register': {
     'allow-unattended': 'none (a tool that waits for a person still waits)',
     'body-limit': '`262144` bytes (256 KiB)',
@@ -664,6 +668,10 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'webhooks versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
   'webhooks take-ownership': {
     'run-as': 'none (you own the trigger)',
   },
@@ -703,6 +711,10 @@ export const CLI_DEFAULTS = {
     'runs-per-hour': 'unchanged',
   },
   'mail-triggers fires': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'mail-triggers versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
@@ -1673,6 +1685,16 @@ export const CLI_EXAMPLES = {
       purpose: 'Fetch a schedule with its next five run times.',
       line: 'kindgi schedules get <schedule-id> --upcoming=5',
     },
+    {
+      purpose: 'Fetch version 2 of a schedule: what it ran, as whom, and when.',
+      line: 'kindgi schedules get <schedule-id> 2',
+    },
+  ],
+  'schedules versions': [
+    {
+      purpose: "List a schedule's versions as a table: when each was made, by whom, and why.",
+      line: 'kindgi schedules versions <schedule-id> --table',
+    },
   ],
   'schedules update': [
     {
@@ -1729,6 +1751,16 @@ export const CLI_EXAMPLES = {
       purpose: 'Show a trigger and the URL its sender posts to.',
       line: 'kindgi webhooks get <trigger-id>',
     },
+    {
+      purpose: 'Fetch version 2 of a trigger: what it ran, and how it checked its sender.',
+      line: 'kindgi webhooks get <trigger-id> 2',
+    },
+  ],
+  'webhooks versions': [
+    {
+      purpose: "List a trigger's versions as a table: when each was made, by whom, and why.",
+      line: 'kindgi webhooks versions <trigger-id> --table',
+    },
   ],
   'webhooks update': [
     {
@@ -1778,6 +1810,16 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Fetch a mail trigger: what it runs, its mailbox and folder, and its status.',
       line: 'kindgi mail-triggers get <trigger-id>',
+    },
+    {
+      purpose: 'Fetch version 2 of a mail trigger: what it ran, and which mailbox it watched.',
+      line: 'kindgi mail-triggers get <trigger-id> 2',
+    },
+  ],
+  'mail-triggers versions': [
+    {
+      purpose: "List a mail trigger's versions as a table: when each was made, by whom, and why.",
+      line: 'kindgi mail-triggers versions <trigger-id> --table',
     },
   ],
   'mail-triggers create': [

@@ -3595,6 +3595,25 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['POST /v1/schedules/{triggerId}/owner'],
   },
+  'trigger-version-not-found': {
+    description:
+      'The trigger exists, but has no version with the number you asked for. Versions count from 1, one more for each change to the trigger.',
+    details: [
+      {
+        key: 'triggerId',
+        meaning: 'the trigger',
+      },
+      {
+        key: 'version',
+        meaning: 'the version number that was not found',
+      },
+    ],
+    seeAlso: [
+      'GET /v1/schedules/{triggerId}/versions/{version}',
+      'GET /v1/webhooks/{triggerId}/versions/{version}',
+      'GET /v1/mail-triggers/{triggerId}/versions/{version}',
+    ],
+  },
   'trigger-invalid-config': {
     description:
       "The trigger's schedule settings are invalid, for example a cron expression that doesn't parse or fires more often than the minimum interval.",
@@ -3820,16 +3839,6 @@ export const ERROR_ENTRIES = {
     description:
       "A reconnect signed in to an account other than the connection's. Sign in with the same account; to connect another account instead, disconnect, then connect again.",
     details: [],
-  },
-  'connection-label-taken': {
-    description:
-      "A connect that isn't a reconnect, or a rename, gives a `label` another live connection of the same app, owner and environment already has, ignoring case, an emoji's variation selector and how accented letters are encoded. Pick another name, or rename the other connection first.",
-    details: [
-      {
-        key: 'field',
-        meaning: 'the input field at fault (`label`)',
-      },
-    ],
   },
   'connection-removing': {
     description:

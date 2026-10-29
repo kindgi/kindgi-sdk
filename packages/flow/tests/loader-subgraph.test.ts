@@ -55,14 +55,6 @@ describe('loadFlow — subgraph happy path', () => {
     expect(r.kind).toBe('ok');
   });
 
-  test('accepts a flowRef with no version: the parent version pins it (1.10.0)', () => {
-    const r = loadFlow(outerWith(subgraphNode({ flowRef: { flowId: 'child.flow' } })));
-    expect(r.kind).toBe('ok');
-    if (r.kind !== 'ok') return;
-    expect(r.value.nodes[0]).toMatchObject({ flowRef: { flowId: 'child.flow' } });
-    expect('version' in (r.value.nodes[0] as { flowRef: object }).flowRef).toBe(false);
-  });
-
   test('accepts a pre-release semver version like 1.2.3-alpha.1', () => {
     const r = loadFlow(
       outerWith(subgraphNode({ flowRef: { flowId: 'child.flow', version: '1.2.3-alpha.1' } })),
@@ -156,68 +148,6 @@ describe('loadFlow — subgraph inputMapping validation', () => {
     expect(r.kind).toBe('err');
     if (r.kind !== 'err') return;
     expect(r.error.code).toBe('schema-validation-failed');
-  });
-});
-
-describe('loadFlow — subgraph inputMapping paths, as a step mapping is checked', () => {
-  function afterLoad(inputMapping: Record<string, unknown>): unknown {
-    return {
-      id: 'test.subgraph',
-      version: '1.0.0',
-      nodes: [{ id: 'load', kind: 'tool', ref: 'pack.load' }, subgraphNode({ inputMapping })],
-      edges: [
-        { id: 'oe0', from: '$start', to: 'load' },
-        { id: 'oe1', from: 'load', to: 'sg-1' },
-        { id: 'oe2', from: 'sg-1', to: '$end' },
-      ],
-    };
-  }
-
-  test('accepts an earlier node output', () => {
-    expect(loadFlow(afterLoad({ items: { path: 'nodeOutputs.load.items' } })).kind).toBe('ok');
-  });
-
-  test.each([
-    ['unknown node', { path: 'nodeOutputs.ghost.x' }, 'nodeOutputs.ghost names no node'],
-    ['own output', { path: 'nodeOutputs.sg-1.x' }, 'cannot map its own output'],
-    ['loop-only root', { path: 'iterationIndex' }, "only available in a loop's exitCondition"],
-  ])('rejects %s', (_label, operand, reason) => {
-    const r = loadFlow(afterLoad({ bad: operand }));
-    expect(r.kind).toBe('err');
-    if (r.kind !== 'err') return;
-    expect(r.error).toMatchObject({ code: 'invalid-mapping', nodeId: 'sg-1', key: 'bad' });
-    expect(r.error.message).toContain(reason);
-  });
-
-  test('checks a subgraph node inside a loop body too', () => {
-    const r = loadFlow({
-      id: 'test.subgraph',
-      version: '1.0.0',
-      nodes: [
-        { id: 'load', kind: 'tool', ref: 'pack.load' },
-        {
-          id: 'loop',
-          kind: 'loop',
-          loopKind: 'foreach',
-          iterateOver: { path: 'nodeOutputs.load.items' },
-          maxIterations: 5,
-          outputSchema: anySchema,
-          body: {
-            nodes: [subgraphNode({ inputMapping: { x: { path: 'nodeOutputs.ghost' } } })],
-            edges: [
-              { id: 'b0', from: '$loop-start', to: 'sg-1' },
-              { id: 'b1', from: 'sg-1', to: '$loop-end' },
-            ],
-          },
-        },
-      ],
-      edges: [
-        { id: 'oe0', from: '$start', to: 'load' },
-        { id: 'oe1', from: 'load', to: 'loop' },
-        { id: 'oe2', from: 'loop', to: '$end' },
-      ],
-    });
-    expect(r.kind === 'err' && r.error).toMatchObject({ code: 'invalid-mapping', nodeId: 'sg-1' });
   });
 });
 

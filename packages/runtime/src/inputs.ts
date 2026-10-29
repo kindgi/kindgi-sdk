@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Action, Principal, ResourceRef } from '@kindgi/authz';
+import type { Principal } from '@kindgi/authz';
 import type { Flow, FlowVersionOverrides } from '@kindgi/flow';
 import type { HandlerRegistry } from '@kindgi/handler';
 import type {
@@ -91,6 +91,12 @@ export interface RunTriggerRef {
   readonly fireId: string;
   /** A schedule's fire: the occurrence it ran for. */
   readonly scheduledFor?: Timestamp;
+  /**
+   * The trigger's version its fire's start used (`TriggerVersionRecord`),
+   * which the run keeps whatever later edits make. Only the runtime sets
+   * it. Absent on a run from before versions.
+   */
+  readonly version?: number;
 }
 
 /** Every value of `RunStartedBy`. */
@@ -116,8 +122,9 @@ export function runIsAttended(startedBy: RunStartedBy | undefined): boolean {
 /**
  * The mailbox a mail trigger's run started from: the app, and whose
  * connection the trigger reads it with, the company's or the trigger
- * owner's. Recorded with the run and never changed; a child run takes its
- * parent's. In such a run a further read of that mailbox is steered by the
+ * owner's. The run keeps it through the trigger version it started under
+ * (`RunTriggerRef.version`), whatever later edits make; a child run takes
+ * its parent's. In such a run a further read of that mailbox is steered by the
  * mail, so a call with a connection of this app and kind waits for a
  * person's yes, read-only or not (`needsPersonsYesUnattended`).
  */
@@ -277,16 +284,6 @@ export interface HandlerResolver {
   }): Promise<Result<HandlerRegistry, HandlerMissingError>>;
 }
 
-/**
- * What a subgraph node checks the run's principal may do before it
- * starts a child flow: the action and the resource a run of the flow
- * `flowId` needs in the run's project. The Kindgi runtime answers what
- * `runAccess` in `@kindgi/api` does: `execute` on the run's project when
- * more than one project serves the flow and the run's project is one of
- * them, else `execute` on the flow. Absent: `execute` on the flow.
- */
-export type ChildFlowAccess = (flowId: string) => Promise<readonly [Action, ResourceRef]>;
-
 export interface RunFlowInput {
   readonly tenantId: TenantId;
   /**
@@ -336,14 +333,16 @@ export interface RunFlowInput {
    * The tools, by id, a call of which doesn't wait for a person's yes
    * though no person started the run (`needsPersonsYesUnattended`): the
    * `toolsAllowedUnattended` of the webhook, schedule or mail trigger that
-   * started it, as it was when the run started. Recorded with the run and
-   * never changed; a child run takes its parent's. Absent: none.
+   * started it, as the trigger version it started under has it
+   * (`RunTriggerRef.version`). The run keeps that version whatever later
+   * edits make; a child run takes its parent's. Absent: none.
    */
   readonly toolsAllowedUnattended?: readonly string[];
   /**
    * The mailbox the run's mail came from (`RunMailbox`), on a run a mail
-   * trigger started (`startedBy: 'mail'`). Recorded with the run and never
-   * changed; a child run takes its parent's. Absent on every other run.
+   * trigger started (`startedBy: 'mail'`), as the trigger version it
+   * started under has it, kept the same way as `toolsAllowedUnattended`.
+   * Absent on every other run.
    */
   readonly mailbox?: RunMailbox;
   /**
@@ -372,8 +371,6 @@ export interface RunFlowInput {
   readonly runId?: RunId;
   /** Handlers for child flows; see `HandlerResolver`. */
   readonly handlerResolver?: HandlerResolver;
-  /** The right a child flow's start asks; see `ChildFlowAccess`. */
-  readonly childAccess?: ChildFlowAccess;
   /**
    * Optional push-based event bus. When set, the runtime publishes
    * a `JournalEntry`-shaped `doc` to `kernel:run:<runId>` after each
@@ -420,15 +417,6 @@ export interface ResumeRunInput {
   readonly subgraphDepth?: number;
   /** Same shape + semantics as `RunFlowInput.handlerResolver`. */
   readonly handlerResolver?: HandlerResolver;
-  /** Same shape + semantics as `RunFlowInput.childAccess`. */
-  readonly childAccess?: ChildFlowAccess;
-  /**
-   * Internal: the parent run resuming this run, when a subgraph node
-   * resumes its child run left for that parent's resume. Such a run is
-   * resumed only by the parent it's left for (`run-held-by-parent`
-   * otherwise), at any depth. Callers on the top level do NOT set this.
-   */
-  readonly heldBy?: RunId;
   /** Same shape + semantics as `RunFlowInput.eventBus`. */
   readonly eventBus?: KernelEventBusBinding;
   // No principal: a resumed run acts for the one stored when it started

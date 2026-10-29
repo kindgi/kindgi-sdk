@@ -510,8 +510,8 @@ type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
  * A take-over keeps the trigger's `toolsAllowedUnattended`, so the entry
  * names it when it lists any: what the new owner's runs may call without
  * a person's yes. An owner that's the project's own account says so
- * (`projectAccount: true`). The one place the `trigger-owner-set` evidence
- * is shaped.
+ * (`projectAccount: true`), and `version` the trigger's version after it.
+ * The one place the `trigger-owner-set` evidence is shaped.
  */
 export async function recordOwnerSet(args: {
   readonly auditEvents: EmitAuditEventArgs['auditEvents'];
@@ -528,6 +528,8 @@ export async function recordOwnerSet(args: {
   readonly toolsAllowedUnattended?: readonly string[];
   /** `to` is the trigger's project's own account (`runAsProject`). */
   readonly projectAccount?: true;
+  /** The trigger's version after the change (`TriggerVersionRecord`). */
+  readonly version?: number;
 }): Promise<void> {
   const {
     auditEvents,
@@ -542,6 +544,7 @@ export async function recordOwnerSet(args: {
     log,
     toolsAllowedUnattended,
     projectAccount,
+    version,
   } = args;
   await emitAuditEvent({
     auditEvents,
@@ -561,6 +564,7 @@ export async function recordOwnerSet(args: {
         toolsAllowedUnattended.length > 0 && {
           toolsAllowedUnattended: [...toolsAllowedUnattended],
         }),
+      ...(version !== undefined && { version }),
     },
     ...(log !== undefined && { log }),
   });
@@ -579,8 +583,9 @@ export type TriggerOwnerChange =
  * Records a change to a personal trigger by anyone but its owner (a
  * project admin), as `trigger-changed-for-owner`: what was done, and on an
  * update the names of the fields changed, the target before and after, a
- * webhook's signing secret's name before and after, and a mail trigger's
- * mailbox and folder before and after. Never an input's
+ * webhook's signing secret's name before and after, a mail trigger's
+ * mailbox and folder before and after, and the trigger's version after it
+ * (the version record holds the definition it made). Never an input's
  * value, and never what a run did. The owner stays, so its runs keep
  * acting as them; the entry is the durable record of who changed it. A
  * take-over is `trigger-owner-set` instead ({@link recordOwnerSet}).
@@ -599,6 +604,8 @@ export async function recordChangeForOwner(args: {
   readonly hmacSecretName?: { readonly before: string; readonly after: string };
   readonly mailbox?: { readonly before: unknown; readonly after: unknown };
   readonly folder?: { readonly before: unknown; readonly after: unknown };
+  /** On an update: the trigger's version after it (`TriggerVersionRecord`). */
+  readonly version?: number;
   readonly correlationId: string;
   readonly log: EmitAuditEventArgs['log'];
 }): Promise<void> {
@@ -621,6 +628,7 @@ export async function recordChangeForOwner(args: {
       ...(args.hmacSecretName !== undefined && { hmacSecretName: args.hmacSecretName }),
       ...(args.mailbox !== undefined && { mailbox: args.mailbox }),
       ...(args.folder !== undefined && { folder: args.folder }),
+      ...(args.version !== undefined && { version: args.version }),
     },
     ...(log !== undefined && { log }),
   });
@@ -794,6 +802,8 @@ export async function noteChangeForOwner(
     readonly hmacSecretName?: { readonly before: string; readonly after: string };
     readonly mailbox?: { readonly before: unknown; readonly after: unknown };
     readonly folder?: { readonly before: unknown; readonly after: unknown };
+    /** On an update: the trigger's version after it. */
+    readonly version?: number;
   },
 ): Promise<void> {
   const { auditEvents, notices, trigger, triggerKind, change, fields } = args;
@@ -815,6 +825,7 @@ export async function noteChangeForOwner(
     ...(args.hmacSecretName !== undefined && { hmacSecretName: args.hmacSecretName }),
     ...(args.mailbox !== undefined && { mailbox: args.mailbox }),
     ...(args.folder !== undefined && { folder: args.folder }),
+    ...(args.version !== undefined && { version: args.version }),
     correlationId: c.get('requestId'),
     log: c.get('log'),
   });

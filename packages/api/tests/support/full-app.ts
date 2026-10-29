@@ -278,7 +278,6 @@ const noopConnections: ConnectionBinding = {
   list: async () => ({ data: [] }),
   get: async () => null,
   disconnect: async () => connectionNoop,
-  update: async () => connectionNoop,
   createRequest: async () => connectionNoop,
   getRequest: async () => null,
   requestsForRun: async () => [],
@@ -318,6 +317,8 @@ const noopTriggerRegistry: TriggerRegistryBinding = {
     error: { code: 'trigger-lifecycle-failed', message: 'noop', triggerId },
   }),
   unregister: async ({ triggerId }) => ({ triggerId, unregistered: false }),
+  listVersions: async () => ({ data: [] }),
+  getVersion: async () => null,
   findWebhook: async () => null,
   fireWebhook: async ({ triggerId }) => ({
     kind: 'err',

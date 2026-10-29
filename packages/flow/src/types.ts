@@ -426,20 +426,15 @@ export const SUBGRAPH_CONVERGENCE_MODES = ['success-only', 'settle-all'] as cons
 
 /**
  * Reference to another registered flow resolvable via
- * `FlowRegistryBinding.getVersion(...)`. Cross-tenant lookup is rejected
- * by construction: the kernel invokes the resolver with the PARENT run's
- * tenantId; a flow registered under a different tenant will not be found.
- *
- * The child version is fixed per parent version, so deterministic replay
- * always resolves the same child flow: the EXACT semver `version` names
- * (no ranges), or, with no `version` (schema-version 1.10.0+), the one
- * the runtime locked in the parent version's pins when it was published
- * (`FlowPins.flows`).
+ * `FlowRegistryBinding.getVersion(...)`. Version is an EXACT semver — no
+ * ranges — so deterministic replay always resolves the same child flow.
+ * Cross-tenant lookup is rejected by construction: the kernel invokes the
+ * resolver with the PARENT run's tenantId; a flow registered under a
+ * different tenant will not be found.
  */
 export interface SubflowRef {
   readonly flowId: string;
-  /** The child flow's exact version; absent → the parent version's pin for it. */
-  readonly version?: string;
+  readonly version: string;
 }
 
 /**
@@ -476,14 +471,12 @@ export interface SubflowNode {
   /** Discriminant — always `'subgraph'` for this node kind. */
   readonly kind: 'subgraph';
   /**
-   * Which flow to invoke. `{flowId, version?}` — `loadFlow` checks
-   * only the shape (an exact semver when a version is given). The child
-   * runs at `version`, else at the parent version's pin for the flow
-   * (`FlowPins.flows`). The runtime resolves the sub-flow through the
-   * run's `FlowResolver` (`@kindgi/runtime`) when the node dispatches; a
-   * flow it can't find fails the node with `subgraph-flow-not-found`.
-   * The child version is fixed per parent version, so a mid-flight
-   * sub-run survives parent-flow edits.
+   * Which flow to invoke. `{flowId, version}` — `loadFlow` checks
+   * only the shape (exact semver). The runtime resolves the sub-flow
+   * through the run's `FlowResolver` (`@kindgi/runtime`) when the node
+   * dispatches; a flow it can't find fails the node with
+   * `subgraph-flow-not-found`. The exact version pins the child flow,
+   * so a mid-flight sub-run survives parent-flow edits.
    */
   readonly flowRef: SubflowRef;
   /**
@@ -768,8 +761,8 @@ export interface Flow {
   /**
    * Semver — REQUIRED. Runs pin to a specific flow version at
    * `runGraph` time so mid-flight executions survive later flow
-   * edits. A sub-flow step runs one of these versions: the one its
-   * `flowRef` names, or the one its parent version pins.
+   * edits. `SubflowNode.flowRef.version` names one of these versions
+   * exactly.
    */
   readonly version: string;
   /** Human-readable name shown in UI + provenance. Doesn't affect execution. */
@@ -809,11 +802,10 @@ export interface Flow {
    */
   readonly output?: FlowOutputSpec;
   /**
-   * The exact tool, agent and sub-flow versions this flow version runs,
-   * resolved by the runtime when the version was published (see
-   * `FlowPins`). Never authored: `loadFlow` refuses it. Absent on a flow
-   * version published before pins existed; it binds the latest versions
-   * per run.
+   * The exact tool and agent versions this flow version runs, resolved by
+   * the runtime when the version was published (see `FlowPins`). Never
+   * authored: `loadFlow` refuses it. Absent on a flow version published
+   * before pins existed; it binds the latest versions per run.
    */
   readonly pins?: FlowPins;
   /** `flowPinsDigest(pins)`, recorded when the version was published. */
