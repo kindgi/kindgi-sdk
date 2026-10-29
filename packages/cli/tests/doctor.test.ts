@@ -218,6 +218,7 @@ describe('outside a project', () => {
       'console-sign-in',
       'license',
       'mcp-headers',
+      'mcp-env',
       'project',
       'dependencies',
       'model-key',
@@ -234,6 +235,8 @@ describe('outside a project', () => {
     );
     expect(check('mcp-headers')).toMatchObject({ status: 'skip' });
     expect(check('mcp-headers')?.message).toContain('no runtime to ask');
+    expect(check('mcp-env')).toMatchObject({ status: 'skip' });
+    expect(check('mcp-env')?.message).toContain('no runtime to ask');
     expect(check('node')).toMatchObject({ status: 'pass', message: 'Node 22.12.0.' });
     expect(check('python')).toMatchObject({ status: 'skip' });
     expect(check('python')?.message).toContain('Python 3.12.4 is installed');
@@ -1175,6 +1178,10 @@ describe('the API key: a stored key goes only to the address stored with it', ()
       status: 'skip',
       message: `Not checked: the API key isn't for ${OTHER} (API key, above).`,
     });
+    expect(check('mcp-env')).toMatchObject({
+      status: 'skip',
+      message: `Not checked: the API key isn't for ${OTHER} (API key, above).`,
+    });
     expect(mcpCalls).toEqual([]);
     expect(sent.filter((a) => a !== null)).toEqual([]);
     expect(out.stdout).not.toContain(KEY);
@@ -1507,6 +1514,131 @@ describe('MCP endpoint headers: a credential kept in plaintext config.headers, o
       '! MCP endpoint headers: An MCP endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, but the value is stored as given, not as a secret.',
     );
     expect(out.stdout).toContain('      ✗ acme.inventory: X-Api-Key');
+    expect(out.stdout).toContain('      Fix: Store each value as a secret');
+  });
+});
+
+describe('MCP endpoint env: a credential kept in plaintext config.env, or a secretRef a stdio server is never sent, on the runtime the CLI points at', () => {
+  const RUNTIME = 'https://kindgi.acme.example';
+  const env = { KINDGI_API_URL: RUNTIME, KINDGI_API_TOKEN: 'kgi_admin' };
+  /** A stdio endpoint as the API answers it: every env value `[redacted]`. */
+  const stdio = (endpointId: string, names: readonly string[] = [], extra = {}) => ({
+    endpointId,
+    name: endpointId,
+    transport: 'stdio',
+    config: {
+      transport: 'stdio',
+      command: 'acme-mcp',
+      ...(names.length > 0 && {
+        env: Object.fromEntries(names.map((name) => [name, '[redacted]'])),
+      }),
+    },
+    ...extra,
+  });
+  const http = {
+    endpointId: 'acme.docs',
+    name: 'docs',
+    transport: 'streamable-http',
+    config: { transport: 'streamable-http', url: 'https://mcp.acme.example/mcp' },
+    secretRef: { envName: 'production', name: 'DOCS_TOKEN' },
+  };
+
+  test('no stdio endpoint registered: pass', async () => {
+    const { check } = await doctor({ env, fetchImpl: healthy, mcpPages: [[http]] });
+    expect(check('mcp-env')).toMatchObject({
+      status: 'pass',
+      message: 'No stdio MCP endpoint is registered.',
+    });
+  });
+
+  test('stdio endpoints with plain variables and secretEnv only: pass, saying how many were checked', async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: healthy,
+      mcpPages: [
+        [
+          stdio('acme.files', ['LOG_LEVEL', 'DATABASE_URL', 'CACHE_KEY'], {
+            secretEnv: { GITHUB_TOKEN: { envName: 'production', name: 'FILES_GITHUB_TOKEN' } },
+          }),
+          stdio('acme.search'),
+          http,
+        ],
+      ],
+    });
+    expect(check('mcp-env')).toMatchObject({
+      status: 'pass',
+      message: 'No stdio MCP endpoint keeps a credential in config.env (2 checked).',
+    });
+  });
+
+  test('credential names in config.env, and a secretRef on stdio, on every page: a warning naming each endpoint and what it keeps, exit 0', async () => {
+    const calls: unknown[] = [];
+    const { out, check } = await doctor({
+      env,
+      fetchImpl: healthy,
+      mcpCalls: calls,
+      mcpPages: [
+        [stdio('acme.search', ['LOG_LEVEL'])],
+        [
+          stdio('acme.files', ['GITHUB_TOKEN', 'LOG_LEVEL', 'AWS_SECRET_ACCESS_KEY']),
+          stdio('acme.mail', [], { secretRef: { envName: 'production', name: 'MAIL_TOKEN' } }),
+          http,
+        ],
+      ],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(calls).toEqual([{ limit: 100 }, { limit: 100, cursor: '1' }]);
+    const found = check('mcp-env');
+    expect(found?.status).toBe('warn');
+    expect(found?.message).toContain(
+      "2 stdio MCP endpoints keep a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused.",
+    );
+    expect(found?.details).toEqual([
+      'acme.files: GITHUB_TOKEN, AWS_SECRET_ACCESS_KEY',
+      'acme.mail: secretRef (never sent)',
+    ]);
+    expect(found?.fix).toContain('kindgi secrets set');
+    expect(found?.fix).toContain('secretEnv: { <NAME>: { envName, name } }, and without secretRef');
+    // The HTTP endpoint's bearer is no finding here.
+    expect(check('mcp-headers')?.status).toBe('pass');
+  });
+
+  test("the endpoints can't be listed: not checked, saying why", async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: healthy,
+      mcpPages: new Error('HTTP 404: Not Found'),
+    });
+    expect(check('mcp-env')).toMatchObject({
+      status: 'skip',
+      message: `Not checked: the MCP endpoints at ${RUNTIME} couldn't be listed (HTTP 404: Not Found).`,
+    });
+  });
+
+  test('an earlier runtime answers the values: each variable is named, never its value', async () => {
+    const value = 'ghp_doctor_canary_0123456789';
+    const earlier = stdio('acme.files', [], {
+      config: { transport: 'stdio', command: 'acme-mcp', env: { GITHUB_TOKEN: value } },
+    });
+    for (const json of [true, false]) {
+      const { out, check } = await doctor({ env, json, fetchImpl: healthy, mcpPages: [[earlier]] });
+      if (json) expect(check('mcp-env')?.details).toEqual(['acme.files: GITHUB_TOKEN']);
+      else expect(out.stdout).toContain('      ✗ acme.files: GITHUB_TOKEN');
+      expect(`${out.stdout}${out.stderr}`).not.toContain(value);
+    }
+  });
+
+  test('the text output: the warning, each endpoint and the fix', async () => {
+    const { out } = await doctor({
+      env,
+      json: false,
+      fetchImpl: healthy,
+      mcpPages: [[stdio('acme.files', ['GITHUB_TOKEN'])]],
+    });
+    expect(out.stdout).toContain(
+      "! MCP endpoint env: A stdio MCP endpoint keeps a credential in plaintext config.env, or a secretRef a stdio server isn't sent, from before that was refused. It still works, but a value in config.env is stored as given, not as a secret.",
+    );
+    expect(out.stdout).toContain('      ✗ acme.files: GITHUB_TOKEN');
     expect(out.stdout).toContain('      Fix: Store each value as a secret');
   });
 });
