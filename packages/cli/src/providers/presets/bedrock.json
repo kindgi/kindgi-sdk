@@ -19,7 +19,11 @@
         "name": "us.anthropic.claude-sonnet-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
-        "thinking": { "mode": "adaptive", "lowest": "between_tools" },
+        "thinking": {
+          "mode": "adaptive",
+          "lowest": "between_tools",
+          "levels": ["low", "medium", "high", "max"]
+        },
         "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {

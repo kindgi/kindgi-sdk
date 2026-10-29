@@ -321,6 +321,45 @@ describe('the bundled presets', () => {
     // gemini-3.1-pro-preview hasn't been checked with typed output.
     expect(typed('gemini-api', {})).toEqual(['gemini-3.8-flash', 'gemini-3.5-flash-lite']);
   });
+
+  test("each thinking model lists the levels its vendor's pages give (2026-10-28); one they don't settle lists none, so it takes the ones every thinking model takes", async () => {
+    const presets = await loadProviderPresets();
+    const levels = (name: string) =>
+      Object.fromEntries(
+        (presets[name]?.metadata.models ?? [])
+          .filter((m) => m.thinking !== undefined)
+          .map((m) => [m.name, m.thinking?.levels]),
+      );
+    const five = ['low', 'medium', 'high', 'xhigh', 'max'];
+    // Anthropic's effort page: each "supports all five effort levels".
+    expect(levels('anthropic')).toEqual({
+      'claude-opus-5-5': five,
+      'claude-sonnet-5-5': five,
+      'claude-haiku-5-5': five,
+    });
+    // OpenAI's model pages; Azure's reasoning page, for the Responses API the preset speaks (`max` needs it).
+    expect(levels('openai')).toEqual({
+      'gpt-6.1-sol': five,
+      'gpt-6-astra': five,
+      'gpt-6-luna': five,
+    });
+    expect(levels('azure-openai')).toEqual({ 'gpt-6.1-sol': five, 'gpt-6-luna': five });
+    // The AI SDK sends xhigh to Bedrock as max, so xhigh rounds up to max in the open; no page settles Bedrock's GPT levels.
+    expect(levels('bedrock')).toEqual({
+      'us.anthropic.claude-sonnet-5-5': ['low', 'medium', 'high', 'max'],
+      'us.openai.gpt-6.1-sol': undefined,
+      'us.openai.gpt-6-luna': undefined,
+    });
+    // Gemini's thinking page; Vertex's pages don't say.
+    expect(levels('gemini-api')).toEqual({
+      'gemini-3.8-flash': ['low', 'medium', 'high'],
+      'gemini-3.5-flash-lite': ['minimal', 'low', 'medium', 'high'],
+    });
+    expect(levels('gemini')).toEqual({
+      'gemini-3.8-flash': undefined,
+      'gemini-3.5-flash-lite': undefined,
+    });
+  });
 });
 
 describe('kindgi providers register --preset', () => {
