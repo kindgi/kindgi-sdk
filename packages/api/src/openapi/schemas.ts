@@ -576,12 +576,7 @@ export const GatePolicySchema: JsonSchema = {
     spec: { $ref: '#/components/schemas/GatePolicySpec' },
     description: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
-    unregisteredAt: {
-      type: 'string',
-      format: 'date-time',
-      description:
-        'Present only on an unregistered version: a retired policy (every version unregistered) as `GET /v1/gate-policies?includeRetired=true` lists it.',
-    },
+    unregisteredAt: { type: 'string', format: 'date-time' },
   },
 };
 
@@ -8313,12 +8308,6 @@ export const PolicySchema: JsonSchema = {
       description:
         "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.",
     },
-    unregisteredAt: {
-      type: 'string',
-      format: 'date-time',
-      description:
-        'Present only on an unregistered version: a retired policy (every version unregistered) as `GET /v1/policies?includeRetired=true` lists it. `GET /v1/policies/{policyId}` answers the latest active version, which never carries it.',
-    },
   },
 };
 
@@ -8340,9 +8329,9 @@ export const PolicyCollectionPageSchema: JsonSchema = {
  * A version as `GET /v1/policies/:policyId/versions` and
  * `GET /v1/policies/:policyId/versions/:version` return it. Matches
  * `Policy` plus an optional `unregisteredAt` timestamp that is present
- * iff the version has been soft-tombstoned. `Policy` carries the same
- * optional field for a retired policy the list returns; this schema
- * keeps the versions' own wording.
+ * iff the version has been soft-tombstoned. Kept as a dedicated schema
+ * so the head route (`get`, the latest active version) keeps its shape
+ * locked down under `additionalProperties: false`.
  */
 export const PolicyVersionRowSchema: JsonSchema = {
   type: 'object',
@@ -8796,7 +8785,7 @@ export const BlockSchema: JsonSchema = {
       type: 'string',
       format: 'date-time',
       description:
-        'Present only on an unregistered version; agent versions that pin it still read it. A retired block (every version unregistered) carries it as `GET /v1/blocks?includeRetired=true` lists it.',
+        'Present only on an unregistered version; agent versions that pin it still read it.',
     },
   },
 };

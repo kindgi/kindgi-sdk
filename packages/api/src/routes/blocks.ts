@@ -17,7 +17,6 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
-import { includeRetiredOf } from './include-retired.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
@@ -135,7 +134,6 @@ export function blocksRouter(
       ...(kind !== undefined && kind.length > 0 && { blockKind: kind as BlockKind }),
       ...(name !== undefined && name.length > 0 && { nameFilter: name }),
       ...(scope.scope !== undefined && { scope: scope.scope }),
-      ...includeRetiredOf(c),
     });
     const visible =
       authorizer === undefined
@@ -149,7 +147,6 @@ export function blocksRouter(
                 versionOf: (b) => b.version,
                 getVersion: (id, version) => binding.getVersion({ tenantId, blockId: id, version }),
               },
-              retired: (b) => b.unregisteredAt !== undefined,
             });
     return c.json({
       data: visible.map(serializeBlock),

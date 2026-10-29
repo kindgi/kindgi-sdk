@@ -3359,12 +3359,11 @@ class GatePoliciesResource:
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
-        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyPage:
         """List gate policies. `GET /v1/gate-policies`
 
-        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
         """
         return self._client._request(
             _OPERATIONS["gatePolicies.list"],
@@ -3376,7 +3375,6 @@ class GatePoliciesResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "segment": _segments(segments),
-                "includeRetired": include_retired,
             },
             headers={},
             response=_models.GatePolicyPage,
@@ -5887,23 +5885,16 @@ class PoliciesResource:
         ]
         | None = None,
         name: str | None = None,
-        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.PolicyCollectionPage:
         """List tenant policies. `GET /v1/policies`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.
         """
         return self._client._request(
             _OPERATIONS["policies.list"],
             path={},
-            query={
-                "limit": limit,
-                "cursor": cursor,
-                "kind": kind,
-                "name": name,
-                "includeRetired": include_retired,
-            },
+            query={"limit": limit, "cursor": cursor, "kind": kind, "name": name},
             headers={},
             response=_models.PolicyCollectionPage,
             timeout=timeout,
@@ -6437,12 +6428,11 @@ class BlocksResource:
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
-        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.BlockCollectionPage:
         """List data blocks (latest version of each). `GET /v1/blocks`
 
-        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
         """
         return self._client._request(
             _OPERATIONS["blocks.list"],
@@ -6454,7 +6444,6 @@ class BlocksResource:
                 "name": name,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
-                "includeRetired": include_retired,
             },
             headers={},
             response=_models.BlockCollectionPage,
@@ -12883,12 +12872,11 @@ class AsyncGatePoliciesResource:
         scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
-        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.GatePolicyPage:
         """List gate policies. `GET /v1/gate-policies`
 
-        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
         """
         return await self._client._request(
             _OPERATIONS["gatePolicies.list"],
@@ -12900,7 +12888,6 @@ class AsyncGatePoliciesResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "segment": _segments(segments),
-                "includeRetired": include_retired,
             },
             headers={},
             response=_models.GatePolicyPage,
@@ -15417,23 +15404,16 @@ class AsyncPoliciesResource:
         ]
         | None = None,
         name: str | None = None,
-        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.PolicyCollectionPage:
         """List tenant policies. `GET /v1/policies`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.
         """
         return await self._client._request(
             _OPERATIONS["policies.list"],
             path={},
-            query={
-                "limit": limit,
-                "cursor": cursor,
-                "kind": kind,
-                "name": name,
-                "includeRetired": include_retired,
-            },
+            query={"limit": limit, "cursor": cursor, "kind": kind, "name": name},
             headers={},
             response=_models.PolicyCollectionPage,
             timeout=timeout,
@@ -15969,12 +15949,11 @@ class AsyncBlocksResource:
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
-        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.BlockCollectionPage:
         """List data blocks (latest version of each). `GET /v1/blocks`
 
-        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.
         """
         return await self._client._request(
             _OPERATIONS["blocks.list"],
@@ -15986,7 +15965,6 @@ class AsyncBlocksResource:
                 "name": name,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
-                "includeRetired": include_retired,
             },
             headers={},
             response=_models.BlockCollectionPage,

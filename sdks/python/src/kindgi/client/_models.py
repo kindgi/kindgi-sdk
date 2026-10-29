@@ -6042,10 +6042,6 @@ class Policy(BaseModel):
     """
     Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.
     """
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    Present only on an unregistered version: a retired policy (every version unregistered) as `GET /v1/policies?includeRetired=true` lists it. `GET /v1/policies/{policyId}` answers the latest active version, which never carries it.
-    """
 
 
 class PolicyCollectionPage(BaseModel):
@@ -6631,7 +6627,7 @@ class Block(BaseModel):
     published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
-    Present only on an unregistered version; agent versions that pin it still read it. A retired block (every version unregistered) carries it as `GET /v1/blocks?includeRetired=true` lists it.
+    Present only on an unregistered version; agent versions that pin it still read it.
     """
 
 
@@ -13341,9 +13337,6 @@ class GatePolicy(BaseModel):
     description: str | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    Present only on an unregistered version: a retired policy (every version unregistered) as `GET /v1/gate-policies?includeRetired=true` lists it.
-    """
 
 
 class GatePolicyPage(BaseModel):

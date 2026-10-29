@@ -66,14 +66,10 @@ export interface PoliciesClient {
   get(id: PolicyId): Promise<Policy>;
 
   /**
-   * Latest version per id. `filter.includeRetired = true` lists a
-   * retired policy too (every version unregistered), as its highest
-   * version with `unregisteredAt`.
-   *
    * @wire `GET /v1/policies` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1policies/get`.
    */
-  list(filter?: PolicyListFilter): Promise<ListPage<PolicyVersionRow>>;
+  list(filter?: PolicyListFilter): Promise<ListPage<Policy>>;
 
   /**
    * Historical versions of a policy.id. Defaults to active-only. Pass
@@ -135,12 +131,6 @@ export interface PolicyListFilter extends Filter {
   readonly kind?: PolicyKind;
   /** Prefix filter on policy id (matches the server's `?name=` query). */
   readonly name?: string;
-  /**
-   * `true` lists retired policies too (every version unregistered), each as
-   * its highest version with `unregisteredAt`. Default: policies with an
-   * active version only.
-   */
-  readonly includeRetired?: boolean;
 }
 
 export interface PolicyVersionsFilter {
@@ -207,7 +197,7 @@ export function makePoliciesClient(transport: Transport): PoliciesClient {
     },
 
     async list(filter) {
-      const page = await transport.request<WirePage<PolicyVersionRow>>({
+      const page = await transport.request<WirePage<Policy>>({
         method: 'GET',
         path: '/v1/policies',
         query: {
@@ -215,7 +205,6 @@ export function makePoliciesClient(transport: Transport): PoliciesClient {
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(filter?.kind !== undefined && { kind: filter.kind }),
           ...(filter?.name !== undefined && { name: filter.name }),
-          ...(filter?.includeRetired === true && { includeRetired: 'true' }),
         },
       });
       return listPage(page);

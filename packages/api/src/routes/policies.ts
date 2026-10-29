@@ -22,7 +22,6 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { RetentionLimits } from '../retention-binding.js';
 import type { AppEnv } from '../types.js';
-import { includeRetiredOf } from './include-retired.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
@@ -91,10 +90,9 @@ export function policiesRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(kindRaw !== undefined && kindRaw.length > 0 && { policyKind: kindRaw as PolicyKind }),
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
-      ...includeRetiredOf(c),
     });
     return c.json({
-      data: page.data.map(serializePolicyVersionRow),
+      data: page.data.map(serializePolicy),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });

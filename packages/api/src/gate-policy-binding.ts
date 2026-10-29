@@ -127,13 +127,6 @@ export interface GatePolicyListInput {
   readonly scope?: LiveScope;
   readonly limit: number;
   readonly cursor?: Cursor;
-  /**
-   * `true` lists retired policies too (every version unregistered), each
-   * as its highest version, with that version's `unregisteredAt`, so a
-   * client can find one to reinstate. Default: policies with an active
-   * version only.
-   */
-  readonly includeRetired?: boolean;
 }
 
 export interface GatePolicyVersionInput {
@@ -159,11 +152,7 @@ export interface GatePolicyBinding {
     readonly tenantId: TenantId;
     readonly id: string;
   }): Promise<readonly GatePolicy[]>;
-  /**
-   * Each policy's latest active version. With `includeRetired`, a retired
-   * policy (every version unregistered) too, as its highest version with
-   * `unregisteredAt`.
-   */
+  /** Each policy's latest active version. */
   list(input: GatePolicyListInput): Promise<{
     readonly data: readonly GatePolicy[];
     readonly nextCursor?: Cursor;

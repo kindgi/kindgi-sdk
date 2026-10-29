@@ -35,16 +35,11 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List data blocks (the latest version of each).',
   usage:
-    'kindgi blocks list [--project=<id>] [--kind=prompt|settings] [--name=<prefix>] [--include-retired] [--limit=<n>] [--cursor=<c>]',
+    'kindgi blocks list [--project=<id>] [--kind=prompt|settings] [--name=<prefix>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     project: { type: 'string', description: 'Only blocks of this project.' },
     kind: { type: 'string', description: 'Only this kind: prompt or settings.' },
     name: { type: 'string', description: 'Only ids starting with this.' },
-    'include-retired': {
-      type: 'boolean',
-      description:
-        'Include retired blocks (every version unregistered), each as its highest version with `unregisteredAt`.',
-    },
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
@@ -61,7 +56,6 @@ const list: LeafCommand = {
         ...(kind !== undefined && { kind: kind as Kind }),
         ...(projectId !== undefined && { scope: { kind: 'project' as const, projectId } }),
         ...(name !== undefined && { name }),
-        ...(ctx.options['include-retired'] === true && { includeRetired: true }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor }),
       });

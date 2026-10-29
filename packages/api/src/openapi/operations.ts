@@ -3735,7 +3735,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'gatePolicies.list',
     summary: 'List gate policies',
     description:
-      "Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
+      "Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
     tags: ['gate-policies'],
     security: 'bearer',
     parameters: [
@@ -3751,7 +3751,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
       PromotionScopeKindQueryParam,
       ScopeIdQueryParam,
       SegmentQueryParam,
-      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of gate policies.', schema: ref('GatePolicyPage') },
@@ -6150,7 +6149,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'policies.list',
     summary: 'List tenant policies',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
+      'Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.',
     tags: ['policies'],
     security: 'bearer',
     parameters: [
@@ -6158,7 +6157,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
       PolicyKindFilterQueryParam,
       PolicyNameFilterQueryParam,
-      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of policies.', schema: ref('PolicyCollectionPage') },
@@ -6547,7 +6545,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'blocks.list',
     summary: 'List data blocks (latest version of each)',
     description:
-      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
+      'Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.',
     tags: ['blocks'],
     security: 'bearer',
     parameters: [
@@ -6557,7 +6555,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
       BlockNameFilterQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
-      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of blocks.', schema: ref('BlockCollectionPage') },

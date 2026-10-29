@@ -60,10 +60,9 @@ const ADOPTED = 'acme.adopted';
 
 /**
  * `0.9.0` was made in prod, before the order; `1.0.0` was made in staging
- * and promoted to prod; `1.1.0` is in staging only, the newest. With
- * `retired`, every version of the order's item is unregistered.
+ * and promoted to prod; `1.1.0` is in staging only, the newest.
  */
-function rows(retired = false): ItemRow[] {
+function rows(): ItemRow[] {
   return [
     ...KINDS.flatMap(({ kind }): ItemRow[] => [
       {
@@ -74,7 +73,7 @@ function rows(retired = false): ItemRow[] {
           { version: '0.9.0', projects: [PROD] },
           { version: '1.0.0', projects: [STAGING, PROD] },
           { version: '1.1.0', projects: [STAGING] },
-        ].map((v) => (retired ? { ...v, active: false } : v)),
+        ],
       },
       {
         kind: kind as OrderItemKind,
@@ -95,24 +94,12 @@ function rows(retired = false): ItemRow[] {
   ];
 }
 
-/** When the retired item's versions were unregistered. */
-const RETIRED_AT = '2026-10-20T00:00:00.000Z';
-
-/**
- * A version record every kind's serializer reads; `projectId` undefined: one
- * that names none; with `unregisteredAt`, an unregistered one.
- */
-function rec(
-  id: string,
-  version: string,
-  projectId: ProjectId | undefined,
-  unregisteredAt?: string,
-) {
+/** A version record every kind's serializer reads; `projectId` undefined: one that names none. */
+function rec(id: string, version: string, projectId: ProjectId | undefined) {
   return {
     id,
     version,
     ...(projectId !== undefined && { projectId }),
-    ...(unregisteredAt !== undefined && { unregisteredAt }),
     tenantId,
     name: id,
     description: id,
@@ -133,21 +120,15 @@ function rec(
 }
 type Rec = ReturnType<typeof rec>;
 
-/**
- * A registry of one kind over `records` (oldest first), as each read route
- * asks it. Its list leaves out an item whose every version is unregistered,
- * unless `includeRetired`.
- */
+/** A registry of one kind over `records` (oldest first), as each read route asks it. */
 function registry(idKey: string, records: readonly Rec[]) {
   const versionsOf = (id: string) => records.filter((r) => r.id === id);
   const latest = (id: string) => versionsOf(id).at(-1) ?? null;
   const ids = () => [...new Set(records.map((r) => r.id))].sort();
-  const inUse = (id: string) => versionsOf(id).some((r) => r.unregisteredAt === undefined);
   return {
-    async list(input: { includeRetired?: boolean } = {}) {
+    async list() {
       return {
         data: ids()
-          .filter((id) => input.includeRetired === true || inUse(id))
           .map((id) => latest(id))
           .filter((r) => r !== null),
       };
@@ -202,8 +183,7 @@ const resolveToken: TokenResolver = async (token) => {
  * item in `other`, and the adopted agent in Default. Without `served`, no
  * item-projects binding: every item has one project. Without `authorized`,
  * no authorizer. With `projectless`, no record names a project, as
- * `kindgi dev`'s pack read from disk. With `retired`, every version of the
- * order's item is unregistered.
+ * `kindgi dev`'s pack read from disk.
  */
 function harness(
   opts: {
@@ -212,16 +192,14 @@ function harness(
     soloOnly?: boolean;
     authorized?: boolean;
     projectless?: boolean;
-    retired?: boolean;
   } = {},
 ) {
   const at = (projectId: ProjectId) => (opts.projectless === true ? undefined : projectId);
-  const off = opts.retired === true ? RETIRED_AT : undefined;
   const records = (prefix: string) =>
     [
-      rec(SERVED, '0.9.0', at(STAGING), off),
-      rec(SERVED, '1.0.0', at(STAGING), off),
-      rec(SERVED, '1.1.0', at(STAGING), off),
+      rec(SERVED, '0.9.0', at(STAGING)),
+      rec(SERVED, '1.0.0', at(STAGING)),
+      rec(SERVED, '1.1.0', at(STAGING)),
       rec(SOLO, '1.0.0', at(OTHER)),
       rec(SOLO, '2.0.0', at(OTHER)),
       ...(prefix === 'agent' ? [rec(ADOPTED, '1.0.0', at(DEFAULT))] : []),
@@ -229,7 +207,7 @@ function harness(
   const registries = Object.fromEntries(
     KINDS.map((k) => [k.registry, registry(k.idKey, records(k.kind))]),
   ) as unknown as Partial<CreateAppInput>;
-  const items = itemProjects(rows(opts.retired === true));
+  const items = itemProjects(rows());
   const authz = grantsAuthz(PEOPLE, { [`agent:${SERVED}`]: STAGING, [`agent:${SOLO}`]: OTHER });
   const app = createApp({
     ...createStubAppBindings(),
@@ -335,24 +313,6 @@ describe.each(KINDS)('a $kind that an order carries: GET /:id', (k) => {
     expect((await row('prod'))?.version).toBe('1.0.0');
     expect((await row('staging'))?.version).toBe('1.1.0');
     expect(await row('nobody')).toBeUndefined();
-  });
-
-  test("a retired item: listed only with ?includeRetired=true, its row the caller's newest version", async () => {
-    const { get } = harness({ retired: true });
-    const row = async (who: string, query = '') =>
-      ((await get(who, `${k.path}${query}`)).body.data as { id: string }[]).find(
-        (r) => r.id === SERVED,
-      );
-    expect(await row('prod')).toBeUndefined();
-    expect(await row('prod', '?includeRetired=true')).toMatchObject({
-      version: '1.0.0',
-      unregisteredAt: RETIRED_AT,
-    });
-    expect(await row('staging', '?includeRetired=true')).toMatchObject({
-      version: '1.1.0',
-      unregisteredAt: RETIRED_AT,
-    });
-    expect(await row('nobody', '?includeRetired=true')).toBeUndefined();
   });
 
   test('a list page asks the binding once for its projects and checks its projects in one batch', async () => {
