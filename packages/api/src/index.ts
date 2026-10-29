@@ -1227,6 +1227,9 @@ export type {
   ProvenanceBindingError,
   ProvenanceListCursor,
   ProvenanceRecordSummary,
+  StepRunsUsage,
+  StepUsage,
+  StepUsageByNodeId,
 } from './provenance-binding.js';
 export type { KeyManagementBinding, KmsError } from './key-management-binding.js';
 export { createInMemoryRotationStatusStore } from './rotation-status-store.js';

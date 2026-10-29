@@ -400,6 +400,72 @@ export interface JournalEntry {
   readonly timestamp: Timestamp;
 }
 
+/**
+ * Where a journal entry sits, kept beside its payload so a reader can
+ * place the entry without reading the payload, which can hold a value.
+ * Each fact is one scalar: an id from the flow definition, an index, a
+ * number, a boolean or a fixed word, never a value or text taken from
+ * data. The kernel keeps the facts each kind lists below. Entries
+ * written before it kept them have none, and erasing a person's data
+ * clears them with the payload.
+ */
+export interface JournalEntryFacts {
+  /**
+   * The step's scope where it isn't the entry's node id: a loop-body
+   * step's `bodyStepKey` on its `step.*` entries. On `iteration.*`
+   * entries, always the loop execution's scope: a nested loop's
+   * `bodyStepKey`, a top-level loop's node id. On `wait.*` entries,
+   * always the waiting step's scope.
+   */
+  readonly scope?: string;
+  /**
+   * In a loop body (`step.*` of a body step, a body `edge.evaluated`):
+   * the scope of the innermost loop, its node id when that loop isn't
+   * itself in a loop body.
+   */
+  readonly loopScope?: string;
+  /** With `loopScope`, and on `iteration.*`: the innermost loop's iteration, from 0. */
+  readonly iteration?: number;
+  /** `edge.evaluated`: the edge, and whether it was taken. */
+  readonly edgeId?: string;
+  readonly decision?: boolean;
+  /**
+   * A fixed word: `step.failed`'s attribution (`timeout`, `cancelled`),
+   * `fanout.branch-failed`'s and `fanout.cancelled-siblings`' reason, or
+   * `run.cancelled`'s or `wait.cancelled`'s (such as `timeout`,
+   * `conversation-closed`, `approval-withdrawn`), when it's one the
+   * kernel knows. More words may come.
+   */
+  readonly reason?: string;
+  /** `step.failed` on a timeout. */
+  readonly limitMs?: number;
+  readonly elapsedMs?: number;
+  /** `step.retry-scheduled`. */
+  readonly attempt?: number;
+  readonly nextDelayMs?: number;
+  /** `iteration.*`. */
+  readonly bodyExecuted?: boolean;
+  readonly exitConditionResult?: boolean;
+  readonly outputSchemaValid?: boolean;
+  /** `iteration.completed` on a loop's last iteration, and a loop's, fanout's or sub-flow's `step.failed`. */
+  readonly stopReason?: string;
+  /** `fanout.*`: the branch, from the flow definition. */
+  readonly fanoutNodeId?: string;
+  readonly branchId?: string;
+}
+
+/**
+ * A journal entry without its payload, with its facts: what a reader
+ * that must not read values is handed.
+ */
+export interface JournalEntryPosition {
+  readonly sequence: number;
+  readonly kind: JournalKind;
+  readonly nodeId?: NodeId;
+  readonly timestamp: Timestamp;
+  readonly facts?: JournalEntryFacts;
+}
+
 /** Kernel run-configuration knobs. */
 export interface RunOptions {
   /**

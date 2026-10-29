@@ -886,10 +886,8 @@ export interface AuditBundleMeta {
 }
 
 /**
- * Client-side verification result for `approvals.audit.verify`. That
- * method throws `not-yet-wired`: the SDK does not bundle an Ed25519
- * verifier (same as `provenance.verify`). To verify a bundle, use
- * `verifyEd25519` from `@kindgi/crypto`.
+ * Client-side verification result for `approvals.audit.verify`, which
+ * runs where it's read, with Web Crypto's Ed25519, and makes no request.
  */
 export interface AuditVerifyResult {
   readonly valid: boolean;
@@ -1479,6 +1477,22 @@ export interface ProvenanceRecord {
       }
     >
   >;
+  /**
+   * A flow run's model usage per step, from the cost ledger, by the id of
+   * the step's node (`step:<scope>`): its calls, their cost and tokens. A
+   * folded node has its iterations' sum. Joined when read: not part of
+   * the signed DAG.
+   */
+  readonly stepUsage?: Readonly<
+    Record<
+      string,
+      {
+        readonly calls: number;
+        readonly costUsd: number;
+        readonly tokens: CostTokenTotals;
+      }
+    >
+  >;
 }
 
 /**
@@ -1525,6 +1539,8 @@ export interface ProvenanceQueryFilter extends Filter {
   readonly scope?: import('./scope-wire.js').ScopeRef;
   readonly runId?: import('@kindgi/types').RunId;
   readonly agentId?: import('@kindgi/types').AgentId;
+  /** Only the records of this flow's runs. */
+  readonly flowId?: import('@kindgi/types').FlowId;
   /** ISO 8601 timestamp — server filters `createdAt > createdAfter`. */
   readonly createdAfter?: import('@kindgi/types').Timestamp;
 }

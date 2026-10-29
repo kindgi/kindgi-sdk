@@ -807,6 +807,15 @@ const ProvenanceAgentIdQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const ProvenanceFlowIdQueryParam: ParameterSpec = {
+  name: 'flowId',
+  in: 'query',
+  required: false,
+  description:
+    "Only the records of this flow's runs, at any version (`flowRef.id`, exact match). An agent's turns aren't matched: use `agentId` for those.",
+  schema: { type: 'string', minLength: 1 },
+};
+
 const ProvenanceCreatedAfterQueryParam: ParameterSpec = {
   name: 'createdAfter',
   in: 'query',
@@ -5135,7 +5144,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'provenance.list',
     summary: 'List provenance records',
     description:
-      "Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).",
+      "Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?flowId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).",
     tags: ['provenance'],
     security: 'bearer',
     parameters: [
@@ -5145,6 +5154,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeIdQueryParam,
       ProvenanceRunIdQueryParam,
       ProvenanceAgentIdQueryParam,
+      ProvenanceFlowIdQueryParam,
       ProvenanceCreatedAfterQueryParam,
     ],
     responses: {
@@ -5160,14 +5170,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'provenance.get',
     summary: 'Fetch the full provenance DAG for a run',
     description:
-      'Returns the full DAG (nodes + edges) plus record metadata. 404 when no provenance was emitted for the run (e.g. the deployment does not run the emitter, or the run was pre-provenance).',
+      "Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. From the run's end until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a run still running, a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.",
     tags: ['provenance'],
     security: 'bearer',
     parameters: [RunIdPathParam],
     responses: {
       '200': { description: 'Full provenance record.', schema: ref('ProvenanceRecord') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No provenance record for that run under this tenant.'),
+      '404': ErrorResponse(
+        'No provenance record for that run under this tenant (`provenance-not-found`; `error.details.recordState` says when it is still being written, or failed).',
+      ),
     },
   },
   {

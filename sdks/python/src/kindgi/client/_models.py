@@ -4835,6 +4835,7 @@ class ProvenanceNodeKind(
             "memory-write",
             "wait",
             "resume",
+            "step",
         ]
     ]
 ):
@@ -4854,6 +4855,7 @@ class ProvenanceNodeKind(
         "memory-write",
         "wait",
         "resume",
+        "step",
     ]
 
 
@@ -4905,6 +4907,7 @@ class ProvenanceNode(BaseModel):
         "memory-write",
         "wait",
         "resume",
+        "step",
     ]
     timestamp: AwareDatetime
     actor: str | None = None
@@ -5021,6 +5024,7 @@ class Node(BaseModel):
             "memory-write",
             "wait",
             "resume",
+            "step",
         ]
         | str,
         _open.OPEN,
@@ -5092,6 +5096,10 @@ class ProvenanceCollectionPage(BaseModel):
     data: list[ProvenanceRecordMetadata]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    flow_id: Annotated[str | None, Field(alias="flowId")] = None
+    """
+    The flow, on every page of a list asked for with `?flowId=`, an empty one too: it holds only that flow's runs' records. Absent from a runtime that doesn't list records by flow, which ignores `flowId` and lists them all.
+    """
 
 
 class ExportProvenanceBody(BaseModel):
@@ -5115,7 +5123,7 @@ class ExportProvenanceBody(BaseModel):
 
 class ExportProvenanceResult(BaseModel):
     """
-    A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, as it stood when signed.
+    A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, stepUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, and `stepUsage` a flow record's usage per step, as they stood when signed.
     """
 
     model_config = ConfigDict(
@@ -5133,7 +5141,7 @@ class ExportProvenanceResult(BaseModel):
     """
     bundle_schema_version: Annotated[str, Field(alias="bundleSchemaVersion")]
     """
-    The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`.
+    The body's version, semver. `1.3.0` adds `stepUsage`; `1.2.0` added `exportedAt` to the signed body; `1.1.0` added `callUsage`.
     """
     algorithm: Annotated[Literal["ed25519", "ecdsa-p256-sha256"] | str, _open.OPEN]
     """
@@ -14804,6 +14812,16 @@ class CallUsage(BaseModel):
     served_model: Annotated[str | None, Field(alias="servedModel")] = None
 
 
+class StepUsage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    calls: Annotated[int, Field(ge=0)]
+    cost_usd: Annotated[float, Field(alias="costUsd", ge=0.0)]
+    tokens: CostTokenTotals
+
+
 class ProvenanceRecord(BaseModel):
     """
     Full provenance record including the DAG payload.
@@ -14827,6 +14845,10 @@ class ProvenanceRecord(BaseModel):
     call_usage: Annotated[dict[str, CallUsage] | None, Field(alias="callUsage")] = None
     """
     Each model call's usage from the cost ledger, by the `callId` in its `model-call` node's attributes. Joined when read: not part of the signed DAG. A signed export includes it, as it stood when signed.
+    """
+    step_usage: Annotated[dict[str, StepUsage] | None, Field(alias="stepUsage")] = None
+    """
+    A flow record's model usage per step, by the `step` node's id: the model calls of the runs the step started (an agent step's turn, a sub-flow's run) and of the runs they started, from the cost ledger. A folded loop node sums its iterations'. A tool step's own model calls, made by its pack with its own key, aren't in it. Joined when read: not part of the signed DAG. A signed export includes it, as it stood when signed.
     """
 
 

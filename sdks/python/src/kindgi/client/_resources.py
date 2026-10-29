@@ -4685,12 +4685,13 @@ class ProvenanceResource:
         scope_id: str | UUID | None = None,
         run_id: str | UUID | None = None,
         agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         created_after: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProvenanceCollectionPage:
         """List provenance records. `GET /v1/provenance`
 
-        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
+        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?flowId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
         """
         return self._client._request(
             _OPERATIONS["provenance.list"],
@@ -4702,6 +4703,7 @@ class ProvenanceResource:
                 "scopeId": scope_id,
                 "runId": run_id,
                 "agentId": agent_id,
+                "flowId": flow_id,
                 "createdAfter": created_after,
             },
             headers={},
@@ -4714,7 +4716,7 @@ class ProvenanceResource:
     ) -> _models.ProvenanceRecord:
         """Fetch the full provenance DAG for a run. `GET /v1/provenance/{runId}`
 
-        Returns the full DAG (nodes + edges) plus record metadata. 404 when no provenance was emitted for the run (e.g. the deployment does not run the emitter, or the run was pre-provenance).
+        Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. From the run's end until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a run still running, a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.
         """
         return self._client._request(
             _OPERATIONS["provenance.get"],
@@ -14202,12 +14204,13 @@ class AsyncProvenanceResource:
         scope_id: str | UUID | None = None,
         run_id: str | UUID | None = None,
         agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
         created_after: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProvenanceCollectionPage:
         """List provenance records. `GET /v1/provenance`
 
-        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
+        Cursor-paginated. Metadata rows only — clients fetch the DAG payload via `GET /v1/provenance/{runId}`. Fixed sort: `createdAt desc, id desc`. Filters: `?runId=`, `?agentId=`, `?flowId=`, `?createdAfter=`, and `scopeKind`/`scopeId` for one project's records, or every project's in an org (records from before Kindgi 0.1.3 have no project and are listed only without a scope).
         """
         return await self._client._request(
             _OPERATIONS["provenance.list"],
@@ -14219,6 +14222,7 @@ class AsyncProvenanceResource:
                 "scopeId": scope_id,
                 "runId": run_id,
                 "agentId": agent_id,
+                "flowId": flow_id,
                 "createdAfter": created_after,
             },
             headers={},
@@ -14231,7 +14235,7 @@ class AsyncProvenanceResource:
     ) -> _models.ProvenanceRecord:
         """Fetch the full provenance DAG for a run. `GET /v1/provenance/{runId}`
 
-        Returns the full DAG (nodes + edges) plus record metadata. 404 when no provenance was emitted for the run (e.g. the deployment does not run the emitter, or the run was pre-provenance).
+        Returns the full DAG (nodes + edges) plus record metadata: an agent turn's record, or a flow run's. A flow run's record is written just after the run ends. From the run's end until it is, the answer is 404 `provenance-not-found` with `error.details.recordState: being-written`; if writing it failed, `recordState: failed` and `error.details.reason`, a code. More states and codes may come. 404 with neither when the run has no record: a run still running, a dry run, an erased run, a run from before records were kept for it, or a deployment that doesn't write them.
         """
         return await self._client._request(
             _OPERATIONS["provenance.get"],

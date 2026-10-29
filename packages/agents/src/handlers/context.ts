@@ -241,7 +241,7 @@ export interface TurnContext {
   nonBlockingViolations?: readonly EvaluationResult[];
   /**
    * The failures the loop's points only recorded (`log-only`, and any
-   * action other than `halt` and `retry`; a `retry` too on a dry run), by
+   * action other than `halt` and `retry`, even on a dry run), by
    * step and guardrail, in the order they ran: `evaluate-guardrails` puts
    * them first in `nonBlockingViolations`. Keyed, so a step run again
    * after a park adds none twice; restored on a resume from the completed

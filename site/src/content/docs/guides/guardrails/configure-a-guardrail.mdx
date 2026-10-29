@@ -390,12 +390,16 @@ The answer-length check names no points, so with `at: 'before-tool'`:
 guardrails/answer-length/index.ts: guardrail my-pack.answer-length runs at 'before-tool', which isn't one of its check's points (final-answer)
 ```
 
-Deploying the pack, or registering the guardrail through the API, refuses
-the same, and also a built-in check at a point it doesn't run at. A deploy
-fails with `deployment-validation-failed`, each problem named with its
-guardrail and its path: `/at`, `/action/on-violation` or `/scope/tools`.
-Registering answers `422 guardrail-config-invalid` for a check that doesn't
-run at `at`, and `400 validation-failed` for the others.
+Deploying the pack refuses the same, and also a built-in check at a point
+it doesn't run at. A deploy fails with `deployment-validation-failed`, each
+problem named with its guardrail and its path: `/at`, `/action/on-violation`
+or `/scope/tools`. Registering the guardrail through the API answers
+`422 guardrail-config-invalid` for a built-in check that doesn't run at
+`at`, and `400 validation-failed` for what a point can't do. A pack check's
+points aren't checked when it's registered: at a point its check doesn't
+run at, the guardrail is a check that can't run
+([`check-point-unsupported`](../halt-or-record/#when-the-check-cant-run)),
+every turn.
 
 </TabItem>
 <TabItem label="Python">
