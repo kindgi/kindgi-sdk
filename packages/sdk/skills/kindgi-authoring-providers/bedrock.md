@@ -61,4 +61,4 @@ moved to `isolated` that signs in as the runtime isn't used there: a turn
 that needs it fails with `422 capability-routing-failed`. Unregister it, and
 register it again with a key.
 
-Docs: https://docs.kindgi.com/v0.1/guides/models/#with-a-bedrock-api-key
+Docs: https://docs.kindgi.com/v0.2/guides/models/#with-a-bedrock-api-key
