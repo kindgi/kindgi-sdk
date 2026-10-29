@@ -147,6 +147,7 @@ export const CLI_DEFAULTS = {
     deployment: 'none (the one deployment serving in `--from`; in a pack, of this pack)',
     reason: 'none',
     path: 'the current directory',
+    wait: 'off; a bare `--wait` waits at most `1h`',
   },
   'secrets list': {
     cursor: 'none',
@@ -340,6 +341,7 @@ export const CLI_DEFAULTS = {
     project: 'required: one of `--tenant`, `--org`, `--project`',
     segment: 'none',
     reason: 'none',
+    wait: 'off; a bare `--wait` waits at most `1h`',
   },
   'agents gate-policy': {
     tenant: 'required: one of `--tenant`, `--org`, `--project`',

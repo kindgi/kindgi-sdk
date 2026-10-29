@@ -61,6 +61,8 @@ kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
   gate policy has `approvals` and a second person must approve — the "a
   second person checks it" step, working as it should. (Whoever asked can't
   approve their own request, unless the policy sets `separateApprover: false`.)
+- `--check` and the request exit 3 when the answer is no or the request
+  waits for an approval. Read the printed outcome: exit 3 isn't an error.
 
 ## References
 

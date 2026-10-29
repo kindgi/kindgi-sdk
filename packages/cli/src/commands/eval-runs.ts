@@ -6,11 +6,14 @@ import type { FlowId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { type Rendered, renderJson } from '../output.js';
 import {
+  ANSWER_NO_EXIT_CODE,
   integerFlag,
   listFlag,
   requiredPositional,
   runSdk,
+  runSdkRendered,
   segmentsFlag,
   stringFlag,
 } from './helpers.js';
@@ -33,6 +36,20 @@ export function oneOfFlag<T extends string>(
     throw new UsageError(`--${name} must be one of ${values.join(', ')}, got "${raw}"`);
   }
   return raw as T | undefined;
+}
+
+/** How a waited-for run ended that's a "no": the command exits `ANSWER_NO_EXIT_CODE`. */
+const ENDED_NO: ReadonlySet<string> = new Set(['failed', 'cancelled']);
+
+/** A run `--wait` waited for, printed, with its exit code: 3 when it failed or was cancelled. */
+function withRunExit(
+  run: { readonly status: string },
+  ctx: CommandContext,
+): Rendered & { readonly exitCode?: number } {
+  return {
+    ...renderJson(run, ctx.globals.format),
+    ...(ENDED_NO.has(run.status) && { exitCode: ANSWER_NO_EXIT_CODE }),
+  };
 }
 
 /** Statuses `start --wait` waits through. */
@@ -264,11 +281,12 @@ const start: LeafCommand = {
     'dry-run': { type: 'boolean', description: 'Check the request without running anything.' },
     wait: {
       type: 'boolean',
-      description: 'Wait until the run is done (at most 30 minutes), then print it.',
+      description:
+        'Wait until the run is done (at most 30 minutes), then print it. Exits 3 when it failed or was cancelled.',
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'eval-runs start', async () => {
+    runSdkRendered(ctx, 'eval-runs start', async () => {
       const suiteId = requiredPositional(ctx, 0, 'suite-id');
       const projectId = stringFlag(ctx, 'project');
       if (projectId === undefined) throw new UsageError('--project=<id> is required');
@@ -291,9 +309,10 @@ const start: LeafCommand = {
       };
       const evalRuns = ctx.client().evalRuns;
       const started = await evalRuns.start(suiteId, input, { projectId });
-      if (ctx.options.wait !== true) return started;
+      if (ctx.options.wait !== true) return renderJson(started, ctx.globals.format);
 
-      return await followEvalRun(started.runId, { get: (id) => evalRuns.get(id) });
+      const run = await followEvalRun(started.runId, { get: (id) => evalRuns.get(id) });
+      return withRunExit(run, ctx);
     }),
 };
 
@@ -367,11 +386,12 @@ const rescore: LeafCommand = {
     },
     wait: {
       type: 'boolean',
-      description: 'Wait until the rescore finishes, and show it.',
+      description:
+        'Wait until the rescore finishes, and show it. Exits 3 when it failed or was cancelled.',
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'eval-runs rescore', async () => {
+    runSdkRendered(ctx, 'eval-runs rescore', async () => {
       const runId = requiredPositional(ctx, 0, 'run-id');
       const project = stringFlag(ctx, 'project');
       const client = ctx.client();
@@ -379,8 +399,9 @@ const rescore: LeafCommand = {
         runId,
         project !== undefined ? { projectId: project } : undefined,
       );
-      if (ctx.options.wait !== true) return started;
-      return await followEvalRun(started.runId, { get: (id) => client.evalRuns.get(id) });
+      if (ctx.options.wait !== true) return renderJson(started, ctx.globals.format);
+      const run = await followEvalRun(started.runId, { get: (id) => client.evalRuns.get(id) });
+      return withRunExit(run, ctx);
     }),
 };
 

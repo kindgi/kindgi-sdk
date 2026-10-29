@@ -5,6 +5,7 @@ import { type KindgiClient, createClient } from '@kindgi/client';
 
 import { ownAddressKeyRefusal } from './api-address.js';
 import type { BuildRunners } from './build/runners.js';
+import type { ApprovalWaitSeam } from './commands/approval-wait.js';
 import type { RegistryAuthSeam } from './commands/auth.js';
 import type { ConnectionsSeam } from './commands/connections.js';
 import type { DoctorSeam } from './commands/doctor.js';
@@ -204,6 +205,8 @@ export interface CommandContext {
   readonly exportsSeam?: ExportsSeam;
   /** `kindgi connections connect`'s terminal, clock and pauses, and the removals' question. Tests inject them; production leaves this undefined. */
   readonly connectionsSeam?: ConnectionsSeam;
+  /** The clock and pauses of `--wait` on a promotion that waits for an approval. Tests inject them; production leaves this undefined. */
+  readonly approvalWaitSeam?: ApprovalWaitSeam;
 }
 
 export interface InitSeam {
@@ -250,6 +253,7 @@ export interface BuildContextInputs {
   readonly rateLimitWaits?: RateLimitWaitSeam;
   readonly exportsSeam?: ExportsSeam;
   readonly connectionsSeam?: ConnectionsSeam;
+  readonly approvalWaitSeam?: ApprovalWaitSeam;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -313,5 +317,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     ...(inputs.rateLimitWaits !== undefined && { rateLimitWaits: inputs.rateLimitWaits }),
     ...(inputs.exportsSeam !== undefined && { exportsSeam: inputs.exportsSeam }),
     ...(inputs.connectionsSeam !== undefined && { connectionsSeam: inputs.connectionsSeam }),
+    ...(inputs.approvalWaitSeam !== undefined && { approvalWaitSeam: inputs.approvalWaitSeam }),
   };
 }
