@@ -2,10 +2,11 @@
 
 ## Contents
 
-- Step 1: set the key
-- Step 2: `provider.json`
-- Steps 3 to 5: register, verify, run
-- Local via Ollama, and any model you serve yourself
+- Step 1 — set the key
+- Step 2 — `provider.json`
+- Steps 3 to 5 — register, verify, run
+- Local via Ollama
+- Any model you serve yourself
 
 Works with **any** OpenAI-compatible endpoint. Same adapter, different
 `baseURL`:

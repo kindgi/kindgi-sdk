@@ -2,11 +2,13 @@
 
 ## Contents
 
-- Step 1: set the key
-- Step 2: declare it in the pack's config, and commit it
+- Step 1 — set the key
+- Step 2 — declare it in the pack's config, and commit it
 - Staging and production: register by hand, once per runtime
-- Step 2 (by hand): write `provider.json`
-- Steps 3 to 5: register, verify, run
+- Step 2 (by hand) — write `provider.json`
+- Step 3 — register
+- Step 4 — verify
+- Step 5 — run
 - The other one-key presets
 
 Best fidelity to Anthropic's API (prompt caching, latest models, tool
