@@ -382,6 +382,8 @@ export interface IndexedGuardrail {
   readonly configSchema?: Readonly<Record<string, unknown>>;
   /** The guardrail's `config`: what its check is configured with. */
   readonly config?: Readonly<Record<string, unknown>>;
+  /** The guardrail's `budget`: the agent loop stops its check past `maxLatencyMs`. */
+  readonly budget?: Readonly<Record<string, unknown>>;
   readonly sandbox?: string;
   readonly limits?: Readonly<Record<string, unknown>>;
   readonly network?: Readonly<Record<string, unknown>>;
@@ -1946,6 +1948,7 @@ function buildGuardrail(
     ...(RESERVED_CHECK_IDS.includes(checkId ?? rec.id) && { checkBuiltIn: true as const }),
     ...(configSchema !== undefined && { configSchema }),
     ...(isObject(rec.config) && { config: rec.config as Readonly<Record<string, unknown>> }),
+    ...(isObject(rec.budget) && { budget: rec.budget as Readonly<Record<string, unknown>> }),
     ...(typeof rec.sandbox === 'string' && { sandbox: rec.sandbox }),
     ...(isObject(rec.limits) && {
       limits: rec.limits as Readonly<Record<string, unknown>>,

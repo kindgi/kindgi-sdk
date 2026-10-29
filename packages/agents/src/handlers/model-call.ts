@@ -19,6 +19,7 @@ import { type CallThinking, emitTurnEvent } from '../streaming.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { toWireMessages } from './guardrail-retry.js';
 import { replayTag } from './replay.js';
 import { chargeTurnMemory } from './turn-memory.js';
 import { addModelCallNode } from './turn-provenance.js';
@@ -86,7 +87,8 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     } else {
       const callInput: ModelCallInput = {
         model: ctx.model.name,
-        messages: nextMessages,
+        // The model's own fields only: a loop message's guardrail mark stays in the loop.
+        messages: toWireMessages(nextMessages),
         ...(ctx.tools.definitions.length > 0 && {
           tools: ctx.tools.definitions,
         }),

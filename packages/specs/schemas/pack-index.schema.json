@@ -245,6 +245,10 @@
           "$ref": "#/$defs/openObject",
           "description": "What the check is configured with (`guardrail.schema.json` `config`)."
         },
+        "budget": {
+          "$ref": "#/$defs/openObject",
+          "description": "What one check may spend (`guardrail.schema.json` `budget`): the agent loop stops a check past its `maxLatencyMs`."
+        },
         "sandbox": { "type": "string", "description": "Isolation posture." },
         "limits": { "$ref": "#/$defs/openObject", "description": "Resource limits." },
         "network": { "$ref": "#/$defs/openObject", "description": "Network policy." }

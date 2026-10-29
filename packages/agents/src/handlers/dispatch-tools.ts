@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
+import { type TraceCall, type TraceCallResult, guardrailCoversTool } from '@kindgi/guardrails';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WAITPOINT_TIMEOUT_REASON, WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
@@ -53,6 +54,23 @@ import {
   throwAgentTurnFailure,
 } from './errors.js';
 import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
+import { guardrailsAt, markCallRan, recordNote, reusedCallState } from './guardrail-points.js';
+import {
+  type RetryFailure,
+  callNote,
+  markedNote,
+  retryNote,
+  unrunCallResult,
+  withNoteMark,
+} from './guardrail-retry.js';
+import {
+  type StepPoints,
+  type StepPointsOutput,
+  judgeAtPoint,
+  pointCheckNodes,
+  stepPoints,
+  stepPointsOutput,
+} from './point-gate.js';
 import type { ToolCallAuthorization } from './public-types.js';
 import { type ReplayToolDecision, decideReplayTool, isReadOnlyTool } from './replay.js';
 import { requestedBy } from './requested-by.js';
@@ -63,7 +81,7 @@ import {
   toolRetriesSoFar,
 } from './tool-errors.js';
 import { TOOL_GATE_RECORD_PREFIX, computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
-import { addStepToolNodes } from './turn-provenance.js';
+import { addPointCheckNodes, addStepToolNodes } from './turn-provenance.js';
 
 /**
  * Resolves the effective HITL mode + reviewer role for a specific
@@ -204,6 +222,34 @@ async function decideToolGate(
 }
 
 /**
+ * Fails the turn unless each of a reply's calls has an id of its own. A
+ * step records what it decided for a call (its guardrails' verdicts, its
+ * approval, that it ran) by the call's id, so a second call with the same
+ * id would get the first one's decisions and its own checks would never
+ * run. A provider adapter gives each call an id of its own; this stops a
+ * reply from one that didn't before any of its calls is judged.
+ */
+function failOnSharedCallIds(calls: readonly ModelToolCall[]): void {
+  const ids = new Set<string>();
+  for (const [index, call] of calls.entries()) {
+    const id: unknown = call.id;
+    if (typeof id === 'string' && id !== '' && !ids.has(id)) {
+      ids.add(id);
+      continue;
+    }
+    const which = `call ${index + 1} of ${calls.length}, to ${call.name}`;
+    throwAgentTurnFailure({
+      code: 'model-invocation-failed',
+      message:
+        typeof id === 'string' && id !== ''
+          ? `The model's reply has two calls with the id ${JSON.stringify(id)} (${which}): each call needs an id of its own`
+          : `The model's reply has a call with no id (${which}): each call needs an id of its own`,
+      cause: null,
+    });
+  }
+}
+
+/**
  * Loop-body node #2. If the model returned `finishReason='tool-use'`
  * with a non-empty tool-call list, persist the assistant tool-call
  * message + dispatch every tool + persist every tool result. Update
@@ -223,14 +269,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         cause: null,
       });
     }
-    const partial = input as {
-      readonly step: number;
-      readonly finishReason: AgentTurnIterationOutput['finishReason'];
-      readonly message: ModelMessage;
-      readonly iterationUsage: AgentTurnIterationOutput['iterationUsage'];
-      readonly provider: AgentTurnIterationOutput['provider'];
-      readonly nextMessages: readonly ModelMessage[];
-    };
+    const partial = input as ModelStepInput;
 
     const assistantMsg = partial.message;
     const hasToolCalls =
@@ -257,53 +296,41 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       return forwarded;
     }
 
-    const iterationAppended: ConversationMessage[] = [
-      await persistToolCallMessage(ctx, assistantMsg, partial.step),
-    ];
-    let nextMessages: ModelMessage[] = [...partial.nextMessages, assistantMsg];
+    const iterationAppended: ConversationMessage[] = [];
+    const points = stepPoints(partial.step, iterationAppended);
+    // The reply, before any of its calls runs. One that guardrails send
+    // back is never stored, and none of its calls runs.
+    const atReply = await judgeReply(ctx, kctx, partial, points);
+    if (atReply.kind === 'retry') return sentBackReply(ctx, partial, atReply.failures, points);
 
-    const calls = assistantMsg.toolCalls ?? [];
+    const reply = await persistToolCallMessage(ctx, assistantMsg, partial.step);
+    iterationAppended.push(reply);
     const step: StepCalls = {
       ctx,
       kctx,
       tools: ctx.tools,
       step: partial.step,
       iterationAppended,
+      points,
+      replySequence: reply.sequence,
     };
-    // Batch by batch, in the order the model asked for them (`batchLength`).
-    // Each batch's calls are decided (authorized, gated, replay-decided,
-    // their connections found) right before it runs, never before an
-    // earlier batch has run.
-    let at = 0;
-    while (at < calls.length) {
-      const batch = calls.slice(at, at + batchLength(step, calls, at));
-      const { decided, gated } = await planBatch(step, batch);
-      if (gated === undefined) {
-        nextMessages = await runTogether(step, decided, nextMessages);
-        at += batch.length;
-        continue;
-      }
-      // A call waits for a review, and its park runs the step again: calls
-      // running alongside would be cut off, or outlive the step. From here
-      // the step runs one call at a time; the step run again takes back
-      // what ran before the park, stored.
-      for (const plan of decided) nextMessages = await runTogether(step, [plan], nextMessages);
-      nextMessages = await runTogether(step, [await passGate(step, gated)], nextMessages);
-      for (const call of calls.slice(at + decided.length + 1)) {
-        nextMessages = await runAlone(step, call, nextMessages);
-      }
-      break;
-    }
+    const nextMessages = await runCalls(step, assistantMsg.toolCalls ?? [], [
+      ...partial.nextMessages,
+      assistantMsg,
+    ]);
 
     // Every call's nodes, once the step has all its results: the ones it
     // ran, the rejected and failed ones, and those it took from before a
     // park in this step.
     addStepToolNodes(ctx, partial.step, iterationAppended);
+    const checks = pointCheckNodes(points);
+    addPointCheckNodes(ctx, checks);
 
-    const forwarded: Partial<AgentTurnIterationOutput> & {
-      readonly step: number;
-      readonly hasToolCalls: true;
-    } = {
+    const forwarded: Partial<AgentTurnIterationOutput> &
+      StepPointsOutput & {
+        readonly step: number;
+        readonly hasToolCalls: true;
+      } = {
       step: partial.step,
       finishReason: partial.finishReason,
       message: assistantMsg,
@@ -312,8 +339,164 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       provider: partial.provider,
       nextMessages,
       hasToolCalls: true,
+      ...stepPointsOutput(ctx, points, checks, reply.sequence),
     };
     return forwarded;
+  };
+}
+
+/**
+ * A reply's calls, batch by batch, in the order the model asked for them
+ * (`batchLength`). Each batch's calls are decided (authorized, judged
+ * before they run, gated, replay-decided, their connections found) right
+ * before it runs, never before an earlier batch has run.
+ */
+async function runCalls(
+  step: StepCalls,
+  calls: readonly ModelToolCall[],
+  sent: readonly ModelMessage[],
+): Promise<ModelMessage[]> {
+  let nextMessages = [...sent];
+  let at = 0;
+  while (at < calls.length) {
+    const batch = calls.slice(at, at + batchLength(step, calls, at));
+    const { decided, gated } = await planBatch(step, batch, nextMessages);
+    if (gated === undefined) {
+      nextMessages = await runTogether(step, decided, nextMessages);
+      at += batch.length;
+      continue;
+    }
+    // A call waits for a review, and its park runs the step again: calls
+    // running alongside would be cut off, or outlive the step. From here
+    // the step runs one call at a time; the step run again takes back
+    // what ran before the park, stored.
+    for (const plan of decided) nextMessages = await runTogether(step, [plan], nextMessages);
+    nextMessages = await runTogether(step, [await passGate(step, gated)], nextMessages);
+    for (const call of calls.slice(at + decided.length + 1)) {
+      nextMessages = await runAlone(step, call, nextMessages);
+    }
+    break;
+  }
+  return nextMessages;
+}
+
+/** The input `dispatch-tools` takes: the model call's step output. */
+interface ModelStepInput {
+  readonly step: number;
+  readonly finishReason: AgentTurnIterationOutput['finishReason'];
+  readonly message: ModelMessage;
+  readonly iterationUsage: AgentTurnIterationOutput['iterationUsage'];
+  readonly provider: AgentTurnIterationOutput['provider'];
+  readonly nextMessages: readonly ModelMessage[];
+}
+
+/**
+ * A reply's point (`'model-step'`), once each of its calls has an id of its
+ * own (`failOnSharedCallIds`): before any of them runs.
+ */
+async function judgeReply(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  partial: ModelStepInput,
+  points: StepPoints,
+): ReturnType<typeof judgeAtPoint> {
+  const calls = partial.message.toolCalls ?? [];
+  failOnSharedCallIds(calls);
+  const toolCalls = calls.map((call) => traceCallOf(call, ctx.tools?.byName.get(call.name)));
+  return judgeAtPoint(
+    ctx,
+    kctx,
+    { point: 'model-step' },
+    { step: { text: partial.message.content, toolCalls } },
+    partial.nextMessages,
+    points,
+  );
+}
+
+/**
+ * A reply that guardrails sent back (`'model-step'`): the loop goes on
+ * with the reply, a result for each of its calls saying it didn't run
+ * (`unrunCallResult`), and the note (`retryNote`). Nothing is stored, as
+ * a final answer sent back isn't, so no later turn's history holds calls
+ * that never ran.
+ */
+function sentBackReply(
+  ctx: TurnContext,
+  partial: ModelStepInput,
+  failures: readonly RetryFailure[],
+  points: StepPoints,
+): Partial<AgentTurnIterationOutput> &
+  StepPointsOutput & { readonly step: number; readonly hasToolCalls: true } {
+  const ids = failures.map((f) => f.guardrailId);
+  const checks = pointCheckNodes(points);
+  addPointCheckNodes(ctx, checks);
+  return {
+    step: partial.step,
+    finishReason: partial.finishReason,
+    message: partial.message,
+    iterationAppended: [],
+    iterationUsage: partial.iterationUsage,
+    provider: partial.provider,
+    nextMessages: [
+      ...partial.nextMessages,
+      partial.message,
+      ...(partial.message.toolCalls ?? []).map((call) => unrunCallResult(call.id, ids)),
+      retryNote(failures, 'reply'),
+    ],
+    hasToolCalls: true,
+    ...stepPointsOutput(ctx, points, checks, undefined),
+  };
+}
+
+/** A call as a guardrail's check sees it (`TraceCall`); `binding` is absent for a tool the agent hasn't. */
+function traceCallOf(
+  call: ModelToolCall,
+  binding: { readonly tool: Tool; readonly resolvedVersion: string } | undefined,
+): TraceCall {
+  return {
+    callId: call.id,
+    toolId: (binding?.tool.id ?? call.name) as TraceCall['toolId'],
+    toolName: call.name,
+    ...(binding !== undefined && { toolVersion: binding.resolvedVersion }),
+    arguments: call.arguments,
+  };
+}
+
+/**
+ * The after-tool point for one call (`'after-tool'`): the guardrails that
+ * withhold what it came to, their note recorded, or `undefined` when it
+ * passes. A `halt` fails the turn.
+ */
+type Screen = (result: TraceCallResult) => Promise<readonly RetryFailure[] | undefined>;
+
+/**
+ * `call`'s after-tool point (`Screen`), judged with the loop's messages
+ * so far (`sent`). A result screened is of a call that ran.
+ */
+function screenOf(
+  step: StepCalls,
+  call: ModelToolCall,
+  binding: ToolBinding,
+  sent: readonly ModelMessage[],
+): Screen {
+  const { ctx, kctx } = step;
+  return async (result) => {
+    const verdict = await judgeAtPoint(
+      ctx,
+      kctx,
+      { point: 'after-tool', call: traceCallOf(call, binding) },
+      { result },
+      sent,
+      step.points,
+    );
+    await markCallRan(ctx, kctx, step.replySequence, call.id);
+    if (verdict.kind === 'pass') return undefined;
+    await recordNote(
+      kctx,
+      call.id,
+      verdict.failures.map((f) => f.guardrailId),
+    );
+    return verdict.failures;
   };
 }
 
@@ -428,7 +611,10 @@ async function appendToolResult(
 /**
  * A failed call the turn's policy retries goes back to the model as its
  * result, while retries are left; anything else fails the turn, with the
- * retries it took when the kind is one the policy retries.
+ * retries it took when the kind is one the policy retries. A call that
+ * ran (`screen`) has its error screened at `'after-tool'` before the
+ * model sees it: one that guardrails withhold goes back as their note. An
+ * error that fails the turn reaches no model, so it isn't screened.
  */
 async function retryOrFail(
   ctx: TurnContext,
@@ -436,6 +622,7 @@ async function retryOrFail(
   error: UnresolvedToolError | ToolInvocationError,
   issues: readonly unknown[] | undefined,
   target: ToolResultTarget,
+  screen?: Screen,
 ): Promise<ModelMessage[]> {
   const policy =
     ctx.toolErrorPolicy ?? effectiveToolErrorPolicy(ctx.input.agent.toolErrors, undefined);
@@ -443,6 +630,8 @@ async function retryOrFail(
   const used = toolRetriesSoFar(ctx, target.nextMessages);
   if (!policy.retryOn.has(kind)) throwAgentTurnFailure(error);
   if (used >= policy.maxRetries) throwAgentTurnFailure({ ...error, toolRetries: used });
+  const withheld = await screen?.({ error: { code: error.code, message: error.message } });
+  if (withheld !== undefined) return appendNote(ctx, call, withheld, 'withheld', target);
   return appendToolResult(ctx, call, toolErrorResult(kind, error.message, issues), target);
 }
 
@@ -507,6 +696,10 @@ interface StepCalls {
   readonly step: number;
   /** The step's stored messages, in call order. */
   readonly iterationAppended: ConversationMessage[];
+  /** What the step's guardrail points judged (`judgeAtPoint`). */
+  readonly points: StepPoints;
+  /** The stored reply that makes the calls: its `sequence`. */
+  readonly replySequence: number;
 }
 
 /** The agent's tool a call names, at the version the agent resolved. */
@@ -525,6 +718,7 @@ type DecidedCall =
   | { readonly kind: 'stored'; readonly call: ModelToolCall; readonly message: ConversationMessage }
   /** The agent has no tool by the name the model used. */
   | { readonly kind: 'unresolved'; readonly call: ModelToolCall }
+  | RefusedCall
   | AnsweredCall
   | NotConnectedCall
   | RunCall;
@@ -539,6 +733,17 @@ interface NotConnectedCall {
   readonly call: ModelToolCall;
   readonly binding: ToolBinding;
   readonly failure: ConnectionCallFailure;
+}
+
+/**
+ * A call guardrails refused before it ran (`'before-tool'`): it runs nothing
+ * and asks for no approval, and their note is its result.
+ */
+interface RefusedCall {
+  readonly kind: 'refused';
+  readonly call: ModelToolCall;
+  readonly binding: ToolBinding;
+  readonly failures: readonly RetryFailure[];
 }
 
 /**
@@ -599,14 +804,34 @@ type Invoked =
 /**
  * How many calls from `at` run together: the calls in a row to read-only
  * tools that can't park the step (`readsOnly`), at most `MAX_CALLS_TOGETHER`,
- * or any other call alone. With the agent's `parallelToolCalls: false`,
- * every call alone.
+ * or any other call alone. A call a `before-tool` guardrail judges
+ * (`judgedBeforeRun`) starts a batch and never joins one, so its check sees
+ * every call before it ran, as one after another. With the agent's
+ * `parallelToolCalls: false`, every call alone.
  */
 function batchLength(step: StepCalls, calls: readonly ModelToolCall[], at: number): number {
-  if (step.ctx.input.agent.parallelToolCalls === false) return 1;
-  let length = 0;
-  while (length < MAX_CALLS_TOGETHER && readsOnly(step, calls[at + length])) length += 1;
-  return Math.max(length, 1);
+  if (step.ctx.input.agent.parallelToolCalls === false || !readsOnly(step, calls[at])) return 1;
+  let length = 1;
+  while (length < MAX_CALLS_TOGETHER && joinsBatch(step, calls[at + length])) length += 1;
+  return length;
+}
+
+/** Whether `call` may run alongside the calls before it in a batch. */
+function joinsBatch(step: StepCalls, call: ModelToolCall | undefined): boolean {
+  return readsOnly(step, call) && !judgedBeforeRun(step, call);
+}
+
+/**
+ * Whether a `before-tool` guardrail judges `call`: one that runs there and
+ * whose `scope.tools` covers the call's tool. Its check reads the step's
+ * calls that ran, which a call started alongside hasn't.
+ */
+function judgedBeforeRun(step: StepCalls, call: ModelToolCall | undefined): boolean {
+  const toolId = call === undefined ? undefined : step.tools.byName.get(call.name)?.tool.id;
+  if (toolId === undefined) return false;
+  return guardrailsAt(step.ctx.guardrails, 'before-tool').some((g) =>
+    guardrailCoversTool(g.scope, toolId as unknown as string),
+  );
 }
 
 /**
@@ -627,15 +852,17 @@ function readsOnly(step: StepCalls, call: ModelToolCall | undefined): boolean {
 
 /**
  * A batch's calls, decided in call order up to the first that waits for a
- * review: the calls after it are decided once it has its answer.
+ * review: the calls after it are decided once it has its answer. `sent`:
+ * the loop's messages before the batch, which its calls' checks see.
  */
 async function planBatch(
   step: StepCalls,
   batch: readonly ModelToolCall[],
+  sent: readonly ModelMessage[],
 ): Promise<{ readonly decided: readonly DecidedCall[]; readonly gated?: GatedCall }> {
   const decided: DecidedCall[] = [];
   for (const call of batch) {
-    const plan = await planCall(step, call);
+    const plan = await planCall(step, call, sent);
     if (plan.kind === 'gated') return { decided, gated: plan };
     decided.push(plan);
   }
@@ -643,7 +870,11 @@ async function planBatch(
 }
 
 /** How `call` goes. What it decides is recorded with the call, so a resumed turn keeps it. */
-async function planCall(step: StepCalls, call: ModelToolCall): Promise<DecidedCall | GatedCall> {
+async function planCall(
+  step: StepCalls,
+  call: ModelToolCall,
+  sent: readonly ModelMessage[],
+): Promise<DecidedCall | GatedCall> {
   const { ctx, kctx } = step;
   // Resumed after an approval further down this list: a call that
   // already ran keeps the result it stored.
@@ -659,13 +890,8 @@ async function planCall(step: StepCalls, call: ModelToolCall): Promise<DecidedCa
   if (binding === undefined) return { kind: 'unresolved', call };
   const { tool, resolvedVersion } = binding;
 
-  // The turn's principal may call this tool, or the call runs nothing
-  // and asks no reviewer (`authorizeToolCall`): its result tells the
-  // model. Recorded with the call, so a resumed turn keeps the answer.
-  const allowed = await authorizeCall(ctx, kctx, call.id, tool, 'call');
-  if (allowed !== undefined && !allowed.allowed) {
-    return { kind: 'answered', call, binding, output: deniedResult(allowed.reason) };
-  }
+  const stopped = await stoppedBeforeAsking(step, call, binding, sent);
+  if (stopped !== undefined) return stopped;
 
   // Tool-level HITL gate. Resolves the effective mode
   // for this (agent, tool) pair via the effective-policy
@@ -739,13 +965,47 @@ async function planCall(step: StepCalls, call: ModelToolCall): Promise<DecidedCa
   return { kind: 'run', call, binding, connected, ...(replayed !== undefined && { replayed }) };
 }
 
+/**
+ * Whether `call` stops before any approval is asked: denied to the turn's
+ * principal, or refused by guardrails (`'before-tool'`). Either way it runs
+ * nothing, and its result tells the model.
+ */
+async function stoppedBeforeAsking(
+  step: StepCalls,
+  call: ModelToolCall,
+  binding: ToolBinding,
+  sent: readonly ModelMessage[],
+): Promise<AnsweredCall | RefusedCall | undefined> {
+  const { ctx, kctx } = step;
+  // The turn's principal may call this tool, or the call runs nothing
+  // and asks no reviewer (`authorizeToolCall`): its result tells the
+  // model. Recorded with the call, so a resumed turn keeps the answer.
+  const allowed = await authorizeCall(ctx, kctx, call.id, binding.tool, 'call');
+  if (allowed !== undefined && !allowed.allowed) {
+    return { kind: 'answered', call, binding, output: deniedResult(allowed.reason) };
+  }
+  // The call, before it runs and before any approval is asked
+  // (`'before-tool'`). One that guardrails refuse runs nothing: their
+  // note is its result.
+  const atCall = await judgeAtPoint(
+    ctx,
+    kctx,
+    { point: 'before-tool', call: traceCallOf(call, binding) },
+    {},
+    sent,
+    step.points,
+  );
+  if (atCall.kind === 'retry') return { kind: 'refused', call, binding, failures: atCall.failures };
+  return undefined;
+}
+
 /** One call on its own, after its review when it waits for one. */
 async function runAlone(
   step: StepCalls,
   call: ModelToolCall,
   nextMessages: readonly ModelMessage[],
 ): Promise<ModelMessage[]> {
-  const plan = await planCall(step, call);
+  const plan = await planCall(step, call, nextMessages);
   return runTogether(
     step,
     [plan.kind === 'gated' ? await passGate(step, plan) : plan],
@@ -937,9 +1197,13 @@ async function finishCall(
   const { ctx, iterationAppended } = step;
   const { call } = started;
   switch (started.kind) {
-    case 'stored':
+    case 'stored': {
+      // A guardrail's note keeps its mark, from the step's record of it.
       iterationAppended.push(started.message);
-      return [...nextMessages, toolMessageOf(started.message, call.id)];
+      const { note } = await reusedCallState(ctx, step.kctx, step.replySequence, call.id);
+      const message = toolMessageOf(started.message, call.id);
+      return [...nextMessages, note !== undefined ? markedNote(message, note) : message];
+    }
     case 'unresolved': {
       const unresolved: UnresolvedToolError = {
         code: 'unresolved-tool',
@@ -959,6 +1223,12 @@ async function finishCall(
         iterationAppended,
       });
     }
+    case 'refused':
+      return appendRefused(ctx, step.kctx, step.step, call, started.binding, started.failures, {
+        toolId: started.binding.tool.id as unknown as string,
+        nextMessages,
+        iterationAppended,
+      });
     case 'answered':
       return answerCall(step, started, nextMessages);
     case 'not-connected':
@@ -994,13 +1264,17 @@ async function answerCall(
     invocationId: call.id,
     arguments: call.arguments,
   });
-  const next = await appendToolResult(
-    ctx,
-    call,
-    answered.output,
-    { toolId: binding.tool.id as unknown as string, nextMessages, iterationAppended },
-    answered.fromOutside === true,
-  );
+  // A recorded result is the call's, as it ran: screened as a live one is.
+  const withheld =
+    answered.replay === 'recorded'
+      ? await screenOf(step, call, binding, nextMessages)({ output: answered.output })
+      : undefined;
+  const target = { toolId: binding.tool.id as unknown as string, nextMessages, iterationAppended };
+  const fromOutside = answered.fromOutside === true;
+  const next =
+    withheld !== undefined
+      ? await appendNote(ctx, call, withheld, 'withheld', target, fromOutside)
+      : await appendToolResult(ctx, call, answered.output, target, fromOutside);
   await emitTurnEvent(ctx.bindings.onEvent, {
     kind: 'tool.completed',
     step: step.step,
@@ -1008,14 +1282,21 @@ async function answerCall(
     toolVersion: binding.resolvedVersion,
     toolVersionRange: binding.requestedRange,
     invocationId: call.id,
-    output: answered.output as never,
+    output: (withheld !== undefined ? callNote(withheld, 'withheld') : answered.output) as never,
     durationMs: Date.now() - started,
     ...(answered.replay !== undefined && { replay: answered.replay }),
   });
   return next;
 }
 
-/** A call whose tool ran: its result stored, or its failure sent back or failing the turn. */
+/**
+ * A call whose tool ran: its result stored, or its failure sent back or
+ * failing the turn. Its result is screened first (`'after-tool'`): one
+ * that guardrails withhold is never stored, and their note is stored in
+ * its place, keeping the result's `fromEvent`, since a check's reason can
+ * quote it. What it threw is screened once `retryOrFail` knows the error
+ * goes back to the model.
+ */
 async function finishRun(
   step: StepCalls,
   running: RunningCall,
@@ -1033,9 +1314,17 @@ async function finishRun(
       target: { toolId: binding.tool.id as unknown as string, nextMessages, iterationAppended },
     });
   }
+  const screen = screenOf(step, call, binding, nextMessages);
+  const withheld = invoked.kind === 'ok' ? await screen({ output: invoked.value }) : undefined;
   const result =
     invoked.kind === 'ok'
-      ? await persistResult(ctx, binding.tool, call, invoked.value, invoked.fromOutside)
+      ? await persistResult(
+          ctx,
+          binding.tool,
+          call,
+          withheld !== undefined ? callNote(withheld, 'withheld') : invoked.value,
+          invoked.fromOutside,
+        )
       : invoked;
   if (result.kind === 'err') {
     await emitTurnEvent(ctx.bindings.onEvent, {
@@ -1045,11 +1334,15 @@ async function finishRun(
       invocationId: call.id,
       error: { code: result.error.code, message: result.error.message },
     });
-    return retryOrFail(ctx, call, result.error, result.error.validationIssues, {
-      toolId: binding.tool.id as unknown as string,
-      nextMessages,
-      iterationAppended,
-    });
+    // A result that couldn't be stored was screened already.
+    return retryOrFail(
+      ctx,
+      call,
+      result.error,
+      result.error.validationIssues,
+      { toolId: binding.tool.id as unknown as string, nextMessages, iterationAppended },
+      invoked.kind === 'err' ? screen : undefined,
+    );
   }
 
   ctx.appended.push(result.value.persisted);
@@ -1067,12 +1360,88 @@ async function finishRun(
     // A recomputed call ran, as a live one does.
     ...(running.replayed !== undefined && { replay: 'live' as const }),
   });
-  return [...nextMessages, result.value.toolMessage];
+  const { toolMessage } = result.value;
+  return [
+    ...nextMessages,
+    withheld !== undefined
+      ? markedNote(
+          toolMessage,
+          withheld.map((f) => f.guardrailId),
+        )
+      : toolMessage,
+  ];
 }
 
 /** A denied call's result, `{ status: 'denied', reason }`, stored and told to the model like any other. */
 function deniedResult(reason: string): { readonly status: 'denied'; readonly reason: string } {
   return { status: 'denied', reason };
+}
+
+/**
+ * A call guardrails refused before it ran (`'before-tool'`): their note
+ * (`callNote`) is its result, stored and told to the model as a denied
+ * call's is, and marked as theirs in the loop's messages. The note's
+ * record comes first, so a step run again after a park marks the note it
+ * reuses.
+ */
+async function appendRefused(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  step: number,
+  call: ModelToolCall,
+  binding: { readonly resolvedVersion: string; readonly requestedRange: string },
+  failures: readonly RetryFailure[],
+  target: ToolResultTarget,
+): Promise<ModelMessage[]> {
+  await recordNote(
+    kctx,
+    call.id,
+    failures.map((f) => f.guardrailId),
+  );
+  const started = Date.now();
+  await emitTurnEvent(ctx.bindings.onEvent, {
+    kind: 'tool.started',
+    step,
+    toolId: call.name,
+    toolVersion: binding.resolvedVersion,
+    toolVersionRange: binding.requestedRange,
+    invocationId: call.id,
+    arguments: call.arguments,
+  });
+  const nextMessages = await appendNote(ctx, call, failures, 'refused', target);
+  await emitTurnEvent(ctx.bindings.onEvent, {
+    kind: 'tool.completed',
+    step,
+    toolId: call.name,
+    toolVersion: binding.resolvedVersion,
+    toolVersionRange: binding.requestedRange,
+    invocationId: call.id,
+    output: callNote(failures, 'refused') as never,
+    durationMs: Date.now() - started,
+  });
+  return nextMessages;
+}
+
+/**
+ * Guardrails' note as a call's result (`callNote`), stored as the
+ * framework's results are (`appendToolResult`, outside data when the
+ * result it stands for was), and marked as theirs in the loop's messages
+ * (`LoopMessage.guardrailNote`). Its record (`recordNote`) is written
+ * before.
+ */
+async function appendNote(
+  ctx: TurnContext,
+  call: ModelToolCall,
+  failures: readonly RetryFailure[],
+  kind: 'refused' | 'withheld',
+  target: ToolResultTarget,
+  fromOutside = false,
+): Promise<ModelMessage[]> {
+  const appended = await appendToolResult(ctx, call, callNote(failures, kind), target, fromOutside);
+  return withNoteMark(
+    appended,
+    failures.map((f) => f.guardrailId),
+  );
 }
 
 /**

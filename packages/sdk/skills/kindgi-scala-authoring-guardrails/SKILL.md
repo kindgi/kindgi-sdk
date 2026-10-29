@@ -18,7 +18,7 @@ description: >
   kindgi-scala-authoring-tools.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.3"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -42,6 +42,8 @@ fails). In a Scala pack it is a `val` of type `Guardrail[C]` in an object
 named like its file, in a `guardrails` package. For an agent turn, the
 runtime evaluates every guardrail the agent lists once, on the final answer,
 before it is stored.
+
+`Guardrail[C](…)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a Scala guardrail runs at the final answer only; the points are documented at https://docs.kindgi.com/v0.1/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
 
 Ask what the rule should catch before writing one. The sample
 `response-not-empty` guardrail is a demonstration, not a template.

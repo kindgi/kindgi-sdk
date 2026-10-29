@@ -655,12 +655,18 @@ describe('evaluate-guardrails after the loop judged the answer', () => {
     expect(seen.events.filter((e) => e.kind === 'guardrail.error')).toHaveLength(1);
   });
 
-  test('a dry run with a retry guardrail: recorded only, as before retry acted', async () => {
-    const { ctx } = turn(guardrails());
+  test('a dry run with a retry guardrail: a failed answer fails the turn, as one out of attempts', async () => {
+    const { ctx, seen } = turn(guardrails());
     const last = await check(ctx, 0, 'The secret is 42.', [USER], true);
-    const out = await buildEvaluateGuardrailsHandler(ctx)(loopOutput(last, 1), outerStep(true));
-    expect(out).toMatchObject({ blocking: 0, other: 1 });
-    expect(ctx.nonBlockingViolations?.map((v) => v.guardrailId)).toEqual(['acme.discreet']);
+    const error = await failureOf(() =>
+      buildEvaluateGuardrailsHandler(ctx)(loopOutput(last, 1), outerStep(true)),
+    );
+    expect(error).toMatchObject({
+      code: 'guardrail-violation',
+      attempts: 1,
+      violations: [expect.objectContaining({ guardrailId: 'acme.discreet' })],
+    });
+    expect(outcomesOf(seen)).toEqual([]);
   });
 
   test('a halt-only turn: judged once, after the loop, as before', async () => {

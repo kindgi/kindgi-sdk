@@ -436,13 +436,15 @@ describe("a guardrail's point", () => {
     }
   });
 
-  test('at and sees are carried, with the points of the check the guardrail ships', async () => {
+  test('at, sees and budget are carried, with the points of the check the guardrail ships', async () => {
     const report = await index(
       guardrailModule({
         check: { id: 'acme.checks.args', evaluate, points: ['before-tool', 'final-answer'] },
         at: 'before-tool',
         sees: 'conversation',
         scope: { tools: ['acme.woo.*'] },
+        // The loop's time limit for the check: dropped here, it'd run with its kind's.
+        budget: { maxLatencyMs: 2_000 },
       }),
     );
     expect(report.fileErrors).toEqual([]);
@@ -453,6 +455,7 @@ describe("a guardrail's point", () => {
       scope: { tools: ['acme.woo.*'] },
       checkId: 'acme.checks.args',
       checkPoints: ['before-tool', 'final-answer'],
+      budget: { maxLatencyMs: 2_000 },
     });
   });
 
@@ -479,6 +482,7 @@ describe("a guardrail's point", () => {
     expect(parsed.guardrails[0].checkPoints).toEqual(['final-answer']);
     expect(parsed.guardrails[0].at).toBeUndefined();
     expect(parsed.guardrails[0].sees).toBeUndefined();
+    expect(parsed.guardrails[0].budget).toBeUndefined();
   });
 
   test("a built-in's points are the runtime's: none are listed", async () => {

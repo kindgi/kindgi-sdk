@@ -3,7 +3,7 @@
 
 import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
-import type { GuardrailSeverity, OnViolation } from './types.js';
+import type { GuardrailPoint, GuardrailSeverity, OnViolation } from './types.js';
 
 /**
  * What one guardrail's check came to on one answer: a turn's final
@@ -50,11 +50,19 @@ export interface GuardrailOutcomeRecord {
   readonly runId: RunId;
   /**
    * The step that ran the gate: a run's outcomes are kept per step. It's
-   * `evaluate-guardrails` after the agent loop, or `budget-check@<iteration>`
-   * for an answer the loop judged (a turn with a `retry` guardrail), so it
-   * isn't always a flow node's id.
+   * `evaluate-guardrails` after the agent loop, `budget-check@<iteration>`
+   * for an answer the loop judged (a turn with a `retry` guardrail),
+   * `dispatch-tools@<iteration>` for a model reply (`'model-step'`), and
+   * `dispatch-tools@<iteration>:before-tool:<callId>` and
+   * `dispatch-tools@<iteration>:after-tool:<callId>` for a tool call,
+   * before and after it ran: a call's two points are two steps, so
+   * neither record replaces the other. It isn't always a flow node's id.
    */
   readonly nodeId: string;
+  /** Where in the turn the checks ran. Absent: the final answer. */
+  readonly point?: GuardrailPoint;
+  /** At `'before-tool'` and `'after-tool'`: the model's id for the call, unique within its reply. */
+  readonly callId?: string;
   readonly agentId: string;
   readonly agentVersion: string;
   /** When the gate ran. */

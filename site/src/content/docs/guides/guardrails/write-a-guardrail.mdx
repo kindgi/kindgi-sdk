@@ -205,10 +205,13 @@ case class, is the config's schema, and `set("config", …)` gives its values.
   its fields. Its names are camelCase in TypeScript and snake_case in
   Python:
   - `output`: the answer it judges: the turn's final answer. When the turn
-    has a `retry` guardrail, a `halt` or `retry` guardrail judges each
-    answer the model writes;
+    has a `retry` guardrail at the final answer, a `halt` or `retry`
+    guardrail there judges each answer the model writes;
   - `toolCalls`, or `tool_calls`: its tool calls, each with the tool's name
-    and arguments;
+    and arguments. At the final answer, that's every call the model asked
+    for. A TypeScript check can also run at a tool call or a model reply,
+    where the trace holds other fields:
+    [Check a tool call or a reply](#check-a-tool-call-or-a-reply);
   - the tools' results, its model calls, the user's input and its cost;
   - `projectId`, or `project_id`: the run's project;
   - `orgId`, or `org_id`: the project's org, when it has one.
@@ -336,10 +339,116 @@ no answer.
 [Stop a turn or record a violation](../halt-or-record/) shows what the run
 records, and how to let the turn finish instead.
 
-A check that throws fails the turn whatever its action. The error carries
-the exception's message: `handler-throw: Check "…" evaluate() threw: …`.
+A check that throws can't run, and its action decides what happens next:
+with `halt`, the turn fails
+([When the check can't run](../halt-or-record/#when-the-check-cant-run)).
+The error carries the exception's message:
+`handler-throw: Check "…" evaluate() threw: …`.
 Return `passed: false` for a rule that isn't met. Throw only when the check
 itself can't run.
+
+## Check a tool call or a reply
+
+A check can judge a step of the turn before it takes effect, instead of the
+final answer: a tool call before it runs, a call's result before the model
+sees it, or a model reply before its calls run. The check names the points
+it can run at, and each guardrail that runs it picks one of them with `at`
+([Where in the turn it runs](../configure-a-guardrail/#where-in-the-turn-it-runs)).
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+`defineCheck({ points })` names the points: `'before-tool'`, `'after-tool'`,
+`'model-step'` and `'final-answer'`. A check without `points` runs at the
+final answer only. This check refuses a refund over a limit, before the
+refund tool runs:
+
+```ts
+// guardrails/refund-limit/index.ts
+import { defineCheck } from '@kindgi/sdk/define';
+import { z } from 'zod';
+
+export const check = defineCheck({
+  id: 'my-pack.checks.refund-limit',
+  kind: 'zero-llm',
+  points: ['before-tool'],
+  configSchema: z.object({ maxAmount: z.number().positive().default(100) }),
+  evaluate: async (config, trace) => {
+    const amount = trace.call?.arguments.amount;
+    if (typeof amount === 'number' && amount > config.maxAmount) {
+      return {
+        passed: false,
+        reason: `The refund is ${amount}; the limit is ${config.maxAmount}.`,
+      };
+    }
+    return { passed: true };
+  },
+});
+
+export default {
+  id: 'my-pack.refund-limit',
+  name: 'Refunds stay under a limit',
+  kind: 'zero-llm',
+  check,
+  config: { maxAmount: 100 },
+  at: 'before-tool',
+  scope: { tools: ['acme.orders.refund'] },
+  action: { 'on-violation': 'halt' },
+  severity: 'error',
+};
+```
+
+At each point, the trace holds what the check judges:
+
+- `trace.at`: the point it runs at. Absent at the final answer.
+- `trace.call`, at `'before-tool'` and `'after-tool'`: the call, with its
+  `callId`, `toolId`, `toolName`, `toolVersion` and `arguments`.
+- `trace.result`, at `'after-tool'`: what the call came to. `{ output }`
+  when it returned, or `{ error: { code?, message } }` when it threw.
+- `trace.step`, at `'model-step'`: the reply, with its `text` and the
+  `toolCalls` it asks for. `text` is empty when the reply only asks for
+  calls.
+
+Away from the final answer, the trace has no `output`. Its `toolCalls` and
+`toolResults` hold only the calls that ran, never the one the check judges.
+
+`defineCheck` throws `invalid-check-definition` when `points` is empty,
+names a point that doesn't exist, or names one twice.
+
+With `halt`, a refund over the limit stops the turn before the call runs:
+
+```text
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.refund-limit' before calling acme.orders.refund: The refund is 250; the limit is 100.
+```
+
+With `retry`, the call doesn't run, and the model gets the reason as its
+result, so it can go on without the refund or ask for a smaller one.
+[At a tool call or a model reply](../halt-or-record/#at-a-tool-call-or-a-model-reply)
+describes each action at each point.
+
+</TabItem>
+<TabItem label="Python">
+
+A Python check runs at the final answer only. `@guardrail` has no field for
+the points a check runs at, or for a guardrail's `at`, and `RunTrace` has no
+`call`, `result` or `step`.
+
+</TabItem>
+<TabItem label="Java">
+
+A Java check runs at the final answer only. `Guardrail.define` has no
+method for the points a check runs at, or for a guardrail's `at`, and
+`RunTrace` has no typed accessor for `call`, `result` or `step`.
+
+</TabItem>
+<TabItem label="Scala">
+
+A Scala check runs at the final answer only. `Guardrail[Config](…)` has no
+method for the points a check runs at, or for a guardrail's `at`, and
+`RunTrace` has no typed accessor for `call`, `result` or `step`.
+
+</TabItem>
+</Tabs>
 
 ## Test the check
 

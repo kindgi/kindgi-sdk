@@ -100,6 +100,8 @@ export {
 } from './points.js';
 export type {
   CheckFailedError,
+  CheckPointUnsupportedError,
+  CheckTimedOutError,
   InvalidCheckConfigError,
   InvalidCheckDefinitionError,
   InvalidGuardrailError,

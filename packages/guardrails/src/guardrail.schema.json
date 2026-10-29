@@ -57,7 +57,7 @@
       "type": "string",
       "enum": ["before-tool", "after-tool", "model-step", "final-answer"],
       "default": "final-answer",
-      "description": "Where in the agent's turn the check runs. 'before-tool': a call the model asked for, before it runs and before any approval is asked (the trace's `call`). 'after-tool': a call that ran, before the model sees its result (`call` and `result`). 'model-step': each model reply, before any of its calls runs (`step`). 'final-answer': the answer that would be stored (`output`). The check must support the point (its `points`). 'escalate' and 'compensate' are recorded at the final answer only."
+      "description": "Where in the agent's turn the check runs. 'before-tool': a call the model asked for, before it runs and before any approval is asked (the trace's `call`). 'after-tool': a call that ran, before the model sees its result (`call` and `result`). 'model-step': each model reply that asks for tool calls, before any of them runs (`step`). 'final-answer': the answer that would be stored (`output`). The check must support the point (its `points`). 'escalate' and 'compensate' are recorded at the final answer only."
     },
     "sees": {
       "type": "string",
@@ -68,7 +68,7 @@
     "budget": {
       "type": "object",
       "additionalProperties": false,
-      "description": "For llm-judge guardrails: cost budget per invocation. Declarative — not enforced by the runtime.",
+      "description": "Cost and time budget per invocation. The agent loop enforces `maxLatencyMs` at 'before-tool', 'after-tool' and 'model-step' (absent: 10 s for zero-llm, 60 s for llm-judge, 30 s for any other kind), and a check that runs past it fails as one that couldn't run (`check-timed-out`). It isn't enforced at the final answer, and `maxCostUsd` isn't enforced.",
       "properties": {
         "maxCostUsd": {
           "type": "number",
@@ -221,12 +221,12 @@
           "type": "string",
           "minLength": 1,
           "examples": ["halt", "retry", "escalate", "log-only", "compensate"],
-          "description": "What a failed check does to the agent turn. Open string: any non-empty name is accepted here. The runtime acts on 'halt': the turn fails with `guardrail-violation` and its response is not stored. It acts on 'retry' too: the answer goes back to the model with the check's reason, for a new one, until `retry.maxAttempts` run out, and then the turn fails the same way. Any other name is recorded as a violation, as 'log-only' is, and the turn completes. Built-in actions: 'halt' = fail the turn. 'retry' = ask for a new answer. 'log-only' = record, don't block. 'escalate' and 'compensate' are recorded like 'log-only' in 0.1: nothing escalates or calls a compensating tool."
+          "description": "What a failed check does to the agent turn. Open string: any non-empty name is accepted here. The runtime acts on 'halt': the turn fails with `guardrail-violation` and its response is not stored. It acts on 'retry' too: at the final answer, the answer goes back to the model with the check's reason, for a new one; at 'before-tool' the call doesn't run and the model gets the reason as its result; at 'after-tool' the result is withheld and the reason stored in its place; at 'model-step' the reply goes back and none of its calls run. Either way until `retry.maxAttempts` run out, and then the turn fails the same way. Any other name is recorded as a violation, as 'log-only' is, and the turn completes. A check that can't run acts the same way, with a reason that names why. Built-in actions: 'halt' = fail the turn. 'retry' = ask for a new answer, refuse the call, or withhold its result. 'log-only' = record, don't block. 'escalate' and 'compensate' are recorded like 'log-only' in 0.1: nothing escalates or calls a compensating tool."
         },
         "retry": {
           "type": "object",
           "additionalProperties": false,
-          "description": "For on-violation = 'retry': counts the answers this guardrail fails in a turn, the first one included (with maxAttempts 3 it sends a failed answer back up to twice, and the third answer it fails ends the turn). Left out, 2. The turn's maxSteps, and the agent loop's 32 model calls, bound it too.",
+          "description": "For on-violation = 'retry': counts what this guardrail fails in a turn (answers, replies, calls or results, as its `at` says), the first one included (with maxAttempts 3 it sends back, refuses or withholds up to twice, and the third failure ends the turn). Left out, 2. The turn's maxSteps, and the agent loop's 32 model calls, bound it too.",
           "required": ["maxAttempts"],
           "properties": {
             "maxAttempts": {

@@ -31,6 +31,10 @@ A guardrail's action decides what a failed check does to the turn:
 - **`log-only`** lets it finish. The answer goes out, and the failure is
   recorded on the turn as a violation.
 
+That's at the final answer, where a guardrail runs by default. A guardrail
+that runs at a tool call or a model reply acts there instead:
+[At a tool call or a model reply](#at-a-tool-call-or-a-model-reply).
+
 Ask your coding agent, for example: "When my answer length guardrail fails,
 don't stop the turn. Just record it." Kindgi's skills in your pack tell it
 how ([How it knows Kindgi](../../../start/coding-agents/)). For reference, it
@@ -210,7 +214,9 @@ your app acts on itself: read `violations` from the turn's result.
 :::note[Other actions]
 The guardrail schema also accepts `escalate` and `compensate`. In 0.1 a turn
 records them as violations, like `log-only`, and doesn't act on them: there's
-no escalation or compensating tool call.
+no escalation or compensating tool call. Both are for the final answer only:
+a guardrail with either one at a tool call or a model reply is refused when
+its pack is built or deployed, or when it's registered.
 :::
 
 ## Send the answer back
@@ -286,10 +292,10 @@ action: { 'on-violation': 'retry', retry: { maxAttempts: 3 } },
   the limit is 60." Each answer is a model call, so the agent's
   `budget.maxSteps` bounds them too, and so does the turn's own limit of 32
   model calls: when either runs out first, the turn fails the same way.
-- **`halt` comes first.** With a `retry` guardrail on the turn, the agent's
-  `halt` and `retry` guardrails judge each answer, and a failed `halt` fails
-  the turn at once. The other guardrails (`log-only` and the rest) judge only
-  the answer that's sent.
+- **`halt` comes first.** With a `retry` guardrail at the final answer, the
+  agent's `halt` and `retry` guardrails there judge each answer, and a
+  failed `halt` fails the turn at once. The other guardrails at the final
+  answer (`log-only` and the rest) judge only the answer that's sent.
 - **A new answer can do what the first one could.** The model still has the
   turn's tools, and can call them again, side-effecting ones included. A
   call that needs an approval needs one again.
@@ -300,33 +306,126 @@ action: { 'on-violation': 'retry', retry: { maxAttempts: 3 } },
   is finishing, the turn it picks up judges its last answer on its `halt`
   and `retry` guardrails again, and those checks are counted again. If a
   `retry` check fails this time, the turn fails as out of answers.
-- **A dry run** records a `retry` guardrail's failure, as `log-only` does,
-  and sends nothing back.
+- **A dry run** skips the model call: its answer is a placeholder, and
+  nothing is sent back. A `retry` guardrail that fails that answer fails
+  the turn, as one out of attempts does.
+
+## At a tool call or a model reply
+
+A guardrail whose `at` is `'before-tool'`, `'after-tool'` or `'model-step'`
+judges a step of the turn before the step takes effect
+([Where in the turn it runs](../configure-a-guardrail/#where-in-the-turn-it-runs)).
+In a Python, Java or Scala pack, a guardrail runs at the final answer only.
+Its action applies to that step:
+
+- **Before a tool call.** With `halt`, the turn fails with
+  `guardrail-violation`, and the call doesn't run. With `retry`, the call is
+  refused: it doesn't run, and the model gets the guardrail's reason as the
+  call's result, so it can go on without the call or make another one.
+- **After a tool call.** The call has run. The guardrail judges what it
+  returned, or the error it threw, before the model sees it. With `halt`,
+  the turn fails. With `retry`, the result is withheld: the reason is stored
+  as the call's result in its place, so neither the model nor a later turn's
+  history sees the result. In a replay, the call's recorded result is judged
+  as a live one is.
+- **On a model reply** that asks for tool calls. With `halt`, the turn fails
+  before any of the calls runs. With `retry`, the reply is sent back: none
+  of its calls runs, nothing of it is stored, and the model writes a new
+  reply.
+- **With `log-only`,** the step goes ahead, and the failure joins the turn's
+  `violations`.
+- **A dry run** skips the model call, so its reply asks for no tools and no
+  guardrail runs at these points.
+
+With `halt`, the message says where the turn stopped. For the refund-limit
+guardrail from
+[Check a tool call or a reply](../write-a-guardrail/#check-a-tool-call-or-a-reply):
+
+```text
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.refund-limit' before calling acme.orders.refund: The refund is 250; the limit is 100.
+```
+
+With `retry`, the model gets this as the refused call's result:
+
+```text
+[kindgi:guardrail-retry] ["my-pack.refund-limit"]
+This call didn't run: it didn't pass this guardrail.
+- my-pack.refund-limit: The refund is 250; the limit is 100.
+Don't make this call again as it is. Go on without it, or make a call that meets it.
+```
+
+A withheld result's note says the call ran and its result is withheld, and
+ends "Go on without its result." A reply that's sent back gets a user
+message instead, which says the reply wasn't acted on and none of its tool
+calls ran, and asks for a new reply.
+
+- **Attempts count across the turn, one for each reply.**
+  `retry.maxAttempts` counts the model's replies the guardrail acted on,
+  the first one included: a reply it sent back, or one with a call it
+  refused or a result it withheld. Two calls of one reply that it refuses
+  are one attempt, since the model hasn't seen either refusal yet, and two
+  guardrails that act on one reply count it once each. When they run out,
+  or the turn has no steps left, the turn fails with `guardrail-violation`,
+  and `details.attempts` says how many replies there were: "Turn blocked by
+  guardrail 'my-pack.refund-limit' before calling acme.orders.refund, after
+  2 replies: The refund is 250; the limit is 100." A tool's own result
+  never counts as an attempt, whatever its text.
+- **The record says where.** A failed turn's `details.point` names the
+  point, and at a tool call `details.callId` names the call. The
+  `guardrail.violated` and `guardrail.error` events carry both, and so does
+  the guardrail's `guardrail-check` node in the run's provenance.
+- **A resumed turn decides nothing twice.** Each check's outcome at a point
+  is recorded with the step. A turn resumed after an approval, or a step run
+  again, reuses it: no judge is asked or billed again, and no event is sent
+  again.
+- **The final answer** runs only the guardrails at the final answer. Its
+  trace still holds every tool call the model asked for.
 
 ## When the check can't run
 
 A guardrail whose check can't run at all never counts as passed. A check
 can't run when:
 
-- no check by that name is registered;
+- no check by that name is registered. At the final answer that's
+  `unknown-check`. At a tool call or a model reply, such a check counts as
+  one that runs at the final answer only, so it fails as
+  `check-point-unsupported`, and the message says no check by that name is
+  registered;
 - its configuration is invalid;
 - an `llm-judge` guardrail's judge can't be routed to a model;
 - with a pack service for each deployment, the check's pack isn't deployed
   into the run's project;
 - the check throws, because pack code crashed or a pack service couldn't be
-  reached.
+  reached;
+- the guardrail runs at a point its check doesn't run at
+  (`check-point-unsupported`, with the check's id and the point);
+- at a tool call or a model reply, the check runs past its time limit
+  (`check-timed-out`, with `limitMs`), as
+  [How long its check may take](../configure-a-guardrail/#how-long-its-check-may-take)
+  describes.
 
 What happens next depends on the action:
 
 - With `halt`, the turn fails with `guardrail-violation`. Its `violations`
   is empty, `evaluationErrors` names the guardrail, and the message says
-  why. Here a guardrail names a pack check that nothing deployed:
+  why. Here a guardrail at the final answer names a pack check that nothing
+  deployed:
 
   ```text
   Error [guardrail-violation]: Turn blocked: guardrail 'acme.pack-only' couldn't run its check (unknown-check: Guardrail "acme.pack-only" references unregistered check "acme.checks.not-deployed")
   ```
-- With `retry`, the error doesn't send the answer back: the turn goes on as
-  if the check had passed.
+
+  At a tool call or a model reply, the message also says where:
+
+  ```text
+  Error [guardrail-violation]: Turn blocked before calling acme.orders.refund: guardrail 'my-pack.refund-limit' couldn't run its check (check-timed-out: Guardrail "my-pack.refund-limit"'s check "my-pack.checks.refund-limit" ran past 10000 ms: the turn stopped waiting for it and cancelled it)
+  ```
+- With `retry` at the final answer, the error doesn't send the answer back:
+  the turn goes on as if the check had passed.
+- With `retry` at a tool call or a model reply, the error counts as a failed
+  check: the call is refused, the result withheld or the reply sent back,
+  with the reason `its check couldn't run (<code>): <message>`. So with
+  `halt` or `retry`, a check that can't run never lets a call through.
 - With any other action, the turn completes.
 
 Where each deployment has its own pack service, as on Kindgi Cloud
@@ -337,12 +436,16 @@ guardrail that names a check deployed into another project can't run it,
 and the message ends:
 `A guardrail's pack check runs from a pack deployed into the run's project.`
 
-Either way, the error is recorded in two places. The run's provenance has
-the guardrail's node, with `evaluated: false`. The run journal's
-`evaluate-guardrails` step has it under `errors`.
+Either way, at the final answer, the error is recorded in two places. The
+run's provenance has the guardrail's node, with `evaluated: false`. The run
+journal's `evaluate-guardrails` step has it under `errors`. At a tool call
+or a model reply, the error is in the `guardrail.error` event and the
+guardrail's `guardrail-check` node in the provenance, with the point and,
+at a tool call, the call.
 
-In a turn with a `retry` guardrail, its `halt` and `retry` guardrails check
-each answer in the agent loop's `budget-check` step. A `halt` error there
+In a turn with a `retry` guardrail at the final answer, the `halt` and
+`retry` guardrails there check each answer in the agent loop's
+`budget-check` step. A `halt` error there
 fails that step: provenance has the guardrail's node, as above, and the
 journal has the error on that step. An error on an answer that's sent back
 is in the guardrail's [outcomes](#how-a-guardrail-is-doing), as `errored`,
@@ -406,6 +509,10 @@ scope={"when": "always", "agents": ["my-pack.echo-agent"]},
   gone, the turn fails with `persistence-error` rather than go unchecked.
 - `when` is `always`, `runtime-only` or `ci-only`. A `ci-only` guardrail
   doesn't run in an agent's turn.
+- `tools` lists tools, by id, for a guardrail that runs before or after a
+  tool call, as
+  [Where in the turn it runs](../configure-a-guardrail/#where-in-the-turn-it-runs)
+  describes.
 
 A turn the scope leaves out isn't counted in the guardrail's
 [outcomes](#how-a-guardrail-is-doing) either.
