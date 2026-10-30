@@ -978,11 +978,12 @@ export interface CreateAppInput {
    */
   readonly evalCaseStore?: EvalCaseStoreBinding;
   /**
-   * Optional. Live versions of agents per scope, and their promotions
-   * (`/v1/agents/{id}/live`, `/live-versions`, `/promotions`,
-   * `/live/rollback`, `/live/unpin`), and with `projectBinding`, a
-   * project's pinned versions (`/v1/projects/{id}/pinned-versions`).
-   * Absent → a run takes the latest version, as before.
+   * Optional. Live versions of agents per scope, each project's Latest
+   * (`latest`), and their promotions (`/v1/agents/{id}/live`,
+   * `/live-versions`, `/promotions`, `/live/rollback`, `/live/unpin`), and
+   * with `projectBinding`, a project's pinned versions
+   * (`/v1/projects/{id}/pinned-versions`). Absent → a run that names no
+   * version takes the highest.
    */
   readonly agentReleases?: AgentReleaseBindings;
   /**
@@ -1756,6 +1757,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         {
           ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
         },
         {
           ...(input.memory?.semanticSearch !== undefined && {
@@ -1931,6 +1933,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           releases: input.agentReleases,
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.projectSuspended !== undefined && {
+            projectSuspended: input.projectSuspended,
+          }),
           ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
           // A drafter's promotion needs a separate approver when the tenant has
           // a second person who could approve it — one who can read the
@@ -2150,6 +2155,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const targetTools = {
       ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
       ...(input.flowRegistry !== undefined && { flows: input.flowRegistry }),
+      ...(input.agentReleases !== undefined && { releases: input.agentReleases }),
     };
     if (kinds.has('cron')) {
       v1.route(
@@ -2517,6 +2523,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
               ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+              ...(input.projectSuspended !== undefined && {
+                projectSuspended: input.projectSuspended,
+              }),
             },
           }),
           ...(itemRights !== undefined && { itemRights }),

@@ -70,6 +70,11 @@ export interface AgentReleaseGateDeps {
   readonly projects?: ProjectBinding;
   /** A project or segment scope must reach the agent (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * Whether a project is suspended: a promotion into one where nothing
+   * runs says so, not that nothing runs. Absent: no check.
+   */
+  readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
 }
 
 /**
@@ -737,11 +742,25 @@ async function runGate(
   if (promoted === null || promoted.unregisteredAt !== undefined) {
     return err('agent-version-not-found', `${agentId} has no active version ${req.version}`);
   }
-  const runs = await whatRuns(releases, { tenantId, agentId, ...coordinatesOf(req.scope) });
+  const coordinates = coordinatesOf(req.scope);
+  const runs = await whatRuns(releases, { tenantId, agentId, ...coordinates });
   if (runs === null) {
+    // Nothing to measure the version against. A suspended project's
+    // deployments are retired, which is why: say that.
+    const { projectId } = coordinates;
+    if (
+      projectId !== undefined &&
+      deps.projectSuspended !== undefined &&
+      (await deps.projectSuspended(tenantId, projectId))
+    ) {
+      return err(
+        'project-suspended',
+        "The scope's project is suspended, so nothing is promoted in it until it's restored. Nothing was promoted.",
+      );
+    }
     return err(
-      'agent-not-found',
-      `No version of agent "${agentId}" runs in this scope: none is pinned there, and none is its latest`,
+      'nothing-runs-in-scope',
+      `No version of agent "${agentId}" runs in this scope yet: none is pinned there, and none is its Latest. Deploy or publish a version into the project first. Nothing was promoted.`,
     );
   }
   const live = runs.follows === 'pin' ? runs : null;
@@ -750,7 +769,7 @@ async function runGate(
   if (servingVersion === (req.version as unknown as string)) {
     const pins = await releases.live.list({ tenantId, agentId });
     if (!pins.some((pin) => sameScope(pin.scope, req.scope))) {
-      const from = live === null ? 'as the latest version' : 'from a pin above it';
+      const from = live === null ? 'as its Latest' : 'from a pin above it';
       return {
         kind: 'ok',
         result: {

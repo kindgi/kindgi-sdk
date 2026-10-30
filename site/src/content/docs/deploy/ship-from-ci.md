@@ -80,7 +80,9 @@ A person does these, with a key of their own:
 - **In prod, pin a version of each agent, and publish its release gate
   policy** ([Gate a release](../../guides/evals/release-an-agent-version/#gate-a-release)).
   A scope with a release gate policy needs a Pinned version of its own.
-  Without one, prod's runs take each agent's latest version.
+  Without one, prod's runs take each agent's
+  [Latest](../../guides/evals/live-versions-reference/#latest) in prod: the
+  version the newest build promoted there shipped.
 - **Build the test cases** that prod's test run uses, in prod's project
   ([Build test cases from corrections](../../guides/evals/build-a-test-set/)).
 - **Create the triggers:** schedules, webhooks and mail triggers.

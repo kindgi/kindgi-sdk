@@ -445,10 +445,16 @@ async function resolveImproveTarget(
           agentId: parsed.agentId as AgentId,
           version: fromVersion as Semver,
         });
+  if (fromVersion === undefined) {
+    return fail(c, 'agent-version-not-found', {
+      code: 'agent-version-not-found',
+      message: `No version of agent "${parsed.agentId}" runs in this scope: none is pinned there, and none is its Latest. Name \`fromVersion\`, or deploy or publish a version into the project first.`,
+    });
+  }
   if (from === null || from.unregisteredAt !== undefined) {
     return fail(c, 'agent-version-not-found', {
       code: 'agent-version-not-found',
-      message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
+      message: `${parsed.agentId} has no active version ${fromVersion}`,
     });
   }
   const project = await passProject(c, deps, authorizer, tenantId, parsed, from);

@@ -42,7 +42,7 @@ export interface FlowPinsLive {
  * agent it runs at no named version to
  * the version a run that names none gets in the flow's project. That's
  * the agent's live version there (project, then its org, then the
- * tenant), with `live`, else its latest. A gated agent's flow runs what
+ * tenant), else its Latest there, with `releases`; else its highest. A gated agent's flow runs what
  * its promotions let go live, not an unpromoted newer version; and an
  * agent step under one of its gate policies set on a segment runs the
  * version live there, not its pin (the runtime decides that per run). A

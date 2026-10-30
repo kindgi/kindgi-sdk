@@ -269,6 +269,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-version-not-found': 404,
   'promotion-not-found': 404,
   'nothing-to-roll-back': 409,
+  /** A promotion into a scope where no version of the agent runs yet: no pin, and no Latest. */
+  'nothing-runs-in-scope': 409,
   'not-pinned': 409,
   // The gate (evals step 4b).
   'gate-failed': 422,

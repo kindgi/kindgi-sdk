@@ -13,6 +13,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a promotion into a scope where nothing runs yet raises
+  `ConflictError` with `server_code` `nothing-runs-in-scope`.** With no pin
+  covering the scope and no Latest there, there's nothing to measure the
+  version against: deploy or publish a version into the project first.
 - `kindgi`: **`client.agents.projects(agent_id)` says what runs in each
   project.** Each project gains `runs` (the version a run there that names no
   version gets, since when, and the pin or deployment behind it), `follows`

@@ -26,8 +26,8 @@ A run's `agent.via` says how it got its version:
 
 The most specific live version wins: a **segment** path in a project, then
 the **project**, the project's **org**, the **tenant**, and then the
-project's Latest. Without `--project`, a run is in its agent's own project, which is
-Default for what `kindgi deploy` registers.
+project's Latest. Without `--project`, a run is in its agent's own project,
+which is Default for what `kindgi deploy` registers.
 
 A version only goes live when you make it live: publishing a newer version
 doesn't change what a scope with a live version runs.
@@ -48,8 +48,17 @@ shipped into another environment isn't Latest here until a deployment ships
 it here. When two versions became Latest at the same time, the higher one
 is. A version from before 0.4.0 also counts from when it was published, in
 the project it was made in. A version that's unregistered drops out, and the
-one before it is Latest again. A run with no project, in a tenant or org scope, gets the Latest of
-every project together.
+one with the newest time of those left is Latest. For a tenant or org
+scope, which has no project, every version counts wherever it was made or
+shipped: its Latest is the one with the newest time.
+
+A project can have no live version and no Latest yet: a later environment
+before its first promotion, or one whose only version of the agent was
+derived. There, a run that names no version is refused with
+`404 agent-not-found`, and so is `GET /v1/agents/{agentId}/live`. Making a
+version live there is refused with `409 nothing-runs-in-scope`, since
+there's nothing to measure it against (`409 project-suspended` when the
+project is suspended). Deploy or publish a version into the project first.
 
 `client.agents.projects(agentId)` (`GET /v1/agents/{agentId}/projects`) says
 what a run in each project gets and why: `follows` is `pin` with the live
@@ -84,8 +93,8 @@ A published flow version holds the agent versions it was published with.
 Each agent step runs the version its node names, `config.version`. Otherwise
 it runs the one a run in the flow's project would get when the flow version
 is published: the live version, from the project, then the org, then the
-tenant, or the project's Latest when none is live. Its turns say `"via": "flow-pin"`,
-and making another version live doesn't change them.
+tenant, or the project's Latest when none is live. Its turns say
+`"via": "flow-pin"`, and making another version live doesn't change them.
 
 Here `acme.order-flow` 1.0.0 was published while 1.3.0 was live. After the
 tenant went back to 1.0.0, its step still ran 1.3.0:

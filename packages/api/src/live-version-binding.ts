@@ -154,6 +154,12 @@ export type PromotionErrorCode =
   | 'scope-invalid'
   /** Rollback: the scope has no earlier live version to go back to. */
   | 'nothing-to-roll-back'
+  /**
+   * A promotion: no version of the agent runs in the scope yet (no pin
+   * covers it, and it has no Latest), so there's nothing to measure the
+   * version against. A deploy or a person's publish into it comes first.
+   */
+  | 'nothing-runs-in-scope'
   /** Unpin or rollback: the scope has no pin of its own. */
   | 'not-pinned'
   /** The scope's live version changed while the gate ran: check again. */

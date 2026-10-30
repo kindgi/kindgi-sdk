@@ -188,7 +188,10 @@ export interface AgentPromotionsClient {
   /**
    * Make `version` live for `scope`, from the next run. Open
    * conversations keep their version. `404 agent-version-not-found`
-   * when the version isn't registered and active.
+   * when the version isn't registered and active. `409
+   * nothing-runs-in-scope` when no version of the agent runs in the scope
+   * yet (no pin, and no Latest): deploy or publish one into the project
+   * first.
    *
    * With a gate policy for the scope, the promotion is checked first,
    * against the comparison named by `evalRunId`. The answer's `status`

@@ -1119,7 +1119,7 @@ one at a time, and logs it at `info`.
   agent acme.matcher: registered new version 1.4.1 (1.4.0 was published before pins; 1.4.1 pins its tools); set version: '1.4.1' in acme.matcher to match
   ```
 
-  Set that version in the agent's code. An app that runs an exact version (`agentVersion: '1.4.0'`) keeps running the unpinned one until you change it; an app that runs the latest gets the pinned one.
+  Set that version in the agent's code. An app that runs an exact version (`agentVersion: '1.4.0'`) keeps running the unpinned one until you change it; an app that names no version gets the pinned one, since the deploy made it Latest.
 - **With authorization on** (`KINDGI_OPENFGA_API_URL`), the first start brings each tenant's authorization store up to 0.1.4's model, with a line per store before the banner:
 
   ```text

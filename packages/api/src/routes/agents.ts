@@ -327,14 +327,14 @@ export function agentsRouter(
     });
   });
 
-  // ---------- GET /:agentId (latest version) ----------
+  // ---------- GET /:agentId (highest version) ----------
   r.get('/:agentId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
 
-    const latest = await binding.get({ tenantId, agentId });
-    if (latest === null) {
+    const highest = await binding.get({ tenantId, agentId });
+    if (highest === null) {
       // Distinguish 410 gone (identity exists — head row present, no
       // active version) from 404 not-found (never registered).
       // Retirement is a derived state (no active
@@ -372,7 +372,7 @@ export function agentsRouter(
       itemRights ?? itemServing,
       'agent',
       agentId as unknown as string,
-      latest,
+      highest,
       {
         versionOf: (a) => a.version as unknown as string,
         projectOf: (a) => a.projectId as unknown as string | undefined,

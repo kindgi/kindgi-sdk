@@ -394,6 +394,7 @@
           "agent-version-not-found": 404,
           "promotion-not-found": 404,
           "nothing-to-roll-back": 409,
+          "nothing-runs-in-scope": 409,
           "not-pinned": 409,
           "gate-failed": 422,
           "promotion-superseded": 409,
@@ -1272,7 +1273,7 @@
         "required": [
           "version"
         ],
-        "description": "The agent's highest active version the caller can see, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the server has no live versions.",
+        "description": "The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server has no live versions.",
         "properties": {
           "version": {
             "type": "string"
@@ -35971,7 +35972,7 @@
             }
           },
           "409": {
-            "description": "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `promotion-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+            "description": "`nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first. `project-suspended`: nothing runs there because the scope's project is suspended. `promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `promotion-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36245,6 +36246,16 @@
           },
           "404": {
             "description": "The version, the agent or the eval run is not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`nothing-runs-in-scope` or `project-suspended`, as `POST …/promotions` answers: no version of the agent runs in the scope yet.",
             "content": {
               "application/json": {
                 "schema": {

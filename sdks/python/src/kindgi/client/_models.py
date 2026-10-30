@@ -176,7 +176,7 @@ class AgentProjectSegmentPin(BaseModel):
 
 class AgentHighestVersion(BaseModel):
     """
-    The agent's highest active version the caller can see, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the server has no live versions.
+    The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server has no live versions.
     """
 
     model_config = ConfigDict(

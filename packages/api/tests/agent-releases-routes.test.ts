@@ -15,6 +15,7 @@ import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
+  LatestBinding,
   LiveResolution,
   LiveResolveInput,
   Promotion,
@@ -172,7 +173,12 @@ function registryWith(versions: readonly string[]): AgentRegistryBinding {
   };
 }
 
-function makeApp(versions: readonly string[] = ['1.0.0', '1.1.0'], readOnly?: RegistryReadOnly) {
+function makeApp(
+  versions: readonly string[] = ['1.0.0', '1.1.0'],
+  readOnly?: RegistryReadOnly,
+  /** Latest; absent: the highest version. */
+  latest?: LatestBinding,
+) {
   const fake = fakeReleases();
   const registry = registryWith(versions);
   const app = createApp({
@@ -180,7 +186,7 @@ function makeApp(versions: readonly string[] = ['1.0.0', '1.1.0'], readOnly?: Re
     resolveToken,
     runHandler,
     agentRegistry: { ...registry, ...(readOnly !== undefined && { readOnly }) },
-    agentReleases: { ...fake.bindings, latest: highestAsLatest(registry) },
+    agentReleases: { ...fake.bindings, latest: latest ?? highestAsLatest(registry) },
   });
   return { app, ...fake };
 }
@@ -223,11 +229,41 @@ describe('GET /v1/agents/:agentId/live', () => {
     ]);
   });
 
-  test('nothing pinned → the latest registered version, via latest', async () => {
+  test('nothing pinned → Latest (here the highest), via latest', async () => {
     const { app } = makeApp();
     const res = await app.request(`/v1/agents/${AGENT}/live`, { headers: auth });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ agentId: AGENT, version: '1.1.0', via: 'latest' });
+  });
+
+  // 1.1.0 is the highest; a deploy into PROJECT shipped 1.0.0 after it, so
+  // 1.0.0 is Latest there. Another project has no Latest.
+  const deployedOlder: LatestBinding = {
+    latest: async ({ projectId }) =>
+      projectId === PROJECT
+        ? { version: '1.0.0' as Semver, since: '2026-10-20T09:00:00.000Z', deploymentId: 'dep-1' }
+        : null,
+    byProject: async () => [],
+  };
+
+  test("nothing pinned → the project's Latest, not the highest version", async () => {
+    const { app } = makeApp(['1.0.0', '1.1.0'], undefined, deployedOlder);
+    const res = await app.request(`/v1/agents/${AGENT}/live?projectId=${PROJECT}`, {
+      headers: auth,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ agentId: AGENT, version: '1.0.0', via: 'latest' });
+  });
+
+  test('nothing pinned and no Latest in the project → 404, saying no version runs there', async () => {
+    const { app } = makeApp(['1.0.0', '1.1.0'], undefined, deployedOlder);
+    const res = await app.request(`/v1/agents/${AGENT}/live?projectId=${randomUUID()}`, {
+      headers: auth,
+    });
+    expect(res.status).toBe(404);
+    const { error } = (await res.json()) as { error: { code: string; message: string } };
+    expect(error.code).toBe('agent-not-found');
+    expect(error.message).toContain('runs in this scope');
   });
 
   test('nothing pinned and no such agent → 404', async () => {

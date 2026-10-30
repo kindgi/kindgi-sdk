@@ -62,7 +62,11 @@ import {
 } from './reference-scope.js';
 import { refusesCandidates, refusesScope } from './registry-read-only.js';
 import type { ReviewerRegistryBinding } from './reviewer-binding.js';
-import { type PromotionRequestOutcome, requestPromotion } from './routes/agent-releases.js';
+import {
+  type AgentReleaseGateDeps,
+  type PromotionRequestOutcome,
+  requestPromotion,
+} from './routes/agent-releases.js';
 import { liveScopeToWire } from './routes/live-scope-wire.js';
 import type {
   ProposalDrafter,
@@ -96,6 +100,8 @@ export interface ProposalServiceDeps {
   readonly projects?: ProjectBinding;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
+  /** Whether a project is suspended, for a promotion's gate (`AgentReleaseGateDeps`). Absent: no check. */
+  readonly projectSuspended?: AgentReleaseGateDeps['projectSuspended'];
   /**
    * The tenant's environment orders: a candidate (its block version and
    * agent version) is made in the first environment of the agent's
@@ -777,6 +783,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           evalRuns: deps.evalRuns,
           ...(deps.projects !== undefined && { projects: deps.projects }),
           ...(deps.referenceScope !== undefined && { referenceScope: deps.referenceScope }),
+          ...(deps.projectSuspended !== undefined && { projectSuspended: deps.projectSuspended }),
         },
         {
           tenantId,
