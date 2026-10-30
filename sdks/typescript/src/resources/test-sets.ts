@@ -12,6 +12,7 @@
  * a specific version (soft-delete tombstone).
  */
 
+import { type InvalidRequestError, KindgiApiError } from '../errors.js';
 import type {
   CorrectedTestCase,
   CorrectedTestCaseCollectionPage,
@@ -24,7 +25,6 @@ import type {
   TestSetKind,
   UnregisterTestSetResult,
 } from '../generated/api.js';
-import { type InvalidRequestError, KindgiApiError } from '../errors.js';
 import type { Transport } from '../transport.js';
 import type { GetLatestOptions } from '../types.js';
 
