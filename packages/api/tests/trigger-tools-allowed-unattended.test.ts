@@ -77,6 +77,8 @@ function decision(principal: unknown, action: Action, resource: ResourceRef): De
 // doesn't. `acme.digest`'s highest calls `acme.archive`; its 1.0.0, which is
 // Latest in PROJECT (`releases`), doesn't. `acme.daily@1.0.0` runs
 // `acme.digest` at no version: no step names one, and it pins none.
+// `acme.daily@2.0.0` runs it too, and `acme.weekly` (Latest nowhere) inside
+// the subflow `acme.weekly-sub`, neither at a version.
 const tool = (id: string) => ({ id });
 const AGENTS: Record<string, Record<string, { tools: { id: string }[] }>> = {
   'acme.weekly': { latest: { tools: [tool('acme.send')] } },
@@ -105,6 +107,17 @@ const FLOWS: Record<string, Record<string, unknown>> = {
   'acme.daily@1.0.0': {
     pins: { tools: {}, agents: {} },
     nodes: [leaf('refund', 'tool', 'acme.refund'), leaf('digest', 'agent', 'acme.digest')],
+  },
+  'acme.daily@2.0.0': {
+    pins: { tools: {}, agents: {} },
+    nodes: [
+      leaf('digest', 'agent', 'acme.digest'),
+      { id: 'week', kind: 'subgraph', flowRef: { flowId: 'acme.weekly-sub', version: '1.0.0' } },
+    ],
+  },
+  'acme.weekly-sub@1.0.0': {
+    pins: { tools: {}, agents: {} },
+    nodes: [leaf('weekly', 'agent', 'acme.weekly')],
   },
   'acme.sub@1.0.0': {
     nodes: [
@@ -312,14 +325,36 @@ describe('which tools a target calls', () => {
     expect(why).toContain(
       `can't check "acme.send": flow "acme.daily" at 1.0.0 runs agent "acme.digest" at no version`,
     );
+    expect(why).toContain('its step names none, and the flow versions pin none');
     expect(why).toContain("none runs in this trigger's project yet");
     expect(why).toContain("Publish a flow version that names the step's version");
-    expect(why).toContain('into a later environment, promote a build that ships one');
+    expect(why).toContain('into a later environment, promote a build that ships one)');
     expect(why).not.toContain("doesn't call");
     // Where its Latest runs, its tools count.
     expect(await problem(PROJECT, ['acme.refund', 'acme.send'])).toBeUndefined();
     expect(await problem(PROJECT, ['acme.archive'])).toContain(
       `flow "acme.daily" at 1.0.0 doesn't call "acme.archive"`,
+    );
+  });
+
+  test('a flow with several agents at no version, one in a subflow: the 400 names each', async () => {
+    const deps = { agents: agentRegistry, flows: flowRegistry, releases };
+    const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '2.0.0' } as never;
+    const why = await toolsAllowedUnattendedProblem(
+      deps,
+      triggerScope(tenantId, ELSEWHERE),
+      daily,
+      ['acme.send'],
+    );
+    expect(why).toContain(`can't check "acme.send": flow "acme.daily" at 2.0.0 runs agents `);
+    expect(why).toContain('"acme.digest"');
+    expect(why).toContain('"acme.weekly"');
+    expect(why).toContain('their steps name none, and the flow versions pin none');
+    expect(why).toContain(
+      "none is their Latest. Publish a flow version that names the steps' versions",
+    );
+    expect(why).toContain(
+      'deploy or publish a version of each into the project first (into a later environment, promote a build that ships one of each)',
     );
   });
 });

@@ -319,15 +319,15 @@ export async function toolsAllowedUnattendedProblem(
   if (calls.nothingRuns.size === 0) {
     return `\`toolsAllowedUnattended\`: ${targetName(target)} doesn't call ${ids}`;
   }
-  const first =
-    'deploy or publish a version into the project first (into a later environment, promote a build that ships one)';
+  const first = (each: boolean) =>
+    `deploy or publish a version${each ? ' of each' : ''} into the project first (into a later environment, promote a build that ships one${each ? ' of each' : ''})`;
   if (target.kind === 'agent') {
-    return `\`toolsAllowedUnattended\`: no version of ${targetName(target)} runs in this trigger's project yet: none is pinned there, and none is its Latest, so its tools can't be checked. Name \`agentVersion\`, or ${first}`;
+    return `\`toolsAllowedUnattended\`: no version of ${targetName(target)} runs in this trigger's project yet: none is pinned there, and none is its Latest, so its tools can't be checked. Name \`agentVersion\`, or ${first(false)}`;
   }
   // A flow: the listed tools it doesn't call by itself may be its agents' there.
   const one = calls.nothingRuns.size === 1;
   const agents = [...calls.nothingRuns].map((id) => `"${id}"`).join(', ');
-  return `\`toolsAllowedUnattended\`: can't check ${ids}: ${targetName(target)} runs ${one ? 'agent' : 'agents'} ${agents} at no version (${one ? 'its step names' : 'their steps name'} none, and the flow version pins none), and none runs in this trigger's project yet: none is pinned there, and none is ${one ? 'its' : 'their'} Latest. Publish a flow version that names the step's version, or ${first}`;
+  return `\`toolsAllowedUnattended\`: can't check ${ids}: ${targetName(target)} runs ${one ? 'agent' : 'agents'} ${agents} at no version (${one ? 'its step names' : 'their steps name'} none, and the flow versions pin none), and none runs in this trigger's project yet: none is pinned there, and none is ${one ? 'its' : 'their'} Latest. Publish a flow version that names ${one ? "the step's version" : "the steps' versions"}, or ${first(!one)}`;
 }
 
 /** Whether two lists name the same tools (order aside). */
