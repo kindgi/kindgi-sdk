@@ -226,8 +226,8 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('supervisor.versions', () => {
     expectTypeOf<Answer<KindgiClient['supervisor']['versions']>>().toMatchTypeOf<WirePage>();
   });
-  test('improvementPasses.list', () => {
-    expectTypeOf<Answer<KindgiClient['improvementPasses']['list']>>().toMatchTypeOf<WirePage>();
+  test('improveRuns.list', () => {
+    expectTypeOf<Answer<KindgiClient['improveRuns']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('suggestedChanges.list', () => {
     expectTypeOf<Answer<KindgiClient['suggestedChanges']['list']>>().toMatchTypeOf<WirePage>();

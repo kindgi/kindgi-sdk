@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * An improvement pass's comparisons: settings `overrides` (unpublished
+ * An Improve run's comparisons: settings `overrides` (unpublished
  * values for blocks the candidate pins, checked when the run starts) and
  * a `sample` of the test set (a deterministic search / hold-out split).
  * Neither may gate a promotion except a hold-out sample.
@@ -21,10 +21,10 @@ import type {
   AgentVersionRecord,
   CorrectedComparisonSummary,
   CorrectedEvalCase,
-  TestRun,
-  TestRunBinding,
   GatePolicySpec,
   RunHandlerBinding,
+  TestRun,
+  TestRunBinding,
   TestSet,
   TestSetRegistryBinding,
   TokenResolver,

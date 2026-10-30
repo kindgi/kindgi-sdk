@@ -24,7 +24,7 @@ type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
  * - setting or changing it, at register too, takes `admin` on the
  *   trigger's project (a body that names it, `[]` included);
  * - each id must be one the target can call (`toolsTargetCanCall`), so a
- *   typo is refused rather than lifting nothing; an improvement pass calls
+ *   typo is refused rather than lifting nothing; an Improve run calls
  *   no tools, so its list can only be empty;
  * - every change is audited (`trigger-tools-allowed-unattended-set`).
  *
@@ -104,8 +104,8 @@ const MAX_FLOWS = 64;
  * pin, else what runs there) and its subflows', at their versions.
  * `nothingRuns`: the agents it runs at no version that have none running
  * there, whose tools can't be counted. `undefined` when the target can't
- * be read (no registry, or no such agent or flow version). An improvement
- * pass calls none.
+ * be read (no registry, or no such agent or flow version). An Improve
+ * run calls none.
  */
 export async function toolsTargetCanCall(
   deps: TargetToolsDeps | undefined,
@@ -287,13 +287,13 @@ function targetName(target: TriggerTarget): string {
         ? `agent "${target.agentId as unknown as string}"`
         : `agent "${target.agentId as unknown as string}" at ${target.agentVersion}`;
     case 'improve':
-      return 'an improvement pass';
+      return 'an Improve run';
   }
 }
 
 /**
  * Why `tools` can't be the list of a trigger that runs `target` (a
- * `bad-input` message), or `undefined` when it can: an improvement pass
+ * `bad-input` message), or `undefined` when it can: an Improve run
  * calls no tools, so only `[]`; else each id must be one the target can
  * call. An id it doesn't call where one of its agents at no version has
  * none running can't be checked, and the message says why. An empty list
@@ -307,7 +307,7 @@ export async function toolsAllowedUnattendedProblem(
 ): Promise<string | undefined> {
   if (tools.length === 0) return undefined;
   if (target.kind === 'improve') {
-    return 'an improvement pass calls no tools: its `toolsAllowedUnattended` can only be empty';
+    return 'an Improve run calls no tools: its `toolsAllowedUnattended` can only be empty';
   }
   const calls = await toolsTargetCanCall(deps, scope, target);
   if (calls === undefined) {

@@ -221,10 +221,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'suggested-change-nothing-to-check': 409,
   // A pin for a project that runs Latest.
   'suggested-change-project-on-latest': 409,
-  // Improvement passes.
+  // Improve runs.
   'improve-unsupported': 501,
-  'improvement-pass-not-found': 404,
-  'improvement-pass-finished': 409,
+  'improve-run-not-found': 404,
+  'improve-run-finished': 409,
   'version-already-exists': 409,
   'supervisor-header-missing': 400,
   // Artifacts.
@@ -344,7 +344,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'authz-store-delete-failed': 502,
   /** A runtime whose tenants binding doesn't purge. */
   'tenant-purge-unsupported': 501,
-  /** A deployment, test run or improvement pass whose project, or pack, is suspended. */
+  /** A deployment, test run or Improve run whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
   /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */

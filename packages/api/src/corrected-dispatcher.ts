@@ -37,13 +37,19 @@ import type {
   EvalCaseStoreBinding,
   TestCaseExpectedDecisions,
 } from './eval-case-binding.js';
+import { sampleCases } from './eval-sample.js';
+import {
+  type CallDifference,
+  type CandidateCall,
+  gradeExpectedDecisions,
+} from './expected-decisions.js';
 import type {
   AgentRef,
   EvalComparison,
   EvalGroupWeights,
-  TestRunBinding,
   EvalSample,
   FlowRef,
+  TestRunBinding,
 } from './test-run-binding.js';
 import type {
   DispatchContext,
@@ -51,12 +57,6 @@ import type {
   TestRunDispatcher,
   TestRunSubjectInvokeOutcome,
 } from './test-run-dispatcher.js';
-import { sampleCases } from './eval-sample.js';
-import {
-  type CallDifference,
-  type CandidateCall,
-  gradeExpectedDecisions,
-} from './expected-decisions.js';
 
 export const DEFAULT_COMPARISON: EvalComparison = {
   baseline: 'recorded',
@@ -208,7 +208,7 @@ export interface CorrectedComparisonSummary {
     readonly passed: number;
     /**
      * Each correction graded: whether it passed (every repetition did).
-     * What an improvement pass compares, run to run, to keep only a
+     * What an Improve run compares, run to run, to keep only a
      * model-settings change that breaks none the current version passes. Absent from a summary recorded before it.
      */
     readonly results?: readonly { readonly correctionId: string; readonly pass: boolean }[];

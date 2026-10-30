@@ -381,7 +381,9 @@ export function suggestedChangeMaker(suggestedChange: {
     if (kind === 'user' && id !== '') return { kind: 'person', userId: id };
     return { kind: 'service', id: kind === 'service' && id !== '' ? id : drafter.by };
   }
-  if (drafter.passId !== undefined) return { kind: 'improve-run', improveRunId: drafter.passId };
+  if (drafter.improveRunId !== undefined) {
+    return { kind: 'improve-run', improveRunId: drafter.improveRunId };
+  }
   return { kind: 'service', id: drafter.kind };
 }
 

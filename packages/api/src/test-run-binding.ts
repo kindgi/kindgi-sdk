@@ -185,7 +185,7 @@ export interface EvalComparison {
   /**
    * For an agent candidate: block content its replays run instead of the
    * version's pinned content (settings values, a prompt template: an
-   * improvement pass's search). A comparison with overrides can't gate a
+   * Improve run's search). A comparison with overrides can't gate a
    * promotion: it didn't run a published version.
    */
   readonly overrides?: EvalOverrides;
@@ -212,7 +212,7 @@ export interface EvalOverrides {
  * cases that carry a correction, then of the others the cases with a
  * "no" and the rest, each split on their own), in the order of a hash of
  * each case id and `seed`. The same seed splits
- * the same test set the same way, so an improvement pass searches on one
+ * the same test set the same way, so an Improve run searches on one
  * part and proves its candidate on the other. A promotion gate refuses a
  * comparison on the search part.
  */

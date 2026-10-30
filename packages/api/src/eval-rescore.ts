@@ -5,7 +5,7 @@
  * A rescore: a new comparison test run of the same test set version,
  * candidate and settings that replays nothing. It scores the run's replays
  * again, with what people corrected on them since (`comparison.rescoreOf`).
- * The run rescored stays as it was. `POST /v1/test-runs/{runId}/rescore`
+ * The run rescored stays as it was. `POST /v1/test-runs/{testRunId}/rescore`
  * and `POST /v1/suggested-changes/{suggestedChangeId}/rescore` both start one.
  */
 

@@ -17,7 +17,7 @@
 export const ERROR_ENTRIES = {
   'validation-failed': {
     description:
-      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/proposals/improve`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
+      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/improve-runs`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
     details: [
       {
         key: 'issues',
@@ -26,7 +26,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'reason',
         meaning:
-          "on `POST /v1/proposals/improve`, why the version has nothing for the Improve run to work on: `no-tunable-keys`, or `no-pinned-prompt-block` for a run on the agent's instructions (the `prompt` tier); other refusals leave it out",
+          "on `POST /v1/improve-runs`, why the version has nothing for the Improve run to work on: `no-tunable-keys`, or `no-pinned-prompt-block` for a run on the agent's instructions (the `prompt` tier); other refusals leave it out",
       },
     ],
   },
@@ -1561,21 +1561,21 @@ export const ERROR_ENTRIES = {
     description: "This runtime doesn't run Improve.",
     details: [],
   },
-  'improvement-pass-not-found': {
+  'improve-run-not-found': {
     description: "The Improve run doesn't exist, or your key can't read its agent.",
     details: [
       {
-        key: 'passId',
+        key: 'improveRunId',
         meaning: 'the Improve run id that was looked up',
       },
     ],
-    seeAlso: ['POST /v1/improvement-passes/{passId}/cancel'],
+    seeAlso: ['POST /v1/improve-runs/{improveRunId}/cancel'],
   },
-  'improvement-pass-finished': {
+  'improve-run-finished': {
     description: 'The Improve run has already ended, so there is nothing to cancel.',
     details: [
       {
-        key: 'passId',
+        key: 'improveRunId',
         meaning: 'the Improve run id',
       },
       {
@@ -3113,7 +3113,7 @@ export const ERROR_ENTRIES = {
     seeAlso: [
       'POST /v1/deployments',
       'POST /v1/test-sets/{testSetId}/runs',
-      'POST /v1/proposals/improve',
+      'POST /v1/improve-runs',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
       'POST /v1/deployments/{deploymentId}/promotions',
       'POST /v1/agents/{agentId}/promotions',

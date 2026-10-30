@@ -3,53 +3,53 @@
 
 import type { Cursor, LiveScope, ProjectId, TenantId, Timestamp } from '@kindgi/types';
 
-import type { EvalGroupWeights } from './test-run-binding.js';
 import type { PromotionActor } from './live-version-binding.js';
 import type { SuggestedChangeObjective } from './supervisor-binding.js';
+import type { EvalGroupWeights } from './test-run-binding.js';
 
 /**
- * Improvement passes (`POST /v1/proposals/improve`,
- * `/v1/improvement-passes`): the runtime looks for better values for an
+ * Improve runs (`POST /v1/improve-runs`,
+ * `/v1/improve-runs`): the runtime looks for better values for an
  * agent version's tunable settings (`x-kindgi-tunable`) on a test set,
  * within a budget, and writes the best as a suggested change, which
- * a reviewer then decides like any other. How a pass searches is the
+ * a reviewer then decides like any other. How an Improve run searches is the
  * runtime's own; this is what starts one and reads it back.
  *
  * Optional: without it, `improve` answers `501 improve-unsupported`.
  */
-export interface ImprovementPassBinding {
-  /** Record a pass as `running` and start it; it carries on in the background. */
-  start(input: StartImprovementPassInput): Promise<ImprovementPass>;
-  /** A pass, or `null` when the tenant has none with that id. */
+export interface ImproveRunBinding {
+  /** Record an Improve run as `running` and start it; it carries on in the background. */
+  start(input: StartImproveRunInput): Promise<ImproveRun>;
+  /** An Improve run, or `null` when the tenant has none with that id. */
   get(input: {
     readonly tenantId: TenantId;
-    readonly passId: string;
-  }): Promise<ImprovementPass | null>;
-  /** The tenant's passes, newest first; `agentId` narrows them. */
-  list(input: ListImprovementPassesInput): Promise<{
-    readonly data: readonly ImprovementPass[];
+    readonly improveRunId: string;
+  }): Promise<ImproveRun | null>;
+  /** The tenant's Improve runs, newest first; `agentId` narrows them. */
+  list(input: ListImproveRunsInput): Promise<{
+    readonly data: readonly ImproveRun[];
     readonly nextCursor?: Cursor;
   }>;
-  /** Stop a running pass: it ends `cancelled`, writing no suggested change. */
+  /** Stop a running Improve run: it ends `cancelled`, writing no suggested change. */
   cancel(input: {
     readonly tenantId: TenantId;
-    readonly passId: string;
+    readonly improveRunId: string;
     readonly by: string;
   }): Promise<
-    | { readonly kind: 'ok'; readonly pass: ImprovementPass }
+    | { readonly kind: 'ok'; readonly improveRun: ImproveRun }
     | { readonly kind: 'not-found' }
-    | { readonly kind: 'finished'; readonly pass: ImprovementPass }
+    | { readonly kind: 'finished'; readonly improveRun: ImproveRun }
   >;
   /**
-   * The basis for a cost estimate of a pass this input would start: how many
+   * The basis for a cost estimate of an Improve run this input would start: how many
    * replay runs its comparisons make, and the version's mean cost over its
    * recent completed runs. Optional: without it, `POST
-   * /v1/proposals/improve/estimate` answers `501 improve-unsupported`.
+   * /v1/improve-runs/check` answers `501 improve-unsupported`.
    */
-  estimateBasis?(input: EstimateImprovementPassInput): Promise<ImprovementPassEstimateBasis>;
+  checkBasis?(input: CheckImproveRunInput): Promise<ImproveRunCheckBasis>;
 }
 
-/** What a pass tunes: settings values, or (drafted by a model) a prompt template. */
+/** What an Improve run tunes: settings values, or (drafted by a model) a prompt template. */
 export type ImprovementTier = 'settings' | 'prompt';
 
 /** A provider and model, by the tenant's provider id. */
@@ -59,16 +59,16 @@ export interface ImprovementModel {
 }
 
 export interface ImprovementBudget {
-  /** The most the pass's comparisons may cost, in US dollars. */
+  /** The most the Improve run's comparisons may cost, in US dollars. */
   readonly maxCostUsd: number;
   /** The most candidates it compares. */
   readonly maxCandidates: number;
 }
 
-export interface StartImprovementPassInput {
+export interface StartImproveRunInput {
   readonly tenantId: TenantId;
   /**
-   * The project the pass works in: its test set is one the project
+   * The project the Improve run works in: its test set is one the project
    * reaches, and its test runs run there. Absent when the agent store
    * records no projects.
    */
@@ -87,20 +87,20 @@ export interface StartImprovementPassInput {
    * only (`experts-only`).
    */
   readonly groupWeights: EvalGroupWeights;
-  /** For a prompt pass: what drafts the templates. */
+  /** For a prompt Improve run: what drafts the templates. */
   readonly model?: ImprovementModel;
-  /** For a prompt pass: how many templates it drafts. */
+  /** For a prompt Improve run: how many templates it drafts. */
   readonly candidates?: number;
   readonly budget: ImprovementBudget;
   readonly requestedBy: PromotionActor;
 }
 
 /**
- * What a cost estimate reads: the pass's shape, without a budget or requester.
+ * What a cost estimate reads: the Improve run's shape, without a budget or requester.
  * The budget cap is applied by the route (it clamps the estimate); the basis
  * doesn't need it.
  */
-export interface EstimateImprovementPassInput {
+export interface CheckImproveRunInput {
   readonly tenantId: TenantId;
   readonly agentId: string;
   /**
@@ -113,15 +113,15 @@ export interface EstimateImprovementPassInput {
   readonly scope: LiveScope;
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
-  /** For a prompt pass: what drafts the templates. */
+  /** For a prompt Improve run: what drafts the templates. */
   readonly model?: ImprovementModel;
-  /** For a prompt pass: how many templates it drafts. */
+  /** For a prompt Improve run: how many templates it drafts. */
   readonly candidates?: number;
 }
 
 /** What the route turns into a cost estimate. */
-export interface ImprovementPassEstimateBasis {
-  /** How many replay runs the pass's comparisons would make (from the comparison code). */
+export interface ImproveRunCheckBasis {
+  /** How many replay runs the Improve run's comparisons would make (from the comparison code). */
   readonly replays: number;
   /**
    * The version's mean cost over its recent completed runs (US dollars, a
@@ -131,12 +131,12 @@ export interface ImprovementPassEstimateBasis {
 }
 
 /**
- * When an `improve` schedule's fire starts a pass: enough "no" corrections on
- * the agent's runs in the scope since its last pass, across enough runs, from
+ * When an `improve` schedule's fire starts an Improve run: enough "no" corrections on
+ * the agent's runs in the scope since its last Improve run, across enough runs, from
  * enough correctors. Everyone's "no" counts until an expert group is
  * named (in the tenant, the project, or on the agent), then only trusted ones
  * do; with no corrector-group binding wired, trusted only. One corrector can't start
- * a pass alone.
+ * an Improve run alone.
  */
 export interface ImproveThreshold {
   readonly corrections: number;
@@ -144,45 +144,45 @@ export interface ImproveThreshold {
   readonly correctors: number;
 }
 
-/** An `improve` schedule's input (`config.input`): when a fire starts a pass, and the pass's options. */
+/** An `improve` schedule's input (`config.input`): when a fire starts an Improve run, and the Improve run's options. */
 export interface ImproveScheduleInput {
   readonly tiers: readonly ImprovementTier[];
   readonly objective: SuggestedChangeObjective;
   /**
-   * Which corrections each pass's comparisons count. Omitted: each fire
+   * Which corrections each Improve run's comparisons count. Omitted: each fire
    * resolves the project default — everyone (`as-recorded`) until the
    * project names an expert group, then `experts-only`.
    */
   readonly groupWeights?: EvalGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
-  /** Each pass's budget; never more than what's left of the month's cap. */
+  /** Each Improve run's budget; never more than what's left of the month's cap. */
   readonly budget: ImprovementBudget;
   readonly threshold: ImproveThreshold;
-  /** The most its passes may cost in a calendar month (UTC), in US dollars. */
+  /** The most its Improve runs may cost in a calendar month (UTC), in US dollars. */
   readonly monthlyCapUsd: number;
 }
 
 export const IMPROVE_SCHEDULE_DEFAULTS = {
   threshold: { corrections: 5, runs: 3, correctors: 2 },
   monthlyCapUsd: 20,
-  /** The shortest interval between an `improve` schedule's occurrences: a pass costs money. */
+  /** The shortest interval between an `improve` schedule's occurrences: an Improve run costs money. */
   minIntervalSeconds: 3600,
 } as const;
 
-export interface ListImprovementPassesInput {
+export interface ListImproveRunsInput {
   readonly tenantId: TenantId;
   readonly agentId?: string;
   readonly limit: number;
   readonly cursor?: Cursor;
 }
 
-export type ImprovementPassStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+export type ImproveRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
-/** What a finished pass found. */
-export type ImprovementPassOutcome =
+/** What a finished Improve run found. */
+export type ImproveRunOutcome =
   /** Its best candidate beat the current values on the hold-out part: a suggested change. */
-  | { readonly kind: 'proposed'; readonly suggestedChangeId: string }
+  | { readonly kind: 'suggested'; readonly suggestedChangeId: string }
   /** No candidate beat them by more than the noise (or within the budget); no suggested change. */
   | {
       readonly kind: 'nothing-found';
@@ -197,7 +197,7 @@ export type ImprovementPassOutcome =
     }
   | { readonly kind: 'failed'; readonly message: string };
 
-export interface ImprovementPass {
+export interface ImproveRun {
   readonly id: string;
   readonly tenantId: TenantId;
   readonly agentId: string;
@@ -212,30 +212,30 @@ export interface ImprovementPass {
   readonly budget: ImprovementBudget;
   /** `user:<id>` or `service:<id>`. */
   readonly requestedBy: string;
-  readonly status: ImprovementPassStatus;
+  readonly status: ImproveRunStatus;
   /** Candidates compared so far. */
   readonly candidatesEvaluated: number;
   /** What its comparisons have cost so far, in US dollars (a decimal string). */
   readonly costUsd: string;
   /** Set once it ends. */
-  readonly outcome?: ImprovementPassOutcome;
+  readonly outcome?: ImproveRunOutcome;
   /**
-   * Why a `cancelled` pass stopped when nobody cancelled it: a comparison's
+   * Why a `cancelled` Improve run stopped when nobody cancelled it: a comparison's
    * test run was cancelled for it (its `cancelReason`, e.g.
    * `project-suspended`). Absent when it was cancelled.
    */
   readonly cancelReason?: string;
   /** Its comparisons so far, each a test run to open. */
-  readonly comparisons?: readonly ImprovementPassComparison[];
-  /** The `improve` schedule and fire that started it; absent for a pass a person started. */
+  readonly comparisons?: readonly ImproveRunComparison[];
+  /** The `improve` schedule and fire that started it; absent for an Improve run a person started. */
   readonly trigger?: { readonly triggerId: string; readonly fireId: string };
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
   readonly finishedAt?: Timestamp;
 }
 
-/** One comparison a pass ran: the version as it is, a candidate, or the suggested change's proof. */
-export interface ImprovementPassComparison {
+/** One comparison an Improve run ran: the version as it is, a candidate, or the suggested change's proof. */
+export interface ImproveRunComparison {
   /** Absent until it started. */
   readonly testRunId?: string;
   /**
@@ -248,12 +248,12 @@ export interface ImprovementPassComparison {
   /** For a candidate: its block, and the values it changed. */
   readonly blockId?: string;
   readonly changed?: Readonly<Record<string, unknown>>;
-  /** Its score on the pass's objective, once it finished (`null`: no evidence from corrections). */
+  /** Its score on the Improve run's objective, once it finished (`null`: no evidence from corrections). */
   readonly score?: number | null;
   /** Why it didn't run or finish, when it didn't. */
   readonly failed?: string;
   /** For a drafted template that was never compared: why the check refused it. */
   readonly refused?: readonly { readonly path: string; readonly message: string }[];
   /** For a drafted template: what the drafter meant it to change. */
-  readonly hypothesis?: string;
+  readonly why?: string;
 }

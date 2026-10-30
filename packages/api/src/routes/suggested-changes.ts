@@ -397,7 +397,7 @@ async function blockBefore(
 
 /** The first line of why, cut to fit, then the block's change. */
 function titleOf(p: StoredSuggestedChange): string {
-  const line = p.hypothesis.split('\n')[0]?.trim() ?? '';
+  const line = p.why.split('\n')[0]?.trim() ?? '';
   const cut = line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH).trimEnd()}…` : line;
   const to = p.candidate === undefined ? 'a new version' : `v${p.candidate.blockVersion}`;
   return `${cut}: ${p.change.blockId} v${p.change.fromVersion} → ${to}`;
@@ -481,7 +481,7 @@ export function serialize(
         ...(before !== undefined && { before, after: p.change.content }),
       },
     ],
-    why: p.hypothesis,
+    why: p.why,
     fixes: p.evidence?.fixes ?? [],
     check: checkWire(p, f),
     status: f.status,

@@ -43,7 +43,7 @@ A draft says what to change, for which scope, and why:
 ```sh
 pnpm exec kindgi suggested-changes draft --agent=acme.rank.scorer --from-version=1.0.0 --tenant \
   --block=acme.rank.weights --values='{"recency":0.2,"fit":0.8}' \
-  --hypothesis="Fit matters more than recency for acme rankings."
+  --why="Fit matters more than recency for acme rankings."
 ```
 
 - **What it changes:** `--agent` and `--from-version` are the agent version.
@@ -52,7 +52,7 @@ pnpm exec kindgi suggested-changes draft --agent=acme.rank.scorer --from-version
   takes a file as `@<file>`.
 - **For which scope:** `--tenant`, `--org=<org-id>`, or
   `--project=<project-id>` with `--segment=<key:value>`s for a segment.
-- **Why:** `--hypothesis` says what the change should improve. Each
+- **Why:** `--why` says what the change should improve. Each
   `--correction=<correction-id>` keeps a correction behind the change as evidence.
   Repeat it for several.
 
@@ -77,8 +77,8 @@ It prints the suggested change, with its `id` and the status `draft`:
     },
     "fromVersion": "1.0.0"
   },
-  "hypothesis": "Fit matters more than recency for acme rankings.",
-  "drafter": {
+  "why": "Fit matters more than recency for acme rankings.",
+  "madeBy": {
     "by": "user:62e1ffe2-30f4-4dff-948e-ae774107a7db",
     "kind": "person"
   },

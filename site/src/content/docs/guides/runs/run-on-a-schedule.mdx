@@ -517,7 +517,7 @@ then only the ones recorded under one. With `groupWeights` in the schedule's
 input, it counts the way that value says. The last Improve run is one that
 didn't fail or get cancelled, whoever started it. With enough of them, across
 enough runs, from enough correctors, it starts an Improve run on fresh test cases
-of those runs, `improve.<pass-id>`. Otherwise the fire is `skipped`, and its note says which
+of those runs, `improve.<improve-run-id>`. Otherwise the fire is `skipped`, and its note says which
 count was short.
 
 That schedule's first fire, started with `run-now`, was skipped: one corrector
@@ -564,7 +564,7 @@ note would say "answers marked wrong" and "people who corrected".
   is still going, a fire is `skipped-overlap`.
 - **At most once an hour.** Registering needs `publish` on the agent.
 
-A fire that started an Improve run names it, as `passId`. The Improve run
+A fire that started an Improve run names it, as `improveRunId`. The Improve run
 names the schedule and the fire, as `trigger`. When the Improve run suggests
 a change, it asks for the review at once, so the suggested change waits in
 reviewers' approvals.

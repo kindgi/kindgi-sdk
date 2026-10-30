@@ -138,7 +138,7 @@ RESULT: dict[str, Any] = {
 }
 
 RUN: dict[str, Any] = {
-    "runId": "00000000-0000-4000-8000-00000000e001",
+    "testRunId": "00000000-0000-4000-8000-00000000e001",
     "tenantId": "00000000-0000-4000-8000-000000000002",
     "testSetId": "acme.set",
     "testSetVersion": "1.0.0",

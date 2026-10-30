@@ -48,7 +48,7 @@ const RUN_IN_FULL = {
     liveScope: { kind: 'project', projectId: PROJECT },
   },
 };
-const PASS = {
+const IMPROVE_RUN = {
   id: 'c3f1e9a0-7d4b-4e2a-9b6c-1f8e2d3a4b5c',
   agentId: 'acme-shop.helpdesk',
   fromVersion: '0.3.0',
@@ -66,7 +66,7 @@ const PASS = {
   candidatesEvaluated: 3,
   costUsd: '0.0123',
   outcome: {
-    kind: 'proposed',
+    kind: 'suggested',
     suggestedChangeId: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
     holdOut: { baseline: 0.5, candidate: 0.62, delta: null },
   },
@@ -87,11 +87,11 @@ const APPROVAL = {
 };
 const EVENTS: Record<WebhookEvent['type'], Record<string, unknown>> = {
   'run.finished': { id: 'evt_1', type: 'run.finished', createdAt: AT, data: { run: RUN } },
-  'improvement-pass.finished': {
+  'improve-run.finished': {
     id: 'evt_2',
-    type: 'improvement-pass.finished',
+    type: 'improve-run.finished',
     createdAt: AT,
-    data: { pass: PASS },
+    data: { improveRun: IMPROVE_RUN },
   },
   'approval.requested': {
     id: 'evt_3',
@@ -109,8 +109,8 @@ const EVENTS: Record<WebhookEvent['type'], Record<string, unknown>> = {
 const body = (value: unknown) => JSON.stringify(value);
 const withRun = (run: Record<string, unknown>) =>
   body({ ...EVENTS['run.finished'], data: { run } });
-const withPass = (pass: Record<string, unknown>) =>
-  body({ ...EVENTS['improvement-pass.finished'], data: { pass } });
+const withImproveRun = (improveRun: Record<string, unknown>) =>
+  body({ ...EVENTS['improve-run.finished'], data: { improveRun } });
 const problem = (read: ReturnType<typeof parseEvent>) =>
   read.kind === 'err' ? read.message : 'ok';
 
@@ -190,47 +190,53 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
     '`data.run.failure.details` is not an object.',
   ],
   [
-    'an enum on a pass',
-    withPass({ ...PASS, objective: 'accuracy' }),
-    '`data.pass.objective` is not one of "weightedYesShare", "weightedPrecisionAtK".',
+    'an enum on an Improve run',
+    withImproveRun({ ...IMPROVE_RUN, objective: 'accuracy' }),
+    '`data.improveRun.objective` is not one of "weightedYesShare", "weightedPrecisionAtK".',
   ],
   [
     'an exclusive minimum',
-    withPass({ ...PASS, budget: { maxCostUsd: 0, maxCandidates: 3 } }),
-    '`data.pass.budget.maxCostUsd` is not more than 0.',
+    withImproveRun({ ...IMPROVE_RUN, budget: { maxCostUsd: 0, maxCandidates: 3 } }),
+    '`data.improveRun.budget.maxCostUsd` is not more than 0.',
   ],
   [
     'a maximum',
-    withPass({ ...PASS, budget: { maxCostUsd: 2, maxCandidates: 500 } }),
-    '`data.pass.budget.maxCandidates` is more than 200.',
+    withImproveRun({ ...IMPROVE_RUN, budget: { maxCostUsd: 2, maxCandidates: 500 } }),
+    '`data.improveRun.budget.maxCandidates` is more than 200.',
   ],
   [
     'minItems',
-    withPass({ ...PASS, scope: { ...PASS.scope, path: [] } }),
-    '`data.pass.scope.path` has fewer than 1 items.',
+    withImproveRun({ ...IMPROVE_RUN, scope: { ...IMPROVE_RUN.scope, path: [] } }),
+    '`data.improveRun.scope.path` has fewer than 1 items.',
   ],
   [
     "an array item's pattern",
-    withPass({ ...PASS, scope: { ...PASS.scope, path: [{ key: 'Company', value: 'acme' }] } }),
-    "`data.pass.scope.path[0].key` doesn't match ^[a-z][a-z0-9_-]{0,63}$.",
+    withImproveRun({
+      ...IMPROVE_RUN,
+      scope: { ...IMPROVE_RUN.scope, path: [{ key: 'Company', value: 'acme' }] },
+    }),
+    "`data.improveRun.scope.path[0].key` doesn't match ^[a-z][a-z0-9_-]{0,63}$.",
   ],
   [
     'a minLength',
-    withPass({ ...PASS, scope: { ...PASS.scope, path: [{ key: 'company', value: '' }] } }),
-    '`data.pass.scope.path[0].value` is shorter than 1 characters.',
+    withImproveRun({
+      ...IMPROVE_RUN,
+      scope: { ...IMPROVE_RUN.scope, path: [{ key: 'company', value: '' }] },
+    }),
+    '`data.improveRun.scope.path[0].value` is shorter than 1 characters.',
   ],
   [
     "an array item's enum",
-    withPass({ ...PASS, comparisons: [{ role: 'judge', part: 'search' }] }),
-    '`data.pass.comparisons[0].role` is not one of "reference", "candidate", "proof".',
+    withImproveRun({ ...IMPROVE_RUN, comparisons: [{ role: 'judge', part: 'search' }] }),
+    '`data.improveRun.comparisons[0].role` is not one of "reference", "candidate", "proof".',
   ],
   [
     'a nullable number',
-    withPass({
-      ...PASS,
-      outcome: { kind: 'proposed', holdOut: { baseline: 'high', candidate: null, delta: null } },
+    withImproveRun({
+      ...IMPROVE_RUN,
+      outcome: { kind: 'suggested', holdOut: { baseline: 'high', candidate: null, delta: null } },
     }),
-    '`data.pass.outcome.holdOut.baseline` is not a number.',
+    '`data.improveRun.outcome.holdOut.baseline` is not a number.',
   ],
 ];
 

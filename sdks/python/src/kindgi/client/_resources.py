@@ -445,11 +445,10 @@ OPERATIONS: dict[str, Operation] = {
     "suggestedChanges.create": Operation(
         "suggestedChanges.create", "POST", "/v1/suggested-changes", "json", True
     ),
-    "proposals.improve": Operation(
-        "proposals.improve", "POST", "/v1/proposals/improve", "json", True
-    ),
-    "proposals.improveEstimate": Operation(
-        "proposals.improveEstimate", "POST", "/v1/proposals/improve/estimate", "json", False
+    "improveRuns.list": Operation("improveRuns.list", "GET", "/v1/improve-runs", "json", False),
+    "improveRuns.start": Operation("improveRuns.start", "POST", "/v1/improve-runs", "json", True),
+    "improveRuns.check": Operation(
+        "improveRuns.check", "POST", "/v1/improve-runs/check", "json", False
     ),
     "suggestedChanges.get": Operation(
         "suggestedChanges.get", "GET", "/v1/suggested-changes/{suggestedChangeId}", "json", False
@@ -475,14 +474,11 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
-    "improvementPasses.list": Operation(
-        "improvementPasses.list", "GET", "/v1/improvement-passes", "json", False
+    "improveRuns.get": Operation(
+        "improveRuns.get", "GET", "/v1/improve-runs/{improveRunId}", "json", False
     ),
-    "improvementPasses.get": Operation(
-        "improvementPasses.get", "GET", "/v1/improvement-passes/{passId}", "json", False
-    ),
-    "improvementPasses.cancel": Operation(
-        "improvementPasses.cancel", "POST", "/v1/improvement-passes/{passId}/cancel", "json", True
+    "improveRuns.cancel": Operation(
+        "improveRuns.cancel", "POST", "/v1/improve-runs/{improveRunId}/cancel", "json", True
     ),
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
@@ -2077,7 +2073,7 @@ class SystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or Improve run hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
@@ -4747,60 +4743,8 @@ class SuggestedChangesResource:
         )
 
 
-class ProposalsResource:
-    """`client.proposals` — the `proposals` operations."""
-
-    def __init__(self, client: SyncClientBase) -> None:
-        self._client = client
-
-    def improve(
-        self,
-        body: _models.ImproveBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ImprovementPass:
-        """Start an improvement pass. `POST /v1/proposals/improve`
-
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.improve"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ImproveBody, body, fields),
-            response=_models.ImprovementPass,
-            timeout=timeout,
-        )
-
-    def improve_estimate(
-        self,
-        body: _models.ImproveBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ImprovementPassEstimate:
-        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
-
-        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.improveEstimate"],
-            path={},
-            query={},
-            headers={},
-            body=_body(_models.ImproveBody, body, fields),
-            response=_models.ImprovementPassEstimate,
-            timeout=timeout,
-        )
-
-
-class ImprovementPassesResource:
-    """`client.improvement_passes` — the `improvementPasses` operations."""
+class ImproveRunsResource:
+    """`client.improve_runs` — the `improveRuns` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -4813,54 +4757,99 @@ class ImprovementPassesResource:
         cursor: str | None = None,
         agent_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.ImprovementPassCollectionPage:
-        """List improvement passes. `GET /v1/improvement-passes`
+    ) -> _models.ImproveRunCollectionPage:
+        """List Improve runs. `GET /v1/improve-runs`
 
-        Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.
+        Newest first, only the Improve runs of agents the caller can read. `?agentId=` narrows them.
         """
         return self._client._request(
-            _OPERATIONS["improvementPasses.list"],
+            _OPERATIONS["improveRuns.list"],
             path={},
             query={"limit": limit, "cursor": cursor, "agentId": agent_id},
             headers={},
-            response=_models.ImprovementPassCollectionPage,
+            response=_models.ImproveRunCollectionPage,
+            timeout=timeout,
+        )
+
+    def start(
+        self,
+        body: _models.StartImproveRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImproveRun:
+        """Start an Improve run. `POST /v1/improve-runs`
+
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["improveRuns.start"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartImproveRunBody, body, fields),
+            response=_models.ImproveRun,
+            timeout=timeout,
+        )
+
+    def check(
+        self,
+        body: _models.StartImproveRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImproveRunCheck:
+        """Check an Improve run. `POST /v1/improve-runs/check`
+
+        What an Improve run this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the Improve run's project doesn't reach answers `400 reference-out-of-scope`, exactly as starting one would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt Improve run's one-off drafting of its templates — an Improve run can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the Improve run is expected to spend its whole budget; the Improve run checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["improveRuns.check"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.StartImproveRunBody, body, fields),
+            response=_models.ImproveRunCheck,
             timeout=timeout,
         )
 
     def get(
-        self, pass_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.ImprovementPass:
-        """Fetch an improvement pass. `GET /v1/improvement-passes/{passId}`
+        self, improve_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ImproveRun:
+        """Fetch an Improve run. `GET /v1/improve-runs/{improveRunId}`
 
         Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.
         """
         return self._client._request(
-            _OPERATIONS["improvementPasses.get"],
-            path={"passId": pass_id},
+            _OPERATIONS["improveRuns.get"],
+            path={"improveRunId": improve_run_id},
             query={},
             headers={},
-            response=_models.ImprovementPass,
+            response=_models.ImproveRun,
             timeout=timeout,
         )
 
     def cancel(
         self,
-        pass_id: str | UUID,
+        improve_run_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ImprovementPass:
-        """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
+    ) -> _models.ImproveRun:
+        """Cancel an Improve run. `POST /v1/improve-runs/{improveRunId}/cancel`
 
-        A running pass stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
+        A running Improve run stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
         """
         return self._client._request(
-            _OPERATIONS["improvementPasses.cancel"],
-            path={"passId": pass_id},
+            _OPERATIONS["improveRuns.cancel"],
+            path={"improveRunId": improve_run_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ImprovementPass,
+            response=_models.ImproveRun,
             timeout=timeout,
         )
 
@@ -9870,7 +9859,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
         """
         return self._client._request(
             _OPERATIONS["schedules.update"],
@@ -11751,7 +11740,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or Improve run hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
@@ -14431,60 +14420,8 @@ class AsyncSuggestedChangesResource:
         )
 
 
-class AsyncProposalsResource:
-    """`client.proposals` — the `proposals` operations."""
-
-    def __init__(self, client: AsyncClientBase) -> None:
-        self._client = client
-
-    async def improve(
-        self,
-        body: _models.ImproveBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ImprovementPass:
-        """Start an improvement pass. `POST /v1/proposals/improve`
-
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.improve"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ImproveBody, body, fields),
-            response=_models.ImprovementPass,
-            timeout=timeout,
-        )
-
-    async def improve_estimate(
-        self,
-        body: _models.ImproveBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ImprovementPassEstimate:
-        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
-
-        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.improveEstimate"],
-            path={},
-            query={},
-            headers={},
-            body=_body(_models.ImproveBody, body, fields),
-            response=_models.ImprovementPassEstimate,
-            timeout=timeout,
-        )
-
-
-class AsyncImprovementPassesResource:
-    """`client.improvement_passes` — the `improvementPasses` operations."""
+class AsyncImproveRunsResource:
+    """`client.improve_runs` — the `improveRuns` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -14497,54 +14434,99 @@ class AsyncImprovementPassesResource:
         cursor: str | None = None,
         agent_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.ImprovementPassCollectionPage:
-        """List improvement passes. `GET /v1/improvement-passes`
+    ) -> _models.ImproveRunCollectionPage:
+        """List Improve runs. `GET /v1/improve-runs`
 
-        Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.
+        Newest first, only the Improve runs of agents the caller can read. `?agentId=` narrows them.
         """
         return await self._client._request(
-            _OPERATIONS["improvementPasses.list"],
+            _OPERATIONS["improveRuns.list"],
             path={},
             query={"limit": limit, "cursor": cursor, "agentId": agent_id},
             headers={},
-            response=_models.ImprovementPassCollectionPage,
+            response=_models.ImproveRunCollectionPage,
+            timeout=timeout,
+        )
+
+    async def start(
+        self,
+        body: _models.StartImproveRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImproveRun:
+        """Start an Improve run. `POST /v1/improve-runs`
+
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["improveRuns.start"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartImproveRunBody, body, fields),
+            response=_models.ImproveRun,
+            timeout=timeout,
+        )
+
+    async def check(
+        self,
+        body: _models.StartImproveRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImproveRunCheck:
+        """Check an Improve run. `POST /v1/improve-runs/check`
+
+        What an Improve run this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the Improve run's project doesn't reach answers `400 reference-out-of-scope`, exactly as starting one would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt Improve run's one-off drafting of its templates — an Improve run can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the Improve run is expected to spend its whole budget; the Improve run checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["improveRuns.check"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.StartImproveRunBody, body, fields),
+            response=_models.ImproveRunCheck,
             timeout=timeout,
         )
 
     async def get(
-        self, pass_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.ImprovementPass:
-        """Fetch an improvement pass. `GET /v1/improvement-passes/{passId}`
+        self, improve_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ImproveRun:
+        """Fetch an Improve run. `GET /v1/improve-runs/{improveRunId}`
 
         Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.
         """
         return await self._client._request(
-            _OPERATIONS["improvementPasses.get"],
-            path={"passId": pass_id},
+            _OPERATIONS["improveRuns.get"],
+            path={"improveRunId": improve_run_id},
             query={},
             headers={},
-            response=_models.ImprovementPass,
+            response=_models.ImproveRun,
             timeout=timeout,
         )
 
     async def cancel(
         self,
-        pass_id: str | UUID,
+        improve_run_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ImprovementPass:
-        """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
+    ) -> _models.ImproveRun:
+        """Cancel an Improve run. `POST /v1/improve-runs/{improveRunId}/cancel`
 
-        A running pass stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
+        A running Improve run stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
         """
         return await self._client._request(
-            _OPERATIONS["improvementPasses.cancel"],
-            path={"passId": pass_id},
+            _OPERATIONS["improveRuns.cancel"],
+            path={"improveRunId": improve_run_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ImprovementPass,
+            response=_models.ImproveRun,
             timeout=timeout,
         )
 
@@ -19566,7 +19548,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
         """
         return await self._client._request(
             _OPERATIONS["schedules.update"],
@@ -20728,8 +20710,7 @@ class Resources:
     conversations: ConversationsResource
     memory: MemoryResource
     suggested_changes: SuggestedChangesResource
-    proposals: ProposalsResource
-    improvement_passes: ImprovementPassesResource
+    improve_runs: ImproveRunsResource
     provenance: ProvenanceResource
     license: LicenseResource
     runtime: RuntimeResource
@@ -20790,8 +20771,7 @@ class Resources:
         self.conversations = ConversationsResource(client)
         self.memory = MemoryResource(client)
         self.suggested_changes = SuggestedChangesResource(client)
-        self.proposals = ProposalsResource(client)
-        self.improvement_passes = ImprovementPassesResource(client)
+        self.improve_runs = ImproveRunsResource(client)
         self.provenance = ProvenanceResource(client)
         self.license = LicenseResource(client)
         self.runtime = RuntimeResource(client)
@@ -20854,8 +20834,7 @@ class AsyncResources:
     conversations: AsyncConversationsResource
     memory: AsyncMemoryResource
     suggested_changes: AsyncSuggestedChangesResource
-    proposals: AsyncProposalsResource
-    improvement_passes: AsyncImprovementPassesResource
+    improve_runs: AsyncImproveRunsResource
     provenance: AsyncProvenanceResource
     license: AsyncLicenseResource
     runtime: AsyncRuntimeResource
@@ -20916,8 +20895,7 @@ class AsyncResources:
         self.conversations = AsyncConversationsResource(client)
         self.memory = AsyncMemoryResource(client)
         self.suggested_changes = AsyncSuggestedChangesResource(client)
-        self.proposals = AsyncProposalsResource(client)
-        self.improvement_passes = AsyncImprovementPassesResource(client)
+        self.improve_runs = AsyncImproveRunsResource(client)
         self.provenance = AsyncProvenanceResource(client)
         self.license = AsyncLicenseResource(client)
         self.runtime = AsyncRuntimeResource(client)

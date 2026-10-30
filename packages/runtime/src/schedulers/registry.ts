@@ -278,7 +278,7 @@ export interface TriggerFire {
    * `skipped`, as `detail` says: a webhook trigger was paused; what the
    * target waits for wasn't there (an `improve` schedule's threshold, or its
    * monthly cap); its project is suspended (`project-suspended`); its run or
-   * pass hadn't started when its tenant was suspended, and the restore
+   * Improve run hadn't started when its tenant was suspended, and the restore
    * concluded it (`tenant-suspended`); or its tenant was suspended or closing
    * as its run started (`tenant-suspended`, `tenant-closing`). A skip for a
    * suspension or a close doesn't reset the count of refusals and failures
@@ -312,8 +312,8 @@ export interface TriggerFire {
    * Absent until it starts, and on a fire from before versions.
    */
   readonly version?: number;
-  /** The improvement pass it started, for an `improve` schedule. */
-  readonly passId?: string;
+  /** The Improve run it started, for an `improve` schedule. */
+  readonly improveRunId?: string;
   /** Why it was refused, skipped or failed, or why a `pending` mail fire waits (`thread-busy:`). */
   readonly detail?: string;
   /**

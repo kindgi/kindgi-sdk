@@ -12,7 +12,6 @@ import type {
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { followTestRun, oneOfFlag } from './test-runs.js';
 import {
   type TableSpec,
   integerFlag,
@@ -22,6 +21,7 @@ import {
   runSdk,
   stringFlag,
 } from './helpers.js';
+import { followTestRun, oneOfFlag } from './test-runs.js';
 import type { Command, LeafCommand } from './types.js';
 
 /**
@@ -165,7 +165,7 @@ const draft: LeafCommand = {
   description:
     "Draft a suggested change by hand: new content for one block in what the project runs (settings values, or the agent's instructions). Its block version and agent version are made, and it's checked on the project's test cases: it's `checking`. The same change on the same version for the same project returns the suggested change drafted before. Needs `publish` on the agent.",
   usage:
-    'kindgi suggested-changes draft --agent=<agent-id> --project=<project-id> --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --hypothesis=<text> [--correction=<correction-id>]…',
+    'kindgi suggested-changes draft --agent=<agent-id> --project=<project-id> --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --why=<text> [--correction=<correction-id>]…',
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
     project: {
@@ -184,7 +184,7 @@ const draft: LeafCommand = {
       type: 'string',
       description: "The agent's instructions (a prompt block), new text: inline or `@<file>`.",
     },
-    hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
+    why: { type: 'string', description: 'What the change should fix, and why.' },
     correction: {
       type: 'string',
       multiple: true,
@@ -197,7 +197,7 @@ const draft: LeafCommand = {
       const agentId = required(ctx, 'agent');
       const projectId = required(ctx, 'project');
       const block = required(ctx, 'block');
-      const why = required(ctx, 'hypothesis');
+      const why = required(ctx, 'why');
       const content = await contentFrom(ctx);
       const fixes = listFlag(ctx, 'correction');
       return await ctx.client().suggestedChanges.create({

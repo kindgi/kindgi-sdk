@@ -18,7 +18,7 @@ test('the committed shapes are what the schema generates (check:webhook-shapes)'
 test('every event the API sends, by its type', () => {
   assert.deepEqual(Object.keys(shapesOf(openapi())).sort(), [
     'approval.requested',
-    'improvement-pass.finished',
+    'improve-run.finished',
     'run.finished',
     'webhook.test',
   ]);
@@ -81,7 +81,7 @@ test('a field with no type is any JSON value; a keyword on it fails the generati
 
 test("LiveScope's variants are keyed by their kind, and a nullable type is kept nullable", () => {
   const shapes = shapesOf(openapi());
-  const scope = shapes['improvement-pass.finished'].required.data.required.pass.required.scope;
+  const scope = shapes['improve-run.finished'].required.data.required.improveRun.required.scope;
   assert.equal(scope.kind, 'union');
   assert.deepEqual(Object.keys(scope.variants), ['tenant', 'org', 'project', 'segment']);
   assert.deepEqual(runFields(shapes).required.failureMessage, { kind: 'string', nullable: true });

@@ -467,7 +467,7 @@ export const CLI_DEFAULTS = {
     block: 'required',
     correction: 'none',
     'from-version': 'required',
-    hypothesis: 'required',
+    why: 'required',
     'idempotency-key': 'none',
     org: 'none',
     project: 'none',
@@ -492,7 +492,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'none',
     reason: 'required',
   },
-  'proposals improve': {
+  'improve runs start': {
     agent: 'required',
     'group-weights':
       "none (counts everyone until the test cases' project, its tenant, or the agent improved there has an expert group, then only those)",
@@ -504,19 +504,19 @@ export const CLI_DEFAULTS = {
     model: 'none (needed with `--tier=prompt`, with `--provider`)',
     objective: '`weightedYesShare`',
     org: 'none',
-    'pass-project': "the scope's project, else the agent version's",
+    'run-project': "the scope's project, else the agent version's",
     project: 'none',
     provider: 'none (needed with `--tier=prompt`, with `--model`)',
     segment: 'none',
     'test-set': 'required',
     tier: '`settings`',
   },
-  'proposals passes list': {
+  'improve runs list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
-  'proposals passes cancel': {
+  'improve runs cancel': {
     'idempotency-key': 'none',
   },
   'provenance list': {

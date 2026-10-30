@@ -94,9 +94,9 @@ import { whatRuns } from './what-runs.js';
 
 /**
  * The suggested-change lifecycle, from the bindings it runs on: what
- * `/v1/suggested-changes` serves, and what a runtime's improvement pass drafts
+ * `/v1/suggested-changes` serves, and what a runtime's Improve run drafts
  * and evaluates its suggested change with. No authorization here: the route
- * checks the caller; a pass acts as the runtime. Each call answers an
+ * checks the caller; an Improve run acts as the runtime. Each call answers an
  * outcome; an error carries the wire code the route answers with.
  */
 export interface SuggestedChangeServiceDeps {
@@ -174,7 +174,7 @@ export interface DraftSuggestedChangeInput {
   readonly tier: SuggestedChangeTier;
   readonly blockId: string;
   readonly content: ProposedChange['change']['content'];
-  readonly hypothesis: string;
+  readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
   /** Who or what made it. Absent: read from `drafter` (`suggestedChangeMaker`). */
@@ -217,7 +217,7 @@ export interface EvaluateSuggestedChangeInput {
   readonly objective: SuggestedChangeObjective;
   readonly comparison?: EvalComparison;
   /**
-   * The current version replayed on the same cases (an improvement pass's
+   * The current version replayed on the same cases (an Improve run's
    * model-settings change): no correction it passes may fail on the
    * candidate, and under `rule: 'cheaper'` the candidate is kept for
    * being no worse and costing less. Absent: beat the recorded outputs.
@@ -255,7 +255,7 @@ export const DRAFTED_SUGGESTED_CHANGE_APPROVAL: GateApproval = {
  * not the requester; and, with an authorizer wired, able to read the
  * approval's `resource` — the decide route 404s a reviewer who can't
  * (routes/approvals.ts `mayRead`), so a count that ignored it could leave the
- * promotion stuck. A service requester (an improvement pass) is no
+ * promotion stuck. A service requester (an Improve run) is no
  * `user:<id>`, so every eligible reviewer counts; a human requester who is the
  * only one who counts counts as none, so they may approve their own request
  * rather than being deadlocked.
@@ -783,7 +783,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         scope: input.scope,
         tier: input.tier,
         change,
-        hypothesis: input.hypothesis,
+        why: input.why,
         ...(input.evidence !== undefined && { evidence: input.evidence }),
         drafter: input.drafter,
         madeBy: input.madeBy ?? suggestedChangeMaker({ drafter: input.drafter }),
@@ -843,7 +843,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         tier,
         blockId: input.blockId,
         content: input.content,
-        hypothesis: input.why,
+        why: input.why,
         ...(input.fixes !== undefined && { evidence: { fixes: input.fixes } }),
         drafter: drafterOf(input.madeBy),
         madeBy: input.madeBy,

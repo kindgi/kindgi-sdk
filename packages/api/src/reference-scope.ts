@@ -213,7 +213,7 @@ export function reservedToolMetadataMessage(key: string): string {
 /**
  * What a trigger (a schedule, a webhook, an event trigger) runs, as a
  * reference: a flow at its version, an agent at the version it names (none:
- * whichever its project runs), an improve pass's agent by its id.
+ * whichever its project runs), an Improve run's agent by its id.
  */
 export function triggerTargetReference(target: TriggerTarget): ItemReference {
   if (target.kind === 'flow') {

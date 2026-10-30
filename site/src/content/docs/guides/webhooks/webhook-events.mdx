@@ -13,7 +13,7 @@ them. To set an endpoint up, follow
 | Event | Sent when | Carries |
 |---|---|---|
 | `run.finished` | a run your app or the CLI started completes, fails or is cancelled | `data.run` |
-| `improvement-pass.finished` | an Improve run ends | `data.pass` |
+| `improve-run.finished` | an Improve run ends | `data.improveRun` |
 | `approval.requested` | an approval starts waiting for a reviewer | `data.approval` |
 
 An endpoint gets the events its `events` list names. `parseEvent` in
@@ -108,11 +108,11 @@ the same with `flowId` `agent.turn`. Its `agent` says which agent ran:
 
 ## Improve runs
 
-An endpoint that lists `improvement-pass.finished` in its `events` gets one
+An endpoint that lists `improve-run.finished` in its `events` gets one
 when any [Improve run](../../evals/improve-an-agent/) ends, whoever started
 it. The Improve run ends `completed`, `failed` or `cancelled`.
 
-- **`data.pass`** is the Improve run as `GET /v1/improvement-passes/<pass-id>`
+- **`data.improveRun`** is the Improve run as `GET /v1/improve-runs/<improve-run-id>`
   shows it.
 - **Its outcome** names the suggested change it wrote, if it wrote one.
 - **Of the filter, only `projectId` applies,** the Improve run's project. `flowIds`

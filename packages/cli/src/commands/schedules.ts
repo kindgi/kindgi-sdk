@@ -81,7 +81,7 @@ const FIRES_TABLE: TableSpec<FirePage, Fire> = {
     { header: 'OUTCOME', get: (f) => f.outcome },
     {
       header: 'STARTED',
-      get: (f) => f.runId ?? (f.passId !== undefined ? `pass ${f.passId}` : ''),
+      get: (f) => f.runId ?? (f.improveRunId !== undefined ? `Improve run ${f.improveRunId}` : ''),
     },
     {
       header: 'NOTE',
@@ -171,7 +171,7 @@ const UPDATE_WHEN_FLAGS: Readonly<Record<keyof typeof WHEN_FLAGS, ParseArgsOptio
 };
 
 /**
- * `--improve`'s scope: `--project` with its `--segment`s. A pass learns
+ * `--improve`'s scope: `--project` with its `--segment`s. An Improve run learns
  * from one project's runs, so its scope is that project or a segment of it.
  */
 function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']>['scope'] {

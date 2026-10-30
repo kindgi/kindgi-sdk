@@ -107,8 +107,8 @@ export type SuggestedChangeDrafter =
       readonly kind: 'settings-optimizer' | 'prompt-drafter';
       readonly version: string;
       readonly model?: { readonly providerId: string; readonly model: string };
-      /** The improvement pass that drafted it. */
-      readonly passId?: string;
+      /** The Improve run that drafted it. */
+      readonly improveRunId?: string;
     };
 
 /**
@@ -130,7 +130,7 @@ export interface SuggestedChangeEvidence {
   readonly fixes?: readonly string[];
   /**
    * How many corrections it rests on, when `fixes` names only the first
-   * of them: an improvement pass names at most 100. Absent when `fixes`
+   * of them: an Improve run names at most 100. Absent when `fixes`
    * names them all.
    */
   readonly correctionCount?: number;
@@ -167,7 +167,7 @@ export interface SuggestedChangeEvaluationRef {
   /**
    * The current version replayed on the same cases: the comparison the
    * candidate's corrections and cost are held to. Set for a change to the
-   * model-settings block an improvement pass suggests: no correction the
+   * model-settings block an Improve run suggests: no correction the
    * current version passes may fail, whichever the rule.
    */
   readonly reference?: { readonly testRunId: string };
@@ -186,7 +186,7 @@ export interface StoredSuggestedChange {
   readonly scope: LiveScope;
   readonly tier: SuggestedChangeTier;
   readonly change: ProposedChange['change'];
-  readonly hypothesis: string;
+  readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
   /**
@@ -247,7 +247,7 @@ export interface CreateSuggestedChangeInput {
   readonly scope: LiveScope;
   readonly tier: SuggestedChangeTier;
   readonly change: ProposedChange['change'];
-  readonly hypothesis: string;
+  readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
   readonly madeBy: SuggestedChangeMaker;
