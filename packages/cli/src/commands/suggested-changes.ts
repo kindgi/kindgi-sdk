@@ -142,7 +142,7 @@ const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
   description:
-    "Show a suggested change: its change (the block's content before and after), status, version, and its check: how its version and the version it's built on did on the project's test cases. A correction it fixes that its author has replaced since is named on stderr, with the one that replaced it.",
+    "Show a suggested change: its change (the block's content before and after), status, version, and its check: how its version and the version it's built on did on the project's test cases. A correction it fixes that its author has replaced since is named on stderr, with the live one that replaced it.",
   usage: 'kindgi suggested-changes get <suggested-change-id>',
   run: (ctx) =>
     runSdkRendered(ctx, 'suggested-changes get', async () => {
@@ -152,52 +152,71 @@ const get: LeafCommand = {
       );
       const rendered = renderJson(suggested, ctx.globals.format);
       if (ctx.globals.format === 'quiet') return rendered;
-      const replaced = await Promise.all(
-        suggested.fixes.map((id) => replacedFix(client.corrections, id)),
-      );
-      return { ...rendered, stderr: replaced.join('') };
+      return { ...rendered, stderr: await replacedFixes(client.corrections, suggested.fixes) };
     }),
 };
 
+/** How many of a suggested change's fixes are read at once. */
+const FIXES_READ_AT_ONCE = 4;
 /** The most replacements followed from a fixed correction to the live one. */
 const REPLACEMENTS_FOLLOWED = 10;
+
+/** A line for each fix that was replaced since, or couldn't be checked, in `fixes` order. */
+async function replacedFixes(
+  corrections: KindgiClient['corrections'],
+  fixes: readonly string[],
+): Promise<string> {
+  let out = '';
+  for (let start = 0; start < fixes.length; start += FIXES_READ_AT_ONCE) {
+    const batch = fixes.slice(start, start + FIXES_READ_AT_ONCE);
+    out += (await Promise.all(batch.map((id) => replacedFix(corrections, id)))).join('');
+  }
+  return out;
+}
 
 /**
  * A line for a correction the suggested change fixes that its author has
  * replaced since: `fixes` keeps the id it names, and this names the live
- * one, by following `supersededBy`. Empty for one not replaced, or that
- * can't be read.
+ * one, by following `supersededBy`. Empty for one not replaced, or not
+ * found. When the runtime answers another error on the way, the line says
+ * it couldn't be checked, and why.
  */
 async function replacedFix(
   corrections: KindgiClient['corrections'],
   fixedId: string,
 ): Promise<string> {
-  const fixed = await readable(corrections, fixedId);
-  if (fixed?.supersededBy === undefined) return '';
-  let liveId = fixed.supersededBy;
-  let live = await readable(corrections, liveId);
-  for (
-    let followed = 1;
-    live?.supersededBy !== undefined && followed < REPLACEMENTS_FOLLOWED;
-    followed++
-  ) {
-    liveId = live.supersededBy;
-    live = await readable(corrections, liveId);
+  try {
+    const fixed = await found(corrections, fixedId);
+    if (fixed?.supersededBy === undefined) return '';
+    let lastId = fixed.supersededBy;
+    let last = await found(corrections, lastId);
+    for (
+      let followed = 1;
+      last?.supersededBy !== undefined && followed < REPLACEMENTS_FOLLOWED;
+      followed++
+    ) {
+      lastId = last.supersededBy;
+      last = await found(corrections, lastId);
+    }
+    // Only a correction read and not replaced is named as the live one.
+    return last === null || last.supersededBy !== undefined
+      ? `${fixedId} (in fixes) was replaced by ${lastId}.\n`
+      : `${fixedId} (in fixes) was replaced by ${lastId}, now ${last.status}.\n`;
+  } catch (err) {
+    if (!(err instanceof KindgiApiError)) throw err;
+    return `${fixedId} (in fixes): couldn't check whether it was replaced: ${err.message}\n`;
   }
-  return live === null
-    ? `${fixedId} (in fixes) was replaced by ${liveId}.\n`
-    : `${fixedId} (in fixes) was replaced by ${liveId}, now ${live.status}.\n`;
 }
 
-/** The correction, or `null` when the runtime answers with an error for it. */
-async function readable(
+/** The correction, or `null` when the runtime has none by that id. */
+async function found(
   corrections: KindgiClient['corrections'],
   correctionId: string,
 ): Promise<Correction | null> {
   try {
     return await corrections.get(correctionId);
   } catch (err) {
-    if (err instanceof KindgiApiError) return null;
+    if (err instanceof KindgiApiError && err.error.code === 'not-found') return null;
     throw err;
   }
 }

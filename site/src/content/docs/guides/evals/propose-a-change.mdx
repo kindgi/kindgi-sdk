@@ -197,8 +197,10 @@ pnpm exec kindgi suggested-changes get <suggested-change-id>
 - **`get` adds the block's content** before and after the change.
 - **A correction in `fixes` its author has replaced since** (by correcting
   the run again): `fixes` keeps the id it names, and the CLI's `get` names
-  the live one on stderr, for example
-  `<fixed-id> (in fixes) was replaced by <live-id>, now open.`
+  the live one that replaced it on stderr, for example
+  `<fixed-id> (in fixes) was replaced by <live-id>, now open.` When the
+  runtime answers an error for one, its line says it couldn't be checked,
+  and why.
 
 `ready` says the check finished, not that the change is better. The release
 gate policy decides when you [pin it](#pin-it).
