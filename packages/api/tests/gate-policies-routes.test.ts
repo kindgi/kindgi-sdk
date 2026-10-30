@@ -28,6 +28,7 @@ import type { Authorizer } from '../src/middleware/authorize.js';
 import { gatePoliciesRouter } from '../src/routes/gate-policies.js';
 import { parseGatePolicySpec } from '../src/routes/gate-policy-spec.js';
 import type { AppEnv } from '../src/types.js';
+import { noLatest } from './support/latest.js';
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
@@ -116,6 +117,7 @@ function fakeBinding() {
 function appWith(binding: GatePolicyBinding) {
   const releases: AgentReleaseBindings = {
     live: { resolve: async () => null, list: async () => [] },
+    latest: noLatest,
     promotions: {
       promote: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'unused' } }),
       rollback: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'unused' } }),

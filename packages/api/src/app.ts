@@ -1802,7 +1802,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ? {
               tools: input.toolRegistry,
               agents: input.agentRegistry,
-              ...(input.agentReleases !== undefined && { live: input.agentReleases.live }),
+              ...(input.agentReleases !== undefined && { releases: input.agentReleases }),
               ...(input.pinnedVersions !== undefined && { pinned: input.pinnedVersions }),
             }
           : undefined,
@@ -2508,7 +2508,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           }),
           ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
-          ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
           ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
           // A promotion asked to make its carried agents live pins each in
           // the target through the same gate a live route uses.

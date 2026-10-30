@@ -70,6 +70,7 @@ import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryJudgments } from './support/in-memory-judgments.js';
 import { inMemoryProposals } from './support/in-memory-proposals.js';
+import { highestAsLatest } from './support/latest.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -156,6 +157,7 @@ function agentBinding(
     async unregister() {
       return { unregistered: false };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -312,6 +314,7 @@ function releasesFake(agents: AgentRegistryBinding) {
         return pins.filter((p) => p.agentId === agentId);
       },
     },
+    latest: highestAsLatest(agents),
     promotions: {
       async promote(input) {
         calls.push({ method: 'promote', input });
@@ -621,6 +624,7 @@ async function harness(
       pins: pinned,
       pinsDigest: pinsDigest(pinned),
     } as unknown as Agent,
+    madeFor: 'latest',
     enqueueTuples: () => [],
   });
   const evalRuns = evalRunFake(agents);

@@ -69,6 +69,7 @@ import type {
   WebhookEndpointBinding,
 } from '../../src/index.js';
 import { createStubAppBindings, createStubBinding } from '../../src/testing/index.js';
+import { highestAsLatest } from './latest.js';
 
 // Compliance routes mount when a classifier + generator are wired. The drift
 // test only needs them mounted, so the classifier is a minimal literal and the
@@ -146,6 +147,7 @@ const noopAgentRegistry: AgentRegistryBinding = {
   listVersions: async () => ({ data: [] }),
   publish: async ({ agent }) => ({ kind: 'ok', agentId: agent.id, version: agent.version }),
   unregister: async () => ({ unregistered: false }),
+  markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
   reinstateVersion: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
 };
 const noopFlowRegistry: FlowRegistryBinding = {
@@ -443,6 +445,7 @@ const noopPinnedVersions: PinnedVersionBinding = {
 
 const noopAgentReleases: AgentReleaseBindings = {
   live: { resolve: async () => null, list: async () => [] },
+  latest: highestAsLatest(noopAgentRegistry),
   promotions: {
     promote: async () => ({
       kind: 'err',

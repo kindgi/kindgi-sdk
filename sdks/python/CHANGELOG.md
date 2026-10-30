@@ -13,6 +13,16 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`client.agents.projects(agent_id)` says what runs in each
+  project.** Each project gains `runs` (the version a run there that names no
+  version gets, since when, and the pin or deployment behind it), `follows`
+  (`pin` or `latest`) and `segments` (the pins on segments inside it), and the
+  answer gains `highest`, the agent's highest version. A run that names no
+  version, in a scope no pin covers, now gets the agent's Latest in its
+  project: it moves only when a deployment into the project ships a version,
+  or when a person publishes a full version, and a derived version is never
+  Latest by itself. `client.agents.get(agent_id)` still answers the highest
+  version.
 - `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
   tenant.** A run that names no flow version takes the version pinned for its
   project (the project's own pin, then its org's, then the tenant's), else the

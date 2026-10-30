@@ -299,7 +299,8 @@ export const LiveVersionResolutionSchema: JsonSchema = {
     via: {
       type: 'string',
       enum: ['live', 'latest'],
-      description: 'A live pin chose it, or nothing is live on the way up and it is the latest.',
+      description:
+        "A live pin chose it, or nothing is live on the way up and it is the project's Latest.",
     },
     liveScope: { $ref: '#/components/schemas/LiveScope' },
   },
@@ -340,7 +341,76 @@ export const AgentProjectSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['projectId'],
-  properties: { projectId: { type: 'string', format: 'uuid' } },
+  properties: {
+    projectId: { type: 'string', format: 'uuid' },
+    follows: {
+      type: 'string',
+      enum: ['pin', 'latest'],
+      description:
+        "Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server has no live versions.",
+    },
+    runs: { $ref: '#/components/schemas/AgentProjectRuns' },
+    segments: {
+      type: 'array',
+      description:
+        'The pins on segments inside the project, which those segment paths run instead.',
+      items: { $ref: '#/components/schemas/AgentProjectSegmentPin' },
+    },
+  },
+};
+
+export const AgentProjectRunsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version'],
+  description:
+    "The version a run in the project that names none gets (and isn't a follow-up turn of a conversation).",
+  properties: {
+    version: { type: 'string' },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When it began to run there: when the pin was set; or, for Latest, the deployment into the project that shipped it, or when a person published it or added it as the latest version. Absent when nothing records a time, as for a pack's version under `kindgi dev`.",
+    },
+    by: {
+      $ref: '#/components/schemas/PinActor',
+      description:
+        'Who: the requester of the promotion that set the pin, or the person who published it or added it as the latest version. Absent when a deployment made it Latest.',
+    },
+    deploymentId: {
+      type: 'string',
+      description:
+        'With `follows: latest`: the deployment into the project that made it Latest, when one did.',
+    },
+    liveScope: {
+      $ref: '#/components/schemas/LiveScope',
+      description: 'With `follows: pin`: the pin that covers the project.',
+    },
+    promotionId: {
+      type: 'string',
+      description: 'With `follows: pin`: the promotion that set the pin.',
+    },
+  },
+};
+
+export const AgentProjectSegmentPinSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['path', 'version'],
+  properties: {
+    path: { type: 'array', items: { $ref: '#/components/schemas/ScopeSegment' } },
+    version: { type: 'string' },
+  },
+};
+
+export const AgentHighestVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version'],
+  description:
+    "The agent's highest active version the caller can see, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the server has no live versions.",
+  properties: { version: { type: 'string' } },
 };
 
 export const AgentProjectListSchema: JsonSchema = {
@@ -353,6 +423,7 @@ export const AgentProjectListSchema: JsonSchema = {
       description: 'Its first project first, then the others, each once.',
       items: { $ref: '#/components/schemas/AgentProject' },
     },
+    highest: { $ref: '#/components/schemas/AgentHighestVersion' },
   },
 };
 
@@ -16012,6 +16083,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LivePinList', LivePinListSchema],
   ['ProjectPinnedVersionPage', ProjectPinnedVersionPageSchema],
   ['AgentProject', AgentProjectSchema],
+  ['AgentProjectRuns', AgentProjectRunsSchema],
+  ['AgentProjectSegmentPin', AgentProjectSegmentPinSchema],
+  ['AgentHighestVersion', AgentHighestVersionSchema],
   ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],

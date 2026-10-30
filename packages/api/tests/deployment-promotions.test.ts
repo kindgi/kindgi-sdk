@@ -58,6 +58,7 @@ import type {
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 import { environmentOrders } from './support/environment-orders.js';
+import { noLatest } from './support/latest.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -369,6 +370,7 @@ function livePins(
     pinned,
     releases: {
       live: { resolve: async () => null, list: async () => [] },
+      latest: noLatest,
       promotions: promotions as unknown as AgentReleaseBindings['promotions'],
       ...(gated.size > 0 && {
         gatePolicies: gatePolicies as unknown as NonNullable<AgentReleaseBindings['gatePolicies']>,

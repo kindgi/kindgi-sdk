@@ -3634,8 +3634,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/agents/:agentId',
     openapiPath: '/v1/agents/{agentId}',
     operationId: 'agents.get',
-    summary: 'Fetch the latest version of an agent',
-    description: NEWEST_VISIBLE_DESCRIPTION,
+    summary: 'Fetch the highest version of an agent',
+    description: `${NEWEST_VISIBLE_DESCRIPTION} For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: \`agents.projects\` says what runs in each project.`,
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, ItemProjectQueryParam],
@@ -3651,9 +3651,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/agents/:agentId/projects',
     openapiPath: '/v1/agents/{agentId}/projects',
     operationId: 'agents.projects',
-    summary: 'List the projects an agent runs in',
+    summary: 'List the projects an agent runs in, and what runs in each',
     description:
-      'The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.',
+      "The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam],
@@ -3688,7 +3688,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.deriveVersion',
     summary: 'Derive an agent version with data-block pins swapped',
     description:
-      "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.",
+      "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change. It doesn't become the project's Latest by itself: a run that names no version gets it only where a pin names it.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
@@ -3780,7 +3780,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.reinstateVersion',
     summary: 'Reinstate a specific tombstoned agent version',
     description:
-      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).',
+      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).',
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, AgentVersionPathParam, IdempotencyKeyParam],
@@ -3803,7 +3803,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.live.resolve',
     summary: 'The version a run would use',
     description:
-      "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+      "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, LiveProjectQueryParam, SegmentQueryParam],
@@ -3811,7 +3811,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The resolved version.', schema: ref('LiveVersionResolution') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed project id or segment, or a segment without a project.'),
-      '404': ErrorResponse('No agent with that id.'),
+      '404': ErrorResponse(
+        'No version of the agent runs in this scope: none is pinned there, and none is its Latest.',
+      ),
     },
   },
   {

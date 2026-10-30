@@ -165,23 +165,25 @@ class LiveScopeSegment(BaseModel):
     path: Annotated[list[ScopeSegment], Field(max_length=8, min_length=1)]
 
 
-class AgentProject(BaseModel):
+class AgentProjectSegmentPin(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    project_id: Annotated[UUID, Field(alias="projectId")]
+    path: list[ScopeSegment]
+    version: str
 
 
-class AgentProjectList(BaseModel):
+class AgentHighestVersion(BaseModel):
+    """
+    The agent's highest active version the caller can see, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the server has no live versions.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[AgentProject]
-    """
-    Its first project first, then the others, each once.
-    """
+    version: str
 
 
 class RequestedBy(BaseModel):
@@ -13275,7 +13277,7 @@ class LiveVersionResolution(BaseModel):
     """
     via: Annotated[Literal["live", "latest"] | str, _open.OPEN]
     """
-    A live pin chose it, or nothing is live on the way up and it is the latest.
+    A live pin chose it, or nothing is live on the way up and it is the project's Latest.
     """
     live_scope: Annotated[
         Annotated[
@@ -13335,6 +13337,49 @@ class ProjectPinnedVersionPage(BaseModel):
     data: list[LivePin]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class AgentProjectRuns(BaseModel):
+    """
+    The version a run in the project that names none gets (and isn't a follow-up turn of a conversation).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    since: AwareDatetime | None = None
+    """
+    When it began to run there: when the pin was set; or, for Latest, the deployment into the project that shipped it, or when a person published it or added it as the latest version. Absent when nothing records a time, as for a pack's version under `kindgi dev`.
+    """
+    by: PinActor | None = None
+    """
+    Who: the requester of the promotion that set the pin, or the person who published it or added it as the latest version. Absent when a deployment made it Latest.
+    """
+    deployment_id: Annotated[str | None, Field(alias="deploymentId")] = None
+    """
+    With `follows: latest`: the deployment into the project that made it Latest, when one did.
+    """
+    live_scope: Annotated[
+        Annotated[
+            LiveScopeTenant
+            | LiveScopeOrg
+            | LiveScopeProject
+            | LiveScopeSegment
+            | LiveScopeUnrecognized,
+            _open.OpenUnion("kind", LiveScopeUnrecognized),
+        ]
+        | None,
+        Field(alias="liveScope"),
+    ] = None
+    """
+    With `follows: pin`: the pin that covers the project.
+    """
+    promotion_id: Annotated[str | None, Field(alias="promotionId")] = None
+    """
+    With `follows: pin`: the promotion that set the pin.
+    """
 
 
 class Promotion(BaseModel):
@@ -16903,6 +16948,35 @@ class RunWaitingFor(BaseModel):
     Its waits for another system's answer (a pausing tool's calls). Absent on a runtime that pauses no run, or when they can't be read: those waits are then `unattributed`.
     """
     other: list[OtherItem]
+
+
+class AgentProject(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    follows: Annotated[Literal["pin", "latest"] | str, _open.OPEN] | None = None
+    """
+    Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server has no live versions.
+    """
+    runs: AgentProjectRuns | None = None
+    segments: list[AgentProjectSegmentPin] | None = None
+    """
+    The pins on segments inside the project, which those segment paths run instead.
+    """
+
+
+class AgentProjectList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[AgentProject]
+    """
+    Its first project first, then the others, each once.
+    """
+    highest: AgentHighestVersion | None = None
 
 
 class Run(BaseModel):

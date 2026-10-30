@@ -51,13 +51,25 @@ export interface AgentsClient {
   /** @wire GET /v1/agents */
   list(filter?: ListAgentsFilter): Promise<AgentCollectionPage>;
 
-  /** @wire GET /v1/agents/:agentId — latest active version (`GetLatestOptions`) */
+  /**
+   * The highest active version (`GetLatestOptions`), which numbers the
+   * next one. What a project runs is `projects`.
+   *
+   * @wire GET /v1/agents/:agentId
+   */
   get(agentId: AgentId, options?: GetLatestOptions): Promise<Agent>;
 
   /**
    * The projects the agent runs in: its first project first, then each
    * project a deployment that isn't retired shipped a version of it into,
    * among those the caller can read. A retired agent still answers.
+   *
+   * Each project says what a run there that names no version gets
+   * (`runs`) and why (`follows`): a pin that covers the project, else its
+   * Latest. Latest moves only when a deployment into the project ships a
+   * version, or when a person publishes a full version or adds one as the
+   * latest version. `segments` lists the pins on segments inside the
+   * project, and `highest` is the agent's highest version.
    *
    * @wire GET /v1/agents/:agentId/projects
    */

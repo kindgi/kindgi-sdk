@@ -26,6 +26,7 @@ import type { Authorizer } from '../src/middleware/authorize.js';
 import type { RegistryReadOnly } from '../src/registry-read-only.js';
 import { agentsRouter } from '../src/routes/agents.js';
 import type { AppEnv } from '../src/types.js';
+import { highestAsLatest, noLatest } from './support/latest.js';
 
 /**
  * Live versions and promotions routes (evals step 4). The bindings are
@@ -106,6 +107,7 @@ function fakeReleases() {
         ];
       },
     },
+    latest: noLatest,
     promotions: {
       promote: async (input) => {
         record('promote', input);
@@ -165,18 +167,20 @@ function registryWith(versions: readonly string[]): AgentRegistryBinding {
     listVersions: unused,
     publish: unused,
     unregister: async () => ({ unregistered: false }),
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     reinstateVersion: unused,
   };
 }
 
 function makeApp(versions: readonly string[] = ['1.0.0', '1.1.0'], readOnly?: RegistryReadOnly) {
   const fake = fakeReleases();
+  const registry = registryWith(versions);
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
-    agentRegistry: { ...registryWith(versions), ...(readOnly !== undefined && { readOnly }) },
-    agentReleases: fake.bindings,
+    agentRegistry: { ...registry, ...(readOnly !== undefined && { readOnly }) },
+    agentReleases: { ...fake.bindings, latest: highestAsLatest(registry) },
   });
   return { app, ...fake };
 }

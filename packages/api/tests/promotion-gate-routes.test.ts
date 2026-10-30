@@ -33,6 +33,7 @@ import type {
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
+import { highestAsLatest } from './support/latest.js';
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
@@ -149,6 +150,8 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
       },
       list: async () => state.pins,
     },
+    // `registry`, declared below, is read when a question is asked.
+    latest: highestAsLatest({ get: (input) => registry.get(input) }),
     promotions: {
       promote: async (input) => {
         record('promote', input);
@@ -219,6 +222,7 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
     listVersions: unused,
     publish: unused,
     unregister: unused,
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     reinstateVersion: unused,
   };
   const evalRuns: EvalRunBinding = {

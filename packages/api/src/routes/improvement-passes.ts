@@ -35,6 +35,7 @@ import {
 import { refusesCandidates, refusesScope } from '../registry-read-only.js';
 import type { ProposalObjective } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
+import { whatRuns } from '../what-runs.js';
 import { actorOf, coordinatesOf } from './agent-releases.js';
 import { deniedBy } from './denied.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
@@ -513,17 +514,15 @@ function scopeProjectOf(scope: ImprovementPass['scope']): ProjectId | undefined 
   return scope.kind === 'project' || scope.kind === 'segment' ? scope.projectId : undefined;
 }
 
-/** What serves the scope now: its live version, else the agent's latest. */
+/** What serves the scope now: its live version, else Latest (`whatRuns`). */
 async function servingVersion(
   deps: ImproveDeps,
   tenantId: TenantId,
   agentId: string,
   scope: ImprovementPass['scope'],
 ): Promise<string | undefined> {
-  const live = await deps.releases.live.resolve({ tenantId, agentId, ...coordinatesOf(scope) });
-  if (live !== null) return live.version as unknown as string;
-  const latest = await deps.agents.get({ tenantId, agentId: agentId as AgentId });
-  return latest?.version as unknown as string | undefined;
+  const runs = await whatRuns(deps.releases, { tenantId, agentId, ...coordinatesOf(scope) });
+  return runs?.version as unknown as string | undefined;
 }
 
 /**
