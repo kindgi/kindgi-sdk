@@ -307,6 +307,27 @@ export interface CorrectionFixedIn {
   readonly at: string;
 }
 
+/**
+ * How a `fixed` correction went back to `open`: the project started running
+ * a version that gets it wrong, by a pin, going back to an earlier version,
+ * an unpin, or Latest moving.
+ */
+export const CORRECTION_REOPENED_HOW = ['pin', 'went-back', 'unpin', 'latest'] as const;
+export type CorrectionReopenedHow = (typeof CORRECTION_REOPENED_HOW)[number];
+
+/**
+ * The version whose test run got a `fixed` correction wrong again. It holds
+ * no words: the console and the CLI build the sentence from the project's
+ * and the person's current names when they show it.
+ */
+export interface CorrectionReopenedIn {
+  readonly version: string;
+  readonly how: CorrectionReopenedHow;
+  /** Who pinned, went back or unpinned; absent when Latest moved. */
+  readonly by?: CorrectionMadeBy;
+  readonly at: string;
+}
+
 /** A person's note on a status: why Won't fix, or why it went back to Open. */
 export interface CorrectionStatusNote {
   readonly text: string;
@@ -375,6 +396,8 @@ export interface Correction {
   readonly link?: CorrectionLink;
   /** Present while it's `fixed`. */
   readonly fixedIn?: CorrectionFixedIn;
+  /** Present while it's `open` because a test run got it wrong again after it was `fixed`. */
+  readonly reopenedIn?: CorrectionReopenedIn;
   readonly statusNote?: CorrectionStatusNote;
   /** The corrector's group; absent for an unclassified correction (weight 1). */
   readonly correctorGroupId?: string;
@@ -616,6 +639,11 @@ export interface CorrectionUpdateInput {
    * while it's fixed).
    */
   readonly fixedIn?: null;
+  /**
+   * `null` clears it, when the status leaves `open` (`reopenedIn` is there
+   * only while it's open after coming back).
+   */
+  readonly reopenedIn?: null;
 }
 
 export type CorrectionUpdateOutcome =

@@ -275,7 +275,7 @@ export function inMemoryCorrections(): CorrectionRegistryBinding & {
       ) {
         return { kind: 'changed', correction: current };
       }
-      const { sortedTo, link, statusNote, fixedIn, ...rest } = current;
+      const { sortedTo, link, statusNote, fixedIn, reopenedIn, ...rest } = current;
       const pick = <T>(given: T | null | undefined, was: T | undefined) =>
         given === undefined ? was : (given ?? undefined);
       const next = {
@@ -286,6 +286,7 @@ export function inMemoryCorrections(): CorrectionRegistryBinding & {
         link: pick(input.link, link),
         statusNote: pick(input.statusNote, statusNote),
         fixedIn: input.fixedIn === null ? undefined : fixedIn,
+        reopenedIn: input.reopenedIn === null ? undefined : reopenedIn,
         updatedAt: now(),
       };
       // Absent, not `undefined`, as a store answers it.

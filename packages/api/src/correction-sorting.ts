@@ -12,6 +12,7 @@ import type {
   CorrectionFixedIn,
   CorrectionLink,
   CorrectionMadeBy,
+  CorrectionReopenedIn,
   CorrectionSorted,
   CorrectionSortedTo,
   CorrectionStatus,
@@ -82,6 +83,8 @@ export interface PlannedChange {
   readonly statusNote?: CorrectionStatusNote | null;
   /** `null` when the status leaves `fixed`: `fixedIn` is there only while it's fixed. */
   readonly fixedIn?: null;
+  /** `null` when a person changes the status of one a test run reopened: the reopening is over. */
+  readonly reopenedIn?: null;
 }
 
 export type PlannedChangeOutcome =
@@ -107,10 +110,15 @@ const SET_FROM: Readonly<Record<StatusSetByHand, readonly CorrectionStatus[]>> =
  *   sorted to the owner, as re-sorting to the owner is;
  * - `wont-fix` from anything but `removed`, with a reason, which clears
  *   `fixedIn` when it was `fixed`.
+ * A status set by hand clears `reopenedIn`; a re-sort alone keeps it.
  * Anything else is `not-allowed`.
  */
 export function planChange(
-  current: { readonly status: CorrectionStatus; readonly sortedTo?: CorrectionSortedTo },
+  current: {
+    readonly status: CorrectionStatus;
+    readonly sortedTo?: CorrectionSortedTo;
+    readonly reopenedIn?: CorrectionReopenedIn;
+  },
   change: CorrectionChange,
   by: CorrectionMadeBy,
   at: string,
@@ -139,6 +147,7 @@ export function planChange(
   }
   if (change.status === undefined) return { kind: 'ok', change: planned };
   const to = change.status;
+  const reopenedIn = current.reopenedIn !== undefined && { reopenedIn: null };
   const from = (SET_FROM as Readonly<Record<string, readonly CorrectionStatus[]>>)[to];
   if (from === undefined || !from.includes(status)) {
     return { kind: 'not-allowed', from: current.status, to };
@@ -150,7 +159,7 @@ export function planChange(
         message: 'status: "being-fixed" needs a link: a URL, ir-… or sc-….',
       };
     }
-    return { kind: 'ok', change: { ...planned, status: to, link: change.link } };
+    return { kind: 'ok', change: { ...planned, status: to, link: change.link, ...reopenedIn } };
   }
   if (to === 'wont-fix' && change.reason === undefined) {
     return { kind: 'bad-input', message: 'status: "wont-fix" needs a reason.' };
@@ -169,6 +178,7 @@ export function planChange(
       link: null,
       statusNote: note,
       ...(status === 'fixed' && { fixedIn: null }),
+      ...reopenedIn,
     },
   };
 }

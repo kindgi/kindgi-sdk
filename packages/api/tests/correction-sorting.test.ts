@@ -199,6 +199,31 @@ describe('planChange (the change table)', () => {
     expect(planChange(from('open'), {}, ana, at).kind).toBe('bad-input');
   });
 
+  test("a status set by hand ends a test run's reopening; a re-sort alone keeps it", () => {
+    const reopened = {
+      ...from('open', 'improve'),
+      reopenedIn: { version: '13', how: 'went-back' as const, by: ana, at },
+    };
+    const link = { kind: 'improve-run' as const, id: 'ir-2' };
+    expect(planChange(reopened, { status: 'being-fixed', link }, ana, at)).toEqual({
+      kind: 'ok',
+      change: { status: 'being-fixed', link, reopenedIn: null },
+    });
+    expect(planChange(reopened, { status: 'wont-fix', reason: 'by design' }, ana, at)).toEqual({
+      kind: 'ok',
+      change: {
+        status: 'wont-fix',
+        link: null,
+        statusNote: { text: 'by design', by: ana, at },
+        reopenedIn: null,
+      },
+    });
+    expect(planChange(reopened, { sortedTo: 'developer' }, ana, at)).toEqual({
+      kind: 'ok',
+      change: { sortedTo: 'developer', sorted: byAna },
+    });
+  });
+
   test('a re-sort and a status at once: the re-sort first, then the status from where it put it', () => {
     const link = { kind: 'suggested-change' as const, id: 'sc-9' };
     // with-owner -> (re-sort to improve) open -> being-fixed.

@@ -687,6 +687,7 @@ export type {
 } from '@kindgi/policy-contract';
 export {
   CORRECTION_FIXED_HOW,
+  CORRECTION_REOPENED_HOW,
   CORRECTION_SORTED_TO,
   CORRECTION_STATUSES,
   CORRECTOR_GROUP_SCOPE_KINDS,
@@ -755,6 +756,8 @@ export type {
   CorrectionPage,
   CorrectionRecordInput,
   CorrectionRegistryBinding,
+  CorrectionReopenedHow,
+  CorrectionReopenedIn,
   CorrectionSorted,
   CorrectionSortedBy,
   CorrectionSortedTo,
