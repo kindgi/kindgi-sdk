@@ -4451,7 +4451,7 @@ class Model(BaseModel):
     model: str
 
 
-class SuggestedChangeDrafter(BaseModel):
+class SuggestedChangeMadeBy(BaseModel):
     """
     Who wrote the suggested change: a person, or one of the runtime's drafters.
     """
@@ -4473,9 +4473,9 @@ class SuggestedChangeDrafter(BaseModel):
     """
     For a drafter that used a model: which.
     """
-    pass_id: Annotated[str | None, Field(alias="passId")] = None
+    improve_run_id: Annotated[str | None, Field(alias="improveRunId")] = None
     """
-    For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).
+    For a drafter: the Improve run that drafted it (`GET /v1/improve-runs/{improveRunId}`).
     """
 
 
@@ -4490,7 +4490,7 @@ class SuggestedChangeEvidence(BaseModel):
     )
     fixes: list[str] | None = None
     """
-    The corrections it fixes, by id. An improvement pass's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.
+    The corrections it fixes, by id. An Improve run's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt Improve run, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.
     """
     correction_count: Annotated[int | None, Field(alias="correctionCount", ge=0)] = None
     """
@@ -4611,7 +4611,7 @@ class ImprovementBudget(BaseModel):
     )
     max_cost_usd: Annotated[float, Field(alias="maxCostUsd", gt=0.0, le=100.0)]
     """
-    The most the pass's comparisons may cost, in US dollars.
+    The most the Improve run's comparisons may cost, in US dollars.
     """
     max_candidates: Annotated[int, Field(alias="maxCandidates", ge=1, le=200)]
     """
@@ -4630,16 +4630,16 @@ class HoldOut(BaseModel):
     spread: float | None = None
 
 
-class ImprovementPassOutcome(BaseModel):
+class ImproveRunOutcome(BaseModel):
     """
-    What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
+    What a finished Improve run found. `suggested`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["proposed", "nothing-found", "failed"] | str, _open.OPEN]
+    kind: Annotated[Literal["suggested", "nothing-found", "failed"] | str, _open.OPEN]
     suggested_change_id: Annotated[UUID | None, Field(alias="suggestedChangeId")] = None
     reason: str | None = None
     hold_out: Annotated[HoldOut | None, Field(alias="holdOut")] = None
@@ -4648,7 +4648,7 @@ class ImprovementPassOutcome(BaseModel):
 
 class Model1(BaseModel):
     """
-    For a prompt pass: the provider and model that drafts the templates.
+    For a prompt Improve run: the provider and model that drafts the templates.
     """
 
     model_config = ConfigDict(
@@ -4684,7 +4684,7 @@ class Comparison1(BaseModel):
     """
     For a drafted template that was never compared: why the check refused it (what it reads or names that the agent doesn't have, or its size).
     """
-    hypothesis: str | None = None
+    why: str | None = None
     """
     For a drafted template: what the drafter meant it to change.
     """
@@ -4692,7 +4692,7 @@ class Comparison1(BaseModel):
 
 class Trigger(BaseModel):
     """
-    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for an Improve run a person started.
     """
 
     model_config = ConfigDict(
@@ -4705,7 +4705,7 @@ class Trigger(BaseModel):
 
 class Model2(BaseModel):
     """
-    For a prompt pass: the tenant's provider and model that drafts the templates.
+    For a prompt Improve run: the tenant's provider and model that drafts the templates.
     """
 
     model_config = ConfigDict(
@@ -4740,7 +4740,7 @@ class Basis(BaseModel):
     )
     replays: Annotated[int, Field(ge=0)]
     """
-    How many replay runs the pass's comparisons would make.
+    How many replay runs the Improve run's comparisons would make.
     """
     mean_run_cost_usd: Annotated[str | None, Field(alias="meanRunCostUsd")] = None
     """
@@ -4748,9 +4748,9 @@ class Basis(BaseModel):
     """
 
 
-class ImprovementPassEstimate(BaseModel):
+class ImproveRunCheck(BaseModel):
     """
-    What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
+    What an Improve run this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
     """
 
     model_config = ConfigDict(
@@ -6777,7 +6777,7 @@ class Prompts(BaseModel):
 
 class EvalOverrides(BaseModel):
     """
-    For an agent candidate: block content its replays run instead of the version's pinned content (an improvement pass's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
+    For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
     """
 
     model_config = ConfigDict(
@@ -6927,7 +6927,7 @@ class Corrections(BaseModel):
     """
     results: list[Result] | None = None
     """
-    Each correction graded: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
+    Each correction graded: whether it passed (every repetition did). What an Improve run compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
     """
 
 
@@ -10207,7 +10207,7 @@ class ScheduleFire(BaseModel):
         _open.OPEN,
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -10217,9 +10217,9 @@ class ScheduleFire(BaseModel):
     """
     The trigger's version its run started with: the newest when it started. Absent until the run starts.
     """
-    pass_id: Annotated[UUID | None, Field(alias="passId")] = None
+    improve_run_id: Annotated[UUID | None, Field(alias="improveRunId")] = None
     """
-    The improvement pass it started (an improve schedule).
+    The Improve run it started (an improve schedule).
     """
     detail: str | None = None
     """
@@ -10830,7 +10830,7 @@ class CreateWebhookEndpointBody(BaseModel):
     events: Annotated[
         list[
             Annotated[
-                Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
+                Literal["run.finished", "improve-run.finished", "approval.requested"] | str,
                 _open.OPEN,
             ]
         ],
@@ -10854,7 +10854,7 @@ class PatchWebhookEndpointBody(BaseModel):
     events: Annotated[
         list[
             Annotated[
-                Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
+                Literal["run.finished", "improve-run.finished", "approval.requested"] | str,
                 _open.OPEN,
             ]
         ]
@@ -11430,7 +11430,7 @@ class Model4(BaseModel):
 
 class Budget3(BaseModel):
     """
-    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
     """
 
     model_config = ConfigDict(
@@ -11473,7 +11473,7 @@ class ImproveScheduleInput(BaseModel):
     candidates: Annotated[int | None, Field(ge=1, le=5)] = None
     budget: Budget3 | None = None
     """
-    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
     """
     threshold: Threshold | None = None
     """
@@ -11481,7 +11481,7 @@ class ImproveScheduleInput(BaseModel):
     """
     monthly_cap_usd: Annotated[float | None, Field(alias="monthlyCapUsd", gt=0.0, le=1000.0)] = None
     """
-    The most its passes may cost in a calendar month (UTC). Default 20.
+    The most its Improve runs may cost in a calendar month (UTC). Default 20.
     """
 
 
@@ -14828,12 +14828,12 @@ class SuggestedChange(BaseModel):
     What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
     """
     change: SuggestedChangeBlockEdit
-    hypothesis: str
+    why: str
     """
     What the change should improve, and why.
     """
     evidence: SuggestedChangeEvidence | None = None
-    drafter: SuggestedChangeDrafter
+    made_by: Annotated[SuggestedChangeMadeBy, Field(alias="madeBy")]
     status: Annotated[
         Literal[
             "draft",
@@ -14875,9 +14875,9 @@ class SuggestedChangeCollectionPage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class ImprovementPass(BaseModel):
+class ImproveRun(BaseModel):
     """
-    An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.
+    An Improve run: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.
     """
 
     model_config = ConfigDict(
@@ -14916,11 +14916,11 @@ class ImprovementPass(BaseModel):
     """
     model: Model1 | None = None
     """
-    For a prompt pass: the provider and model that drafts the templates.
+    For a prompt Improve run: the provider and model that drafts the templates.
     """
     candidates: Annotated[int | None, Field(ge=1, le=5)] = None
     """
-    For a prompt pass: how many templates it drafts.
+    For a prompt Improve run: how many templates it drafts.
     """
     budget: ImprovementBudget
     requested_by: Annotated[str, Field(alias="requestedBy")]
@@ -14930,10 +14930,10 @@ class ImprovementPass(BaseModel):
     """
     What its comparisons have cost so far (US dollars).
     """
-    outcome: ImprovementPassOutcome | None = None
+    outcome: ImproveRunOutcome | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
     """
-    Why a `cancelled` pass stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.
+    Why a `cancelled` Improve run stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.
     """
     comparisons: list[Comparison1] | None = None
     """
@@ -14941,26 +14941,26 @@ class ImprovementPass(BaseModel):
     """
     trigger: Trigger | None = None
     """
-    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for an Improve run a person started.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     finished_at: Annotated[AwareDatetime | None, Field(alias="finishedAt")] = None
 
 
-class ImprovementPassCollectionPage(BaseModel):
+class ImproveRunCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[ImprovementPass]
+    data: list[ImproveRun]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class ImproveBody(BaseModel):
+class StartImproveRunBody(BaseModel):
     """
-    Start an improvement pass.
+    Start an Improve run.
     """
 
     model_config = ConfigDict(
@@ -14974,7 +14974,7 @@ class ImproveBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
+    The project the Improve run works in: `testSetId` must be a test set it reaches, the version must reach it, and the Improve run's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
     """
     scope: Annotated[
         LiveScopeTenant
@@ -14989,7 +14989,7 @@ class ImproveBody(BaseModel):
     """
     test_set_id: Annotated[str, Field(alias="testSetId")]
     """
-    The test set (a corrections test set). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
+    The test set (a corrections test set). The Improve run splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
     """
     tiers: Annotated[
         list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
@@ -14999,17 +14999,17 @@ class ImproveBody(BaseModel):
     """
     model: Model2 | None = None
     """
-    For a prompt pass: the tenant's provider and model that drafts the templates.
+    For a prompt Improve run: the tenant's provider and model that drafts the templates.
     """
     candidates: Annotated[int | None, Field(ge=1, le=5)] = 3
     """
-    For a prompt pass: how many templates it drafts.
+    For a prompt Improve run: how many templates it drafts.
     """
     group_weights: Annotated[
         Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
     ] = None
     """
-    Which corrections the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).
+    Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the Improve run reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).
     """
     objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
     budget: Budget2 | None = None
@@ -15048,7 +15048,7 @@ class CreateSuggestedChangeBody(BaseModel):
     What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
     """
     change: Change
-    hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
+    why: Annotated[str, Field(max_length=2000, min_length=1)]
     evidence: Evidence1 | None = None
 
 
@@ -16609,8 +16609,7 @@ class WebhookEndpoint(BaseModel):
     url: AnyUrl
     events: list[
         Annotated[
-            Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
-            _open.OPEN,
+            Literal["run.finished", "improve-run.finished", "approval.requested"] | str, _open.OPEN
         ]
     ]
     filter: WebhookEndpointFilter
@@ -16787,15 +16786,15 @@ class Data1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    pass_: Annotated[ImprovementPass, Field(alias="pass")]
+    improve_run: Annotated[ImproveRun, Field(alias="improveRun")]
     """
-    The pass, as `GET /v1/improvement-passes/{passId}` shows it.
+    The Improve run, as `GET /v1/improve-runs/{improveRunId}` shows it.
     """
 
 
-class ImprovementPassFinishedEvent(BaseModel):
+class ImproveRunFinishedEvent(BaseModel):
     """
-    An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.
+    An Improve run ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.
     """
 
     model_config = ConfigDict(
@@ -16806,14 +16805,14 @@ class ImprovementPassFinishedEvent(BaseModel):
     """
     Event id, also sent as the `webhook-id` header; the same on every retry.
     """
-    type: Literal["improvement-pass.finished"]
+    type: Literal["improve-run.finished"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     data: Data1
 
 
 class ImproveScheduleTarget(BaseModel):
     """
-    What an improve schedule works on: the agent, and the live scope its passes suggest changes for and count corrections in.
+    What an improve schedule works on: the agent, and the live scope its Improve runs suggest changes for and count corrections in.
     """
 
     model_config = ConfigDict(
@@ -17617,7 +17616,7 @@ class ScheduleCollectionPage(BaseModel):
 
 class RegisterScheduleBody(BaseModel):
     """
-    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (improvement passes). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.
+    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (Improve runs). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.
     """
 
     model_config = ConfigDict(
@@ -17636,7 +17635,7 @@ class RegisterScheduleBody(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
     """
-    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -17698,7 +17697,7 @@ class PatchScheduleBody(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
     """
-    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.
     """
     config: PatchScheduleBodyConfig | None = None
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
@@ -17908,7 +17907,7 @@ class WebhookDelivery(BaseModel):
     endpoint_id: Annotated[str, Field(alias="endpointId")]
     event: Annotated[
         RunFinishedEvent
-        | ImprovementPassFinishedEvent
+        | ImproveRunFinishedEvent
         | ApprovalRequestedEvent
         | WebhookTestEvent
         | WebhookEventUnrecognized,

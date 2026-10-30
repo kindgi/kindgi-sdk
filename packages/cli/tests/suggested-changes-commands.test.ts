@@ -56,8 +56,8 @@ const SUGGESTED_CHANGE = {
     fromVersion: '1.0.0',
     content: { values: { recency: 0.4 } },
   },
-  hypothesis: 'Recent filings matter more',
-  drafter: { kind: 'person', by: 'user:alice' },
+  why: 'Recent filings matter more',
+  madeBy: { kind: 'person', by: 'user:alice' },
   status: 'draft',
   createdAt: '2026-10-07T10:00:00.000Z',
   updatedAt: '2026-10-07T10:00:00.000Z',
@@ -78,7 +78,7 @@ describe('kindgi suggested-changes draft', () => {
         '--segment=company:acme',
         '--block=acme.weights',
         `--values=@${file}`,
-        '--hypothesis=Recent filings matter more',
+        '--why=Recent filings matter more',
         '--correction=j-1',
         '--correction=j-2',
         '--idempotency-key=k-1',
@@ -95,7 +95,7 @@ describe('kindgi suggested-changes draft', () => {
           scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
           tier: 'settings-block',
           change: { blockId: 'acme.weights', content: { values: { recency: 0.4, fit: 0.6 } } },
-          hypothesis: 'Recent filings matter more',
+          why: 'Recent filings matter more',
           evidence: { fixes: ['j-1', 'j-2'] },
           idempotencyKey: 'k-1',
         },
@@ -118,7 +118,7 @@ describe('kindgi suggested-changes draft', () => {
           '--tenant',
           '--block=acme.prompt',
           `--template=${template}`,
-          '--hypothesis=Clearer',
+          '--why=Clearer',
         ],
         { suggestedChanges: { create: rec('create') } },
       );
@@ -136,9 +136,9 @@ describe('kindgi suggested-changes draft', () => {
     [['--agent=a'], '--from-version is required'],
     [['--agent=a', '--from-version=1.0.0'], 'Name the scope'],
     [['--agent=a', '--from-version=1.0.0', '--tenant'], '--block is required'],
-    [['--agent=a', '--from-version=1.0.0', '--tenant', '--block=b'], '--hypothesis is required'],
+    [['--agent=a', '--from-version=1.0.0', '--tenant', '--block=b'], '--why is required'],
     [
-      ['--agent=a', '--from-version=1.0.0', '--tenant', '--block=b', '--hypothesis=h'],
+      ['--agent=a', '--from-version=1.0.0', '--tenant', '--block=b', '--why=h'],
       'Give the new content',
     ],
     [
@@ -147,21 +147,14 @@ describe('kindgi suggested-changes draft', () => {
         '--from-version=1.0.0',
         '--tenant',
         '--block=b',
-        '--hypothesis=h',
+        '--why=h',
         '--values={}',
         '--template=t',
       ],
       'Give the new content',
     ],
     [
-      [
-        '--agent=a',
-        '--from-version=1.0.0',
-        '--tenant',
-        '--block=b',
-        '--hypothesis=h',
-        '--values=[1]',
-      ],
+      ['--agent=a', '--from-version=1.0.0', '--tenant', '--block=b', '--why=h', '--values=[1]'],
       '--values must be a JSON object',
     ],
   ])('refuses %j: %s', async (flags, message) => {
@@ -404,8 +397,8 @@ describe('kindgi suggested-changes list / get', () => {
   });
 });
 
-const PASS = {
-  id: 'pass-1',
+const IMPROVE_RUN = {
+  id: 'run-1',
   agentId: 'acme.scorer',
   fromVersion: '1.4.0',
   scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
@@ -421,13 +414,14 @@ const PASS = {
   updatedAt: '2026-10-07T10:00:00.000Z',
 };
 
-describe('kindgi proposals improve', () => {
-  test('starts a pass for a scope, with a budget', async () => {
+describe('kindgi improve runs start', () => {
+  test('starts an Improve run for a scope, with a budget', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'proposals',
         'improve',
+        'runs',
+        'start',
         '--agent=acme.scorer',
         `--project=${PROJECT}`,
         '--segment=company:acme',
@@ -435,12 +429,12 @@ describe('kindgi proposals improve', () => {
         '--max-cost=2.5',
         '--max-candidates=12',
       ],
-      { proposals: { improve: rec('improve', PASS) } },
+      { improveRuns: { start: rec('start', IMPROVE_RUN) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
       [
-        'improve',
+        'start',
         {
           agentId: 'acme.scorer',
           scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
@@ -451,29 +445,30 @@ describe('kindgi proposals improve', () => {
     ]);
   });
 
-  test('--pass-project: the project a tenant-scoped pass works in; left out, the API decides', async () => {
+  test('--run-project: the project a tenant-scoped Improve run works in; left out, the API decides', async () => {
     const { calls, rec } = recorder();
-    const improve = rec('improve', PASS);
+    const improve = rec('start', IMPROVE_RUN);
     const named = await run(
       [
-        'proposals',
         'improve',
+        'runs',
+        'start',
         '--agent=acme.scorer',
         '--tenant',
         '--test-set=acme.prod-judged',
-        `--pass-project=${PROJECT}`,
+        `--run-project=${PROJECT}`,
       ],
-      { proposals: { improve } },
+      { improveRuns: { start: improve } },
     );
     expect(named.exitCode, named.stderr).toBe(0);
     const left = await run(
-      ['proposals', 'improve', '--agent=acme.scorer', '--tenant', '--test-set=acme.judged'],
-      { proposals: { improve } },
+      ['improve', 'runs', 'start', '--agent=acme.scorer', '--tenant', '--test-set=acme.judged'],
+      { improveRuns: { start: improve } },
     );
     expect(left.exitCode, left.stderr).toBe(0);
     expect(calls).toEqual([
       [
-        'improve',
+        'start',
         {
           agentId: 'acme.scorer',
           scope: { kind: 'tenant' },
@@ -481,27 +476,27 @@ describe('kindgi proposals improve', () => {
           projectId: PROJECT,
         },
       ],
-      ['improve', { agentId: 'acme.scorer', scope: { kind: 'tenant' }, testSetId: 'acme.judged' }],
+      ['start', { agentId: 'acme.scorer', scope: { kind: 'tenant' }, testSetId: 'acme.judged' }],
     ]);
   });
 
-  test('--wait reads the pass until it is no longer running', async () => {
+  test('--wait reads the Improve run until it is no longer running', async () => {
     const reads = [
-      { ...PASS, candidatesEvaluated: 3 },
+      { ...IMPROVE_RUN, candidatesEvaluated: 3 },
       {
-        ...PASS,
+        ...IMPROVE_RUN,
         status: 'completed',
         candidatesEvaluated: 7,
         costUsd: '0.84',
-        outcome: { kind: 'proposed', suggestedChangeId: 'prop-9' },
+        outcome: { kind: 'suggested', suggestedChangeId: 'prop-9' },
       },
     ];
     const gets: string[] = [];
     const out = await run(
-      ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', '--wait'],
+      ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', '--wait'],
       {
-        proposals: { improve: async () => PASS },
-        improvementPasses: {
+        improveRuns: {
+          start: async () => IMPROVE_RUN,
           get: async (id: string) => {
             gets.push(id);
             return reads.shift();
@@ -510,9 +505,9 @@ describe('kindgi proposals improve', () => {
       },
     );
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(gets).toEqual(['pass-1', 'pass-1']);
+    expect(gets).toEqual(['run-1', 'run-1']);
     expect(JSON.parse(out.stdout)).toMatchObject({
-      outcome: { kind: 'proposed', suggestedChangeId: 'prop-9' },
+      outcome: { kind: 'suggested', suggestedChangeId: 'prop-9' },
     });
   }, 10_000);
 
@@ -520,20 +515,21 @@ describe('kindgi proposals improve', () => {
     const { calls, rec } = recorder();
     for (const flag of ['--max-cost=0', '--max-cost=cheap', '--max-candidates=1.5']) {
       const out = await run(
-        ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', flag],
-        { proposals: { improve: rec('improve') } },
+        ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', flag],
+        { improveRuns: { start: rec('start') } },
       );
       expect(out.exitCode, flag).toBe(2); // a usage error
     }
     expect(calls).toEqual([]);
   });
 
-  test('passes the prompt-pass tuning flags through', async () => {
+  test('passes the prompt Improve run tuning flags through', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'proposals',
         'improve',
+        'runs',
+        'start',
         '--agent=acme.scorer',
         `--project=${PROJECT}`,
         '--segment=company:acme',
@@ -544,12 +540,12 @@ describe('kindgi proposals improve', () => {
         '--model=gpt-4o',
         '--drafts=4',
       ],
-      { proposals: { improve: rec('improve', PASS) } },
+      { improveRuns: { start: rec('start', IMPROVE_RUN) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
       [
-        'improve',
+        'start',
         {
           agentId: 'acme.scorer',
           scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
@@ -567,8 +563,8 @@ describe('kindgi proposals improve', () => {
     const { calls, rec } = recorder();
     for (const flag of ['--provider=openai', '--model=gpt-4o']) {
       const out = await run(
-        ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', flag],
-        { proposals: { improve: rec('improve') } },
+        ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', flag],
+        { improveRuns: { start: rec('start') } },
       );
       expect(out.exitCode, flag).toBe(2); // a usage error
     }
@@ -578,8 +574,8 @@ describe('kindgi proposals improve', () => {
   test('--tier only accepts settings or prompt', async () => {
     const { calls, rec } = recorder();
     const out = await run(
-      ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', '--tier=bogus'],
-      { proposals: { improve: rec('improve') } },
+      ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', '--tier=bogus'],
+      { improveRuns: { start: rec('start') } },
     );
     expect(out.exitCode).toBe(2); // a usage error
     expect(calls).toEqual([]);
@@ -588,20 +584,20 @@ describe('kindgi proposals improve', () => {
   test('--tier=prompt needs --provider and --model', async () => {
     const { calls, rec } = recorder();
     const out = await run(
-      ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', '--tier=prompt'],
-      { proposals: { improve: rec('improve') } },
+      ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', '--tier=prompt'],
+      { improveRuns: { start: rec('start') } },
     );
     expect(out.exitCode).toBe(2); // a usage error
     expect(out.stderr).toContain('--tier=prompt needs --provider and --model.');
     expect(calls).toEqual([]);
   });
 
-  test('--provider, --model and --drafts are for a prompt pass', async () => {
+  test('--provider, --model and --drafts are for a prompt Improve run', async () => {
     const { calls, rec } = recorder();
-    const settingsPass = ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s'];
+    const settingsRun = ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s'];
     for (const extra of [['--provider=openai', '--model=gpt-4o'], ['--drafts=3']]) {
-      const out = await run([...settingsPass, ...extra], {
-        proposals: { improve: rec('improve') },
+      const out = await run([...settingsRun, ...extra], {
+        improveRuns: { start: rec('start') },
       });
       expect(out.exitCode, extra.join(' ')).toBe(2); // a usage error
       expect(out.stderr, extra.join(' ')).toContain(
@@ -612,35 +608,35 @@ describe('kindgi proposals improve', () => {
   });
 });
 
-describe('kindgi proposals passes', () => {
+describe('kindgi improve runs', () => {
   test('list as a table: candidates, cost, and what each found', async () => {
     const { calls, rec } = recorder();
     const page = {
       data: [
         {
-          ...PASS,
+          ...IMPROVE_RUN,
           status: 'completed',
           candidatesEvaluated: 7,
           costUsd: '0.84',
-          outcome: { kind: 'proposed', suggestedChangeId: 'prop-9' },
+          outcome: { kind: 'suggested', suggestedChangeId: 'prop-9' },
         },
         {
-          ...PASS,
-          id: 'pass-2',
+          ...IMPROVE_RUN,
+          id: 'run-2',
           status: 'completed',
           outcome: { kind: 'nothing-found', reason: 'no candidate beat the noise' },
         },
-        { ...PASS, id: 'pass-3' },
-        { ...PASS, id: 'pass-4', status: 'cancelled', cancelReason: 'project-suspended' },
+        { ...IMPROVE_RUN, id: 'run-3' },
+        { ...IMPROVE_RUN, id: 'run-4', status: 'cancelled', cancelReason: 'project-suspended' },
       ],
       hasMore: false,
     };
-    const out = await run(['proposals', 'passes', 'list', '--agent=acme.scorer', '--table'], {
-      improvementPasses: { list: rec('list', page) },
+    const out = await run(['improve', 'runs', 'list', '--agent=acme.scorer', '--table'], {
+      improveRuns: { list: rec('list', page) },
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['list', { agentId: 'acme.scorer' }]]);
-    expect(out.stdout).toContain('proposed prop-9');
+    expect(out.stdout).toContain('suggested prop-9');
     expect(out.stdout).toContain('nothing better');
     expect(out.stdout).toContain('$0.84');
     expect(out.stdout).toContain('$0.00');
@@ -648,14 +644,16 @@ describe('kindgi proposals passes', () => {
     expect(out.stdout).toContain('project-suspended');
   });
 
-  test('get and cancel name the pass', async () => {
+  test('get and cancel name the Improve run', async () => {
     const { calls, rec } = recorder();
-    const client = { improvementPasses: { get: rec('get', PASS), cancel: rec('cancel', PASS) } };
-    await run(['proposals', 'passes', 'get', 'pass-1'], client);
-    await run(['proposals', 'passes', 'cancel', 'pass-1', '--idempotency-key=k'], client);
+    const client = {
+      improveRuns: { get: rec('get', IMPROVE_RUN), cancel: rec('cancel', IMPROVE_RUN) },
+    };
+    await run(['improve', 'runs', 'get', 'run-1'], client);
+    await run(['improve', 'runs', 'cancel', 'run-1', '--idempotency-key=k'], client);
     expect(calls).toEqual([
-      ['get', 'pass-1'],
-      ['cancel', 'pass-1', { idempotencyKey: 'k' }],
+      ['get', 'run-1'],
+      ['cancel', 'run-1', { idempotencyKey: 'k' }],
     ]);
   });
 });

@@ -58,9 +58,13 @@ export type {
 } from './resources/runs.js';
 export type { SupervisorClient } from './resources/supervisor.js';
 export type {
-  ImprovementPassesClient,
-  ImprovementPassesListInput,
-} from './resources/improvement-passes.js';
+  CheckImproveRunInput,
+  ImproveRun,
+  ImproveRunCheck,
+  ImproveRunsClient,
+  ImproveRunsListInput,
+  StartImproveRunInput,
+} from './resources/improve-runs.js';
 export type {
   CreateSuggestedChangeInput,
   EvaluateSuggestedChangeInput,
@@ -69,11 +73,6 @@ export type {
   SuggestedChangesListInput,
   WithdrawInput,
 } from './resources/suggested-changes.js';
-export type {
-  ImproveInput,
-  ImprovementPass,
-  ProposalsClient,
-} from './resources/proposals.js';
 export type {
   ObservationFilter,
   ObservationsClient,
@@ -382,7 +381,7 @@ export type {
   ApprovalRequestedEvent,
   CreateWebhookEndpointInput,
   FinishedRun,
-  ImprovementPassFinishedEvent,
+  ImproveRunFinishedEvent,
   ListWebhookDeliveriesFilter,
   ListWebhookEndpointsFilter,
   RequestedApproval,

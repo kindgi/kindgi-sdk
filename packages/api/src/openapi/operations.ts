@@ -774,11 +774,11 @@ const InheritQueryParam: ParameterSpec = {
   schema: { type: 'boolean', default: true },
 };
 
-const ImprovementPassIdPathParam: ParameterSpec = {
-  name: 'passId',
+const ImproveRunIdPathParam: ParameterSpec = {
+  name: 'improveRunId',
   in: 'path',
   required: true,
-  description: 'The improvement pass id (a UUID).',
+  description: 'The Improve run id (a UUID).',
   schema: { type: 'string', format: 'uuid' },
 };
 
@@ -2646,7 +2646,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setSuspended',
     summary: 'Suspend a tenant, or restore it',
     description:
-      "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
+      "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or Improve run hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -5057,52 +5057,52 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/improve',
-    openapiPath: '/v1/proposals/improve',
-    operationId: 'proposals.improve',
-    summary: 'Start an improvement pass',
+    honoPath: '/v1/improve-runs',
+    openapiPath: '/v1/improve-runs',
+    operationId: 'improveRuns.start',
+    summary: 'Start an Improve run',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
-    tags: ['proposals'],
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.",
+    tags: ['improve-runs'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('ImproveBody') },
+    requestBody: { required: true, schema: ref('StartImproveRunBody') },
     responses: {
-      '202': { description: 'The pass, running.', schema: ref('ImprovementPass') },
+      '202': { description: 'The Improve run, running.', schema: ref('ImproveRun') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, `validation-failed` (with `details.reason` when the version has nothing for the pass to work on: `no-tunable-keys` or `no-pinned-prompt-block`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
+        "Malformed request body, `validation-failed` (with `details.reason` when the version has nothing for the Improve run to work on: `no-tunable-keys` or `no-pinned-prompt-block`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the Improve run's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
       ),
       '404': ErrorResponse(
         "`fromVersion` (or the version serving the scope) is not an active version; or the body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '409': ErrorResponse(
-        "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `suggested-change-needs-pin`, or `project-suspended`: the pass's project is suspended. Or Idempotency-Key was reused with a different body.",
+        "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `suggested-change-needs-pin`, or `project-suspended`: the Improve run's project is suspended. Or Idempotency-Key was reused with a different body.",
       ),
-      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/improve/estimate',
-    openapiPath: '/v1/proposals/improve/estimate',
-    operationId: 'proposals.improveEstimate',
-    summary: 'Estimate an improvement pass',
+    honoPath: '/v1/improve-runs/check',
+    openapiPath: '/v1/improve-runs/check',
+    operationId: 'improveRuns.check',
+    summary: 'Check an Improve run',
     description:
-      "What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
-    tags: ['proposals'],
+      "What an Improve run this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the Improve run's project doesn't reach answers `400 reference-out-of-scope`, exactly as starting one would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt Improve run's one-off drafting of its templates — an Improve run can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the Improve run is expected to spend its whole budget; the Improve run checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.",
+    tags: ['improve-runs'],
     security: 'bearer',
-    requestBody: { required: true, schema: ref('ImproveBody') },
+    requestBody: { required: true, schema: ref('StartImproveRunBody') },
     responses: {
-      '200': { description: 'The estimated cost.', schema: ref('ImprovementPassEstimate') },
+      '200': { description: 'The estimated cost.', schema: ref('ImproveRunCheck') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "Malformed request body (`bad-input`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the pass's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
+        "Malformed request body (`bad-input`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the Improve run's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
       ),
       '404': ErrorResponse(
         "`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`); or the body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
-      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
   },
   {
@@ -5252,59 +5252,59 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
-  // ---------- improvement passes ----------
+  // ---------- Improve runs ----------
   {
     method: 'get',
-    honoPath: '/v1/improvement-passes',
-    openapiPath: '/v1/improvement-passes',
-    operationId: 'improvementPasses.list',
-    summary: 'List improvement passes',
+    honoPath: '/v1/improve-runs',
+    openapiPath: '/v1/improve-runs',
+    operationId: 'improveRuns.list',
+    summary: 'List Improve runs',
     description:
-      'Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.',
-    tags: ['proposals'],
+      'Newest first, only the Improve runs of agents the caller can read. `?agentId=` narrows them.',
+    tags: ['improve-runs'],
     security: 'bearer',
     parameters: [LimitQueryParam, CursorQueryParam, AgentIdQueryParam],
     responses: {
-      '200': { description: 'Page of passes.', schema: ref('ImprovementPassCollectionPage') },
+      '200': { description: 'Page of Improve runs.', schema: ref('ImproveRunCollectionPage') },
       ...CommonAuthErrors,
-      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/improvement-passes/:passId',
-    openapiPath: '/v1/improvement-passes/{passId}',
-    operationId: 'improvementPasses.get',
-    summary: 'Fetch an improvement pass',
+    honoPath: '/v1/improve-runs/:improveRunId',
+    openapiPath: '/v1/improve-runs/{improveRunId}',
+    operationId: 'improveRuns.get',
+    summary: 'Fetch an Improve run',
     description:
       'Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.',
-    tags: ['proposals'],
+    tags: ['improve-runs'],
     security: 'bearer',
-    parameters: [ImprovementPassIdPathParam],
+    parameters: [ImproveRunIdPathParam],
     responses: {
-      '200': { description: 'The pass.', schema: ref('ImprovementPass') },
+      '200': { description: 'The Improve run.', schema: ref('ImproveRun') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such pass (or none the caller can read).'),
-      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+      '404': ErrorResponse('No such Improve run (or none the caller can read).'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/improvement-passes/:passId/cancel',
-    openapiPath: '/v1/improvement-passes/{passId}/cancel',
-    operationId: 'improvementPasses.cancel',
-    summary: 'Cancel an improvement pass',
+    honoPath: '/v1/improve-runs/:improveRunId/cancel',
+    openapiPath: '/v1/improve-runs/{improveRunId}/cancel',
+    operationId: 'improveRuns.cancel',
+    summary: 'Cancel an Improve run',
     description:
-      'A running pass stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.',
-    tags: ['proposals'],
+      'A running Improve run stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.',
+    tags: ['improve-runs'],
     security: 'bearer',
-    parameters: [ImprovementPassIdPathParam, IdempotencyKeyParam],
+    parameters: [ImproveRunIdPathParam, IdempotencyKeyParam],
     responses: {
-      '200': { description: 'The pass, cancelled.', schema: ref('ImprovementPass') },
+      '200': { description: 'The Improve run, cancelled.', schema: ref('ImproveRun') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No such pass.'),
-      '409': ErrorResponse('`improvement-pass-finished`: it has ended already.'),
-      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+      '404': ErrorResponse('No such Improve run.'),
+      '409': ErrorResponse('`improve-run-finished`: it has ended already.'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
   },
 
@@ -10425,7 +10425,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.update',
     summary: 'Update a cron schedule',
     description:
-      "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.",
+      "Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.",
     tags: ['schedules'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],

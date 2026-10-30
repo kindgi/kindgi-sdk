@@ -241,13 +241,13 @@ def test_parse_event_reads_the_test_event() -> None:
     assert event.data.endpoint_id == "ep-1"
 
 
-def test_parse_event_reads_an_improvement_pass_finished() -> None:
+def test_parse_event_reads_an_improve_run_finished() -> None:
     body = {
-        "id": "evt-pass",
-        "type": "improvement-pass.finished",
+        "id": "evt-improve-run",
+        "type": "improve-run.finished",
         "createdAt": "2026-10-07T12:00:00.000Z",
         "data": {
-            "pass": {
+            "improveRun": {
                 "id": "8a1e9c4a-0000-4000-8000-000000000004",
                 "agentId": "acme.scorer",
                 "fromVersion": "1.0.0",
@@ -262,7 +262,7 @@ def test_parse_event_reads_an_improvement_pass_finished() -> None:
                 "candidatesEvaluated": 7,
                 "costUsd": "0.12",
                 "outcome": {
-                    "kind": "proposed",
+                    "kind": "suggested",
                     "suggestedChangeId": "9b2e9c4a-0000-4000-8000-000000000005",
                 },
                 "trigger": {
@@ -276,10 +276,10 @@ def test_parse_event_reads_an_improvement_pass_finished() -> None:
         },
     }
     event = webhooks.parse_event(json.dumps(body))
-    assert isinstance(event, models.ImprovementPassFinishedEvent)
-    assert event.data.pass_.agent_id == "acme.scorer"
-    assert event.data.pass_.trigger is not None
-    assert event.data.pass_.trigger.trigger_id == "1c3e9c4a-0000-4000-8000-000000000006"
+    assert isinstance(event, models.ImproveRunFinishedEvent)
+    assert event.data.improve_run.agent_id == "acme.scorer"
+    assert event.data.improve_run.trigger is not None
+    assert event.data.improve_run.trigger.trigger_id == "1c3e9c4a-0000-4000-8000-000000000006"
 
 
 def test_parse_event_reads_an_approval_requested() -> None:

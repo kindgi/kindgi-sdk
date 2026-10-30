@@ -39,7 +39,6 @@ import type { EnvBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
 import type { EvalCaseStoreBinding } from './eval-case-binding.js';
-import type { TestRunBinding } from './test-run-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
 import type { ExpertQueueBinding } from './expert-queue-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
@@ -49,7 +48,7 @@ import type { HitlBinding } from './hitl-binding.js';
 import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
 import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
-import type { ImprovementPassBinding } from './improvement-pass-binding.js';
+import type { ImproveRunBinding } from './improve-run-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
 import { itemRightsOf, itemServingOf } from './item-rights.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
@@ -146,7 +145,6 @@ import { deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
 import { environmentOrdersRouter } from './routes/environment-orders.js';
 import { environmentsRouter } from './routes/environments.js';
-import { testRunsRouters } from './routes/test-runs.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
 import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
@@ -155,7 +153,7 @@ import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
-import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
+import { improveRunsRouter } from './routes/improve-runs.js';
 import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
 import { mailTriggersRouter } from './routes/mail-triggers.js';
 import { mcpRouter } from './routes/mcp.js';
@@ -213,6 +211,7 @@ import { systemUsageRouter } from './routes/system-usage.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
+import { testRunsRouters } from './routes/test-runs.js';
 import { testSetsRouter } from './routes/test-sets.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
@@ -233,6 +232,7 @@ import type { SiteBinding } from './site-binding.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
 import { ONE_TENANT_SYSTEM_SCOPES } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
+import type { TestRunBinding } from './test-run-binding.js';
 import type { TestSetRegistryBinding } from './test-set-binding.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
@@ -594,12 +594,12 @@ export interface CreateAppInput {
    */
   readonly supervisor?: SupervisorBinding;
   /**
-   * Optional. Improvement passes (`POST /v1/proposals/improve`,
-   * `/v1/improvement-passes`): the runtime's search for better settings
+   * Optional. Improve runs (`POST /v1/improve-runs`,
+   * `/v1/improve-runs`): the runtime's search for better settings
    * values, written as a suggested change. Without it, both answer
-   * `501 improve-unsupported`. Mounted with `/v1/proposals`.
+   * `501 improve-unsupported`.
    */
-  readonly improvementPasses?: ImprovementPassBinding;
+  readonly improveRuns?: ImproveRunBinding;
   /**
    * Optional. The key the deployment signs its exports with: an
    * approval's audit bundle (`POST /v1/approvals/:approvalId/audit-bundle`),
@@ -694,7 +694,7 @@ export interface CreateAppInput {
   /**
    * Whether a project is suspended (`PUT
    * /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`): a
-   * deploy into it, a test run started in it and an improvement pass for
+   * deploy into it, a test run started in it and an Improve run for
    * one of its agents are refused `409 project-suspended`, and a webhook
    * delivery to one of its triggers is skipped. Absent: no check.
    */
@@ -1911,7 +1911,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.agentReleases !== undefined
   ) {
     const improveDeps = {
-      ...(input.improvementPasses !== undefined && { passes: input.improvementPasses }),
+      ...(input.improveRuns !== undefined && { improveRuns: input.improveRuns }),
       agents: input.agentRegistry,
       blocks: input.blockRegistry,
       releases: input.agentReleases,
@@ -1920,10 +1920,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
       ...(input.testSetRegistry !== undefined && { testSets: input.testSetRegistry }),
     };
-    // The Improve routes stay on `/v1/proposals` until the Improve-runs step.
-    const improveRoutes = new Hono<AppEnv>();
-    mountImproveRoute(improveRoutes, improveDeps, authorizer, itemRights);
-    v1.route('/proposals', improveRoutes);
     v1.route(
       '/suggested-changes',
       suggestedChangesRouter(
@@ -1946,10 +1942,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemRights,
       ),
     );
-    v1.route(
-      '/improvement-passes',
-      improvementPassesRouter(input.improvementPasses, authorizer, itemRights),
-    );
+    v1.route('/improve-runs', improveRunsRouter(improveDeps, authorizer, itemRights));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   if (input.license !== undefined) {

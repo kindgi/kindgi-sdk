@@ -15,7 +15,7 @@ correction** so the mistake can't come back:
   reads the setting and acts on it.
 - **Instructions for Improve:** you don't write the prompt — you make sure the
   corrected cases are in the test cases, then let an Improve run try wordings
-  on them (`kindgi proposals improve`). It writes a *suggested* change only
+  on them (`kindgi improve runs start`). It writes a *suggested* change only
   when a wording does better on those cases, and a person
   decides whether to take it; nothing is applied on its own.
 

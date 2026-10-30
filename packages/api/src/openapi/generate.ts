@@ -92,7 +92,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'Fact catalog + retrieval (list, get, write, supersede, retrieve — caller-plugged binding wraps the memory subsystem).',
   'suggested-changes':
     'Suggested changes: a change to one data block an agent version pins, for one live scope (list, get, draft, evaluate, rescore, pin, withdraw).',
-  proposals: 'Improve runs: the runtime looking for better settings (improve, estimate).',
+  'improve-runs':
+    'Improve runs: the runtime looking for better settings (start, check, list, get, cancel).',
   provenance:
     "Causal DAG readback + signed exports (list, get, export), signed with the deployment's export key.",
   artifacts:
@@ -287,10 +288,10 @@ function buildOutboundWebhooks(): Record<string, unknown> {
       'A top-level run completed, failed or was cancelled',
       'RunFinishedEvent',
     ),
-    'improvement-pass.finished': event(
-      'improvement-pass.finished',
-      'An improvement pass completed, failed or was cancelled',
-      'ImprovementPassFinishedEvent',
+    'improve-run.finished': event(
+      'improve-run.finished',
+      'An Improve run completed, failed or was cancelled',
+      'ImproveRunFinishedEvent',
     ),
     'approval.requested': event(
       'approval.requested',

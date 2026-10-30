@@ -45,24 +45,24 @@ import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
   AgentVersionRecord,
+  CheckImproveRunInput,
   CorrectedComparisonSummary,
   CorrectionRegistryBinding,
-  EstimateImprovementPassInput,
-  TestRun,
-  TestRunBinding,
-  TestRunStartInput,
   GatePolicy,
   GatePolicySpec,
-  ImprovementPass,
-  ImprovementPassBinding,
-  ImprovementPassEstimateBasis,
+  ImproveRun,
+  ImproveRunBinding,
+  ImproveRunCheckBasis,
   LivePin,
   Promotion,
   ReferenceScopeBinding,
   ReviewerRegistryBinding,
   RunHandlerBinding,
-  StartImprovementPassInput,
+  StartImproveRunInput,
   SuggestedChangeRule,
+  TestRun,
+  TestRunBinding,
+  TestRunStartInput,
   TokenResolver,
 } from '../src/index.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
@@ -78,7 +78,7 @@ const TOKEN = 'suggested-changes-token';
 const AGENT = 'acme.scorer';
 const WEIGHTS = 'acme.scoring-weights';
 const MODEL = 'acme.scorer-model';
-/** A model-settings schema that lets a pass try another model. */
+/** A model-settings schema that lets an Improve run try another model. */
 const MODEL_SCHEMA = {
   type: 'object',
   properties: {
@@ -455,13 +455,13 @@ function decision(grants: readonly string[], action: Action, resource: ResourceR
   };
 }
 
-function inMemoryPasses() {
-  const rows = new Map<string, ImprovementPass>();
-  const started: StartImprovementPassInput[] = [];
-  const binding: ImprovementPassBinding = {
+function inMemoryImproveRuns() {
+  const rows = new Map<string, ImproveRun>();
+  const started: StartImproveRunInput[] = [];
+  const binding: ImproveRunBinding = {
     async start(input) {
       started.push(input);
-      const pass: ImprovementPass = {
+      const improveRun: ImproveRun = {
         id: randomUUID(),
         tenantId: input.tenantId,
         agentId: input.agentId,
@@ -481,24 +481,24 @@ function inMemoryPasses() {
         createdAt: NOW,
         updatedAt: NOW,
       };
-      rows.set(pass.id, pass);
-      return pass;
+      rows.set(improveRun.id, improveRun);
+      return improveRun;
     },
-    async get({ passId }) {
-      return rows.get(passId) ?? null;
+    async get({ improveRunId }) {
+      return rows.get(improveRunId) ?? null;
     },
     async list({ agentId }) {
       return {
         data: [...rows.values()].filter((p) => agentId === undefined || p.agentId === agentId),
       };
     },
-    async cancel({ passId }) {
-      const pass = rows.get(passId);
-      if (pass === undefined) return { kind: 'not-found' };
-      if (pass.status !== 'running') return { kind: 'finished', pass };
-      const cancelled = { ...pass, status: 'cancelled' as const, finishedAt: NOW };
-      rows.set(passId, cancelled);
-      return { kind: 'ok', pass: cancelled };
+    async cancel({ improveRunId }) {
+      const improveRun = rows.get(improveRunId);
+      if (improveRun === undefined) return { kind: 'not-found' };
+      if (improveRun.status !== 'running') return { kind: 'finished', improveRun };
+      const cancelled = { ...improveRun, status: 'cancelled' as const, finishedAt: NOW };
+      rows.set(improveRunId, cancelled);
+      return { kind: 'ok', improveRun: cancelled };
     },
   };
   return { binding, started, rows };
@@ -512,7 +512,7 @@ async function harness(
     tunable?: boolean;
     /** Versions `getVersion` returns as unregistered (an inactive version). */
     unregisteredVersions?: readonly string[];
-    passes?: ImprovementPassBinding;
+    improveRuns?: ImproveRunBinding;
     /** Instructions inline, not from a pinned prompt block. */
     inlineInstructions?: boolean;
     /** The agent takes its model settings from block `MODEL`. */
@@ -528,7 +528,7 @@ async function harness(
     /** The projects that serve each item (an order carries it); absent: one each. */
     items?: ItemRow[];
     correctionRegistry?: CorrectionRegistryBinding;
-    /** The project the pass's test set reads corrections from. Default: the agent's project. */
+    /** The project the Improve run's test set reads corrections from. Default: the agent's project. */
     testSetProjectId?: ProjectId;
     /** A full suite record `testSets.get` returns (or `null` for a missing suite), overriding the default corrections stub. */
     testSetRecord?: TestSetRecord | null;
@@ -629,7 +629,7 @@ async function harness(
   const grants = opts.grants;
   // The improve route resolves the `groupWeights` default against the test set's
   // project. The stub makes every test set a corrections one in `testSetProjectId`
-  // (default: the agent's project), so a pass reads from there.
+  // (default: the agent's project), so an Improve run reads from there.
   const testSetProject = opts.testSetProjectId ?? projectId;
   const testSets = {
     get: async (input: { tenantId: TenantId; testSetId: string }) => {
@@ -659,7 +659,7 @@ async function harness(
     testRunBinding: testRuns.binding,
     agentReleases: releases.releases,
     supervisor: suggestedChanges,
-    ...(opts.passes !== undefined && { improvementPasses: opts.passes }),
+    ...(opts.improveRuns !== undefined && { improveRuns: opts.improveRuns }),
     ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
     ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
     ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
@@ -701,7 +701,7 @@ const DRAFT = {
   scope: SEGMENT_WIRE,
   tier: 'settings-block',
   change: { blockId: WEIGHTS, content: { values: { recency: 0.5, fit: 0.5 } } },
-  hypothesis: 'Recent filings matter more for acme',
+  why: 'Recent filings matter more for acme',
 };
 
 /** An agent registry that's read-only but takes Improve's candidates, as kindgi dev's. */
@@ -761,7 +761,7 @@ describe('POST /v1/suggested-changes', () => {
       scope: SEGMENT_WIRE,
       tier: 'settings-block',
       change: { blockId: WEIGHTS, fromVersion: '1.0.0', content: DRAFT.change.content },
-      drafter: { kind: 'person', by: 'user:user-1' },
+      madeBy: { kind: 'person', by: 'user:user-1' },
       status: 'draft',
     });
     expect(res.body.candidate).toBeUndefined();
@@ -809,7 +809,7 @@ describe('POST /v1/suggested-changes', () => {
   });
 
   test.each([
-    ['no hypothesis', { hypothesis: '' }],
+    ['no why', { why: '' }],
     [
       'a schema in the content',
       { change: { blockId: WEIGHTS, content: { values: {}, schema: {} } } },
@@ -1455,9 +1455,9 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       tier: 'settings-block',
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
-      hypothesis: 'The search found these weights',
+      why: 'The search found these weights',
       evidence: { fixes: ['j-1', 'j-2'], correctionCount: 140 },
-      drafter: { kind: 'settings-optimizer', version: '1' },
+      madeBy: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const res = await h.call('GET', `/v1/suggested-changes/${drafted.value.suggestedChange.id}`);
@@ -1475,7 +1475,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       testRuns: h.testRuns.binding,
       releases: h.releases.releases,
     });
-    const actor = { kind: 'service' as const, id: 'improvement-pass' };
+    const actor = { kind: 'service' as const, id: 'improve-run' };
     const drafted = await service.draft({
       tenantId,
       agentId: AGENT,
@@ -1484,8 +1484,8 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       tier: 'settings-block',
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
-      hypothesis: 'The search found these weights',
-      drafter: { kind: 'settings-optimizer', version: '1' },
+      why: 'The search found these weights',
+      madeBy: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const evaluated = await service.evaluate({
@@ -1519,7 +1519,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       agentId: AGENT as never,
       version: '1.0.1' as Semver,
     });
-    expect(derived?.derivedFrom).toMatchObject({ by: 'service:improvement-pass' });
+    expect(derived?.derivedFrom).toMatchObject({ by: 'service:improve-run' });
   });
 
   function roster(
@@ -1611,8 +1611,8 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       tier: 'settings-block',
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
-      hypothesis: 'The search found these weights',
-      drafter: { kind: 'settings-optimizer', version: '1' },
+      why: 'The search found these weights',
+      madeBy: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const evaluated = await service.evaluate({
@@ -1636,7 +1636,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
   test('a drafter must ask a separate approver when a second reviewer could approve', async () => {
     const approval = await draftedApprovalFor(
       roster({ userId: 'u-alice' }, { userId: 'u-bob', role: 'senior' }),
-      { kind: 'service', id: 'improvement-pass' },
+      { kind: 'service', id: 'improve-run' },
     );
     expect(approval).toMatchObject({ role: 'standard', count: 1, separateApprover: true });
   });
@@ -1678,7 +1678,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
   test('an empty roster leaves nothing to separate', async () => {
     const approval = await draftedApprovalFor(roster(), {
       kind: 'service',
-      id: 'improvement-pass',
+      id: 'improve-run',
     });
     expect(approval).toMatchObject({ separateApprover: false });
   });
@@ -1806,8 +1806,8 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       tier: 'settings-block',
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
-      hypothesis: 'The search found these weights',
-      drafter: { kind: 'settings-optimizer', version: '1' },
+      why: 'The search found these weights',
+      madeBy: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const evaluated = await service.evaluate({
@@ -1889,7 +1889,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
   });
 
   test("a policy with no approvals block leaves the drafter's own approval to apply", async () => {
-    // Only a metric bar: the gate passes, names no approval, so the drafter's
+    // Only a metric bar: the gate improveRuns, names no approval, so the drafter's
     // approval (its own separate-approver rule, at standard) is what waits.
     const approval = await underPolicy(
       undefined,
@@ -1903,7 +1903,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
   });
 });
 
-describe("a change held to the current version's replays (an improvement pass's model settings)", () => {
+describe("a change held to the current version's replays (an Improve run's model settings)", () => {
   type Correction = readonly [correctionId: string, pass: boolean];
   /** What a finished comparison adds: whether each correction passed, and its cost. */
   const more = (
@@ -1946,8 +1946,8 @@ describe("a change held to the current version's replays (an improvement pass's 
       tier: 'settings-block',
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
-      hypothesis: 'The search found these weights',
-      drafter: { kind: 'settings-optimizer', version: '1' },
+      why: 'The search found these weights',
+      madeBy: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const reference = await h.testRuns.binding.start({
@@ -1963,7 +1963,7 @@ describe("a change held to the current version's replays (an improvement pass's 
       suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
-      actor: { kind: 'service', id: 'improvement-pass' },
+      actor: { kind: 'service', id: 'improve-run' },
       against: { rule, reference: { testRunId: referenceId } },
     });
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
@@ -2327,7 +2327,7 @@ describe("what a suggested change names must be in its agent's project's reach",
     expect(releases.calls.filter((c) => c.method === 'request')).toEqual([]);
   });
 
-  test('improve on a test set out of reach, or for a scope in another project, starts no pass', async () => {
+  test('improve on a test set out of reach, or for a scope in another project, starts no Improve run', async () => {
     for (const [out, body, issue] of [
       [
         new Set(['acme.scoring-judged']),
@@ -2345,28 +2345,28 @@ describe("what a suggested change names must be in its agent's project's reach",
         `/scope agent ${AGENT}`,
       ],
     ] as const) {
-      const passes = inMemoryPasses();
+      const improveRuns = inMemoryImproveRuns();
       const h = await harness({
         tunable: true,
-        passes: passes.binding,
+        improveRuns: improveRuns.binding,
         referenceScope: reach(out),
       });
       h.releases.pin({ kind: 'tenant' }, '1.0.0');
-      const res = await h.call('POST', '/v1/proposals/improve', body);
+      const res = await h.call('POST', '/v1/improve-runs', body);
       expect(refused(res)).toEqual([issue]);
-      expect(passes.started).toEqual([]);
+      expect(improveRuns.started).toEqual([]);
     }
   });
 });
 
-describe('improvement passes', () => {
+describe('Improve runs', () => {
   const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, testSetId: 'acme.scoring-judged' };
 
-  test('improve starts a pass for the version serving the scope, with the default budget (202)', async () => {
-    const passes = inMemoryPasses();
-    const h = await harness({ tunable: true, passes: passes.binding });
+  test('improve starts an Improve run for the version serving the scope, with the default budget (202)', async () => {
+    const improveRuns = inMemoryImproveRuns();
+    const h = await harness({ tunable: true, improveRuns: improveRuns.binding });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body).toMatchObject({
       agentId: AGENT,
@@ -2378,42 +2378,42 @@ describe('improvement passes', () => {
       status: 'running',
       requestedBy: 'user:user-1',
     });
-    expect(passes.started[0]).toMatchObject({
+    expect(improveRuns.started[0]).toMatchObject({
       projectId,
       fromVersion: '1.0.0',
       // With no corrector-group registry wired, the default stays experts-only (K4).
       groupWeights: 'experts-only',
     });
     expect(res.body.groupWeights).toBe('experts-only');
-    const read = await h.call('GET', `/v1/improvement-passes/${res.body.id}`);
+    const read = await h.call('GET', `/v1/improve-runs/${res.body.id}`);
     expect(read.body.id).toBe(res.body.id);
-    const listed = await h.call('GET', `/v1/improvement-passes?agentId=${AGENT}`);
+    const listed = await h.call('GET', `/v1/improve-runs?agentId=${AGENT}`);
     expect(listed.body.data.map((p: { id: string }) => p.id)).toEqual([res.body.id]);
-    const cancelled = await h.call('POST', `/v1/improvement-passes/${res.body.id}/cancel`, {});
+    const cancelled = await h.call('POST', `/v1/improve-runs/${res.body.id}/cancel`, {});
     expect(cancelled.body.status).toBe('cancelled');
-    const again = await h.call('POST', `/v1/improvement-passes/${res.body.id}/cancel`, {});
+    const again = await h.call('POST', `/v1/improve-runs/${res.body.id}/cancel`, {});
     expect(again.status).toBe(409);
-    expect(again.body.error.code).toBe('improvement-pass-finished');
+    expect(again.body.error.code).toBe('improve-run-finished');
   });
 
   test("counts everyone's corrections until the project names an expert group", async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     // No expert (restricted) corrector group is named, so every correction counts.
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
     expect(res.body.groupWeights).toBe('as-recorded');
   });
 
   test('switches to trusted corrections once the project names an expert group', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     await corrections.createGroup({
       tenantId,
@@ -2424,18 +2424,18 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
     expect(res.body.groupWeights).toBe('experts-only');
   });
 
   test('a tenant-wide expert group names experts for every project', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     await corrections.createGroup({
       tenantId,
@@ -2446,17 +2446,17 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
   test('an expert group on the agent being improved switches to trusted', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     await corrections.createGroup({
       tenantId,
@@ -2467,17 +2467,17 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
   test("an expert group on another agent doesn't count: still counts everyone", async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     await corrections.createGroup({
       tenantId,
@@ -2488,17 +2488,17 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
   test("an expert group in another project doesn't count: still counts everyone", async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     await corrections.createGroup({
       tenantId,
@@ -2509,20 +2509,20 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
   test("an expert group on this agent in another project doesn't count: still counts everyone", async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     // Same agent id, but scoped to another project: the agent clause must match
-    // the pass's own project, so this must not flip the pass to trusted.
+    // the Improve run's own project, so this must not flip the Improve run to trusted.
     await corrections.createGroup({
       tenantId,
       scope: { kind: 'agent', projectId: randomUUID() as ProjectId, agentId: AGENT },
@@ -2532,17 +2532,17 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
   test('finds an expert group past the first page of its scope', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     // The expert group is the oldest, so it falls on the second page once 100
     // newer open groups are listed ahead of it: the resolver must read on.
@@ -2563,21 +2563,21 @@ describe('improvement passes', () => {
     }
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
   test("resolves against the test set's project, not where the agent is made", async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     const testSetProjectId = randomUUID() as ProjectId;
     // The agent is made in `projectId`, but its test set reads corrections from
-    // another environment's project, where the expert group lives: the pass
+    // another environment's project, where the expert group lives: the Improve run
     // counts trusted only, keying off the test set's project.
     await corrections.createGroup({
       tenantId,
@@ -2588,22 +2588,22 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
       testSetProjectId,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
   test("an expert group only where the agent is made, not in the test set's project, doesn't count", async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     const testSetProjectId = randomUUID() as ProjectId;
     // The inverse: the expert group is in the agent's own project, but the
-    // test set reads from another, so the default must NOT flip — the pass
+    // test set reads from another, so the default must NOT flip — the Improve run
     // counts the test set project's corrections, not `from.projectId`'s.
     await corrections.createGroup({
       tenantId,
@@ -2614,18 +2614,18 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
       testSetProjectId,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
   test('a non-corrections test set keys off its row project, not its spec project', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     const rowProjectId = randomUUID() as ProjectId;
     const specProjectId = randomUUID() as ProjectId;
@@ -2642,7 +2642,7 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
       testSetRecord: {
         id: 'acme.scoring-judged',
@@ -2654,13 +2654,13 @@ describe('improvement passes', () => {
       } as unknown as TestSetRecord,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
   test('a missing test set falls back to the project the agent is made in', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     // The test set binding finds no record; the default then keys off the agent
     // version's project, where this expert group lives. Dropping the
@@ -2674,18 +2674,18 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
       testSetRecord: null,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
   test("an expert group on the agent in the test set's project flips the default", async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     const testSetProjectId = randomUUID() as ProjectId;
     // The agent-scope expert group is in the TEST_SET's project, not the agent's
@@ -2700,50 +2700,54 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
       testSetProjectId,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
   test('an explicit groupWeights skips the test set read', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     // With `groupWeights` set, the default isn't resolved, so the route must
     // not read the test set at all — the stub throws if it does.
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
       testSetGetThrows: true,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', {
+    const res = await h.call('POST', '/v1/improve-runs', {
       ...IMPROVE,
       groupWeights: 'as-recorded',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
   test('with no corrector-group registry wired, the test set read is skipped', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     // No correctionRegistry, so there are no corrector groups to resolve a default
     // from: the route must not read the test set — the stub throws if it does.
-    const h = await harness({ tunable: true, passes: passes.binding, testSetGetThrows: true });
+    const h = await harness({
+      tunable: true,
+      improveRuns: improveRuns.binding,
+      testSetGetThrows: true,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
     expect(res.body.groupWeights).toBe('experts-only');
   });
 
   test('an unrestricted group is not an expert group: still counts everyone', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     await corrections.createGroup({
       tenantId,
@@ -2753,63 +2757,63 @@ describe('improvement passes', () => {
     });
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
   test('an explicit groupWeights always wins over the project default', async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const corrections = inMemoryCorrections();
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     // No expert group named, but the caller asks for experts-only outright.
-    const res = await h.call('POST', '/v1/proposals/improve', {
+    const res = await h.call('POST', '/v1/improve-runs', {
       ...IMPROVE,
       groupWeights: 'experts-only',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(improveRuns.started[0]).toMatchObject({ groupWeights: 'experts-only' });
     expect(res.body.groupWeights).toBe('experts-only');
   });
 
-  test('no pass starts for an agent whose project is suspended: 409 project-suspended; restored, it starts', async () => {
-    const passes = inMemoryPasses();
+  test('no Improve run starts for an agent whose project is suspended: 409 project-suspended; restored, it starts', async () => {
+    const improveRuns = inMemoryImproveRuns();
     let suspended = true;
     const asked: string[] = [];
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       projectSuspended: async (_tenantId, pid) => {
         asked.push(pid as unknown as string);
         return suspended;
       },
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const refused = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const refused = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(refused.status).toBe(409);
     expect(refused.body.error.code).toBe('project-suspended');
     expect(asked).toEqual([projectId]);
-    expect(passes.started).toEqual([]);
+    expect(improveRuns.started).toEqual([]);
     suspended = false;
-    const started = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const started = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(started.status, JSON.stringify(started.body)).toBe(202);
-    expect(passes.started).toHaveLength(1);
+    expect(improveRuns.started).toHaveLength(1);
   });
 
-  test("a pass's comparisons show a refused template's issues and each drafted template's hypothesis", async () => {
-    const passes = inMemoryPasses();
-    const h = await harness({ passes: passes.binding });
+  test("an Improve run's comparisons show a refused template's issues and each drafted template's why", async () => {
+    const improveRuns = inMemoryImproveRuns();
+    const h = await harness({ improveRuns: improveRuns.binding });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const started = await h.call('POST', '/v1/proposals/improve', {
+    const started = await h.call('POST', '/v1/improve-runs', {
       ...IMPROVE,
       tiers: ['prompt'],
       model: { providerId: 'acme-llm', model: 'm-1' },
@@ -2826,49 +2830,49 @@ describe('improvement passes', () => {
         changed: { template: 'Score it, then call acme.export.' },
         failed: 'The drafted template was refused: it names "acme.export".',
         refused,
-        hypothesis: 'As the reviewer asked.',
+        why: 'As the reviewer asked.',
       },
     ];
     const id = started.body.id as string;
     const trigger = { triggerId: randomUUID(), fireId: randomUUID() };
-    passes.rows.set(id, {
-      ...(passes.rows.get(id) as ImprovementPass),
+    improveRuns.rows.set(id, {
+      ...(improveRuns.rows.get(id) as ImproveRun),
       comparisons,
       trigger,
-    } as ImprovementPass);
-    const read = await h.call('GET', `/v1/improvement-passes/${id}`);
+    } as ImproveRun);
+    const read = await h.call('GET', `/v1/improve-runs/${id}`);
     expect(read.body.comparisons[1]).toMatchObject({
       refused,
-      hypothesis: 'As the reviewer asked.',
+      why: 'As the reviewer asked.',
     });
-    // A pass an improve schedule started names the schedule and the fire.
+    // An Improve run an improve schedule started names the schedule and the fire.
     expect(read.body.trigger).toEqual(trigger);
   });
 
-  test('a prompt pass needs a model, drafts 3 templates by default, and needs a prompt block', async () => {
-    const passes = inMemoryPasses();
-    const h = await harness({ passes: passes.binding });
+  test('a prompt Improve run needs a model, drafts 3 templates by default, and needs a prompt block', async () => {
+    const improveRuns = inMemoryImproveRuns();
+    const h = await harness({ improveRuns: improveRuns.binding });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const noModel = await h.call('POST', '/v1/proposals/improve', {
+    const noModel = await h.call('POST', '/v1/improve-runs', {
       ...IMPROVE,
       tiers: ['prompt'],
     });
     expect(noModel.status).toBe(400);
-    expect(noModel.body.error.message).toContain('`model` is required for a prompt pass');
+    expect(noModel.body.error.message).toContain('`model` is required for a prompt Improve run');
     const model = { providerId: 'acme-llm', model: 'm-1' };
-    const res = await h.call('POST', '/v1/proposals/improve', {
+    const res = await h.call('POST', '/v1/improve-runs', {
       ...IMPROVE,
       tiers: ['prompt'],
       model,
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body).toMatchObject({ tiers: ['prompt'], model, candidates: 3 });
-    expect(passes.started[0]).toMatchObject({ tiers: ['prompt'], model, candidates: 3 });
-    const settingsWithModel = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, model });
+    expect(improveRuns.started[0]).toMatchObject({ tiers: ['prompt'], model, candidates: 3 });
+    const settingsWithModel = await h.call('POST', '/v1/improve-runs', { ...IMPROVE, model });
     expect(settingsWithModel.status).toBe(400);
     expect(
       (
-        await h.call('POST', '/v1/proposals/improve', {
+        await h.call('POST', '/v1/improve-runs', {
           ...IMPROVE,
           tiers: ['prompt'],
           model,
@@ -2878,11 +2882,11 @@ describe('improvement passes', () => {
     ).toBe(400);
   });
 
-  test('a prompt pass on a version with inline instructions is refused (400), with reason no-pinned-prompt-block', async () => {
-    const passes = inMemoryPasses();
-    const h = await harness({ passes: passes.binding, inlineInstructions: true });
+  test('a prompt Improve run on a version with inline instructions is refused (400), with reason no-pinned-prompt-block', async () => {
+    const improveRuns = inMemoryImproveRuns();
+    const h = await harness({ improveRuns: improveRuns.binding, inlineInstructions: true });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', {
+    const res = await h.call('POST', '/v1/improve-runs', {
       ...IMPROVE,
       tiers: ['prompt'],
       model: { providerId: 'acme-llm', model: 'm-1' },
@@ -2891,56 +2895,56 @@ describe('improvement passes', () => {
     expect(res.body.error.code).toBe('validation-failed');
     expect(res.body.error.details).toEqual({ reason: 'no-pinned-prompt-block', issues: [] });
     expect(res.body.error.message).toContain('pinned prompt block');
-    expect(passes.started).toHaveLength(0);
+    expect(improveRuns.started).toHaveLength(0);
   });
 
   test('a version that pins nothing tunable is refused (400), with reason no-tunable-keys, saying how to mark keys', async () => {
-    const passes = inMemoryPasses();
-    const h = await harness({ passes: passes.binding });
+    const improveRuns = inMemoryImproveRuns();
+    const h = await harness({ improveRuns: improveRuns.binding });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('validation-failed');
     expect(res.body.error.details).toEqual({ reason: 'no-tunable-keys', issues: [] });
     expect(res.body.error.message).toContain('x-kindgi-tunable');
-    expect(passes.started).toHaveLength(0);
+    expect(improveRuns.started).toHaveLength(0);
   });
 
-  test("a model-settings block's tunable keys are something to tune: the pass starts", async () => {
-    const passes = inMemoryPasses();
+  test("a model-settings block's tunable keys are something to tune: the Improve run starts", async () => {
+    const improveRuns = inMemoryImproveRuns();
     const h = await harness({
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       modelSettings: true,
       modelSchema: MODEL_SCHEMA,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started).toHaveLength(1);
+    expect(improveRuns.started).toHaveLength(1);
   });
 
   test("an agent version that names its model leaves the block's model untried, and says so when nothing else is tunable (400)", async () => {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const h = await harness({
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       modelSettings: true,
       modelSchema: MODEL_SCHEMA,
       preferredModel: 'claude-sonnet-5-5',
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status).toBe(400);
     expect(res.body.error.details.reason).toBe('no-tunable-keys');
     expect(res.body.error.message).toBe(
-      `${AGENT} 1.0.0 pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it. In its model-settings block, "model" can't be tried: the agent version names its model (preferredProvider or preferredModel), and a model-settings block that named one too would name it twice.`,
+      `${AGENT} 1.0.0 pins no settings block with keys marked "x-kindgi-tunable": there's nothing for an Improve run to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it. In its model-settings block, "model" can't be tried: the agent version names its model (preferredProvider or preferredModel), and a model-settings block that named one too would name it twice.`,
     );
-    expect(passes.started).toHaveLength(0);
+    expect(improveRuns.started).toHaveLength(0);
   });
 
   test('without a tenant-wide live version: 409 suggested-change-needs-pin', async () => {
-    const passes = inMemoryPasses();
-    const h = await harness({ tunable: true, passes: passes.binding });
-    const res = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, fromVersion: '1.0.0' });
+    const improveRuns = inMemoryImproveRuns();
+    const h = await harness({ tunable: true, improveRuns: improveRuns.binding });
+    const res = await h.call('POST', '/v1/improve-runs', { ...IMPROVE, fromVersion: '1.0.0' });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('suggested-change-needs-pin');
   });
@@ -2952,30 +2956,30 @@ describe('improvement passes', () => {
     [{ objective: 'speed' }],
     [{ extra: 1 }],
   ])('a malformed request is bad input: %j', async (patch) => {
-    const h = await harness({ tunable: true, passes: inMemoryPasses().binding });
-    const res = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, ...patch });
+    const h = await harness({ tunable: true, improveRuns: inMemoryImproveRuns().binding });
+    const res = await h.call('POST', '/v1/improve-runs', { ...IMPROVE, ...patch });
     expect(res.status).toBe(400);
   });
 
-  test('without improvement passes in the runtime: 501 improve-unsupported, for reads too', async () => {
+  test('without Improve runs in the runtime: 501 improve-unsupported, for reads too', async () => {
     const h = await harness({ tunable: true });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status).toBe(501);
     expect(res.body.error.code).toBe('improve-unsupported');
-    expect((await h.call('GET', '/v1/improvement-passes')).status).toBe(501);
+    expect((await h.call('GET', '/v1/improve-runs')).status).toBe(501);
   });
 
-  test('improve needs publish on the agent; a pass of an agent the caller cannot read is 404', async () => {
-    const passes = inMemoryPasses();
+  test('improve needs publish on the agent; an Improve run of an agent the caller cannot read is 404', async () => {
+    const improveRuns = inMemoryImproveRuns();
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       grants: [`read agent:${AGENT}`],
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    expect((await h.call('POST', '/v1/proposals/improve', IMPROVE)).status).toBe(403);
-    const pass = await passes.binding.start({
+    expect((await h.call('POST', '/v1/improve-runs', IMPROVE)).status).toBe(403);
+    const improveRun = await improveRuns.binding.start({
       tenantId,
       agentId: 'acme.secret',
       fromVersion: '1.0.0',
@@ -2987,8 +2991,8 @@ describe('improvement passes', () => {
       budget: { maxCostUsd: 1, maxCandidates: 1 },
       requestedBy: { kind: 'user', id: 'u' },
     });
-    expect((await h.call('GET', `/v1/improvement-passes/${pass.id}`)).status).toBe(404);
-    expect((await h.call('GET', '/v1/improvement-passes')).body.data).toEqual([]);
+    expect((await h.call('GET', `/v1/improve-runs/${improveRun.id}`)).status).toBe(404);
+    expect((await h.call('GET', '/v1/improve-runs')).body.data).toEqual([]);
   });
 });
 
@@ -3011,16 +3015,16 @@ describe("POST /v1/suggested-changes/:id/evaluate: who is made the derived versi
   });
 });
 
-describe('POST /v1/proposals/improve/estimate', () => {
+describe('POST /v1/improve-runs/check', () => {
   const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, testSetId: 'acme.scoring-judged' };
 
-  /** The in-memory passes binding plus an `estimateBasis` stub, and the inputs it saw. */
-  function withEstimate(basis: ImprovementPassEstimateBasis) {
-    const passes = inMemoryPasses();
-    const seen: EstimateImprovementPassInput[] = [];
-    const binding: ImprovementPassBinding = {
-      ...passes.binding,
-      async estimateBasis(input) {
+  /** The in-memory Improve runs binding plus an `checkBasis` stub, and the inputs it saw. */
+  function withEstimate(basis: ImproveRunCheckBasis) {
+    const improveRuns = inMemoryImproveRuns();
+    const seen: CheckImproveRunInput[] = [];
+    const binding: ImproveRunBinding = {
+      ...improveRuns.binding,
+      async checkBasis(input) {
         seen.push(input);
         return basis;
       },
@@ -3030,9 +3034,9 @@ describe('POST /v1/proposals/improve/estimate', () => {
 
   test('estimates min(cap, replays × the version mean) and reports the basis', async () => {
     const { binding, seen } = withEstimate({ replays: 10, meanRunCostUsd: '0.2' });
-    const h = await harness({ tunable: true, passes: binding });
+    const h = await harness({ tunable: true, improveRuns: binding });
     // No tenant-wide pin: a cost preview is lighter than a start.
-    const res = await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs/check', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     // 10 × $0.20 = $2.00, under the default $5 cap.
     expect(res.body).toEqual({
@@ -3057,8 +3061,8 @@ describe('POST /v1/proposals/improve/estimate', () => {
 
   test('clamps the estimate to the budget cap: it never exceeds maxCostUsd', async () => {
     const { binding } = withEstimate({ replays: 1000, meanRunCostUsd: '1' });
-    const h = await harness({ tunable: true, passes: binding });
-    const res = await h.call('POST', '/v1/proposals/improve/estimate', {
+    const h = await harness({ tunable: true, improveRuns: binding });
+    const res = await h.call('POST', '/v1/improve-runs/check', {
       ...IMPROVE,
       budget: { maxCostUsd: 20 },
     });
@@ -3070,8 +3074,8 @@ describe('POST /v1/proposals/improve/estimate', () => {
 
   test('leaves estimatedCostUsd absent when the version has no cost history', async () => {
     const { binding } = withEstimate({ replays: 10 });
-    const h = await harness({ tunable: true, passes: binding });
-    const res = await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    const h = await harness({ tunable: true, improveRuns: binding });
+    const res = await h.call('POST', '/v1/improve-runs/check', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body).toEqual({ maxCostUsd: '5', basis: { replays: 10 } });
     expect('estimatedCostUsd' in res.body).toBe(false);
@@ -3079,9 +3083,9 @@ describe('POST /v1/proposals/improve/estimate', () => {
 
   test('forwards the prompt options (model, candidates) to the basis', async () => {
     const { binding, seen } = withEstimate({ replays: 4, meanRunCostUsd: '0.5' });
-    const h = await harness({ passes: binding });
+    const h = await harness({ improveRuns: binding });
     const model = { providerId: 'acme-llm', model: 'm-1' };
-    const res = await h.call('POST', '/v1/proposals/improve/estimate', {
+    const res = await h.call('POST', '/v1/improve-runs/check', {
       ...IMPROVE,
       tiers: ['prompt'],
       model,
@@ -3093,30 +3097,37 @@ describe('POST /v1/proposals/improve/estimate', () => {
 
   test('a malformed body is bad input (400) and asks the basis for nothing', async () => {
     const { binding, seen } = withEstimate({ replays: 1, meanRunCostUsd: '1' });
-    const h = await harness({ tunable: true, passes: binding });
-    const res = await h.call('POST', '/v1/proposals/improve/estimate', { ...IMPROVE, extra: 1 });
+    const h = await harness({ tunable: true, improveRuns: binding });
+    const res = await h.call('POST', '/v1/improve-runs/check', { ...IMPROVE, extra: 1 });
     expect(res.status).toBe(400);
     expect(seen).toEqual([]);
   });
 
   test('needs publish on the agent: a read-only caller is 403', async () => {
     const { binding } = withEstimate({ replays: 1, meanRunCostUsd: '1' });
-    const h = await harness({ tunable: true, passes: binding, grants: [`read agent:${AGENT}`] });
-    expect((await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE)).status).toBe(403);
+    const h = await harness({
+      tunable: true,
+      improveRuns: binding,
+      grants: [`read agent:${AGENT}`],
+    });
+    expect((await h.call('POST', '/v1/improve-runs/check', IMPROVE)).status).toBe(403);
   });
 
   test('without an estimate basis in the runtime: 501 improve-unsupported', async () => {
-    // The passes binding has no `estimateBasis`.
-    const withPasses = await harness({ tunable: true, passes: inMemoryPasses().binding });
-    const res = await withPasses.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    // The Improve runs binding has no `checkBasis`.
+    const withImproveRuns = await harness({
+      tunable: true,
+      improveRuns: inMemoryImproveRuns().binding,
+    });
+    const res = await withImproveRuns.call('POST', '/v1/improve-runs/check', IMPROVE);
     expect(res.status).toBe(501);
     expect(res.body.error.code).toBe('improve-unsupported');
-    // And with no improvement-passes binding at all.
+    // And with no improve-runs binding at all.
     const none = await harness({ tunable: true });
-    expect((await none.call('POST', '/v1/proposals/improve/estimate', IMPROVE)).status).toBe(501);
+    expect((await none.call('POST', '/v1/improve-runs/check', IMPROVE)).status).toBe(501);
   });
 
-  // A pass can work in a project other than its version's: an order carries
+  // An Improve run can work in a project other than its version's: an order carries
   // the agent from its project to prod, and prod reaches the agent, its own
   // test set and the versions shipped to it.
   const PROD = randomUUID() as ProjectId;
@@ -3221,8 +3232,8 @@ describe('POST /v1/proposals/improve/estimate', () => {
     'refuses $label identically on /improve and /improve/estimate ($status $code)',
     async ({ opts, body, status, code }) => {
       const binding = withEstimate({ replays: 1, meanRunCostUsd: '1' }).binding;
-      const h = await harness({ tunable: true, passes: binding, ...opts });
-      for (const path of ['/v1/proposals/improve', '/v1/proposals/improve/estimate'] as const) {
+      const h = await harness({ tunable: true, improveRuns: binding, ...opts });
+      for (const path of ['/v1/improve-runs', '/v1/improve-runs/check'] as const) {
         const res = await h.call('POST', path, body);
         expect(res.status, `${path}: ${JSON.stringify(res.body)}`).toBe(status);
         expect(res.body.error.code, path).toBe(code);
@@ -3325,36 +3336,36 @@ describe('an agent an order carries from its project to prod', () => {
     expect((await h.call('GET', `/v1/suggested-changes?agentId=${AGENT}`)).body.data).toEqual([]);
   });
 
-  test('an improvement pass starts and cancels with write where versions are made', async () => {
-    const passes = inMemoryPasses();
+  test('an Improve run starts and cancels with write where versions are made', async () => {
+    const improveRuns = inMemoryImproveRuns();
     const grants = [`read project:${PROD}`, `write project:${PROD}`, `publish agent:${AGENT}`];
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       grants,
       orders,
       items: items(),
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const refused = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const refused = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(refused.status, JSON.stringify(refused.body)).toBe(403);
     expect(refused.body.error.message).toContain(
       `improving agent "${AGENT}" needs write on project ${projectId}`,
     );
     grants.push(...maker);
-    const started = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const started = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(started.status, JSON.stringify(started.body)).toBe(202);
     grants.splice(0, grants.length, `read project:${PROD}`);
-    // A prod reader reads the pass (any of the agent's projects) but can't cancel it.
-    expect((await h.call('GET', `/v1/improvement-passes/${started.body.id}`)).status).toBe(200);
+    // A prod reader reads the Improve run (any of the agent's projects) but can't cancel it.
+    expect((await h.call('GET', `/v1/improve-runs/${started.body.id}`)).status).toBe(200);
     expect(
-      (await h.call('GET', '/v1/improvement-passes')).body.data.map((p: { id: string }) => p.id),
+      (await h.call('GET', '/v1/improve-runs')).body.data.map((p: { id: string }) => p.id),
     ).toEqual([started.body.id]);
-    const cancel = await h.call('POST', `/v1/improvement-passes/${started.body.id}/cancel`, {});
+    const cancel = await h.call('POST', `/v1/improve-runs/${started.body.id}/cancel`, {});
     expect(cancel.status, JSON.stringify(cancel.body)).toBe(403);
     grants.push(...maker);
     expect(
-      (await h.call('POST', `/v1/improvement-passes/${started.body.id}/cancel`, {})).body.status,
+      (await h.call('POST', `/v1/improve-runs/${started.body.id}/cancel`, {})).body.status,
     ).toBe('cancelled');
   });
 
@@ -3374,44 +3385,44 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     message: TAKES_CANDIDATES.takesCandidates.scopeReason,
   };
 
-  test('a pass starts (202)', async () => {
-    const passes = inMemoryPasses();
+  test('an Improve run starts (202)', async () => {
+    const improveRuns = inMemoryImproveRuns();
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       readOnly: 'takes-candidates',
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started).toHaveLength(1);
+    expect(improveRuns.started).toHaveLength(1);
   });
 
-  test('a read-only one refuses a pass (409 registry-read-only) and starts none', async () => {
-    const passes = inMemoryPasses();
-    const h = await harness({ tunable: true, passes: passes.binding, readOnly: true });
+  test('a read-only one refuses an Improve run (409 registry-read-only) and starts none', async () => {
+    const improveRuns = inMemoryImproveRuns();
+    const h = await harness({ tunable: true, improveRuns: improveRuns.binding, readOnly: true });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({
       code: 'registry-read-only',
       message: TAKES_CANDIDATES.reason,
     });
-    expect(passes.started).toEqual([]);
+    expect(improveRuns.started).toEqual([]);
   });
 
-  test('a pass for a scope narrower than the tenant is refused with the scope reason, and none starts', async () => {
-    const passes = inMemoryPasses();
+  test('an Improve run for a scope narrower than the tenant is refused with the scope reason, and none starts', async () => {
+    const improveRuns = inMemoryImproveRuns();
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       readOnly: 'takes-candidates',
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, scope: SEGMENT_WIRE });
+    const res = await h.call('POST', '/v1/improve-runs', { ...IMPROVE, scope: SEGMENT_WIRE });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject(NARROWER);
-    expect(passes.started).toEqual([]);
+    expect(improveRuns.started).toEqual([]);
   });
 
   test('a draft for a narrower scope is refused the same way, and none is kept', async () => {
@@ -3446,7 +3457,7 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
   });
 });
 
-describe("a pass started by hand works in one project: the one named, else its scope's, else its version's", () => {
+describe("an Improve run started by hand works in one project: the one named, else its scope's, else its version's", () => {
   const PROD = randomUUID() as ProjectId;
   const orders = [[projectId, PROD]] as const;
   const items = (): ItemRow[] => [
@@ -3482,11 +3493,11 @@ describe("a pass started by hand works in one project: the one named, else its s
   }
 
   async function improver(opts: { grants?: string[]; shipped?: string[] } = {}) {
-    const passes = inMemoryPasses();
+    const improveRuns = inMemoryImproveRuns();
     const asked: string[] = [];
     const h = await harness({
       tunable: true,
-      passes: passes.binding,
+      improveRuns: improveRuns.binding,
       orders,
       items: items(),
       referenceScope: reachByProject(opts.shipped),
@@ -3498,21 +3509,21 @@ describe("a pass started by hand works in one project: the one named, else its s
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const improve = (body: Record<string, unknown>) =>
-      h.call('POST', '/v1/proposals/improve', { agentId: AGENT, ...body });
-    return { ...h, passes, asked, improve };
+      h.call('POST', '/v1/improve-runs', { agentId: AGENT, ...body });
+    return { ...h, improveRuns, asked, improve };
   }
 
-  test("a scope in prod: the pass works in prod, on prod's test set, and asks whether prod is suspended", async () => {
+  test("a scope in prod: the Improve run works in prod, on prod's test set, and asks whether prod is suspended", async () => {
     const h = await improver();
     const res = await h.improve({ scope: PROD_SEGMENT, testSetId: PROD_SET });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(h.passes.started.map((p) => p.projectId)).toEqual([PROD]);
+    expect(h.improveRuns.started.map((p) => p.projectId)).toEqual([PROD]);
     expect(h.asked).toEqual([PROD]);
     // In the first environment, prod's test set is out of reach, as before.
     expect(refused(await h.improve({ scope: SEGMENT_WIRE, testSetId: PROD_SET }))).toEqual([
       `/testSetId test-set ${PROD_SET}`,
     ]);
-    expect(h.passes.started).toHaveLength(1);
+    expect(h.improveRuns.started).toHaveLength(1);
   });
 
   test("a tenant scope: the version's project, unless `projectId` names another", async () => {
@@ -3528,10 +3539,10 @@ describe("a pass started by hand works in one project: the one named, else its s
       testSetId: PROD_SET,
     });
     expect(prod.status, JSON.stringify(prod.body)).toBe(202);
-    expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId, PROD]);
+    expect(h.improveRuns.started.map((p) => p.projectId)).toEqual([projectId, PROD]);
   });
 
-  test('a project or segment scope must be in `projectId`: 400, naming no project, and no pass', async () => {
+  test('a project or segment scope must be in `projectId`: 400, naming no project, and no Improve run', async () => {
     const h = await improver();
     for (const body of [
       { scope: SEGMENT_WIRE, projectId: PROD, testSetId: PROD_SET },
@@ -3542,13 +3553,13 @@ describe("a pass started by hand works in one project: the one named, else its s
       expect(res.status, JSON.stringify(res.body)).toBe(400);
       expect(res.body.error.code).toBe('bad-input');
       expect(res.body.error.message).toBe(
-        "An improve pass's scope must be in its project (`projectId`): it learns from that project's runs",
+        "An Improve run's scope must be in its project (`projectId`): it learns from that project's runs",
       );
     }
-    expect(h.passes.started).toEqual([]);
+    expect(h.improveRuns.started).toEqual([]);
   });
 
-  test('a version prod never got: refused at /fromVersion, naming no project, and no pass', async () => {
+  test('a version prod never got: refused at /fromVersion, naming no project, and no Improve run', async () => {
     const h = await improver({ shipped: [] });
     for (const body of [
       { scope: PROD_SEGMENT, testSetId: PROD_SET },
@@ -3563,10 +3574,10 @@ describe("a pass started by hand works in one project: the one named, else its s
     // Its own project reaches the version it was made in: not asked again there.
     const own = await h.improve({ scope: SEGMENT_WIRE, testSetId: DEV_SET });
     expect(own.status, JSON.stringify(own.body)).toBe(202);
-    expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId]);
+    expect(h.improveRuns.started.map((p) => p.projectId)).toEqual([projectId]);
   });
 
-  test("a project other than the version's needs write there, as the pass's test runs do", async () => {
+  test("a project other than the version's needs write there, as the Improve run's test runs do", async () => {
     const grants = [`read project:${projectId}`, `write project:${projectId}`];
     const h = await improver({ grants });
     const denied = await h.improve({ scope: PROD_SEGMENT, testSetId: PROD_SET });
@@ -3578,7 +3589,7 @@ describe("a pass started by hand works in one project: the one named, else its s
     grants.push(`write project:${PROD}`);
     const prod = await h.improve({ scope: PROD_SEGMENT, testSetId: PROD_SET });
     expect(prod.status, JSON.stringify(prod.body)).toBe(202);
-    expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId, PROD]);
+    expect(h.improveRuns.started.map((p) => p.projectId)).toEqual([projectId, PROD]);
   });
 
   test('`projectId` must be a project id when given', async () => {
@@ -3595,6 +3606,6 @@ describe("a pass started by hand works in one project: the one named, else its s
         message: '`projectId` must be a project id (a UUID)',
       });
     }
-    expect(h.passes.started).toEqual([]);
+    expect(h.improveRuns.started).toEqual([]);
   });
 });

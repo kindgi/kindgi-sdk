@@ -733,7 +733,7 @@ export async function runIn(
 
 /**
  * A change that makes a new version of an item more than one project
- * serves (an improvement pass, a suggested change): `write` where its new
+ * serves (an Improve run, a suggested change): `write` where its new
  * versions are made (`madeIn`), the item's own right not asked.
  * `undefined` when allowed; else the 403, naming that project.
  */

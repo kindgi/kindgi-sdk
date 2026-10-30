@@ -136,7 +136,7 @@ An Improve run searches for a better version of the settings Improve may
 change:
 
 ```sh
-pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-prompt-52080 --max-candidates=4 --wait
+pnpm exec kindgi improve runs start --agent=acme.rank.scorer --tenant --test-set=acme.rank-prompt-52080 --max-candidates=4 --wait
 ```
 
 - **The agent and scope:** `--agent` and `--tenant`, or another scope flag.
@@ -146,11 +146,11 @@ pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=
   runs. Its version and test cases must be ones
   [that project's runs can use](../../projects/organize-by-org-and-project/#what-a-projects-runs-can-use),
   and its test runs run there. With `--project`, it's that project. With
-  `--tenant` or `--org`, it's `--pass-project=<project-id>`, else the agent
+  `--tenant` or `--org`, it's `--run-project=<project-id>`, else the agent
   version's. A project other than the version's needs `write` there. In the
   API and the clients, it's `projectId` (`project_id` in Python). The Improve
   run's project needs runtime 0.2.0 or later: an earlier one refuses
-  `--pass-project`, and its Improve run works in the agent version's project.
+  `--run-project`, and its Improve run works in the agent version's project.
 - **The test cases:** `--test-set`, built from corrections.
 - **The budget:** `--max-cost` in US dollars, 5 by default and at most 100,
   and `--max-candidates`, 30 by default and at most 200. An Improve run stops
@@ -175,7 +175,7 @@ pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=
   [Let it try a cheaper model or another temperature](#let-it-try-a-cheaper-model-or-another-temperature).
 
 Before you start, you can ask what an Improve run would cost: `POST
-/v1/proposals/improve/estimate`, with the body an Improve run would start from,
+/v1/improve-runs/check`, with the body an Improve run would start from,
 answers `estimatedCostUsd` — the replay count times the version's mean cost
 over its recent completed runs, capped at `--max-cost` — and starts nothing.
 Treat it as an approximation: a candidate can cost more or less per run than
@@ -187,7 +187,7 @@ whole budget.
 It answers at once with the Improve run. `--wait` waits for its outcome, at
 most 30 minutes, and prints it:
 
-- **`proposed`**, with the suggested change it wrote, which a person decides:
+- **`suggested`**, with the suggested change it wrote, which a person decides:
   the Improve run asks for its review itself, in the name of whoever started
   it, so the suggested change waits in reviewers' approvals. An
   Improve run's suggested change always waits for a reviewer, because Improve,
@@ -259,7 +259,7 @@ wrote none. The cost is 0 on `dev-echo`, which costs nothing:
 }
 ```
 
-`kindgi proposals passes get <pass-id>` reads the same Improve run back later.
+`kindgi improve runs get <improve-run-id>` reads the same Improve run back later.
 
 ### Whose corrections it learns from
 
@@ -298,7 +298,7 @@ it pins. Otherwise the Improve run is refused with `details.reason`
 `--tier=prompt`:
 
 ```sh
-pnpm exec kindgi proposals improve --agent=acme-ops.reply-drafter --tenant \
+pnpm exec kindgi improve runs start --agent=acme-ops.reply-drafter --tenant \
   --test-set=acme.reply-cases --tier=prompt \
   --provider=anthropic --model=claude-sonnet-5-5 --drafts=3
 ```
@@ -313,7 +313,7 @@ In the API and the clients, they're `tiers: ["prompt"]`, `model` and
 `candidates`:
 
 ```sh
-curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
+curl -X POST "$KINDGI_API_URL/v1/improve-runs" \
   -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
   -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"testSetId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
 ```
@@ -337,15 +337,15 @@ draft it writes is tried only if it stays within what the agent already has:
 - it isn't empty or the current instructions, and it's at most twice as long
   as the current ones: at least 2,000 characters, never over 20,000;
 - it quotes no test case: a run of 8 or more words in a row from what the
-  drafter was shown is refused, and cut from the hypothesis it keeps.
+  drafter was shown is refused, and cut from the why it keeps.
 
 A refused draft shows in the Improve run's `comparisons` with its issues, as
-`refused`, and each drafted one with its `hypothesis`. Here a local model
+`refused`, and each drafted one with its `why`. Here a local model
 drafted instructions reading a variable the agent doesn't have. The drafts are
 that model's words, and yours will differ:
 
 ```sh
-pnpm exec kindgi proposals passes get <pass-id>
+pnpm exec kindgi improve runs get <improve-run-id>
 ```
 
 ```json
@@ -366,7 +366,7 @@ pnpm exec kindgi proposals passes get <pass-id>
       "changed": {
         "template": "Rank the candidates from most to least preferred. Consider the following weights for each pair: {{score}}. Report the ranking."
       },
-      "hypothesis": "This template emphasizes ranking from most to least preferred and uses {{score}} to include specific weights, aiming to provide more context for accurate ranking.",
+      "why": "This template emphasizes ranking from most to least preferred and uses {{score}} to include specific weights, aiming to provide more context for accurate ranking.",
       "refused": [
         {
           "path": "/template",
@@ -380,7 +380,7 @@ pnpm exec kindgi proposals passes get <pass-id>
 }
 ```
 
-An Improve run's drafts and hypotheses live on in it, the suggested change and
+An Improve run's drafts and reasons live on in it, the suggested change and
 the published block version, which erasing a person's words doesn't reach.
 That's why a draft may not quote a test case, and why a person reviews it before
 it goes live.
@@ -388,22 +388,21 @@ it goes live.
 ## Read Improve runs back, or stop one
 
 ```sh
-pnpm exec kindgi proposals passes list --table
-pnpm exec kindgi proposals passes get <pass-id>
-pnpm exec kindgi proposals passes cancel <pass-id>
+pnpm exec kindgi improve runs list --table
+pnpm exec kindgi improve runs get <improve-run-id>
+pnpm exec kindgi improve runs cancel <improve-run-id>
 ```
 
 - `list --table` prints each Improve run's agent version, scope, status, the
   candidates tried, the cost and the outcome.
 - `get` adds its runs on the test cases, each a test run you can open.
-  `<pass-id>` is the Improve run's `id`.
+  `<improve-run-id>` is the Improve run's `id`.
 - `cancel` stops a running Improve run: it ends `cancelled` and writes no
   suggested change. An Improve run that already ended answers
-  `409 improvement-pass-finished`.
+  `409 improve-run-finished`.
 
-From your app: `proposals.improve` and `improvementPasses.list`, `get` and
-`cancel` in TypeScript; `proposals.improve` and `improvement_passes` in
-Python. An endpoint subscribed to `improvement-pass.finished` gets each Improve
+From your app: `improveRuns.start`, `check`, `list`, `get` and `cancel` in
+TypeScript; `improve_runs` in Python. An endpoint subscribed to `improve-run.finished` gets each Improve
 run when it ends ([Webhook events and deliveries](../../webhooks/webhook-events/#improve-runs)).
 
 ## Run Improve on a schedule

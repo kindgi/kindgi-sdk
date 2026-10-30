@@ -226,7 +226,7 @@ describe('kindgi schedules', () => {
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stdout).toContain('improve acme.scorer (project p-1)');
-    const passId = '33333333-3333-4333-8333-333333333333';
+    const improveRunId = '33333333-3333-4333-8333-333333333333';
     const fires = await runCli({
       argv: ['schedules', 'fires', ID, '--table', '--url=https://x', '--token=t'],
       env: {},
@@ -237,7 +237,7 @@ describe('kindgi schedules', () => {
           schedules: {
             fires: async () => ({
               data: [
-                { ...FIRE, runId: undefined, missedCount: undefined, passId },
+                { ...FIRE, runId: undefined, missedCount: undefined, improveRunId },
                 {
                   ...FIRE,
                   fireId: 'f-2',
@@ -254,7 +254,7 @@ describe('kindgi schedules', () => {
         }) as never,
     });
     expect(fires.exitCode, fires.stderr).toBe(0);
-    expect(fires.stdout).toContain(`pass ${passId}`);
+    expect(fires.stdout).toContain(`pass ${improveRunId}`);
     expect(fires.stdout).toMatch(
       /skipped\s+Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong/,
     );

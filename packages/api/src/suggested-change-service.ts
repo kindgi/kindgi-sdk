@@ -33,12 +33,6 @@ import { sameUserId } from './caller.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
-import type {
-  EvalComparison,
-  TestRun,
-  TestRunBinding,
-  TestRunStartOutcome,
-} from './test-run-binding.js';
 import type { GateApproval } from './gate.js';
 import type {
   AgentReleaseBindings,
@@ -67,21 +61,27 @@ import {
 import type {
   ProposedChange,
   StoredSuggestedChange,
-  SuggestedChangeDrafter,
   SuggestedChangeEvaluationRef,
   SuggestedChangeEvidence,
+  SuggestedChangeMadeBy,
   SuggestedChangeObjective,
   SuggestedChangeRule,
   SuggestedChangeStep,
   SuggestedChangeTier,
   SupervisorBinding,
 } from './supervisor-binding.js';
+import type {
+  EvalComparison,
+  TestRun,
+  TestRunBinding,
+  TestRunStartOutcome,
+} from './test-run-binding.js';
 
 /**
  * The suggested-change lifecycle, from the bindings it runs on: what
- * `/v1/suggested-changes` serves, and what a runtime's improvement pass drafts
+ * `/v1/suggested-changes` serves, and what a runtime's Improve run drafts
  * and evaluates its suggested change with. No authorization here: the route
- * checks the caller; a pass acts as the runtime. Each call answers an
+ * checks the caller; an Improve run acts as the runtime. Each call answers an
  * outcome; an error carries the wire code the route answers with.
  */
 export interface SuggestedChangeServiceDeps {
@@ -149,9 +149,9 @@ export interface DraftSuggestedChangeInput {
   readonly tier: SuggestedChangeTier;
   readonly blockId: string;
   readonly content: ProposedChange['change']['content'];
-  readonly hypothesis: string;
+  readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
-  readonly drafter: SuggestedChangeDrafter;
+  readonly madeBy: SuggestedChangeMadeBy;
 }
 
 export interface EvaluateSuggestedChangeInput {
@@ -161,7 +161,7 @@ export interface EvaluateSuggestedChangeInput {
   readonly objective: SuggestedChangeObjective;
   readonly comparison?: EvalComparison;
   /**
-   * The current version replayed on the same cases (an improvement pass's
+   * The current version replayed on the same cases (an Improve run's
    * model-settings change): no correction it passes may fail on the
    * candidate, and under `rule: 'cheaper'` the candidate is kept for
    * being no worse and costing less. Absent: beat the recorded outputs.
@@ -199,7 +199,7 @@ export const DRAFTED_SUGGESTED_CHANGE_APPROVAL: GateApproval = {
  * not the requester; and, with an authorizer wired, able to read the
  * approval's `resource` — the decide route 404s a reviewer who can't
  * (routes/approvals.ts `mayRead`), so a count that ignored it could leave the
- * promotion stuck. A service requester (an improvement pass) is no
+ * promotion stuck. A service requester (an Improve run) is no
  * `user:<id>`, so every eligible reviewer counts; a human requester who is the
  * only one who counts counts as none, so they may approve their own request
  * rather than being deadlocked.
@@ -621,9 +621,9 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         scope: input.scope,
         tier: input.tier,
         change,
-        hypothesis: input.hypothesis,
+        why: input.why,
         ...(input.evidence !== undefined && { evidence: input.evidence }),
-        drafter: input.drafter,
+        madeBy: input.madeBy,
         fingerprint: fingerprintOf(input, change),
       });
       return {
@@ -794,7 +794,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       // the requester may approve their own, so they aren't stuck. A scope
       // policy's approval is the floor; the drafter's rule only tightens it.
       const drafted =
-        suggestedChange.drafter.kind === 'person'
+        suggestedChange.madeBy.kind === 'person'
           ? undefined
           : await draftedApproval(tenantId, input.actor, suggestedChange);
       const drafterApproval =

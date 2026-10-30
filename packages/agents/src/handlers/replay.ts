@@ -120,7 +120,7 @@ export interface ReplayBinding {
   sessionApproval?(input: ReplayTurnRef): Promise<ReplayApproval | undefined>;
   /**
    * Block content the replay runs instead of the agent version's pinned
-   * content (a comparison's `overrides`: an improvement pass's search):
+   * content (a comparison's `overrides`: an Improve run's search):
    * settings values and prompt templates, by block id. The same for every
    * turn of a replay, on resume too. `undefined` (or absent): the pinned
    * content.
