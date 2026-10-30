@@ -576,7 +576,7 @@ def test_an_enum_value_this_client_doesnt_know_isnt_sent() -> None:
 
 def test_a_baseline_this_client_doesnt_know_isnt_sent() -> None:
     # `EvalBaseline` is in a request and a response: read open, sent closed.
-    api, seen = client({"runId": PROMOTION["id"]})
+    api, seen = client({"testRunId": PROMOTION["id"]})
     body = {"projectId": PROMOTION["id"], "agentRef": {"agentId": "acme.triage"}}
     with pytest.raises(pydantic.ValidationError) as refused:
         api.test_runs.start(PROMOTION["id"], {**body, "baseline": UNKNOWN})
