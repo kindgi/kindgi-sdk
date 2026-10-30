@@ -671,13 +671,6 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         False,
     ),
-    "testSets.buildFromCorrections": Operation(
-        "testSets.buildFromCorrections",
-        "POST",
-        "/v1/test-sets/{testSetId}/versions/from-corrections",
-        "json",
-        True,
-    ),
     "testSets.listCases": Operation(
         "testSets.listCases",
         "GET",
@@ -6601,15 +6594,7 @@ class TestSetsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal[
-            "accuracy",
-            "pairwise",
-            "regression",
-            "human-review",
-            "benchmark",
-            "custom",
-            "corrections",
-        ]
+        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -6620,7 +6605,7 @@ class TestSetsResource:
     ) -> _models.TestSetCollectionPage:
         """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A test set built from corrections (`kind: corrections`) isn't listed, though it's still read by id: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
         return self._client._request(
             _OPERATIONS["testSets.list"],
@@ -6681,30 +6666,6 @@ class TestSetsResource:
             query={"projectId": project_id},
             headers={},
             response=_models.TestSet,
-            timeout=timeout,
-        )
-
-    def build_from_corrections(
-        self,
-        test_set_id: str | UUID,
-        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.BuildCorrectedTestSetResult:
-        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
-
-        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
-        """
-        return self._client._request(
-            _OPERATIONS["testSets.buildFromCorrections"],
-            path={"testSetId": test_set_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
-            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 
@@ -16509,15 +16470,7 @@ class AsyncTestSetsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        kind: Literal[
-            "accuracy",
-            "pairwise",
-            "regression",
-            "human-review",
-            "benchmark",
-            "custom",
-            "corrections",
-        ]
+        kind: Literal["accuracy", "pairwise", "regression", "human-review", "benchmark", "custom"]
         | None = None,
         name: str | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -16528,7 +16481,7 @@ class AsyncTestSetsResource:
     ) -> _models.TestSetCollectionPage:
         """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A test set built from corrections (`kind: corrections`) isn't listed, though it's still read by id: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
         return await self._client._request(
             _OPERATIONS["testSets.list"],
@@ -16589,30 +16542,6 @@ class AsyncTestSetsResource:
             query={"projectId": project_id},
             headers={},
             response=_models.TestSet,
-            timeout=timeout,
-        )
-
-    async def build_from_corrections(
-        self,
-        test_set_id: str | UUID,
-        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.BuildCorrectedTestSetResult:
-        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
-
-        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
-        """
-        return await self._client._request(
-            _OPERATIONS["testSets.buildFromCorrections"],
-            path={"testSetId": test_set_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
-            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 

@@ -9,7 +9,6 @@ import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import {
-  type ItemCheck,
   type ItemRights,
   type ItemServing,
   itemMiddleware,
@@ -20,6 +19,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import {
   EVAL_KINDS,
   type EvalKind,
+  LISTED_EVAL_KINDS,
   type TestSet,
   type TestSetRecord,
   type TestSetRegistryBinding,
@@ -29,7 +29,6 @@ import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
-import { UUID_RE } from './uuid-param.js';
 
 /**
  * Evaluation-test set resource routes — part of the admin control plane.
@@ -101,8 +100,7 @@ export function testSetsRouter(
         rights: itemRights,
         kind: 'test_set',
         id: (c) => c.req.param('testSetId') ?? '',
-        async today(c) {
-          const testSetId = c.req.param('testSetId') ?? '';
+        today(c) {
           // Starting a run (`POST /:testSetId/runs`, exactly) doesn't change the
           // test set, and the start route checks it all itself: `execute` on the
           // test set, `write` on the project and `execute` on the agent or flow.
@@ -110,22 +108,9 @@ export function testSetsRouter(
           if (c.req.method === 'POST' && under.length === 1 && under[0] === 'runs') {
             return undefined;
           }
-          // A test set built from corrections under a test set id never registered
-          // (no head row) has no test set to check yet: the build checks `admin`
-          // on the project it names, the project the new test set belongs to. A
-          // tombstoned test set keeps its head row, so it's checked as an existing
-          // one. Anything else under a test set id, and a build under an existing
-          // test set, checks the test set.
-          if (
-            c.req.method === 'POST' &&
-            c.req.path.endsWith('/versions/from-corrections') &&
-            !(await binding.headExists({ tenantId: c.get('tenantId') as TenantId, testSetId }))
-          ) {
-            return undefined;
-          }
           return c.req.method === 'GET' ? 'read' : 'admin';
         },
-        check: testSetCheck,
+        check: itemPathCheck,
         versionNotFound: testSetVersionNotFound,
       }),
     );
@@ -188,13 +173,20 @@ export function testSetsRouter(
     // items with an active version only (the default).
     const includeRetired = c.req.query('includeRetired') === 'true';
 
-    if (kindRaw !== undefined && kindRaw.length > 0 && !isEvalKind(kindRaw)) {
+    if (
+      kindRaw !== undefined &&
+      kindRaw.length > 0 &&
+      !(LISTED_EVAL_KINDS as readonly string[]).includes(kindRaw)
+    ) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
           {
             code: 'bad-input',
-            message: `Unknown eval kind "${kindRaw}". Expected one of: ${EVAL_KINDS.join(', ')}.`,
+            message:
+              kindRaw === 'corrections'
+                ? "Test sets built from corrections aren't listed: an agent's corrections are its test set, at `/v1/agents/{agentId}/test-set`."
+                : `Unknown eval kind "${kindRaw}". Expected one of: ${LISTED_EVAL_KINDS.join(', ')}.`,
           },
           requestId,
         ),
@@ -219,7 +211,11 @@ export function testSetsRouter(
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...(includeRetired && { includeRetired: true }),
     });
-    const visible = await readable(c, tenantId, page.data);
+    const visible = await readable(
+      c,
+      tenantId,
+      page.data.filter((s) => LISTED_EVAL_KINDS.includes(s.kind)),
+    );
     return c.json({
       data: visible.map(serializeTestSet),
       hasMore: page.nextCursor !== undefined,
@@ -520,32 +516,6 @@ export function testSetsRouter(
   });
 
   return r;
-}
-
-/**
- * What a route under a test set more than one project serves asks
- * (`itemPathCheck`), but for a test set built from corrections: `admin` in
- * the one project whose corrected runs it takes, where the new version is
- * made, as a test run follows its own project (rule 3). A body naming
- * none of the test set's projects is checked on every project, and the
- * route answers what's wrong with it.
- */
-async function testSetCheck(
-  c: Context<AppEnv>,
-  projects: readonly ProjectId[],
-): Promise<ItemCheck> {
-  if (c.req.method === 'POST' && c.req.path.endsWith('/versions/from-corrections')) {
-    const body = (await c.req.json().catch(() => null)) as { projectId?: unknown } | null;
-    const projectId = body?.projectId;
-    if (
-      typeof projectId === 'string' &&
-      UUID_RE.test(projectId) &&
-      projects.includes(projectId as ProjectId)
-    ) {
-      return { rule: 'on', action: 'admin', projectId };
-    }
-  }
-  return itemPathCheck(c);
 }
 
 function serializeTestSet(s: TestSetRecord): Record<string, unknown> {

@@ -3,15 +3,7 @@
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import {
-  integerFlag,
-  listFlag,
-  requiredPositional,
-  runSdk,
-  segmentsFlag,
-  stringFlag,
-  timeFlag,
-} from './helpers.js';
+import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const KINDS = [
@@ -21,7 +13,6 @@ const KINDS = [
   'human-review',
   'benchmark',
   'custom',
-  'corrections',
 ] as const;
 type Kind = (typeof KINDS)[number];
 
@@ -37,19 +28,6 @@ function requiredTestSetVersion(ctx: CommandContext): string {
   const version = testSetVersion(ctx);
   if (version === undefined) throw new UsageError('--test-set-version=<semver> is required');
   return version;
-}
-
-/** The string flags given, under their request field names (`{ agent: 'agentId' }`). */
-function givenFlags<F extends string>(
-  ctx: CommandContext,
-  fields: Readonly<Record<string, F>>,
-): Partial<Record<F, string>> {
-  const out: Partial<Record<F, string>> = {};
-  for (const [flag, field] of Object.entries(fields)) {
-    const value = stringFlag(ctx, flag);
-    if (value !== undefined) out[field] = value;
-  }
-  return out;
 }
 
 const PAGE_FLAGS = {
@@ -116,90 +94,6 @@ const show: LeafCommand = {
     }),
 };
 
-const fromCorrections: LeafCommand = {
-  kind: 'leaf',
-  name: 'from-corrections',
-  description:
-    "Build test cases: publish a `corrections` test set version whose cases are copies of an agent's or flow's corrected runs, with each item's corrections summed up.",
-  usage:
-    'kindgi test-sets from-corrections <test-set-id> --test-set-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--group=<corrector-group-id> ...] [--min-corrections=<n>] [--segment=<key:value> ...] [--description=<text>]',
-  optionSpec: {
-    'test-set-version': { type: 'string', description: 'The version to publish. Required.' },
-    project: { type: 'string', description: 'The project whose corrected runs to use. Required.' },
-    agent: { type: 'string', description: 'Use corrected runs of this agent.' },
-    'agent-version': {
-      type: 'string',
-      description: 'Only runs of this agent version. Needs `--agent`.',
-    },
-    flow: { type: 'string', description: 'Use corrected runs of this flow.' },
-    since: {
-      type: 'string',
-      description:
-        'Only runs first corrected at or after this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
-    },
-    until: {
-      type: 'string',
-      description:
-        'Only runs first corrected before this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
-    },
-    group: {
-      type: 'string',
-      multiple: true,
-      description:
-        'Count only corrections under this corrector group id. Repeat the flag for several groups.',
-    },
-    'min-corrections': {
-      type: 'string',
-      description: 'Leave out runs with fewer counted corrections (default 1).',
-    },
-    segment: {
-      type: 'string',
-      multiple: true,
-      description:
-        'Only runs started in this segment or below it, as key:value; repeat it for a path, coarse to fine (`--segment=company:acme --segment=role:cfo`).',
-    },
-    description: { type: 'string', description: 'A description for the test set version.' },
-  },
-  run: (ctx) =>
-    runSdk(ctx, 'test-sets from-corrections', async () => {
-      const testSetId = requiredPositional(ctx, 0, 'test-set-id');
-      const version = requiredTestSetVersion(ctx);
-      const projectId = stringFlag(ctx, 'project');
-      if (projectId === undefined) throw new UsageError('--project=<id> is required');
-      const agent = stringFlag(ctx, 'agent');
-      const flow = stringFlag(ctx, 'flow');
-      if ((agent === undefined) === (flow === undefined)) {
-        throw new UsageError('Give exactly one of --agent=<id> or --flow=<id>');
-      }
-      if (stringFlag(ctx, 'agent-version') !== undefined && agent === undefined) {
-        throw new UsageError('--agent-version needs --agent');
-      }
-      const minCorrections = integerFlag(ctx, 'min-corrections');
-      if (minCorrections !== undefined && minCorrections < 1) {
-        throw new UsageError('--min-corrections must be 1 or more');
-      }
-      const groups = listFlag(ctx, 'group');
-      const segments = segmentsFlag(ctx);
-      const since = timeFlag(ctx, 'since');
-      const until = timeFlag(ctx, 'until');
-      return await ctx.client().testSets.buildFromCorrections(testSetId, {
-        version,
-        projectId,
-        ...givenFlags(ctx, {
-          agent: 'agentId',
-          'agent-version': 'agentVersion',
-          flow: 'flowId',
-          description: 'description',
-        }),
-        ...(since !== undefined && { since }),
-        ...(until !== undefined && { until }),
-        ...(groups.length > 0 && { correctorGroupIds: groups }),
-        ...(minCorrections !== undefined && { minCorrections }),
-        ...(segments.length > 0 && { segments: [...segments] }),
-      });
-    }),
-};
-
 const cases: LeafCommand = {
   kind: 'leaf',
   name: 'cases',
@@ -227,6 +121,6 @@ export const testSetsCommand: Command = {
   kind: 'group',
   name: 'test-sets',
   description:
-    'Test sets and test cases built from corrections (list / show / from-corrections / cases).',
-  subcommands: [list, show, fromCorrections, cases],
+    "Test sets (list / show / cases). An agent's corrections are its test set: `kindgi agents` has no command for it yet.",
+  subcommands: [list, show, cases],
 };

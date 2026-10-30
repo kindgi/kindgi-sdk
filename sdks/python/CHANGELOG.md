@@ -63,6 +63,19 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `hypothesis` is `why`, and an Improve run's outcome `proposed` is
   `suggested`. The webhook event `improvement-pass.finished` is
   `improve-run.finished`, and its `data.pass_` is `data.improve_run`.
+- `kindgi`: **An agent's test set.** `client.agents.test_set` reads an agent's
+  test set one project at a time, sync and async: `get` (how many cases are
+  active and retired), `list_cases`, `add_case` (a case by hand, from a
+  correction's body on one of the agent's finished runs) and `retire_case`.
+  Its cases are the agent's corrections, except Won't fix and Removed ones,
+  and the cases added by hand. The models are `AgentTestSet`,
+  `TestSetCaseCounts`, `TestCase*` and `AddTestCaseBody`.
+- `kindgi`: **Test sets built from corrections are gone.**
+  `client.test_sets.build_from_corrections` is removed, with
+  `BuildCorrectedTestSetBody`, `BuildCorrectedTestSetResult` and
+  `CorrectorGroupId`. A `corrections` test set built before is still read by
+  id, but `client.test_sets.list` doesn't list it, and `kind="corrections"`
+  there is `400 bad-input`.
 
 ## 0.3.0
 

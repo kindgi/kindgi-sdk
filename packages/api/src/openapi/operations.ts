@@ -1265,8 +1265,11 @@ const TestSetKindFilterQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Filter to test sets of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | corrections`.',
-  schema: { $ref: '#/components/schemas/EvalKind' },
+    "Filter to test sets of a single kind. `corrections` isn't listed: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
+  schema: {
+    type: 'string',
+    enum: ['accuracy', 'pairwise', 'regression', 'human-review', 'benchmark', 'custom'],
+  },
 };
 
 const TestSetNameFilterQueryParam: ParameterSpec = {
@@ -6793,7 +6796,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'testSets.list',
     summary: 'List tenant test sets',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
+      "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A test set built from corrections (`kind: corrections`) isn't listed, though it's still read by id: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
     tags: ['test-sets'],
     security: 'bearer',
     parameters: [
@@ -6809,7 +6812,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of test sets.', schema: ref('TestSetCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed query parameter (unknown `kind`).'),
+      '400': ErrorResponse('Malformed query parameter (unknown `kind`, or `corrections`).'),
     },
   },
   {
@@ -6891,32 +6894,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '409': ErrorResponse(
         "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set's versions live in another project (a test set belongs to the project its first version was published into and never moves; the message doesn't name the project).",
       ),
-      '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
-      ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/test-sets/:testSetId/versions/from-corrections',
-    openapiPath: '/v1/test-sets/{testSetId}/versions/from-corrections',
-    operationId: 'testSets.buildFromCorrections',
-    summary: 'Build a test set from corrections',
-    description:
-      "Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
-    tags: ['test-sets'],
-    security: 'bearer',
-    parameters: [TestSetIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('BuildCorrectedTestSetBody') },
-    responses: {
-      '201': { description: 'Version published.', schema: ref('BuildCorrectedTestSetResult') },
-      ...CommonMutationErrors,
-      '400': ErrorResponse("Malformed body; or `projectId` isn't a project id (a UUID)."),
-      '403': ErrorResponse('`permission-denied`.'),
-      '409': ErrorResponse(
-        "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set belongs to another project than the body's `projectId` (testSets never move).",
-      ),
-      '501': ErrorResponse('`test-sets-not-supported`: this deployment cannot build test sets.'),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),

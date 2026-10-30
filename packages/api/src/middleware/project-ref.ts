@@ -30,7 +30,6 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/tools',
   '/guardrails',
   '/test-sets',
-  '/test-sets/:testSetId/versions/from-corrections',
   '/test-sets/:testSetId/runs',
   '/test-runs/:testRunId/rescore',
   '/improve-runs',

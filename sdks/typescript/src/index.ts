@@ -520,8 +520,6 @@ export type {
   SyncSecretsResult,
 } from './resources/deployments.js';
 export type {
-  BuildFromCorrectionsInput,
-  BuildFromCorrectionsResult,
   TestSetsClient,
   ListTestSetCasesQuery,
   TestSetCase,

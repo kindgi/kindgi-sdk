@@ -953,19 +953,6 @@ export const CLI_DEFAULTS = {
   'test-sets show': {
     'test-set-version': 'the latest version',
   },
-  'test-sets from-corrections': {
-    agent: 'required: one of `--agent`, `--flow`',
-    'agent-version': 'none',
-    group: 'none',
-    description: 'none',
-    flow: 'required: one of `--agent`, `--flow`',
-    'min-corrections': '`1`',
-    project: 'required',
-    segment: 'none',
-    since: 'none',
-    'test-set-version': 'required',
-    until: 'none',
-  },
   'test-sets cases': {
     cursor: 'none',
     limit: '`25` (at most `100`)',

@@ -5,7 +5,6 @@ import type { Cursor, ProjectId } from '@kindgi/types';
 
 import {
   type CorrectedRunCopy,
-  type CorrectedRunWithCorrections,
   type Correction,
   type CorrectionRecordInput,
   type CorrectionRegistryBinding,
@@ -17,7 +16,6 @@ import {
   expectOf,
   isReplayCopy,
   isTestCase,
-  segmentsStartWith,
 } from '../../src/index.js';
 
 /**
@@ -235,45 +233,6 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
         )
         .reverse();
       return page(rows, input.limit);
-    },
-    async listCorrectedRuns(input) {
-      const rows: CorrectedRunWithCorrections[] = [...copies.values()]
-        .reverse()
-        .filter((run) => {
-          const projectId = copyProjects.get(run.runId) as ProjectId;
-          return (
-            (input.projectId === undefined || projectId === input.projectId) &&
-            (input.agentId === undefined ||
-              (run.subject.kind === 'agent' && run.subject.id === input.agentId)) &&
-            (input.agentVersion === undefined || run.subject.version === input.agentVersion) &&
-            (input.flowId === undefined ||
-              (run.subject.kind === 'flow' && run.subject.id === input.flowId)) &&
-            (input.since === undefined || run.capturedAt >= input.since) &&
-            (input.until === undefined || run.capturedAt < input.until) &&
-            // A run corrected before segments were captured is in no segment.
-            (input.segments === undefined ||
-              (run.segments !== undefined && segmentsStartWith(run.segments, input.segments))) &&
-            // A comparison's replay is never a test set's case.
-            !isReplayCopy(run)
-          );
-        })
-        .map((run) => ({
-          projectId: copyProjects.get(run.runId) as ProjectId,
-          run,
-          // Newest first.
-          corrections: corrections
-            .filter((j) => j.runId === run.runId && j.unregisteredAt === undefined)
-            .reverse(),
-        }));
-      // The cursor is an offset into the newest-first rows.
-      const from = input.cursor === undefined ? 0 : Number(input.cursor);
-      const data = rows.slice(from, from + input.limit);
-      const next = from + data.length;
-      return {
-        data,
-        hasMore: next < rows.length,
-        ...(next < rows.length && { nextCursor: String(next) as Cursor }),
-      };
     },
     async get(input): Promise<CorrectionWithCopies | null> {
       const j = corrections.find((x) => x.id === input.correctionId);

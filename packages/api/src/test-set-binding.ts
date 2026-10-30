@@ -114,6 +114,15 @@ export const EVAL_KINDS = [
 export type EvalKind = (typeof EVAL_KINDS)[number];
 
 /**
+ * The kinds `GET /v1/test-sets` lists: all but `corrections`. A test set
+ * built from corrections is still read by id, but an agent's corrections
+ * are its test set now (`/v1/agents/{agentId}/test-set`).
+ */
+export const LISTED_EVAL_KINDS: readonly EvalKind[] = EVAL_KINDS.filter(
+  (kind) => kind !== 'corrections',
+);
+
+/**
  * Wire shape for a single test set. `spec` is a JSON object
  * whose shape is dictated by `kind` — the registry treats it as opaque
  * JSON so new kinds can extend the catalog without touching this file.

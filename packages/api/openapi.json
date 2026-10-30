@@ -148,7 +148,7 @@
     },
     {
       "name": "test-sets",
-      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` test set are copies of judged runs built from corrections (`POST .../versions/from-corrections`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
+      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`EvalCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
     },
     {
       "name": "blocks",
@@ -7662,104 +7662,6 @@
           },
           "hasMore": {
             "type": "boolean"
-          }
-        }
-      },
-      "BuildCorrectedTestSetBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "version",
-          "projectId"
-        ],
-        "description": "Name the agent (`agentId`) or the flow (`flowId`) whose corrected runs to use.",
-        "properties": {
-          "version": {
-            "type": "string",
-            "description": "Semver version to publish, e.g. `1.0.0`."
-          },
-          "projectId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "agentId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "agentVersion": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Needs `agentId`."
-          },
-          "flowId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "since": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Runs first corrected at or after this time."
-          },
-          "until": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Runs first corrected before this time."
-          },
-          "correctorGroupIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Count only corrections recorded under these corrector groups."
-          },
-          "minCorrections": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Leave out runs with fewer counted corrections. Default 1."
-          },
-          "segments": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ScopeSegment"
-            },
-            "description": "Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run corrected before its segments were recorded with its corrections is in no segment, so it's left out."
-          },
-          "description": {
-            "type": "string"
-          }
-        }
-      },
-      "BuildCorrectedTestSetResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "testSetId",
-          "version",
-          "kind",
-          "caseCount",
-          "truncated"
-        ],
-        "properties": {
-          "testSetId": {
-            "type": "string"
-          },
-          "version": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "corrections"
-            ]
-          },
-          "caseCount": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "truncated": {
-            "type": "boolean",
-            "description": "Whether more corrected runs matched than the 1000 cases a set holds."
           }
         }
       },
@@ -51499,7 +51401,7 @@
             }
           },
           "400": {
-            "description": "Malformed query parameter (unknown `kind`).",
+            "description": "Malformed query parameter (unknown `kind`, or `corrections`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -51529,7 +51431,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
+        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A test set built from corrections (`kind: corrections`) isn't listed, though it's still read by id: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
         "parameters": [
           {
             "name": "limit",
@@ -51556,10 +51458,18 @@
             "name": "kind",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/EvalKind"
+              "type": "string",
+              "enum": [
+                "accuracy",
+                "pairwise",
+                "regression",
+                "human-review",
+                "benchmark",
+                "custom"
+              ]
             },
             "required": false,
-            "description": "Filter to test sets of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | corrections`."
+            "description": "Filter to test sets of a single kind. `corrections` isn't listed: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`)."
           },
           {
             "name": "name",
@@ -52004,155 +51914,6 @@
             "description": "Semver version string of the test set (e.g. `1.2.0`)."
           }
         ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/test-sets/{testSetId}/versions/from-corrections": {
-      "post": {
-        "operationId": "testSets.buildFromCorrections",
-        "summary": "Build a test set from corrections",
-        "tags": [
-          "test-sets"
-        ],
-        "responses": {
-          "201": {
-            "description": "Version published.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BuildCorrectedTestSetResult"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed body; or `projectId` isn't a project id (a UUID).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "`permission-denied`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set belongs to another project than the body's `projectId` (testSets never move).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "`test-sets-not-supported`: this deployment cannot build test sets.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
-        "parameters": [
-          {
-            "name": "testSetId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BuildCorrectedTestSetBody"
-              }
-            }
-          }
-        },
         "security": [
           {
             "bearerAuth": []

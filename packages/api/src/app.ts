@@ -119,6 +119,7 @@ import {
   createInMemoryRotationStatusStore,
 } from './rotation-status-store.js';
 import { adaptersRouter } from './routes/adapters.js';
+import { agentTestSetRouter } from './routes/agent-test-set.js';
 import { agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
 import {
@@ -139,7 +140,6 @@ import {
 } from './routes/connections.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { correctedTestSetsRouter } from './routes/corrected-test-sets.js';
-import { agentTestSetRouter } from './routes/agent-test-set.js';
 import { correctionsRouter, correctorGroupsRouter } from './routes/corrections.js';
 import { costRouter } from './routes/cost.js';
 import { deploymentsRouter } from './routes/deployments.js';
@@ -974,9 +974,9 @@ export interface CreateAppInput {
    */
   readonly expertQueue?: ExpertQueueBinding;
   /**
-   * Optional. With `testSetRegistry` and `correctionRegistry`, mounts test
-   * sets built from corrections: `POST /v1/test-sets/:testSetId/versions/from-corrections`
-   * and `GET /v1/test-sets/:testSetId/versions/:version/cases`.
+   * Optional. With `testSetRegistry`, mounts the cases of test sets built
+   * from corrections before an agent's corrections were its test set:
+   * `GET /v1/test-sets/:testSetId/versions/:version/cases`.
    */
   readonly evalCaseStore?: EvalCaseStoreBinding;
   /**
@@ -2326,21 +2326,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
-  if (
-    input.testSetRegistry !== undefined &&
-    input.correctionRegistry !== undefined &&
-    input.evalCaseStore !== undefined
-  ) {
-    v1.route(
-      '/test-sets',
-      correctedTestSetsRouter(
-        input.testSetRegistry,
-        input.correctionRegistry,
-        input.evalCaseStore,
-        authorizer,
-        itemRights,
-      ),
-    );
+  if (input.testSetRegistry !== undefined && input.evalCaseStore !== undefined) {
+    v1.route('/test-sets', correctedTestSetsRouter(input.evalCaseStore, authorizer, itemRights));
   }
   // ---------- platform hierarchy ----------
   // Mounts are independent: `/v1/orgs`, `/v1/teams`, `/v1/projects`,

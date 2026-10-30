@@ -99,14 +99,6 @@ export interface CorrectionRegistryBinding {
   addCase(input: TestCaseAddInput): Promise<TestCase>;
   /** Retire a case: it stays listed, and no test run checks it again. */
   retireCase(input: TestCaseRetireInput): Promise<TestCaseRetireOutcome>;
-  /**
-   * Corrected runs with their copies and live corrections, newest first:
-   * what a test set is built from. Optional (a binding without it can't
-   * build test sets from corrections). A comparison's replay is never one of
-   * them (`isReplayCopy`): correcting a replay's answer is evidence for that
-   * comparison, not a case of its own.
-   */
-  listCorrectedRuns?(input: CorrectedRunListInput): Promise<CorrectedRunPage>;
 }
 
 // ---------- corrector groups ----------
@@ -651,37 +643,4 @@ export interface CorrectionStanding {
   readonly id: string;
   readonly status: CorrectionStatus;
   readonly sortedTo: CorrectionSortedTo | null;
-}
-
-export interface CorrectedRunListInput {
-  readonly tenantId: TenantId;
-  readonly projectId?: ProjectId;
-  readonly agentId?: string;
-  readonly agentVersion?: string;
-  readonly flowId?: string;
-  /** Runs first corrected at or after this time (ISO 8601). */
-  readonly since?: string;
-  /** Runs first corrected before this time (ISO 8601). */
-  readonly until?: string;
-  /**
-   * Runs started in this segment path or below it (their captured
-   * `segments` start with it). A run corrected before segments were captured
-   * is in none.
-   */
-  readonly segments?: readonly ScopeSegment[];
-  readonly cursor?: Cursor;
-  readonly limit: number;
-}
-
-export interface CorrectedRunWithCorrections {
-  readonly projectId: ProjectId;
-  readonly run: CorrectedRunCopy;
-  /** The run's live corrections. */
-  readonly corrections: readonly Correction[];
-}
-
-export interface CorrectedRunPage {
-  readonly data: readonly CorrectedRunWithCorrections[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: Cursor;
 }

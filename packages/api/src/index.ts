@@ -704,12 +704,6 @@ export type {
   CorrectedItemSummary,
   CorrectedReason,
 } from './eval-case-binding.js';
-export { MAX_CORRECTED_CASES, buildCorrectedTestSet } from './routes/corrected-test-sets.js';
-export type {
-  BuildCorrectedTestSetInput,
-  BuildCorrectedTestSetOutcome,
-  CorrectedTestSetQuery,
-} from './routes/corrected-test-sets.js';
 export { segmentsStartWith } from './routes/segments.js';
 export { MAX_CORRECTED_HISTORY } from './routes/correction-context.js';
 export type {
@@ -730,9 +724,6 @@ export type {
   CorrectedRunContext,
   CorrectedToolCall,
   CorrectedRunCopy,
-  CorrectedRunListInput,
-  CorrectedRunPage,
-  CorrectedRunWithCorrections,
   CorrectedSubject,
   CorrectedAnswerItem,
   Correction,

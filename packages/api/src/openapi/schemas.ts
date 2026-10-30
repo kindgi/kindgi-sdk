@@ -6036,63 +6036,6 @@ export const CorrectedEvalCaseCollectionPageSchema: JsonSchema = {
   },
 };
 
-export const BuildCorrectedTestSetBodySchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['version', 'projectId'],
-  description: 'Name the agent (`agentId`) or the flow (`flowId`) whose corrected runs to use.',
-  properties: {
-    version: { type: 'string', description: 'Semver version to publish, e.g. `1.0.0`.' },
-    projectId: { type: 'string', minLength: 1 },
-    agentId: { type: 'string', minLength: 1 },
-    agentVersion: { type: 'string', minLength: 1, description: 'Needs `agentId`.' },
-    flowId: { type: 'string', minLength: 1 },
-    since: {
-      type: 'string',
-      format: 'date-time',
-      description: 'Runs first corrected at or after this time.',
-    },
-    until: {
-      type: 'string',
-      format: 'date-time',
-      description: 'Runs first corrected before this time.',
-    },
-    correctorGroupIds: {
-      type: 'array',
-      items: { type: 'string', minLength: 1 },
-      description: 'Count only corrections recorded under these corrector groups.',
-    },
-    minCorrections: {
-      type: 'integer',
-      minimum: 1,
-      description: 'Leave out runs with fewer counted corrections. Default 1.',
-    },
-    segments: {
-      type: 'array',
-      items: { $ref: '#/components/schemas/ScopeSegment' },
-      description:
-        "Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run corrected before its segments were recorded with its corrections is in no segment, so it's left out.",
-    },
-    description: { type: 'string' },
-  },
-};
-
-export const BuildCorrectedTestSetResultSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['testSetId', 'version', 'kind', 'caseCount', 'truncated'],
-  properties: {
-    testSetId: { type: 'string' },
-    version: { type: 'string' },
-    kind: { type: 'string', enum: ['corrections'] },
-    caseCount: { type: 'integer', minimum: 0 },
-    truncated: {
-      type: 'boolean',
-      description: 'Whether more corrected runs matched than the 1000 cases a set holds.',
-    },
-  },
-};
-
 // ---------------- memory ----------------
 
 export const FactScopeSchema: JsonSchema = {
@@ -16694,8 +16637,6 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CorrectorGroupAssertableByView', CorrectorGroupAssertableByViewSchema],
   ['CorrectedEvalCase', CorrectedEvalCaseSchema],
   ['CorrectedEvalCaseCollectionPage', CorrectedEvalCaseCollectionPageSchema],
-  ['BuildCorrectedTestSetBody', BuildCorrectedTestSetBodySchema],
-  ['BuildCorrectedTestSetResult', BuildCorrectedTestSetResultSchema],
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
   ['AgentMemoryPolicy', AgentMemoryPolicySchema],
