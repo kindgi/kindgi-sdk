@@ -87,7 +87,7 @@ describe('judgments.list', () => {
       participantId: 'end-user-1',
       scope: { kind: 'project', projectId: 'proj-1' },
     });
-    expect(page.items[0]?.id).toBe('j-1');
+    expect(page.data[0]?.id).toBe('j-1');
     expect(page.nextCursor).toBe('c2');
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/judgments');

@@ -34,8 +34,8 @@ describe('observations.query', () => {
 
     const page = await client.observations.query();
 
-    expect(page.items.length).toBe(1);
-    expect(page.items[0]?.status).toBe('guardrail-violation');
+    expect(page.data.length).toBe(1);
+    expect(page.data[0]?.status).toBe('guardrail-violation');
     expect(page.nextCursor).toBeUndefined();
     const req = stub.calls[0]!;
     expect(req.method).toBe('GET');
