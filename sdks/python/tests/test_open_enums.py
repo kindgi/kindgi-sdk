@@ -548,7 +548,7 @@ def test_a_union_member_this_client_doesnt_know_and_cant_send_back() -> None:
     galaxy = {"kind": "galaxy", "galaxyId": "milky-way"}
     api, seen = client({**PIN_CHANGE, "scope": galaxy})
     pin = api.agents.pinned.unpin("acme.triage", scope={"kind": "tenant"})
-    assert isinstance(pin.scope, models.PinScopeUnrecognized)
+    assert isinstance(pin.scope, models.AgentPinScopeUnrecognized)
     assert pin.scope.model_extra == {"galaxyId": "milky-way"}
     assert len(seen) == 1
     # Read from a newer runtime, it can't be sent back: refused before sending.
