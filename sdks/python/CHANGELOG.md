@@ -25,10 +25,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   and no old name is kept. `client.judge_classes` is `client.corrector_groups`,
   `client.projects.judging_queue` is `client.projects.expert_queue`, and
   `client.projects.judging_rules` is `client.projects.queue_rules`, sync and
-  async. The models follow (`CorrectorGroup*`, `ExpertQueue*`, `QueueRule*`),
+  async. The models follow (`JudgeClass*` models are `CorrectorGroup*`,
+  `JudgingRule*` models and a rule's results are `QueueRule*`, the other
+  `Judging*` models are `ExpertQueue*`, and `Class` in a name is `Group`),
   `judge_class_id` is `corrector_group_id`, `class_weights` is `group_weights`
   (its value `restricted-only` is `experts-only`), and a correction's or a
-  case item's `restricted` is `expert`.
+  case item's `restricted` is `expert` (its model `Restricted` is `Expert`).
 - `kindgi`: **Eval suites are now test sets.** This is a breaking rename, and no
   old name is kept. `client.eval_suites` is `client.test_sets`, sync and async.
   The models follow (`EvalSuite*` models are `TestSet*`, and `CorrectedEvalCase*`
@@ -73,7 +75,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `PinPage`, `PinCheck` and `SuggestedChangePin`; `PromoteBody` is
   `AgentPinBody`, `UnpinBody` is `AgentUnpinBody`, and `LivePin`, `LivePinList`
   and `LiveVersionResolution` are `AgentPinnedVersion`, `AgentPinnedVersionList`
-  and `AgentPinnedVersionResolution`. `RollbackBody` is removed, since going
+  and `AgentPinnedVersionResolution`. An agent pin's scope takes the flow and
+  tool pins' models: `LiveScopeOrg`, `LiveScopeProject`, `LiveScopeSegment`
+  and `LiveScopeTenant` are `PinScopeOrg`, `PinScopeProject`, `PinScopeSegment`
+  and `PinScopeTenant`, and `LiveScopeUnrecognized` is
+  `AgentPinScopeUnrecognized`. `RollbackBody` is removed, since going
   back is a pin of an earlier version. `promotion_id` is `change_id`, a
   suggested change's `promotion` is `pin` and its `live_now` is `pinned_now`, a
   pin's status `promoted` is `pinned`, and the `via` value `live` is `pinned`,
