@@ -197,7 +197,7 @@ the agent's **Pinned versions** page shows where each version is pinned.
 Do this yourself: from then on, the project's runs are real work.
 :::
 
-The Dashboard then says **Live**, and since when.
+The Dashboard then says **Live**, and choosing it says since when.
 [Organize by org and project](../../guides/projects/organize-by-org-and-project/)
 says what being in production changes. How many projects can be in
 production at once is in
