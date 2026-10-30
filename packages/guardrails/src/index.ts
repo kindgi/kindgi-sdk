@@ -96,6 +96,7 @@ export {
   guardrailCoversTool,
   guardrailPoint,
   guardrailPointIssues,
+  indexedCheckPoints,
   isGuardrailPoint,
 } from './points.js';
 export type {

@@ -459,6 +459,24 @@ describe("a guardrail's point", () => {
     });
   });
 
+  test("an llm-judge guardrail's judgeCapabilities are carried: the runtime routes its judge by them", async () => {
+    const report = await index(
+      guardrailModule({
+        kind: 'llm-judge',
+        check: 'acme.checks.tone',
+        config: { rubric: 'The reply is polite.', responseFormat: 'pass-fail' },
+        judgeCapabilities: { needs: [{ feature: 'structured-output' }] },
+      }),
+    );
+    expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0]).toMatchObject({
+      kind: 'llm-judge',
+      checkId: 'acme.checks.tone',
+      judgeCapabilities: { needs: [{ feature: 'structured-output' }] },
+    });
+  });
+
   test("a check the module exports under the guardrail's check id gives its points", async () => {
     const report = await index({
       module: {
@@ -505,6 +523,16 @@ describe("a guardrail's point", () => {
       "'at' must be one of before-tool, after-tool, model-step, final-answer",
     ],
     ['a view there is none of', { sees: 'everything' }, "'sees' must be 'turn' or 'conversation'"],
+    [
+      'an llm-judge guardrail with no judge',
+      { kind: 'llm-judge', config: { rubric: 'The reply is polite.' } },
+      "guardrail acme.grounded is kind 'llm-judge' with no 'judgeCapabilities': name what its judge model is routed by (for example { needs: [{ feature: 'structured-output' }] })",
+    ],
+    [
+      'judgeCapabilities that are not an object',
+      { kind: 'llm-judge', judgeCapabilities: 'structured-output' },
+      "guardrail acme.grounded: 'judgeCapabilities' must be an object",
+    ],
     [
       "a check's points that aren't points",
       { check: { id: 'acme.checks.odd', evaluate, points: ['before-handoff'] } },
