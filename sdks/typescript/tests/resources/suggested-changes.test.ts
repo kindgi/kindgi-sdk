@@ -10,7 +10,7 @@ const AUTH = { kind: 'apiToken' as const, token: 't' };
 const PROJECT = '00000000-0000-4000-8000-000000000003';
 const ID = '11111111-1111-4111-8111-111111111111';
 
-const WIRE_PROPOSAL = {
+const WIRE_SUGGESTED_CHANGE = {
   id: ID,
   agentId: 'acme.scorer',
   fromVersion: '1.0.0',
@@ -32,22 +32,22 @@ function clientWith(stub: { fetch: typeof fetch }) {
   return createClient({ apiUrl: 'https://api.example.com', auth: AUTH, fetch: stub.fetch });
 }
 
-describe('client.proposals', () => {
+describe('client.suggestedChanges', () => {
   it('create POSTs the draft (no supervisor header) with its idempotency key', async () => {
-    const stub = jsonFetch(WIRE_PROPOSAL, { status: 201 });
-    const proposal = await clientWith(stub).proposals.create({
+    const stub = jsonFetch(WIRE_SUGGESTED_CHANGE, { status: 201 });
+    const suggestedChange = await clientWith(stub).suggestedChanges.create({
       agentId: 'acme.scorer',
       fromVersion: '1.0.0',
-      scope: WIRE_PROPOSAL.scope as never,
+      scope: WIRE_SUGGESTED_CHANGE.scope as never,
       tier: 'settings-block',
       change: { blockId: 'acme.scoring-weights', content: { values: { recency: 0.5, fit: 0.5 } } },
       hypothesis: 'Recent filings matter more for acme',
       idempotencyKey: 'idem-1',
     });
-    expect(proposal.status).toBe('draft');
+    expect(suggestedChange.status).toBe('draft');
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
-    expect(req.url).toBe('https://api.example.com/v1/proposals');
+    expect(req.url).toBe('https://api.example.com/v1/suggested-changes');
     expect(req.headers['x-supervisor-id']).toBeUndefined();
     expect(req.headers['idempotency-key']).toBe('idem-1');
     const body = JSON.parse(req.body!) as Record<string, unknown>;
@@ -56,8 +56,8 @@ describe('client.proposals', () => {
   });
 
   it('list sends its filters and answers a page', async () => {
-    const stub = jsonFetch({ data: [WIRE_PROPOSAL], hasMore: false });
-    const page = await clientWith(stub).proposals.list({
+    const stub = jsonFetch({ data: [WIRE_SUGGESTED_CHANGE], hasMore: false });
+    const page = await clientWith(stub).suggestedChanges.list({
       agentId: 'acme.scorer',
       status: 'evaluated',
       tier: 'settings-block',
@@ -65,7 +65,7 @@ describe('client.proposals', () => {
     });
     expect(page.data[0]?.id).toBe(ID);
     const url = new URL(stub.calls[0]!.url);
-    expect(url.pathname).toBe('/v1/proposals');
+    expect(url.pathname).toBe('/v1/suggested-changes');
     expect(Object.fromEntries(url.searchParams)).toEqual({
       agentId: 'acme.scorer',
       status: 'evaluated',
@@ -76,7 +76,7 @@ describe('client.proposals', () => {
 
   it('list sends a live scope as the promotions history takes it', async () => {
     const stub = jsonFetch({ data: [], hasMore: false });
-    await clientWith(stub).proposals.list({ scope: WIRE_PROPOSAL.scope as never });
+    await clientWith(stub).suggestedChanges.list({ scope: WIRE_SUGGESTED_CHANGE.scope as never });
     const url = new URL(stub.calls[0]!.url);
     expect(url.searchParams.get('scopeKind')).toBe('segment');
     expect(url.searchParams.get('scopeId')).toBe(PROJECT);
@@ -85,30 +85,32 @@ describe('client.proposals', () => {
 
   it.each([
     ['evaluate', { testSetId: 'acme.scoring-judged', repetitions: 3 }],
-    ['request', { reason: 'acme wants recency' }],
-    ['rollback', { reason: 'acme complained' }],
+    ['pin', { reason: 'acme wants recency' }],
     ['withdraw', { reason: 'wrong segment' }],
-  ] as const)('%s POSTs to /v1/proposals/{id}/%s', async (action, input) => {
-    const stub = jsonFetch(WIRE_PROPOSAL, { status: action === 'evaluate' ? 202 : 200 });
+  ] as const)('%s POSTs to /v1/suggested-changes/{id}/%s', async (action, input) => {
+    const stub = jsonFetch(WIRE_SUGGESTED_CHANGE, { status: action === 'evaluate' ? 202 : 200 });
     const c = clientWith(stub);
-    await (c.proposals[action] as (id: string, input: unknown) => Promise<unknown>)(ID, input);
+    await (c.suggestedChanges[action] as (id: string, input: unknown) => Promise<unknown>)(
+      ID,
+      input,
+    );
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
-    expect(req.url).toBe(`https://api.example.com/v1/proposals/${ID}/${action}`);
+    expect(req.url).toBe(`https://api.example.com/v1/suggested-changes/${ID}/${action}`);
     expect(JSON.parse(req.body!)).toEqual(input);
   });
 
-  it('get reads one; a gate refusal on request surfaces with its code', async () => {
-    const got = jsonFetch(WIRE_PROPOSAL);
-    expect((await clientWith(got).proposals.get(ID)).id).toBe(ID);
-    expect(got.calls[0]!.url).toBe(`https://api.example.com/v1/proposals/${ID}`);
+  it('get reads one; a gate refusal on pin surfaces with its code', async () => {
+    const got = jsonFetch(WIRE_SUGGESTED_CHANGE);
+    expect((await clientWith(got).suggestedChanges.get(ID)).id).toBe(ID);
+    expect(got.calls[0]!.url).toBe(`https://api.example.com/v1/suggested-changes/${ID}`);
 
     const refused = errorFetch(422, {
       code: 'gate-failed',
       message: 'The release gate policy refused acme.scorer 1.0.1',
-      details: { proposalId: ID },
+      details: { suggestedChangeId: ID },
     });
-    await expect(clientWith(refused).proposals.request(ID)).rejects.toMatchObject({
+    await expect(clientWith(refused).suggestedChanges.pin(ID)).rejects.toMatchObject({
       error: { serverCode: 'gate-failed' },
     });
   });

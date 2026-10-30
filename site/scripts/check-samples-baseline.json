@@ -260,7 +260,7 @@
   "reference/typescript/sdk/@kindgi/sdk/types/type-aliases/ErrOf": 2,
   "reference/typescript/sdk/@kindgi/sdk/types/type-aliases/EventId": 1,
   "reference/typescript/sdk/@kindgi/sdk/types/type-aliases/FactId": 1,
-  "reference/typescript/sdk/@kindgi/sdk/types/type-aliases/FixProposalId": 1,
+  "reference/typescript/sdk/@kindgi/sdk/types/type-aliases/SuggestedChangeId": 1,
   "reference/typescript/sdk/@kindgi/sdk/types/type-aliases/FlowId": 1,
   "reference/typescript/sdk/@kindgi/sdk/types/type-aliases/GuardrailId": 1,
   "reference/typescript/sdk/@kindgi/sdk/types/type-aliases/InstallationId": 1,

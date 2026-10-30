@@ -782,11 +782,11 @@ const ImprovementPassIdPathParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
-const ProposalIdPathParam: ParameterSpec = {
-  name: 'proposalId',
+const SuggestedChangeIdPathParam: ParameterSpec = {
+  name: 'suggestedChangeId',
   in: 'path',
   required: true,
-  description: 'The proposal id (a UUID).',
+  description: 'The suggested change id (a UUID).',
   schema: { type: 'string', format: 'uuid' },
 };
 
@@ -824,20 +824,20 @@ const ProvenanceCreatedAfterQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'date-time' },
 };
 
-const ProposalStatusQueryParam: ParameterSpec = {
+const SuggestedChangeStatusQueryParam: ParameterSpec = {
   name: 'status',
   in: 'query',
   required: false,
-  description: 'Only proposals with this (derived) status.',
-  schema: { $ref: '#/components/schemas/FixProposalStatus' },
+  description: 'Only suggested changes with this (derived) status.',
+  schema: { $ref: '#/components/schemas/SuggestedChangeStatus' },
 };
 
-const ProposalTierQueryParam: ParameterSpec = {
+const SuggestedChangeTierQueryParam: ParameterSpec = {
   name: 'tier',
   in: 'query',
   required: false,
-  description: 'Only proposals of this tier.',
-  schema: { $ref: '#/components/schemas/ProposalTier' },
+  description: 'Only suggested changes of this tier.',
+  schema: { $ref: '#/components/schemas/SuggestedChangeTier' },
 };
 
 // Admin plane — capabilities + providers.
@@ -1285,7 +1285,7 @@ const EvalRunTestSetIdFilterQueryParam: ParameterSpec = {
   name: 'testSetId',
   in: 'query',
   required: false,
-  description: 'Filter to runs against a specific testSet id.',
+  description: 'Filter to runs against the test set with this id.',
   schema: { type: 'string' },
 };
 
@@ -3908,7 +3908,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.promotions.create',
     summary: 'Make a version live for a scope',
     description:
-      "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `evalRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its proposal changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+      "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `evalRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
@@ -5090,29 +5090,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
-  // ---------- improvement proposals ----------
+  // ---------- suggested changes ----------
   {
     method: 'get',
-    honoPath: '/v1/proposals',
-    openapiPath: '/v1/proposals',
-    operationId: 'proposals.list',
-    summary: 'List improvement proposals',
+    honoPath: '/v1/suggested-changes',
+    openapiPath: '/v1/suggested-changes',
+    operationId: 'suggestedChanges.list',
+    summary: 'List suggested changes',
     description:
-      'Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).',
-    tags: ['proposals'],
+      'Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).',
+    tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      ProposalStatusQueryParam,
+      SuggestedChangeStatusQueryParam,
       AgentIdQueryParam,
-      ProposalTierQueryParam,
+      SuggestedChangeTierQueryParam,
       PromotionScopeKindQueryParam,
       ScopeIdQueryParam,
       SegmentQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of proposals.', schema: ref('FixProposalCollectionPage') },
+      '200': {
+        description: 'Page of suggested changes.',
+        schema: ref('SuggestedChangeCollectionPage'),
+      },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed query parameter.'),
     },
@@ -5124,7 +5127,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improve',
     summary: 'Start an improvement pass',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5139,7 +5142,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "`fromVersion` (or the version serving the scope) is not an active version; or the body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '409': ErrorResponse(
-        "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `proposal-needs-pin`, or `project-suspended`: the pass's project is suspended. Or Idempotency-Key was reused with a different body.",
+        "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `suggested-change-needs-pin`, or `project-suspended`: the pass's project is suspended. Or Idempotency-Key was reused with a different body.",
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
@@ -5169,35 +5172,38 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
-    honoPath: '/v1/proposals/:proposalId',
-    openapiPath: '/v1/proposals/{proposalId}',
-    operationId: 'proposals.get',
-    summary: 'Fetch an improvement proposal',
+    honoPath: '/v1/suggested-changes/:suggestedChangeId',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}',
+    operationId: 'suggestedChanges.get',
+    summary: 'Fetch a suggested change',
     description: 'Needs `read` on its agent.',
-    tags: ['proposals'],
+    tags: ['suggested-changes'],
     security: 'bearer',
-    parameters: [ProposalIdPathParam],
+    parameters: [SuggestedChangeIdPathParam],
     responses: {
-      '200': { description: 'The proposal.', schema: ref('FixProposal') },
+      '200': { description: 'The suggested change.', schema: ref('SuggestedChange') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such proposal (or none the caller can read).'),
+      '404': ErrorResponse('No such suggested change (or none the caller can read).'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals',
-    openapiPath: '/v1/proposals',
-    operationId: 'proposals.create',
-    summary: 'Propose new content for a data block',
+    honoPath: '/v1/suggested-changes',
+    openapiPath: '/v1/suggested-changes',
+    operationId: 'suggestedChanges.create',
+    summary: 'Suggest new content for a data block',
     description:
-      'A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.',
-    tags: ['proposals'],
+      'A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.',
+    tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('CreateProposalBody') },
+    requestBody: { required: true, schema: ref('CreateSuggestedChangeBody') },
     responses: {
-      '201': { description: 'The proposal, a `draft`.', schema: ref('FixProposal') },
-      '200': { description: 'The same proposal, made before.', schema: ref('FixProposal') },
+      '201': { description: 'The suggested change, a `draft`.', schema: ref('SuggestedChange') },
+      '200': {
+        description: 'The same suggested change, made before.',
+        schema: ref('SuggestedChange'),
+      },
       ...CommonMutationErrors,
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
@@ -5212,120 +5218,102 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/evaluate',
-    openapiPath: '/v1/proposals/{proposalId}/evaluate',
-    operationId: 'proposals.evaluate',
-    summary: 'Compare a proposal on a test set',
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/evaluate',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/evaluate',
+    operationId: 'suggestedChanges.evaluate',
+    summary: 'Compare a suggested change on a test set',
     description:
-      "The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
-    tags: ['proposals'],
+      "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
+    tags: ['suggested-changes'],
     security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('EvaluateProposalBody') },
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('EvaluateSuggestedChangeBody') },
     responses: {
-      '202': { description: 'The proposal, `evaluating`.', schema: ref('FixProposal') },
+      '202': { description: 'The suggested change, `evaluating`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
         "Malformed request body. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant (`details.issues`).",
       ),
-      '404': ErrorResponse('No such proposal, or no such test set.'),
+      '404': ErrorResponse('No such suggested change, or no such test set.'),
       '409': ErrorResponse(
-        "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a proposal makes; or, under `kindgi dev`, the proposal's scope is narrower than the whole tenant, since the pack's files serve every scope.",
+        "`suggested-change-needs-pin`: the agent has no live version for the whole tenant. `suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; or, under `kindgi dev`, the suggested change's scope is narrower than the whole tenant, since the pack's files serve every scope.",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/rescore',
-    openapiPath: '/v1/proposals/{proposalId}/rescore',
-    operationId: 'proposals.rescore',
-    summary: "Rescore a proposal's latest evaluation",
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/rescore',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/rescore',
+    operationId: 'suggestedChanges.rescore',
+    summary: "Rescore a suggested change's latest evaluation",
     description:
-      "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
-    tags: ['proposals'],
+      "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+    tags: ['suggested-changes'],
     security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
     responses: {
-      '202': { description: 'The proposal, `evaluating`.', schema: ref('FixProposal') },
+      '202': { description: 'The suggested change, `evaluating`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'No such proposal, or its candidate version is unregistered (`agent-version-not-found`).',
+        'No such suggested change, or its candidate version is unregistered (`agent-version-not-found`).',
       ),
       '409': ErrorResponse(
-        "`proposal-invalid-state-transition`: the proposal's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
+        "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
       ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/request',
-    openapiPath: '/v1/proposals/{proposalId}/request',
-    operationId: 'proposals.request',
-    summary: "Request a proposal's promotion for its scope",
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/pin',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/pin',
+    operationId: 'suggestedChanges.pin',
+    summary: "Pin a suggested change's version for its scope",
     description:
-      "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
-    tags: ['proposals'],
+      "A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
+    tags: ['suggested-changes'],
     security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: false, schema: ref('ProposalReasonBody') },
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('SuggestedChangeReasonBody') },
     responses: {
-      '201': { description: 'Promoted: the proposal, `promoted`.', schema: ref('FixProposal') },
+      '201': {
+        description: 'Pinned: the suggested change, `pinned`.',
+        schema: ref('SuggestedChange'),
+      },
       '202': {
-        description: 'The gate passed and an approval is open: the proposal, `in-review`.',
-        schema: ref('FixProposal'),
+        description: 'The gate passed and an approval is open: the suggested change, `in-review`.',
+        schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: the proposal's project or segment scope no longer reaches the agent (`details.issues`).",
+        "Malformed request body. Or `reference-out-of-scope`: the suggested change's project or segment scope no longer reaches the agent (`details.issues`).",
       ),
-      '404': ErrorResponse('No such proposal.'),
+      '404': ErrorResponse('No such suggested change.'),
       '409': ErrorResponse(
-        "The proposal's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once; a proposal for a project (or a segment of it) can be requested.",
+        "The suggested change's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the suggested change's tenant- or org-wide scope would act in every environment of the order at once; a suggested change for a project (or a segment of it) can be pinned.",
       ),
       '422': ErrorResponse(
-        '`gate-failed`: the gate refused it (the error carries the checks and `proposalId`).',
+        '`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`).',
       ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/rollback',
-    openapiPath: '/v1/proposals/{proposalId}/rollback',
-    operationId: 'proposals.rollback',
-    summary: 'Roll back a promoted proposal',
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/withdraw',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/withdraw',
+    operationId: 'suggestedChanges.withdraw',
+    summary: 'Withdraw a suggested change',
     description:
-      "The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.",
-    tags: ['proposals'],
+      "Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.",
+    tags: ['suggested-changes'],
     security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: false, schema: ref('ProposalReasonBody') },
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('WithdrawSuggestedChangeBody') },
     responses: {
-      '200': { description: 'The proposal, `rolled-back`.', schema: ref('FixProposal') },
+      '200': { description: 'The suggested change, `withdrawn`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No such proposal.'),
-      '409': ErrorResponse(
-        "It isn't promoted, or its version doesn't serve the scope anymore. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once. Or `registry-read-only`: under `kindgi dev`, a version made live was written into the pack's files; undo it there, with git.",
-      ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/proposals/:proposalId/withdraw',
-    openapiPath: '/v1/proposals/{proposalId}/withdraw',
-    operationId: 'proposals.withdraw',
-    summary: 'Withdraw a proposal',
-    description:
-      "Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.",
-    tags: ['proposals'],
-    security: 'bearer',
-    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('WithdrawProposalBody') },
-    responses: {
-      '200': { description: 'The proposal, `withdrawn`.', schema: ref('FixProposal') },
-      ...CommonMutationErrors,
-      '404': ErrorResponse('No such proposal.'),
-      '409': ErrorResponse("The proposal's status doesn't allow it."),
+      '404': ErrorResponse('No such suggested change.'),
+      '409': ErrorResponse("The suggested change's status doesn't allow it."),
     },
   },
 
@@ -5372,7 +5360,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'improvementPasses.cancel',
     summary: 'Cancel an improvement pass',
     description:
-      'A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.',
+      'A running pass stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.',
     tags: ['proposals'],
     security: 'bearer',
     parameters: [ImprovementPassIdPathParam, IdempotencyKeyParam],
@@ -6681,7 +6669,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'testSets.list',
     summary: 'List tenant test sets',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: testSet id ascending. Latest version per id. A retired testSet (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
+      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['test-sets'],
     security: 'bearer',
     parameters: [
@@ -6724,7 +6712,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'testSets.versions.list',
     summary: 'List versions of an test set',
     description:
-      'Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired testSet (every version unregistered) answers too, with its versions to reinstate.',
+      'Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.',
     tags: ['test-sets'],
     security: 'bearer',
     parameters: [
@@ -7104,7 +7092,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalRuns.rescore',
     summary: 'Rescore a comparison eval run',
     description:
-      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's testSet and `write` on its project.",
+      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.",
     tags: ['eval-runs'],
     security: 'bearer',
     parameters: [EvalRunIdPathParam],

@@ -4,11 +4,15 @@
 import type { CorrectedComparisonSummary } from './corrected-dispatcher.js';
 import type { EvalRun, EvalRunStatus } from './eval-run-binding.js';
 import type { Promotion } from './live-version-binding.js';
-import type { ProposalObjective, ProposalRule, StoredProposal } from './supervisor-binding.js';
+import type {
+  StoredSuggestedChange,
+  SuggestedChangeObjective,
+  SuggestedChangeRule,
+} from './supervisor-binding.js';
 
 /**
- * Where an improvement proposal stands. Never stored: it follows from the
- * proposal's own steps, its comparison eval run and its promotion.
+ * Where a suggested change stands. Never stored: it follows from the
+ * suggested change's own steps, its comparison eval run and its promotion.
  *
  * - `draft`: not evaluated yet.
  * - `evaluating`: its comparison is queued or running.
@@ -21,22 +25,22 @@ import type { ProposalObjective, ProposalRule, StoredProposal } from './supervis
  * - `not-better`: the comparison finished; the candidate didn't.
  * - `evaluation-failed`: the comparison failed or was cancelled.
  * - `in-review`: requested; the gate passed and an approval is open.
- * - `promoted`: the candidate went live for the scope.
+ * - `pinned`: the candidate went live for the scope.
  * - `refused`: requested; the gate refused it.
  * - `rejected`: the reviewer rejected it.
  * - `expired`: the approval expired undecided.
  * - `superseded`: approved after the scope's live version or policy changed.
- * - `rolled-back`: rolled back through the proposal.
+ * - `rolled-back`: rolled back through the suggested change.
  * - `withdrawn`: withdrawn.
  */
-export type FixProposalStatus =
+export type SuggestedChangeStatus =
   | 'draft'
   | 'evaluating'
   | 'evaluated'
   | 'not-better'
   | 'evaluation-failed'
   | 'in-review'
-  | 'promoted'
+  | 'pinned'
   | 'refused'
   | 'rejected'
   | 'expired'
@@ -44,14 +48,14 @@ export type FixProposalStatus =
   | 'rolled-back'
   | 'withdrawn';
 
-export const FIX_PROPOSAL_STATUSES: readonly FixProposalStatus[] = [
+export const SUGGESTED_CHANGE_STATUSES: readonly SuggestedChangeStatus[] = [
   'draft',
   'evaluating',
   'evaluated',
   'not-better',
   'evaluation-failed',
   'in-review',
-  'promoted',
+  'pinned',
   'refused',
   'rejected',
   'expired',
@@ -60,10 +64,10 @@ export const FIX_PROPOSAL_STATUSES: readonly FixProposalStatus[] = [
   'withdrawn',
 ];
 
-/** What a finished comparison says about the candidate, on the proposal's objective. */
-export interface ProposalEvaluationOutcome {
+/** What a finished comparison says about the candidate, on the suggested change's objective. */
+export interface SuggestedChangeEvaluationOutcome {
   readonly runStatus: EvalRunStatus;
-  readonly objective: ProposalObjective;
+  readonly objective: SuggestedChangeObjective;
   /** The recorded (corrected) outputs' score. `null` without evidence from corrections. */
   readonly baseline?: number | null;
   readonly candidate?: number | null;
@@ -73,20 +77,20 @@ export interface ProposalEvaluationOutcome {
   readonly cases?: number;
   /** Set once the comparison finished. */
   readonly better?: boolean;
-  /** How the candidate is kept (`ProposalEvaluationRef.rule`). Absent: `better`. */
-  readonly rule?: ProposalRule;
+  /** How the candidate is kept (`SuggestedChangeEvaluationRef.rule`). Absent: `better`. */
+  readonly rule?: SuggestedChangeRule;
   /** With a reference: its eval run's status (the candidate's is `runStatus`). */
   readonly referenceStatus?: EvalRunStatus;
   /** With a reference, once both finished: each side's replays' cost, when both reported one. */
   readonly costUsd?: { readonly current: number; readonly candidate: number };
   /** With a reference, once both finished: the corrections the current version was checked on. */
-  readonly decisions?: ProposalDecisions;
+  readonly decisions?: SuggestedChangeDecisions;
   /**
    * With a reference, once both finished: whether the candidate is kept
    * under its rule, its decisions kept; `notKept` says why not.
    */
   readonly kept?: boolean;
-  readonly notKept?: ProposalNotKept;
+  readonly notKept?: SuggestedChangeNotKept;
 }
 
 /**
@@ -95,7 +99,7 @@ export interface ProposalEvaluationOutcome {
  * `broken`, it passed them and the candidate didn't; `stillWrong`,
  * neither passed. The rest the candidate fixed.
  */
-export interface ProposalDecisions {
+export interface SuggestedChangeDecisions {
   readonly checked: number;
   readonly held: number;
   readonly broken: number;
@@ -110,7 +114,7 @@ export interface ProposalDecisions {
  * the current version (`cheaper`); it doesn't cost less beyond the
  * cost's own spread.
  */
-export type ProposalNotKept =
+export type SuggestedChangeNotKept =
   | 'no-decisions'
   | 'decisions-broken'
   | 'other-cases'
@@ -130,15 +134,15 @@ export function comparisonSummaryOf(run: EvalRun): CorrectedComparisonSummary | 
 }
 
 /**
- * The proposal's evaluation, read off its eval run, and with a reference
+ * The suggested change's evaluation, read off its eval run, and with a reference
  * (the current version replayed on the same cases) held to it under its
  * rule.
  */
 export function evaluationOutcome(
-  objective: ProposalObjective,
+  objective: SuggestedChangeObjective,
   run: EvalRun,
-  against?: { readonly rule: ProposalRule; readonly reference: EvalRun },
-): ProposalEvaluationOutcome {
+  against?: { readonly rule: SuggestedChangeRule; readonly reference: EvalRun },
+): SuggestedChangeEvaluationOutcome {
   const rule = against !== undefined && { rule: against.rule };
   const referenceStatus = against !== undefined && { referenceStatus: against.reference.status };
   const summary = run.status === 'completed' ? comparisonSummaryOf(run) : null;
@@ -167,16 +171,16 @@ export function evaluationOutcome(
 
 /** A finished candidate held to its finished reference under the rule. */
 function heldTo(
-  objective: ProposalObjective,
-  rule: ProposalRule,
+  objective: SuggestedChangeObjective,
+  rule: SuggestedChangeRule,
   candidate: CorrectedComparisonSummary,
   reference: CorrectedComparisonSummary,
   better: boolean,
-): Pick<ProposalEvaluationOutcome, 'costUsd' | 'decisions' | 'kept' | 'notKept'> {
+): Pick<SuggestedChangeEvaluationOutcome, 'costUsd' | 'decisions' | 'kept' | 'notKept'> {
   const decisions = decisionsOf(reference, candidate);
   const current = reference.costUsd;
   const cost = candidate.costUsd;
-  let notKept: ProposalNotKept | undefined;
+  let notKept: SuggestedChangeNotKept | undefined;
   if (decisions.checked === 0) notKept = 'no-decisions';
   else if (decisions.broken > 0) notKept = 'decisions-broken';
   else if (rule === 'better') notKept = better ? undefined : 'not-better';
@@ -198,10 +202,10 @@ function heldTo(
  * or it doesn't cost less beyond the cost's own; `undefined` when it's kept.
  */
 function notCheaper(
-  objective: ProposalObjective,
+  objective: SuggestedChangeObjective,
   candidate: CorrectedComparisonSummary,
   reference: CorrectedComparisonSummary,
-): ProposalNotKept | undefined {
+): SuggestedChangeNotKept | undefined {
   const current = reference.costUsd;
   const cost = candidate.costUsd;
   if (
@@ -226,7 +230,7 @@ function notCheaper(
 function decisionsOf(
   reference: CorrectedComparisonSummary,
   candidate: CorrectedComparisonSummary,
-): ProposalDecisions {
+): SuggestedChangeDecisions {
   const passed = new Set(
     (candidate.corrections?.results ?? []).filter((j) => j.pass).map((j) => j.correctionId),
   );
@@ -243,33 +247,34 @@ function decisionsOf(
   return { checked: checked.length, held, broken, stillWrong };
 }
 
-const PROMOTION_STATUS: Readonly<Record<NonNullable<Promotion['status']>, FixProposalStatus>> = {
-  'pending-approval': 'in-review',
-  promoted: 'promoted',
-  refused: 'refused',
-  rejected: 'rejected',
-  expired: 'expired',
-  superseded: 'superseded',
-};
+const PROMOTION_STATUS: Readonly<Record<NonNullable<Promotion['status']>, SuggestedChangeStatus>> =
+  {
+    'pending-approval': 'in-review',
+    promoted: 'pinned',
+    refused: 'refused',
+    rejected: 'rejected',
+    expired: 'expired',
+    superseded: 'superseded',
+  };
 
 /**
- * A proposal's status from what's recorded: its own steps first
+ * A suggested change's status from what's recorded: its own steps first
  * (withdrawn, rolled back), then its promotion, then its comparison.
- * `promotion` and `evaluation` are what the proposal's ids resolve to
+ * `promotion` and `evaluation` are what the suggested change's ids resolve to
  * (`undefined` when it has none).
  */
-export function proposalStatus(
-  proposal: StoredProposal,
+export function suggestedChangeStatus(
+  suggestedChange: StoredSuggestedChange,
   promotion: Promotion | null | undefined,
-  evaluation: ProposalEvaluationOutcome | null | undefined,
-): FixProposalStatus {
-  if (proposal.withdrawn !== undefined) return 'withdrawn';
-  if (proposal.rolledBack !== undefined) return 'rolled-back';
+  evaluation: SuggestedChangeEvaluationOutcome | null | undefined,
+): SuggestedChangeStatus {
+  if (suggestedChange.withdrawn !== undefined) return 'withdrawn';
+  if (suggestedChange.rolledBack !== undefined) return 'rolled-back';
   if (promotion !== undefined && promotion !== null) {
     return PROMOTION_STATUS[promotion.status ?? 'promoted'];
   }
   if (evaluation === undefined || evaluation === null) {
-    return proposal.evaluation === undefined ? 'draft' : 'evaluation-failed';
+    return suggestedChange.evaluation === undefined ? 'draft' : 'evaluation-failed';
   }
   switch (evaluation.runStatus) {
     case 'pending':
@@ -287,7 +292,7 @@ export function proposalStatus(
  * A finished comparison's status. With a reference, the candidate is kept
  * only once that's finished too.
  */
-function finishedStatus(evaluation: ProposalEvaluationOutcome): FixProposalStatus {
+function finishedStatus(evaluation: SuggestedChangeEvaluationOutcome): SuggestedChangeStatus {
   const reference = evaluation.referenceStatus;
   if (reference === undefined) return evaluation.better === true ? 'evaluated' : 'not-better';
   switch (reference) {
@@ -303,7 +308,7 @@ function finishedStatus(evaluation: ProposalEvaluationOutcome): FixProposalStatu
 }
 
 /** The lifecycle calls, and the statuses each starts from. */
-export const PROPOSAL_ACTIONS = {
+export const SUGGESTED_CHANGE_ACTIONS = {
   evaluate: [
     'draft',
     'evaluated',
@@ -316,9 +321,8 @@ export const PROPOSAL_ACTIONS = {
   // Its latest evaluation scored again: once that comparison completed.
   rescore: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],
   // The gate decides what goes live: a candidate that isn't measurably
-  // better (a wording change) can still be requested through it.
-  request: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],
-  rollback: ['promoted'],
+  // better (a wording change) can still be pinned through it.
+  pin: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],
   withdraw: [
     'draft',
     'evaluated',
@@ -328,10 +332,13 @@ export const PROPOSAL_ACTIONS = {
     'superseded',
     'expired',
   ],
-} as const satisfies Readonly<Record<string, readonly FixProposalStatus[]>>;
+} as const satisfies Readonly<Record<string, readonly SuggestedChangeStatus[]>>;
 
-export type ProposalAction = keyof typeof PROPOSAL_ACTIONS;
+export type SuggestedChangeAction = keyof typeof SUGGESTED_CHANGE_ACTIONS;
 
-export function proposalActionAllowed(action: ProposalAction, status: FixProposalStatus): boolean {
-  return (PROPOSAL_ACTIONS[action] as readonly FixProposalStatus[]).includes(status);
+export function suggestedChangeActionAllowed(
+  action: SuggestedChangeAction,
+  status: SuggestedChangeStatus,
+): boolean {
+  return (SUGGESTED_CHANGE_ACTIONS[action] as readonly SuggestedChangeStatus[]).includes(status);
 }

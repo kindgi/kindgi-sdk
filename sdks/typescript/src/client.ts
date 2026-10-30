@@ -68,6 +68,10 @@ import {
   makeServiceAccountsClient,
 } from './resources/service-accounts.js';
 import { type SigningKeysClient, makeSigningKeysClient } from './resources/signing-keys.js';
+import {
+  type SuggestedChangesClient,
+  makeSuggestedChangesClient,
+} from './resources/suggested-changes.js';
 import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
 import {
   type SystemDeploymentsClient,
@@ -117,7 +121,9 @@ export interface KindgiClient {
   readonly provenance: ProvenanceClient;
   // Governance & oversight
   readonly supervisor: SupervisorClient;
-  /** Improvement proposals: new content for a data block, evaluated, then promoted for a scope. */
+  /** Suggested changes: new content for a data block, evaluated, then pinned for a scope. */
+  readonly suggestedChanges: SuggestedChangesClient;
+  /** Improve runs, started with `proposals.improve` (for now). */
   readonly proposals: ProposalsClient;
   /** Improvement passes, started with `proposals.improve`. */
   readonly improvementPasses: ImprovementPassesClient;
@@ -221,6 +227,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     memory: makeMemoryClient(transport),
     provenance: makeProvenanceClient(transport),
     supervisor: makeSupervisorClient(transport),
+    suggestedChanges: makeSuggestedChangesClient(transport),
     proposals: makeProposalsClient(transport),
     improvementPasses: makeImprovementPassesClient(transport),
     observations: makeObservationsClient(transport),

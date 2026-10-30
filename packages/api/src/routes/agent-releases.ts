@@ -449,7 +449,7 @@ export async function requestPromotion(
   } = {},
 ): Promise<PromotionRequestOutcome> {
   // Every way a promotion is asked for comes through here (the route, a
-  // proposal's request): a project or segment scope must reach the agent.
+  // suggested change's request): a project or segment scope must reach the agent.
   const outOfScope = await liveScopeOutOfScope(
     deps.referenceScope,
     input.tenantId,

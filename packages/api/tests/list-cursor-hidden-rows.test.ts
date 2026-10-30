@@ -112,7 +112,7 @@ interface Entry {
   readonly byTime?: true;
 }
 
-/** The bindings the supervisor's lists need to mount (improvement passes, proposals). */
+/** The bindings the supervisor's lists need to mount (improvement passes, suggested changes). */
 const supervised = () => ({
   agentRegistry: absent(),
   blockRegistry: absent(),
@@ -346,10 +346,10 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'proposals',
-    path: '/v1/proposals',
+    name: 'suggested-changes',
+    path: '/v1/suggested-changes',
     bindings: () => {
-      const l = page('listProposals', () => ({ agentId: 'hid-agent' }));
+      const l = page('listSuggestedChanges', () => ({ agentId: 'hid-agent' }));
       return { bindings: { ...supervised(), supervisor: l.binding }, received: l.received };
     },
   },

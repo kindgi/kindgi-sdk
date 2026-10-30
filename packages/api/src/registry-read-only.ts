@@ -25,9 +25,9 @@ export interface RegistryReadOnly {
    * writing it where the definitions come from (under `kindgi dev`, the
    * pack's files). Of the agents router's writes, only `POST …/promotions`
    * and `…/promotions/check` get through. Rolling back and unpinning stay
-   * refused, a proposal's roll back too, with `undoReason`: there's one
+   * refused, a suggested change's roll back too, with `undoReason`: there's one
    * live version, and what undoes a change is where it was written. And
-   * only the whole tenant is improved: a pass, a proposal or its
+   * only the whole tenant is improved: a pass, a suggested change or its
    * evaluation for a narrower scope is refused with `scopeReason`, as
    * the binding refuses making a version live there.
    */

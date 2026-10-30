@@ -5,13 +5,13 @@ import type { Cursor, LiveScope, ProjectId, TenantId, Timestamp } from '@kindgi/
 
 import type { EvalGroupWeights } from './eval-run-binding.js';
 import type { PromotionActor } from './live-version-binding.js';
-import type { ProposalObjective } from './supervisor-binding.js';
+import type { SuggestedChangeObjective } from './supervisor-binding.js';
 
 /**
  * Improvement passes (`POST /v1/proposals/improve`,
  * `/v1/improvement-passes`): the runtime looks for better values for an
  * agent version's tunable settings (`x-kindgi-tunable`) on a test set,
- * within a budget, and writes the best as an improvement proposal, which
+ * within a budget, and writes the best as a suggested change, which
  * a reviewer then decides like any other. How a pass searches is the
  * runtime's own; this is what starts one and reads it back.
  *
@@ -30,7 +30,7 @@ export interface ImprovementPassBinding {
     readonly data: readonly ImprovementPass[];
     readonly nextCursor?: Cursor;
   }>;
-  /** Stop a running pass: it ends `cancelled`, writing no proposal. */
+  /** Stop a running pass: it ends `cancelled`, writing no suggested change. */
   cancel(input: {
     readonly tenantId: TenantId;
     readonly passId: string;
@@ -76,12 +76,12 @@ export interface StartImprovementPassInput {
   readonly agentId: string;
   /** The version whose settings it tunes. */
   readonly fromVersion: string;
-  /** The live scope the proposal it writes is for. */
+  /** The live scope the suggested change it writes is for. */
   readonly scope: LiveScope;
   /** The test set it searches and proves on (split into a search and a hold-out part). */
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
-  readonly objective: ProposalObjective;
+  readonly objective: SuggestedChangeObjective;
   /**
    * Which corrections its comparisons count: everyone (`as-recorded`) or trusted
    * only (`experts-only`).
@@ -147,7 +147,7 @@ export interface ImproveThreshold {
 /** An `improve` schedule's input (`config.input`): when a fire starts a pass, and the pass's options. */
 export interface ImproveScheduleInput {
   readonly tiers: readonly ImprovementTier[];
-  readonly objective: ProposalObjective;
+  readonly objective: SuggestedChangeObjective;
   /**
    * Which corrections each pass's comparisons count. Omitted: each fire
    * resolves the project default — everyone (`as-recorded`) until the
@@ -181,9 +181,9 @@ export type ImprovementPassStatus = 'running' | 'completed' | 'failed' | 'cancel
 
 /** What a finished pass found. */
 export type ImprovementPassOutcome =
-  /** Its best candidate beat the current values on the hold-out part: an improvement proposal. */
-  | { readonly kind: 'proposed'; readonly proposalId: string }
-  /** No candidate beat them by more than the noise (or within the budget); no proposal. */
+  /** Its best candidate beat the current values on the hold-out part: a suggested change. */
+  | { readonly kind: 'proposed'; readonly suggestedChangeId: string }
+  /** No candidate beat them by more than the noise (or within the budget); no suggested change. */
   | {
       readonly kind: 'nothing-found';
       readonly reason: string;
@@ -205,7 +205,7 @@ export interface ImprovementPass {
   readonly scope: LiveScope;
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
-  readonly objective: ProposalObjective;
+  readonly objective: SuggestedChangeObjective;
   readonly groupWeights: EvalGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
@@ -234,14 +234,14 @@ export interface ImprovementPass {
   readonly finishedAt?: Timestamp;
 }
 
-/** One comparison a pass ran: the version as it is, a candidate, or the proposal's proof. */
+/** One comparison a pass ran: the version as it is, a candidate, or the suggested change's proof. */
 export interface ImprovementPassComparison {
   /** Absent until it started. */
   readonly evalRunId?: string;
   /**
    * `reference`: the version as it is (on the hold-out part too for a
    * model-settings change: what its proof is held to); `candidate`: other
-   * values; `proof`: the proposal, on the hold-out part.
+   * values; `proof`: the suggested change, on the hold-out part.
    */
   readonly role: 'reference' | 'candidate' | 'proof';
   readonly part: 'search' | 'hold-out';

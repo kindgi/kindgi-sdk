@@ -3,22 +3,22 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { FixProposalId, Timestamp } from '@kindgi/types';
+import type { SuggestedChangeId, Timestamp } from '@kindgi/types';
 
-import type { StoredProposal, SupervisorBinding } from '../../src/index.js';
+import type { StoredSuggestedChange, SupervisorBinding } from '../../src/index.js';
 
 /**
- * The proposals half of a `SupervisorBinding` in memory, keeping the
+ * The suggested changes half of a `SupervisorBinding` in memory, keeping the
  * contract a store keeps: newest first, dedup by fingerprint among
- * proposals not withdrawn, and each recorded step a compare-and-set on
+ * suggested changes not withdrawn, and each recorded step a compare-and-set on
  * `revision` (an `evaluation` clears `promotionId`). `before` runs before
  * each record, so a test can slip a competing write in.
  */
-export function inMemoryProposals(): SupervisorBinding & {
-  readonly rows: Map<string, StoredProposal>;
+export function inMemorySuggestedChanges(): SupervisorBinding & {
+  readonly rows: Map<string, StoredSuggestedChange>;
   before: (() => void) | undefined;
 } {
-  const rows = new Map<string, StoredProposal>();
+  const rows = new Map<string, StoredSuggestedChange>();
   let clock = Date.parse('2026-10-07T00:00:00.000Z');
   const now = () => {
     clock += 1000;
@@ -27,7 +27,7 @@ export function inMemoryProposals(): SupervisorBinding & {
   const store = {
     rows,
     before: undefined as (() => void) | undefined,
-    async listProposals({ tenantId, limit, cursor, agentId, tier, liveScope }) {
+    async listSuggestedChanges({ tenantId, limit, cursor, agentId, tier, liveScope }) {
       const all = [...rows.values()]
         .filter((p) => p.tenantId === tenantId)
         .filter((p) => agentId === undefined || p.agentId === agentId)
@@ -40,36 +40,36 @@ export function inMemoryProposals(): SupervisorBinding & {
       const data = all.slice(at, at + limit);
       return at + limit < all.length ? { data, nextCursor: String(at + limit) as never } : { data };
     },
-    async getProposal({ tenantId, proposalId }) {
-      const p = rows.get(proposalId as unknown as string);
+    async getSuggestedChange({ tenantId, suggestedChangeId }) {
+      const p = rows.get(suggestedChangeId as unknown as string);
       return p !== undefined && p.tenantId === tenantId ? p : null;
     },
-    async createProposal(input) {
+    async createSuggestedChange(input) {
       const same = [...rows.values()].find(
         (p) =>
           p.tenantId === input.tenantId &&
           p.fingerprint === input.fingerprint &&
           p.withdrawn === undefined,
       );
-      if (same !== undefined) return { kind: 'dedup', proposal: same };
+      if (same !== undefined) return { kind: 'dedup', suggestedChange: same };
       const at = now();
-      const proposal: StoredProposal = {
+      const suggestedChange: StoredSuggestedChange = {
         ...input,
-        id: randomUUID() as FixProposalId,
+        id: randomUUID() as SuggestedChangeId,
         revision: 1,
         createdAt: at,
         updatedAt: at,
       };
-      rows.set(proposal.id as unknown as string, proposal);
-      return { kind: 'ok', proposal };
+      rows.set(suggestedChange.id as unknown as string, suggestedChange);
+      return { kind: 'ok', suggestedChange };
     },
-    async recordProposal({ tenantId, proposalId, expectRevision, step }) {
+    async recordSuggestedChange({ tenantId, suggestedChangeId, expectRevision, step }) {
       store.before?.();
-      const p = rows.get(proposalId as unknown as string);
+      const p = rows.get(suggestedChangeId as unknown as string);
       if (p === undefined || p.tenantId !== tenantId) return { kind: 'not-found' };
-      if (p.revision !== expectRevision) return { kind: 'conflict', proposal: p };
+      if (p.revision !== expectRevision) return { kind: 'conflict', suggestedChange: p };
       const base = { ...p, revision: p.revision + 1, updatedAt: now() };
-      let next: StoredProposal;
+      let next: StoredSuggestedChange;
       switch (step.kind) {
         case 'candidate':
           next = { ...base, candidate: step.candidate };
@@ -89,8 +89,8 @@ export function inMemoryProposals(): SupervisorBinding & {
           next = { ...base, withdrawn: step.withdrawn };
           break;
       }
-      rows.set(proposalId as unknown as string, next);
-      return { kind: 'ok', proposal: next };
+      rows.set(suggestedChangeId as unknown as string, next);
+      return { kind: 'ok', suggestedChange: next };
     },
     async queryObservations() {
       return { kind: 'ok', page: { data: [] } };

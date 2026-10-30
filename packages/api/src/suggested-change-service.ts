@@ -47,15 +47,6 @@ import type {
   PromotionActor,
 } from './live-version-binding.js';
 import {
-  type FixProposalStatus,
-  PROPOSAL_ACTIONS,
-  type ProposalAction,
-  type ProposalEvaluationOutcome,
-  evaluationOutcome,
-  proposalActionAllowed,
-  proposalStatus,
-} from './proposal-status.js';
-import {
   type ReferenceScopeBinding,
   liveScopeOutOfScope,
   referencesOutOfScope,
@@ -64,30 +55,42 @@ import { refusesCandidates, refusesScope } from './registry-read-only.js';
 import type { ReviewerRegistryBinding } from './reviewer-binding.js';
 import { type PromotionRequestOutcome, requestPromotion } from './routes/agent-releases.js';
 import { liveScopeToWire } from './routes/live-scope-wire.js';
+import {
+  SUGGESTED_CHANGE_ACTIONS,
+  type SuggestedChangeAction,
+  type SuggestedChangeEvaluationOutcome,
+  type SuggestedChangeStatus,
+  evaluationOutcome,
+  suggestedChangeActionAllowed,
+  suggestedChangeStatus,
+} from './suggested-change-status.js';
 import type {
-  ProposalDrafter,
-  ProposalEvaluationRef,
-  ProposalEvidence,
-  ProposalObjective,
-  ProposalRule,
-  ProposalStep,
-  ProposalTier,
   ProposedChange,
-  StoredProposal,
+  StoredSuggestedChange,
+  SuggestedChangeDrafter,
+  SuggestedChangeEvaluationRef,
+  SuggestedChangeEvidence,
+  SuggestedChangeObjective,
+  SuggestedChangeRule,
+  SuggestedChangeStep,
+  SuggestedChangeTier,
   SupervisorBinding,
 } from './supervisor-binding.js';
 
 /**
- * The improvement-proposal lifecycle, from the bindings it runs on: what
- * `/v1/proposals` serves, and what a runtime's improvement pass drafts
- * and evaluates its proposal with. No authorization here: the route
+ * The suggested-change lifecycle, from the bindings it runs on: what
+ * `/v1/suggested-changes` serves, and what a runtime's improvement pass drafts
+ * and evaluates its suggested change with. No authorization here: the route
  * checks the caller; a pass acts as the runtime. Each call answers an
  * outcome; an error carries the wire code the route answers with.
  */
-export interface ProposalServiceDeps {
+export interface SuggestedChangeServiceDeps {
   readonly store: Pick<
     SupervisorBinding,
-    'listProposals' | 'getProposal' | 'createProposal' | 'recordProposal'
+    | 'listSuggestedChanges'
+    | 'getSuggestedChange'
+    | 'createSuggestedChange'
+    | 'recordSuggestedChange'
   >;
   readonly agents: AgentRegistryBinding;
   readonly blocks: BlockRegistryBinding;
@@ -99,7 +102,7 @@ export interface ProposalServiceDeps {
   /**
    * The tenant's environment orders: a candidate (its block version and
    * agent version) is made in the first environment of the agent's
-   * project's order, whichever environment's runs the proposal learned
+   * project's order, whichever environment's runs the suggested change learned
    * from, and reaches the later ones only with a promoted build. Absent:
    * in the agent's project.
    */
@@ -120,41 +123,42 @@ export interface ProposalServiceDeps {
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
-export type ProposalServiceError = { readonly code: string; readonly message: string } & Readonly<
-  Record<string, unknown>
->;
+export type SuggestedChangeServiceError = {
+  readonly code: string;
+  readonly message: string;
+} & Readonly<Record<string, unknown>>;
 
-export type ProposalOutcome<T> =
+export type SuggestedChangeOutcome<T> =
   | { readonly kind: 'ok'; readonly value: T }
-  | { readonly kind: 'err'; readonly error: ProposalServiceError };
+  | { readonly kind: 'err'; readonly error: SuggestedChangeServiceError };
 
-/** What a proposal's ids resolve to now, and the status that follows. */
-export interface ProposalFacts {
-  readonly status: FixProposalStatus;
-  readonly evaluation?: ProposalEvaluationOutcome | null;
+/** What a suggested change's ids resolve to now, and the status that follows. */
+export interface SuggestedChangeFacts {
+  readonly status: SuggestedChangeStatus;
+  readonly evaluation?: SuggestedChangeEvaluationOutcome | null;
   readonly promotion?: Promotion | null;
-  /** For a promoted proposal: whether its version still serves the scope. */
+  /** For a pinned suggested change: whether its version still serves the scope. */
   readonly liveNow?: boolean;
 }
 
-export interface DraftProposalInput {
+export interface DraftSuggestedChangeInput {
   readonly tenantId: TenantId;
   readonly agentId: string;
   readonly fromVersion: string;
   readonly scope: LiveScope;
-  readonly tier: ProposalTier;
+  readonly tier: SuggestedChangeTier;
   readonly blockId: string;
   readonly content: ProposedChange['change']['content'];
   readonly hypothesis: string;
-  readonly evidence?: ProposalEvidence;
-  readonly drafter: ProposalDrafter;
+  readonly evidence?: SuggestedChangeEvidence;
+  readonly drafter: SuggestedChangeDrafter;
 }
 
-export interface EvaluateProposalInput {
+export interface EvaluateSuggestedChangeInput {
   readonly tenantId: TenantId;
-  readonly proposal: StoredProposal;
+  readonly suggestedChange: StoredSuggestedChange;
   readonly testSetId: string;
-  readonly objective: ProposalObjective;
+  readonly objective: SuggestedChangeObjective;
   readonly comparison?: EvalComparison;
   /**
    * The current version replayed on the same cases (an improvement pass's
@@ -163,16 +167,16 @@ export interface EvaluateProposalInput {
    * being no worse and costing less. Absent: beat the recorded outputs.
    */
   readonly against?: {
-    readonly rule: ProposalRule;
+    readonly rule: SuggestedChangeRule;
     readonly reference: { readonly evalRunId: string };
   };
   /** Who it's done for: what the derived version records as `by`. */
   readonly actor: PromotionActor;
 }
 
-export interface RescoreProposalInput {
+export interface RescoreSuggestedChangeInput {
   readonly tenantId: TenantId;
-  readonly proposal: StoredProposal;
+  readonly suggestedChange: StoredSuggestedChange;
 }
 
 /**
@@ -180,7 +184,7 @@ export interface RescoreProposalInput {
  * the scope's policy asks for none: a reviewer (K2). Any reviewer may
  * approve: the drafter, not a person, requested it.
  */
-export const DRAFTED_PROPOSAL_APPROVAL: GateApproval = {
+export const DRAFTED_SUGGESTED_CHANGE_APPROVAL: GateApproval = {
   role: 'standard',
   count: 1,
   separateApprover: false,
@@ -200,7 +204,7 @@ export const DRAFTED_PROPOSAL_APPROVAL: GateApproval = {
  * only one who counts counts as none, so they may approve their own request
  * rather than being deadlocked.
  *
- * The rank filter is future-proofing: `DRAFTED_PROPOSAL_APPROVAL.role` is
+ * The rank filter is future-proofing: `DRAFTED_SUGGESTED_CHANGE_APPROVAL.role` is
  * `standard`, the lowest rank, so it never excludes anyone today.
  */
 async function hasOtherEligibleReviewer(
@@ -239,8 +243,8 @@ async function hasOtherEligibleReviewer(
   return true;
 }
 
-export function createProposalService(deps: ProposalServiceDeps) {
-  const err = (error: ProposalServiceError) => ({ kind: 'err' as const, error });
+export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
+  const err = (error: SuggestedChangeServiceError) => ({ kind: 'err' as const, error });
 
   /**
    * The approval a drafter's promotion needs (K2), with `separateApprover`
@@ -257,27 +261,33 @@ export function createProposalService(deps: ProposalServiceDeps) {
   async function draftedApproval(
     tenantId: TenantId,
     actor: PromotionActor,
-    proposal: StoredProposal,
+    suggestedChange: StoredSuggestedChange,
   ): Promise<{
     readonly approval: GateApproval;
     readonly eligibleAtRole: (role: ReviewerRole) => Promise<boolean>;
   }> {
     if (deps.reviewers === undefined) {
-      return { approval: DRAFTED_PROPOSAL_APPROVAL, eligibleAtRole: () => Promise.resolve(false) };
+      return {
+        approval: DRAFTED_SUGGESTED_CHANGE_APPROVAL,
+        eligibleAtRole: () => Promise.resolve(false),
+      };
     }
     const reviewers = deps.reviewers;
     const requesterUserId = actor.kind === 'user' ? (actor.id as UserId) : undefined;
     const resource = await approvalResourceRef(tenantId, {
-      projectId: projectOfScope(proposal.scope),
+      projectId: projectOfScope(suggestedChange.scope),
     });
     const eligibleAtRole = (role: ReviewerRole): Promise<boolean> =>
       hasOtherEligibleReviewer(reviewers, tenantId, role, requesterUserId, resource, deps.authz);
-    const second = await eligibleAtRole(DRAFTED_PROPOSAL_APPROVAL.role);
-    return { approval: { ...DRAFTED_PROPOSAL_APPROVAL, separateApprover: second }, eligibleAtRole };
+    const second = await eligibleAtRole(DRAFTED_SUGGESTED_CHANGE_APPROVAL.role);
+    return {
+      approval: { ...DRAFTED_SUGGESTED_CHANGE_APPROVAL, separateApprover: second },
+      eligibleAtRole,
+    };
   }
 
-  /** A reader of proposal facts for one call: each agent's pins are read once. */
-  function facts(tenantId: TenantId): (p: StoredProposal) => Promise<ProposalFacts> {
+  /** A reader of suggested change facts for one call: each agent's pins are read once. */
+  function facts(tenantId: TenantId): (p: StoredSuggestedChange) => Promise<SuggestedChangeFacts> {
     const pins = new Map<string, Promise<readonly LivePin[]>>();
     const pinsOf = (agentId: string): Promise<readonly LivePin[]> => {
       const known = pins.get(agentId);
@@ -291,11 +301,11 @@ export function createProposalService(deps: ProposalServiceDeps) {
         p.promotionId === undefined
           ? undefined
           : await deps.releases.promotions.get(tenantId, p.promotionId);
-      let evaluation: ProposalEvaluationOutcome | null | undefined;
+      let evaluation: SuggestedChangeEvaluationOutcome | null | undefined;
       if (p.evaluation !== undefined) evaluation = await evaluationOf(tenantId, p.evaluation);
-      const status = proposalStatus(p, promotion, evaluation);
+      const status = suggestedChangeStatus(p, promotion, evaluation);
       let liveNow: boolean | undefined;
-      if (status === 'promoted' && promotion !== undefined && promotion !== null) {
+      if (status === 'pinned' && promotion !== undefined && promotion !== null) {
         const all = await pinsOf(p.agentId as unknown as string);
         liveNow = all.some((pin) => pin.promotionId === promotion.id);
       }
@@ -309,13 +319,13 @@ export function createProposalService(deps: ProposalServiceDeps) {
   }
 
   /**
-   * A proposal's evaluation, read off its eval run (and its reference's,
+   * A suggested change's evaluation, read off its eval run (and its reference's,
    * when it has one); `null` when either can't be read.
    */
   async function evaluationOf(
     tenantId: TenantId,
-    stored: ProposalEvaluationRef,
-  ): Promise<ProposalEvaluationOutcome | null> {
+    stored: SuggestedChangeEvaluationRef,
+  ): Promise<SuggestedChangeEvaluationOutcome | null> {
     const run = await deps.evalRuns.get({ tenantId, runId: stored.evalRunId as RunId });
     if (run === null) return null;
     if (stored.reference === undefined) return evaluationOutcome(stored.objective, run);
@@ -337,8 +347,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
    */
   async function rescorable(
     tenantId: TenantId,
-    latest: ProposalEvaluationRef,
-  ): Promise<ProposalOutcome<EvalRun[]>> {
+    latest: SuggestedChangeEvaluationRef,
+  ): Promise<SuggestedChangeOutcome<EvalRun[]>> {
     const runs: EvalRun[] = [];
     for (const runId of [latest.evalRunId, latest.reference?.evalRunId]) {
       if (runId === undefined) continue;
@@ -364,7 +374,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
     runs: readonly EvalRun[],
     projectId: ProjectId,
     correlationId: string,
-  ): Promise<ProposalOutcome<string[]>> {
+  ): Promise<SuggestedChangeOutcome<string[]>> {
     const started: RunId[] = [];
     for (const run of runs) {
       // A runtime that doesn't record the run's project: the candidate's, as evaluate starts it.
@@ -380,39 +390,39 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return { kind: 'ok', value: started.map((id) => id as unknown as string) };
   }
 
-  /** The 409 when the proposal's status doesn't allow `action`. */
+  /** The 409 when the suggested change's status doesn't allow `action`. */
   async function refuseStatus(
-    action: ProposalAction,
-    proposal: StoredProposal,
-    seen?: ProposalFacts,
-  ): Promise<ProposalServiceError | undefined> {
-    const f = seen ?? (await facts(proposal.tenantId)(proposal));
-    if (proposalActionAllowed(action, f.status)) return undefined;
+    action: SuggestedChangeAction,
+    suggestedChange: StoredSuggestedChange,
+    seen?: SuggestedChangeFacts,
+  ): Promise<SuggestedChangeServiceError | undefined> {
+    const f = seen ?? (await facts(suggestedChange.tenantId)(suggestedChange));
+    if (suggestedChangeActionAllowed(action, f.status)) return undefined;
     return invalidTransition(
-      proposal,
+      suggestedChange,
       f.status,
-      `it's ${f.status}, and ${action} needs one of: ${PROPOSAL_ACTIONS[action].join(', ')}.`,
+      `it's ${f.status}, and ${action} needs one of: ${SUGGESTED_CHANGE_ACTIONS[action].join(', ')}.`,
     );
   }
 
   /** Record a step; the 409 when another call recorded one first. */
   async function record(
-    proposal: StoredProposal,
-    step: ProposalStep,
-  ): Promise<ProposalOutcome<StoredProposal>> {
-    const outcome = await deps.store.recordProposal({
-      tenantId: proposal.tenantId,
-      proposalId: proposal.id,
-      expectRevision: proposal.revision,
+    suggestedChange: StoredSuggestedChange,
+    step: SuggestedChangeStep,
+  ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
+    const outcome = await deps.store.recordSuggestedChange({
+      tenantId: suggestedChange.tenantId,
+      suggestedChangeId: suggestedChange.id,
+      expectRevision: suggestedChange.revision,
       step,
     });
-    if (outcome.kind === 'ok') return { kind: 'ok', value: outcome.proposal };
+    if (outcome.kind === 'ok') return { kind: 'ok', value: outcome.suggestedChange };
     if (outcome.kind === 'not-found')
-      return err(proposalNotFound(proposal.id as unknown as string));
+      return err(suggestedChangeNotFound(suggestedChange.id as unknown as string));
     return err({
-      code: 'proposal-invalid-state-transition',
-      message: `Proposal ${proposal.id as unknown as string} changed while this ran: read it again`,
-      proposalId: proposal.id as unknown as string,
+      code: 'suggested-change-invalid-state-transition',
+      message: `Suggested change ${suggestedChange.id as unknown as string} changed while this ran: read it again`,
+      suggestedChangeId: suggestedChange.id as unknown as string,
     });
   }
 
@@ -421,31 +431,33 @@ export function createProposalService(deps: ProposalServiceDeps) {
    * first environment of its agent's order), else its agent's;
    * `undefined` when it's unregistered.
    */
-  async function candidateProject(proposal: StoredProposal): Promise<ProjectId | undefined> {
-    if (proposal.candidate === undefined) return undefined;
+  async function candidateProject(
+    suggestedChange: StoredSuggestedChange,
+  ): Promise<ProjectId | undefined> {
+    if (suggestedChange.candidate === undefined) return undefined;
     const version = await deps.agents.getVersion({
-      tenantId: proposal.tenantId,
-      agentId: proposal.agentId,
-      version: proposal.candidate.agentVersion as Semver,
+      tenantId: suggestedChange.tenantId,
+      agentId: suggestedChange.agentId,
+      version: suggestedChange.candidate.agentVersion as Semver,
     });
     return version === null || version.unregisteredAt !== undefined
       ? undefined
       : (version.madeInProjectId ?? version.projectId);
   }
 
-  /** Publish the block version and derive the agent version a proposal is evaluated as. */
+  /** Publish the block version and derive the agent version a suggested change is evaluated as. */
   async function makeCandidate(
-    proposal: StoredProposal,
+    suggestedChange: StoredSuggestedChange,
     actor: PromotionActor,
-  ): Promise<ProposalOutcome<NonNullable<StoredProposal['candidate']>>> {
-    const { tenantId } = proposal;
-    const { blockId, fromVersion } = proposal.change;
+  ): Promise<SuggestedChangeOutcome<NonNullable<StoredSuggestedChange['candidate']>>> {
+    const { tenantId } = suggestedChange;
+    const { blockId, fromVersion } = suggestedChange.change;
     // A new version of the block is written only for a block in the
-    // agent's project's reach (a proposal drafted before that was checked).
+    // agent's project's reach (a suggested change drafted before that was checked).
     const agentVersion = await deps.agents.getVersion({
       tenantId,
-      agentId: proposal.agentId,
-      version: proposal.fromVersion as Semver,
+      agentId: suggestedChange.agentId,
+      version: suggestedChange.fromVersion as Semver,
     });
     if (agentVersion?.projectId !== undefined) {
       const outOfScope = await referencesOutOfScope(
@@ -460,15 +472,15 @@ export function createProposalService(deps: ProposalServiceDeps) {
     if (from === null) {
       return err(validationFailed(`Block "${blockId}" version ${fromVersion} is gone`, []));
     }
-    const edit = editOf(proposal.tier, proposal.change.content);
+    const edit = editOf(suggestedChange.tier, suggestedChange.change.content);
     // Deriving the agent version checks model settings, after the block
     // version is written: checked here first, so a refusal leaves
     // nothing stored.
     if (edit.kind === 'settings') {
       const agent = await deps.agents.getVersion({
         tenantId,
-        agentId: proposal.agentId,
-        version: proposal.fromVersion as Semver,
+        agentId: suggestedChange.agentId,
+        version: suggestedChange.fromVersion as Semver,
       });
       const refused =
         agent !== null && agent.modelSettings?.id === blockId
@@ -486,23 +498,23 @@ export function createProposalService(deps: ProposalServiceDeps) {
     if (published.kind === 'invalid') {
       return err(
         validationFailed(
-          `The proposal's content can't be published as block "${blockId}"`,
+          `The suggested change's content can't be published as block "${blockId}"`,
           published.issues,
         ),
       );
     }
-    const pinKind = proposal.tier === 'settings-block' ? 'settings' : 'prompts';
+    const pinKind = suggestedChange.tier === 'settings-block' ? 'settings' : 'prompts';
     const userId = actor.kind === 'user' ? (actor.id as UserId) : undefined;
     const derived = await deriveAgentVersion({
       agents: deps.agents,
       blocks: deps.blocks,
       tenantId,
-      agentId: proposal.agentId,
-      from: proposal.fromVersion,
+      agentId: suggestedChange.agentId,
+      from: suggestedChange.fromVersion,
       swaps: { [pinKind]: { [blockId]: published.version } },
-      label: `proposal ${proposal.id as unknown as string}`,
+      label: `suggested change ${suggestedChange.id as unknown as string}`,
       by: `${actor.kind}:${actor.id}`,
-      proposalId: proposal.id as unknown as string,
+      suggestedChangeId: suggestedChange.id as unknown as string,
       ...(deps.orders !== undefined && { orders: deps.orders }),
       tuplesFor: (projectId) => (id) =>
         tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId }, userId),
@@ -511,8 +523,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
       return err(
         validationFailed(
           derived.kind === 'invalid'
-            ? `Can't derive a version from ${proposal.fromVersion}`
-            : `Can't derive a version from ${proposal.fromVersion} (${derived.kind})`,
+            ? `Can't derive a version from ${suggestedChange.fromVersion}`
+            : `Can't derive a version from ${suggestedChange.fromVersion} (${derived.kind})`,
           derived.kind === 'invalid' ? derived.issues : [],
         ),
       );
@@ -533,13 +545,15 @@ export function createProposalService(deps: ProposalServiceDeps) {
     facts,
 
     /**
-     * Store a proposal: new content for a block `fromVersion` pins, checked
+     * Store a suggested change: new content for a block `fromVersion` pins, checked
      * as publishing that block version would be. `deduped` when the same
      * change from the same version for the same scope is open already.
      */
     async draft(
-      input: DraftProposalInput,
-    ): Promise<ProposalOutcome<{ proposal: StoredProposal; deduped: boolean }>> {
+      input: DraftSuggestedChangeInput,
+    ): Promise<
+      SuggestedChangeOutcome<{ suggestedChange: StoredSuggestedChange; deduped: boolean }>
+    > {
       const { tenantId } = input;
       // A registry that takes Improve's candidates improves the whole tenant only.
       const narrower = refusesScope(deps.agents.readOnly, input.scope);
@@ -582,7 +596,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       }
       if (sameContent(pinned.block, edit)) {
         return err(
-          validationFailed(`The proposal doesn't change block "${input.blockId}"`, [
+          validationFailed(`The suggested change doesn't change block "${input.blockId}"`, [
             {
               path: '/change/content',
               message: `equals version ${pinned.block.version}, which ${input.fromVersion} pins`,
@@ -595,7 +609,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         fromVersion: pinned.block.version,
         content: input.content,
       } as ProposedChange['change'];
-      const outcome = await deps.store.createProposal({
+      const outcome = await deps.store.createSuggestedChange({
         tenantId,
         ...(from.projectId !== undefined && { projectId: from.projectId }),
         agentId: input.agentId as AgentId,
@@ -610,48 +624,54 @@ export function createProposalService(deps: ProposalServiceDeps) {
       });
       return {
         kind: 'ok',
-        value: { proposal: outcome.proposal, deduped: outcome.kind === 'dedup' },
+        value: { suggestedChange: outcome.suggestedChange, deduped: outcome.kind === 'dedup' },
       };
     },
 
     /**
-     * Publish the proposal's block version and derive its agent version
+     * Publish the suggested change's block version and derive its agent version
      * (once: an evaluation again reuses them), then start the comparison.
      * Needs a writable agent registry and a tenant-wide live version.
      */
-    async evaluate(input: EvaluateProposalInput): Promise<ProposalOutcome<StoredProposal>> {
+    async evaluate(
+      input: EvaluateSuggestedChangeInput,
+    ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
       const { tenantId } = input;
-      let proposal = input.proposal;
-      const agentId = proposal.agentId as unknown as string;
-      const refused = await refuseStatus('evaluate', proposal);
+      let suggestedChange = input.suggestedChange;
+      const agentId = suggestedChange.agentId as unknown as string;
+      const refused = await refuseStatus('evaluate', suggestedChange);
       if (refused !== undefined) return err(refused);
       // Evaluating derives an agent version: not into a registry that takes
       // no writes, unless it takes Improve's candidates.
       if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
         return err({ code: 'registry-read-only', message: deps.agents.readOnly.reason });
       }
-      const narrower = refusesScope(deps.agents.readOnly, proposal.scope);
+      const narrower = refusesScope(deps.agents.readOnly, suggestedChange.scope);
       if (narrower !== undefined) return err({ code: 'registry-read-only', message: narrower });
       // A version promoted nowhere is still the agent's latest, and the
       // latest serves every scope nothing is pinned for.
       if ((await deps.releases.live.resolve({ tenantId, agentId })) === null) {
         return err({
-          code: 'proposal-needs-pin',
+          code: 'suggested-change-needs-pin',
           message: `${agentId} has no live version for the whole tenant, so a new version of it would serve every scope nothing is pinned for. Promote its current version for the tenant first (scope { "kind": "tenant" }), then evaluate.`,
         });
       }
-      if (proposal.candidate === undefined) {
-        const made = await makeCandidate(proposal, input.actor);
+      if (suggestedChange.candidate === undefined) {
+        const made = await makeCandidate(suggestedChange, input.actor);
         if (made.kind === 'err') return made;
-        const recorded = await record(proposal, { kind: 'candidate', candidate: made.value });
+        const recorded = await record(suggestedChange, {
+          kind: 'candidate',
+          candidate: made.value,
+        });
         if (recorded.kind === 'err') return recorded;
-        proposal = recorded.value;
+        suggestedChange = recorded.value;
       }
-      const candidate = proposal.candidate;
-      if (candidate === undefined) throw new Error('a recorded candidate is on the proposal');
+      const candidate = suggestedChange.candidate;
+      if (candidate === undefined)
+        throw new Error('a recorded candidate is on the suggested change');
       const version = await deps.agents.getVersion({
         tenantId,
-        agentId: proposal.agentId,
+        agentId: suggestedChange.agentId,
         version: candidate.agentVersion as Semver,
       });
       if (
@@ -661,7 +681,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       ) {
         return err({
           code: 'agent-version-not-found',
-          message: `The candidate ${agentId} ${candidate.agentVersion} is unregistered: withdraw this proposal and draft it again`,
+          message: `The candidate ${agentId} ${candidate.agentVersion} is unregistered: withdraw this suggested change and draft it again`,
         });
       }
       // It runs where it was made (in an environment order, the first
@@ -676,12 +696,12 @@ export function createProposalService(deps: ProposalServiceDeps) {
         tenantId,
         projectId: runIn,
         testSetId: input.testSetId,
-        agentRef: { agentId: proposal.agentId, version: candidate.agentVersion as Semver },
-        correlationId: `proposal:${proposal.id as unknown as string}`,
+        agentRef: { agentId: suggestedChange.agentId, version: candidate.agentVersion as Semver },
+        correlationId: `suggested-change:${suggestedChange.id as unknown as string}`,
         ...(input.comparison !== undefined && { comparison: input.comparison }),
       });
       if (started.kind !== 'ok') return err(startError(started));
-      return record(proposal, {
+      return record(suggestedChange, {
         kind: 'evaluation',
         evaluation: {
           evalRunId: started.runId as unknown as string,
@@ -697,35 +717,37 @@ export function createProposalService(deps: ProposalServiceDeps) {
     },
 
     /**
-     * Rescore the proposal's latest evaluation: its replays scored again,
-     * with what people corrected on them since. The new run is the proposal's
+     * Rescore the suggested change's latest evaluation: its replays scored again,
+     * with what people corrected on them since. The new run is the suggested change's
      * evaluation, so its status follows; the run rescored stays as it was.
      */
-    async rescore(input: RescoreProposalInput): Promise<ProposalOutcome<StoredProposal>> {
-      const { tenantId, proposal } = input;
-      const refused = await refuseStatus('rescore', proposal);
+    async rescore(
+      input: RescoreSuggestedChangeInput,
+    ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
+      const { tenantId, suggestedChange } = input;
+      const refused = await refuseStatus('rescore', suggestedChange);
       if (refused !== undefined) return err(refused);
-      const latest = proposal.evaluation;
-      if (latest === undefined) throw new Error('an evaluated proposal has an evaluation');
+      const latest = suggestedChange.evaluation;
+      if (latest === undefined) throw new Error('an evaluated suggested change has an evaluation');
       const runs = await rescorable(tenantId, latest);
       if (runs.kind === 'err') return runs;
       // As evaluate: not for a candidate unregistered since.
-      const candidateIn = await candidateProject(proposal);
+      const candidateIn = await candidateProject(suggestedChange);
       if (candidateIn === undefined) {
         return err({
           code: 'agent-version-not-found',
-          message: `The candidate ${proposal.agentId as unknown as string} ${proposal.candidate?.agentVersion} is unregistered: withdraw this proposal and draft it again`,
+          message: `The candidate ${suggestedChange.agentId as unknown as string} ${suggestedChange.candidate?.agentVersion} is unregistered: withdraw this suggested change and draft it again`,
         });
       }
       const started = await startRescores(
         tenantId,
         runs.value,
         candidateIn,
-        `proposal:${proposal.id as unknown as string}`,
+        `suggested-change:${suggestedChange.id as unknown as string}`,
       );
       if (started.kind === 'err') return started;
       const [evalRunId, referenceId] = started.value;
-      return record(proposal, {
+      return record(suggestedChange, {
         kind: 'evaluation',
         evaluation: {
           evalRunId: evalRunId as string,
@@ -739,23 +761,28 @@ export function createProposalService(deps: ProposalServiceDeps) {
     },
 
     /**
-     * A gated promotion of the candidate for the proposal's scope, with its
-     * evaluation's comparison. A drafter's proposal always waits for a
+     * A gated promotion of the candidate for the suggested change's scope, with its
+     * evaluation's comparison. A drafter's suggested change always waits for a
      * reviewer (K2). `promotion` is the request's outcome, as promotions
-     * answer it; the proposal records its promotion once one is recorded.
+     * answer it; the suggested change records its promotion once one is recorded.
      */
-    async request(input: {
+    async pin(input: {
       readonly tenantId: TenantId;
-      readonly proposal: StoredProposal;
+      readonly suggestedChange: StoredSuggestedChange;
       readonly actor: PromotionActor;
       readonly reason?: string;
-    }): Promise<ProposalOutcome<{ proposal: StoredProposal; promotion: PromotionRequestOutcome }>> {
-      const { tenantId, proposal } = input;
-      const refused = await refuseStatus('request', proposal);
+    }): Promise<
+      SuggestedChangeOutcome<{
+        suggestedChange: StoredSuggestedChange;
+        promotion: PromotionRequestOutcome;
+      }>
+    > {
+      const { tenantId, suggestedChange } = input;
+      const refused = await refuseStatus('pin', suggestedChange);
       if (refused !== undefined) return err(refused);
-      const { candidate, evaluation } = proposal;
+      const { candidate, evaluation } = suggestedChange;
       if (candidate === undefined || evaluation === undefined) {
-        throw new Error('an evaluated proposal has a candidate and an evaluation');
+        throw new Error('an evaluated suggested change has a candidate and an evaluation');
       }
       // A drafter's promotion always waits for a reviewer (K2). Whether that
       // reviewer must differ from whoever asked is the tenant roster's to say:
@@ -763,9 +790,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
       // the requester may approve their own, so they aren't stuck. A scope
       // policy's approval is the floor; the drafter's rule only tightens it.
       const drafted =
-        proposal.drafter.kind === 'person'
+        suggestedChange.drafter.kind === 'person'
           ? undefined
-          : await draftedApproval(tenantId, input.actor, proposal);
+          : await draftedApproval(tenantId, input.actor, suggestedChange);
       const drafterApproval =
         drafted === undefined
           ? {}
@@ -780,86 +807,33 @@ export function createProposalService(deps: ProposalServiceDeps) {
         },
         {
           tenantId,
-          agentId: proposal.agentId as unknown as string,
+          agentId: suggestedChange.agentId as unknown as string,
           version: candidate.agentVersion as Semver,
-          scope: proposal.scope,
+          scope: suggestedChange.scope,
           requestedBy: input.actor,
-          reason: input.reason ?? `Improvement proposal ${proposal.id as unknown as string}`,
+          reason: input.reason ?? `Suggested change ${suggestedChange.id as unknown as string}`,
           evalRunId: evaluation.evalRunId,
         },
         drafterApproval,
       );
-      if (promotion.kind !== 'ok') return { kind: 'ok', value: { proposal, promotion } };
-      const recorded = await record(proposal, {
+      if (promotion.kind !== 'ok') return { kind: 'ok', value: { suggestedChange, promotion } };
+      const recorded = await record(suggestedChange, {
         kind: 'promotion',
         promotionId: promotion.promotion.id,
       });
       if (recorded.kind === 'err') return recorded;
-      return { kind: 'ok', value: { proposal: recorded.value, promotion } };
-    },
-
-    /** The scope back on its own pin before the proposal's promotion (or unpinned). */
-    async rollback(input: {
-      readonly tenantId: TenantId;
-      readonly proposal: StoredProposal;
-      readonly actor: PromotionActor;
-      readonly reason?: string;
-    }): Promise<ProposalOutcome<StoredProposal>> {
-      const { tenantId, proposal } = input;
-      // Where a promotion was written in place of a pin (under `kindgi
-      // dev`, the pack's files), that's also where it's undone.
-      const undo = deps.agents.readOnly?.takesCandidates;
-      if (undo !== undefined) return err({ code: 'registry-read-only', message: undo.undoReason });
-      const seen = await facts(tenantId)(proposal);
-      const refused = await refuseStatus('rollback', proposal, seen);
-      if (refused !== undefined) return err(refused);
-      const promotion = seen.promotion;
-      if (promotion === null || promotion === undefined || seen.liveNow !== true) {
-        return err(
-          invalidTransition(
-            proposal,
-            seen.status,
-            "its version doesn't serve the scope anymore (the scope was promoted, rolled back or unpinned since), so there's nothing of it to roll back.",
-          ),
-        );
-      }
-      const request = {
-        tenantId,
-        agentId: proposal.agentId as unknown as string,
-        scope: proposal.scope,
-        requestedBy: input.actor,
-        reason:
-          input.reason ?? `Rolled back improvement proposal ${proposal.id as unknown as string}`,
-      };
-      // Back to the scope's own pin before; with none, it falls back to the scope above.
-      const outcome =
-        promotion.fromVersion === null
-          ? await deps.releases.promotions.unpin(request)
-          : await deps.releases.promotions.rollback({
-              ...request,
-              toVersion: promotion.fromVersion,
-            });
-      if (outcome.kind === 'err') return err({ ...outcome.error });
-      return record(proposal, {
-        kind: 'rolled-back',
-        rolledBack: {
-          at: new Date().toISOString() as Timestamp,
-          promotionId: outcome.value.id,
-          by: `${input.actor.kind}:${input.actor.id}`,
-          ...(input.reason !== undefined && { reason: input.reason }),
-        },
-      });
+      return { kind: 'ok', value: { suggestedChange: recorded.value, promotion } };
     },
 
     async withdraw(input: {
       readonly tenantId: TenantId;
-      readonly proposal: StoredProposal;
+      readonly suggestedChange: StoredSuggestedChange;
       readonly actor: PromotionActor;
       readonly reason: string;
-    }): Promise<ProposalOutcome<StoredProposal>> {
-      const refused = await refuseStatus('withdraw', input.proposal);
+    }): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
+      const refused = await refuseStatus('withdraw', input.suggestedChange);
       if (refused !== undefined) return err(refused);
-      return record(input.proposal, {
+      return record(input.suggestedChange, {
         kind: 'withdrawn',
         withdrawn: {
           at: new Date().toISOString() as Timestamp,
@@ -871,23 +845,27 @@ export function createProposalService(deps: ProposalServiceDeps) {
   };
 }
 
-export type ProposalService = ReturnType<typeof createProposalService>;
+export type SuggestedChangeService = ReturnType<typeof createSuggestedChangeService>;
 
 // ---------- helpers ----------
 
-export function proposalNotFound(proposalId: string): ProposalServiceError {
-  return { code: 'proposal-not-found', message: `No proposal ${proposalId}`, proposalId };
+export function suggestedChangeNotFound(suggestedChangeId: string): SuggestedChangeServiceError {
+  return {
+    code: 'suggested-change-not-found',
+    message: `No suggested change ${suggestedChangeId}`,
+    suggestedChangeId,
+  };
 }
 
 function invalidTransition(
-  proposal: StoredProposal,
-  status: FixProposalStatus,
+  suggestedChange: StoredSuggestedChange,
+  status: SuggestedChangeStatus,
   why: string,
-): ProposalServiceError {
+): SuggestedChangeServiceError {
   return {
-    code: 'proposal-invalid-state-transition',
-    message: `Proposal ${proposal.id as unknown as string}: ${why}`,
-    proposalId: proposal.id as unknown as string,
+    code: 'suggested-change-invalid-state-transition',
+    message: `Suggested change ${suggestedChange.id as unknown as string}: ${why}`,
+    suggestedChangeId: suggestedChange.id as unknown as string,
     status,
   };
 }
@@ -895,7 +873,7 @@ function invalidTransition(
 function validationFailed(
   message: string,
   issues: readonly { readonly path: string; readonly message: string }[],
-): ProposalServiceError {
+): SuggestedChangeServiceError {
   return {
     code: 'validation-failed',
     message,
@@ -911,23 +889,25 @@ function modelSettingsRefusal(
   agent: AgentVersionRecord,
   blockId: string,
   values: unknown,
-): ProposalServiceError | undefined {
+): SuggestedChangeServiceError | undefined {
   const issues = modelSettingsIssues(values);
   if (issues.length > 0) {
     return validationFailed(
-      `The proposal's content isn't model settings, which block "${blockId}" is`,
+      `The suggested change's content isn't model settings, which block "${blockId}" is`,
       issues,
     );
   }
   const twice = modelNamedTwice(agent, values);
   return twice === undefined
     ? undefined
-    : validationFailed(`The proposal's model settings name the model twice`, [
+    : validationFailed(`The suggested change's model settings name the model twice`, [
         { path: '/content/values', message: `model-settings block "${blockId}": ${twice}` },
       ]);
 }
 
-function startError(outcome: Exclude<EvalRunStartOutcome, { kind: 'ok' }>): ProposalServiceError {
+function startError(
+  outcome: Exclude<EvalRunStartOutcome, { kind: 'ok' }>,
+): SuggestedChangeServiceError {
   switch (outcome.kind) {
     case 'test-set-not-found':
       return {
@@ -950,7 +930,10 @@ function startError(outcome: Exclude<EvalRunStartOutcome, { kind: 'ok' }>): Prop
   }
 }
 
-function editOf(tier: ProposalTier, content: ProposedChange['change']['content']): BlockEdit {
+function editOf(
+  tier: SuggestedChangeTier,
+  content: ProposedChange['change']['content'],
+): BlockEdit {
   return tier === 'settings-block'
     ? { kind: 'settings', values: (content as { values: Record<string, unknown> }).values }
     : { kind: 'prompt', template: (content as { template: string }).template };
@@ -978,7 +961,7 @@ async function pinnedBlock(
   blocks: BlockRegistryBinding,
   tenantId: TenantId,
   from: AgentVersionRecord,
-  tier: ProposalTier,
+  tier: SuggestedChangeTier,
   blockId: string,
 ): Promise<PinnedBlock> {
   const kind = tier === 'settings-block' ? 'settings' : 'prompts';
@@ -1015,8 +998,8 @@ async function pinnedBlock(
   return { kind: 'ok', block };
 }
 
-/** The same change, from the same version, for the same scope, is one proposal. */
-function fingerprintOf(input: DraftProposalInput, change: ProposedChange['change']): string {
+/** The same change, from the same version, for the same scope, is one suggested change. */
+function fingerprintOf(input: DraftSuggestedChangeInput, change: ProposedChange['change']): string {
   const canonical = canonicalize({
     agentId: input.agentId,
     fromVersion: input.fromVersion,

@@ -222,7 +222,7 @@ export interface RunFinishedEvent {
  * An improvement pass ended (`completed`, `failed` or `cancelled`), one a
  * person started or one an `improve` schedule did. `data.pass` is the pass
  * as `GET /v1/improvement-passes/{passId}` shows it: its outcome names the
- * proposal it wrote, if it wrote one.
+ * suggested change it wrote, if it wrote one.
  */
 export interface ImprovementPassFinishedEvent {
   readonly id: WebhookEventId;

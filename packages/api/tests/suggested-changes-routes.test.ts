@@ -2,10 +2,10 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Improvement proposals (`/v1/proposals`): a hand-written change to one
+ * suggested changes (`/v1/suggested-changes`): a hand-written change to one
  * data block an agent version pins, evaluated as a real (inert) agent
  * version on a test set, then promoted for its scope through the gate.
- * The status is derived from the proposal's eval run and promotion. The
+ * The status is derived from the suggested change's eval run and promotion. The
  * stores are in memory; promotions and eval runs are fakes that record
  * what they're asked.
  */
@@ -40,7 +40,7 @@ import type {
 import type { TestSetRecord, TestSetRegistryBinding } from '../src/test-set-binding.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp, createProposalService } from '../src/index.js';
+import { createApp, createSuggestedChangeService } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
@@ -58,23 +58,23 @@ import type {
   ImprovementPassEstimateBasis,
   LivePin,
   Promotion,
-  ProposalRule,
   ReferenceScopeBinding,
   ReviewerRegistryBinding,
   RunHandlerBinding,
   StartImprovementPassInput,
+  SuggestedChangeRule,
   TokenResolver,
 } from '../src/index.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
-import { inMemoryProposals } from './support/in-memory-proposals.js';
+import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectId = randomUUID() as ProjectId;
-const TOKEN = 'proposals-token';
+const TOKEN = 'suggested-changes-token';
 const AGENT = 'acme.scorer';
 const WEIGHTS = 'acme.scoring-weights';
 const MODEL = 'acme.scorer-model';
@@ -100,7 +100,7 @@ const SEGMENT_WIRE = { kind: 'segment', projectId, path: [{ key: 'company', valu
 const projectRef: ResourceRef = { type: 'project', id: projectId as unknown as string };
 const tenantRef: ResourceRef = { type: 'tenant', id: tenantId as unknown as string };
 
-const ACCOUNT_TOKEN = 'proposals-account-token';
+const ACCOUNT_TOKEN = 'suggested-changes-account-token';
 const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN) return { tenantId, userId: 'user-1' as UserId };
   if (token === ACCOUNT_TOKEN) return { tenantId, serviceAccountId: 'sa-ci' };
@@ -209,7 +209,7 @@ function evalRunFake(agents: AgentRegistryBinding) {
         runId,
         tenantId: input.tenantId,
         // The eval run records the agent's project. A drafter's approval resolves
-        // to the proposal's SCOPE, not this — set equal to the segment's project
+        // to the suggested change's SCOPE, not this — set equal to the segment's project
         // here, so only a tenant-scoped test tells the two apart.
         projectId,
         testSetId: input.testSetId,
@@ -625,7 +625,7 @@ async function harness(
   });
   const evalRuns = evalRunFake(agents);
   const releases = releasesFake(agents);
-  const proposals = inMemoryProposals();
+  const suggestedChanges = inMemorySuggestedChanges();
   const grants = opts.grants;
   // The improve route resolves the `groupWeights` default against the test set's
   // project. The stub makes every test set a corrections one in `testSetProjectId`
@@ -658,7 +658,7 @@ async function harness(
     blockRegistry: blocks,
     evalRunBinding: evalRuns.binding,
     agentReleases: releases.releases,
-    supervisor: proposals,
+    supervisor: suggestedChanges,
     ...(opts.passes !== undefined && { improvementPasses: opts.passes }),
     ...(opts.referenceScope !== undefined && { referenceScope: opts.referenceScope }),
     ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
@@ -692,7 +692,7 @@ async function harness(
       body: (await res.json()) as Record<string, any>,
     };
   };
-  return { call, agents, blocks, evalRuns, releases, proposals };
+  return { call, agents, blocks, evalRuns, releases, suggestedChanges };
 }
 
 const DRAFT = {
@@ -731,18 +731,18 @@ async function drafted(
   h.releases.pin({ kind: 'tenant' }, '1.0.0');
   const draft =
     opts.readOnly === 'takes-candidates' ? { ...DRAFT, scope: { kind: 'tenant' } } : DRAFT;
-  const res = await h.call('POST', '/v1/proposals', draft);
+  const res = await h.call('POST', '/v1/suggested-changes', draft);
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return { ...h, id: res.body.id as string };
 }
 
-/** A proposal whose comparison finished with `delta`. */
+/** A suggested change whose comparison finished with `delta`. */
 async function evaluated(
   delta: number,
   opts: { referenceScope?: ReferenceScopeBinding; readOnly?: 'takes-candidates' } = {},
 ) {
   const h = await drafted(opts);
-  const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+  const res = await h.call('POST', `/v1/suggested-changes/${h.id}/evaluate`, {
     testSetId: 'acme.scoring-judged',
   });
   expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -750,10 +750,10 @@ async function evaluated(
   return h;
 }
 
-describe('POST /v1/proposals', () => {
+describe('POST /v1/suggested-changes', () => {
   test('a hand-written draft names the block version the agent version pins, and who wrote it', async () => {
-    const { call, proposals } = await harness();
-    const res = await call('POST', '/v1/proposals', DRAFT);
+    const { call, suggestedChanges } = await harness();
+    const res = await call('POST', '/v1/suggested-changes', DRAFT);
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body).toMatchObject({
       agentId: AGENT,
@@ -766,15 +766,15 @@ describe('POST /v1/proposals', () => {
     });
     expect(res.body.candidate).toBeUndefined();
     // The store gets the agent version's project, for a scoped list.
-    expect(proposals.rows.get(res.body.id)?.projectId).toBe(projectId);
+    expect(suggestedChanges.rows.get(res.body.id)?.projectId).toBe(projectId);
   });
 
-  test('the same change again is the same proposal, marked deduped', async () => {
+  test('the same change again is the same suggested change, marked deduped', async () => {
     const { call } = await harness();
-    const first = await call('POST', '/v1/proposals', DRAFT);
-    const again = await call('POST', '/v1/proposals', DRAFT);
+    const first = await call('POST', '/v1/suggested-changes', DRAFT);
+    const again = await call('POST', '/v1/suggested-changes', DRAFT);
     expect(again.status).toBe(200);
-    expect(again.headers.get('x-proposal-deduped')).toBe('true');
+    expect(again.headers.get('x-suggested-change-deduped')).toBe('true');
     expect(again.body.id).toBe(first.body.id);
   });
 
@@ -800,12 +800,12 @@ describe('POST /v1/proposals', () => {
       "doesn't use prompt block",
     ],
   ])('refuses %s (400 validation-failed)', async (_name, patch, words) => {
-    const { call, proposals } = await harness();
-    const res = await call('POST', '/v1/proposals', { ...DRAFT, ...patch });
+    const { call, suggestedChanges } = await harness();
+    const res = await call('POST', '/v1/suggested-changes', { ...DRAFT, ...patch });
     expect(res.status, JSON.stringify(res.body)).toBe(400);
     expect(res.body.error.code).toBe('validation-failed');
     expect(JSON.stringify(res.body.error)).toContain(words);
-    expect(proposals.rows.size).toBe(0);
+    expect(suggestedChanges.rows.size).toBe(0);
   });
 
   test.each([
@@ -822,28 +822,28 @@ describe('POST /v1/proposals', () => {
     ],
   ])('refuses %s (400 bad-input)', async (_name, patch) => {
     const { call } = await harness();
-    const res = await call('POST', '/v1/proposals', { ...DRAFT, ...patch });
+    const res = await call('POST', '/v1/suggested-changes', { ...DRAFT, ...patch });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('bad-input');
   });
 
   test('an unknown agent version is 404 agent-version-not-found', async () => {
     const { call } = await harness();
-    const res = await call('POST', '/v1/proposals', { ...DRAFT, fromVersion: '9.9.9' });
+    const res = await call('POST', '/v1/suggested-changes', { ...DRAFT, fromVersion: '9.9.9' });
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('agent-version-not-found');
   });
 });
 
-describe('POST /v1/proposals/:id/evaluate', () => {
-  test('without a tenant-wide live version it refuses (409 proposal-needs-pin) and publishes nothing', async () => {
+describe('POST /v1/suggested-changes/:id/evaluate', () => {
+  test('without a tenant-wide live version it refuses (409 suggested-change-needs-pin) and publishes nothing', async () => {
     const { call, blocks, evalRuns } = await harness();
-    const created = await call('POST', '/v1/proposals', DRAFT);
-    const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
+    const created = await call('POST', '/v1/suggested-changes', DRAFT);
+    const res = await call('POST', `/v1/suggested-changes/${created.body.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('proposal-needs-pin');
+    expect(res.body.error.code).toBe('suggested-change-needs-pin');
     expect(res.body.error.message).toContain('Promote its current version for the tenant first');
     expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toEqual([
       `${WEIGHTS}@1.0.0`,
@@ -854,9 +854,9 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   test('with a read-only agent registry (kindgi dev) it refuses (409 registry-read-only) and publishes nothing', async () => {
     const { call, releases, blocks, evalRuns } = await harness({ readOnly: true });
     releases.pin({ kind: 'tenant' }, '1.0.0');
-    const created = await call('POST', '/v1/proposals', DRAFT);
+    const created = await call('POST', '/v1/suggested-changes', DRAFT);
     expect(created.status).toBe(201);
-    const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
+    const res = await call('POST', `/v1/suggested-changes/${created.body.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
@@ -868,9 +868,9 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     expect(evalRuns.started).toHaveLength(0);
   });
 
-  test('publishes the block version, derives the agent version for the proposal, and starts the comparison', async () => {
+  test('publishes the block version, derives the agent version for the suggested change, and starts the comparison', async () => {
     const { call, id, blocks, agents, evalRuns } = await drafted();
-    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
       repetitions: 3,
       groupWeights: 'experts-only',
@@ -892,7 +892,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     expect(derived?.derivedFrom).toMatchObject({
       version: '1.0.0',
       reason: 'edited',
-      proposalId: id,
+      suggestedChangeId: id,
     });
     expect(res.body.candidate.pinsDigest).toBe(derived?.pinsDigest);
 
@@ -901,7 +901,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
         projectId,
         testSetId: 'acme.scoring-judged',
         agentRef: { agentId: AGENT, version: '1.0.1' },
-        correlationId: `proposal:${id}`,
+        correlationId: `suggested-change:${id}`,
         comparison: expect.objectContaining({ repetitions: 3, groupWeights: 'experts-only' }),
       }),
     ]);
@@ -914,7 +914,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     const { call, id, blocks, agents, evalRuns } = await drafted({
       orders: [[staging1, staging2, projectId]],
     });
-    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -933,18 +933,18 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   test("model settings that aren't are refused (400) before the block version is written", async () => {
     const { call, releases, blocks, agents, evalRuns } = await harness({ modelSettings: true });
     releases.pin({ kind: 'tenant' }, '1.0.0');
-    const created = await call('POST', '/v1/proposals', {
+    const created = await call('POST', '/v1/suggested-changes', {
       ...DRAFT,
       change: { blockId: MODEL, content: { values: { temperature: 5 } } },
     });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
-    const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
+    const res = await call('POST', `/v1/suggested-changes/${created.body.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(400);
     expect(res.body.error).toMatchObject({
       code: 'validation-failed',
-      message: `The proposal's content isn't model settings, which block "${MODEL}" is`,
+      message: `The suggested change's content isn't model settings, which block "${MODEL}" is`,
     });
     expect([...blocks.rows.keys()].filter((k) => k.startsWith(MODEL))).toEqual([`${MODEL}@1.0.0`]);
     expect(
@@ -959,7 +959,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
       preferredModel: 'claude-sonnet-5-5',
     });
     releases.pin({ kind: 'tenant' }, '1.0.0');
-    const created = await call('POST', '/v1/proposals', {
+    const created = await call('POST', '/v1/suggested-changes', {
       ...DRAFT,
       change: {
         blockId: MODEL,
@@ -967,13 +967,13 @@ describe('POST /v1/proposals/:id/evaluate', () => {
       },
     });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
-    const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
+    const res = await call('POST', `/v1/suggested-changes/${created.body.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(400);
     expect(res.body.error).toMatchObject({
       code: 'validation-failed',
-      message: "The proposal's model settings name the model twice",
+      message: "The suggested change's model settings name the model twice",
       details: {
         issues: [
           {
@@ -993,7 +993,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   test("its schemas' compiles count against the tenant's budget, first ones included: refused, nothing is stored", async () => {
     const { call, id, blocks, agents, evalRuns } = await drafted();
     const evaluate = () =>
-      call('POST', `/v1/proposals/${id}/evaluate`, { testSetId: 'acme.scoring-judged' });
+      call('POST', `/v1/suggested-changes/${id}/evaluate`, { testSetId: 'acme.scoring-judged' });
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
     try {
       await expectCompileBudgetRefused(await evaluate());
@@ -1017,11 +1017,11 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     [{ delta: null }, 'not-better', false],
   ] as const)('a finished comparison with %j is %s', async (metric, status, better) => {
     const { call, id, evalRuns } = await drafted();
-    const started = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const started = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     await evalRuns.finish(started.body.evaluation.evalRunId, metric);
-    const res = await call('GET', `/v1/proposals/${id}`);
+    const res = await call('GET', `/v1/suggested-changes/${id}`);
     expect(res.body.status).toBe(status);
     expect(res.body.evaluation).toMatchObject({
       runStatus: 'completed',
@@ -1032,13 +1032,15 @@ describe('POST /v1/proposals/:id/evaluate', () => {
 
   test('a failed comparison is evaluation-failed; evaluating again reuses the candidate', async () => {
     const { call, id, evalRuns, blocks } = await drafted();
-    const first = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const first = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     await evalRuns.finish(first.body.evaluation.evalRunId, 'failed');
-    expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('evaluation-failed');
+    expect((await call('GET', `/v1/suggested-changes/${id}`)).body.status).toBe(
+      'evaluation-failed',
+    );
 
-    const again = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const again = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(again.status).toBe(202);
@@ -1048,15 +1050,17 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     expect(evalRuns.started).toHaveLength(2);
   });
 
-  test('while evaluating, evaluate again is 409 proposal-invalid-state-transition', async () => {
+  test('while evaluating, evaluate again is 409 suggested-change-invalid-state-transition', async () => {
     const { call, id } = await drafted();
-    await call('POST', `/v1/proposals/${id}/evaluate`, { testSetId: 'acme.scoring-judged' });
-    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
+      testSetId: 'acme.scoring-judged',
+    });
+    const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({
-      code: 'proposal-invalid-state-transition',
+      code: 'suggested-change-invalid-state-transition',
       details: { status: 'evaluating' },
     });
   });
@@ -1064,7 +1068,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   test("a flow's `versions` or another baseline is refused", async () => {
     const { call, id } = await drafted();
     for (const extra of [{ versions: { agents: { x: '1.0.0' } } }, { baseline: 'recorded' }]) {
-      const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+      const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
         testSetId: 'acme.scoring-judged',
         ...extra,
       });
@@ -1073,13 +1077,13 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   });
 
   test('a step recorded meanwhile is 409, not a lost write', async () => {
-    const { call, id, proposals } = await drafted();
-    proposals.before = () => {
-      proposals.before = undefined;
-      const row = proposals.rows.get(id);
-      if (row !== undefined) proposals.rows.set(id, { ...row, revision: row.revision + 1 });
+    const { call, id, suggestedChanges } = await drafted();
+    suggestedChanges.before = () => {
+      suggestedChanges.before = undefined;
+      const row = suggestedChanges.rows.get(id);
+      if (row !== undefined) suggestedChanges.rows.set(id, { ...row, revision: row.revision + 1 });
     };
-    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
@@ -1087,19 +1091,19 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   });
 });
 
-describe('POST /v1/proposals/:id/rescore', () => {
-  test("after people correct the new answers: the same replays scored again become the proposal's evaluation", async () => {
+describe('POST /v1/suggested-changes/:id/rescore', () => {
+  test("after people correct the new answers: the same replays scored again become the suggested change's evaluation", async () => {
     const { call, id, evalRuns } = await drafted();
-    const first = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const first = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
       repetitions: 3,
     });
     const firstRunId = first.body.evaluation.evalRunId as string;
     // Every answer changed, so nothing measured the candidate.
     await evalRuns.finish(firstRunId, { delta: null });
-    expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('not-better');
+    expect((await call('GET', `/v1/suggested-changes/${id}`)).body.status).toBe('not-better');
 
-    const res = await call('POST', `/v1/proposals/${id}/rescore`);
+    const res = await call('POST', `/v1/suggested-changes/${id}/rescore`);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body.status).toBe('evaluating');
     const rescoreRunId = res.body.evaluation.evalRunId as string;
@@ -1114,12 +1118,12 @@ describe('POST /v1/proposals/:id/rescore', () => {
       testSetId: 'acme.scoring-judged',
       testSetVersion: '1.0.0',
       agentRef: { agentId: AGENT, version: '1.0.1' },
-      correlationId: `proposal:${id}`,
+      correlationId: `suggested-change:${id}`,
       comparison: expect.objectContaining({ repetitions: 3, rescoreOf: firstRunId }),
     });
 
     await evalRuns.finish(rescoreRunId, { delta: 0.2 });
-    expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('evaluated');
+    expect((await call('GET', `/v1/suggested-changes/${id}`)).body.status).toBe('evaluated');
     // The run rescored stays as it was.
     expect(evalRuns.runs.get(firstRunId)?.result).toMatchObject({
       summary: { metrics: { weightedYesShare: { delta: null } } },
@@ -1128,19 +1132,19 @@ describe('POST /v1/proposals/:id/rescore', () => {
 
   test('only after a completed evaluation: a draft, an evaluating or a failed one is 409', async () => {
     const { call, id, evalRuns } = await drafted();
-    const draft = await call('POST', `/v1/proposals/${id}/rescore`);
+    const draft = await call('POST', `/v1/suggested-changes/${id}/rescore`);
     expect(draft.status).toBe(409);
     expect(draft.body.error).toMatchObject({
-      code: 'proposal-invalid-state-transition',
+      code: 'suggested-change-invalid-state-transition',
       details: { status: 'draft' },
     });
-    const started = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const started = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
-    const evaluating = await call('POST', `/v1/proposals/${id}/rescore`);
+    const evaluating = await call('POST', `/v1/suggested-changes/${id}/rescore`);
     expect(evaluating.body.error).toMatchObject({ details: { status: 'evaluating' } });
     await evalRuns.finish(started.body.evaluation.evalRunId, 'failed');
-    const failed = await call('POST', `/v1/proposals/${id}/rescore`);
+    const failed = await call('POST', `/v1/suggested-changes/${id}/rescore`);
     expect(failed.status).toBe(409);
     expect(failed.body.error).toMatchObject({ details: { status: 'evaluation-failed' } });
     expect(evalRuns.started).toHaveLength(1);
@@ -1148,19 +1152,19 @@ describe('POST /v1/proposals/:id/rescore', () => {
 
   test('a latest evaluation that is no comparison of a test set is 409 eval-run-not-rescorable', async () => {
     const h = await evaluated(0.1);
-    const proposal = await h.call('GET', `/v1/proposals/${h.id}`);
-    const runId = proposal.body.evaluation.evalRunId as string;
+    const suggestedChange = await h.call('GET', `/v1/suggested-changes/${h.id}`);
+    const runId = suggestedChange.body.evaluation.evalRunId as string;
     const run = h.evalRuns.runs.get(runId);
     if (run === undefined) throw new Error('no run');
     h.evalRuns.runs.set(runId, { ...run, kind: 'accuracy' });
-    const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`);
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({ code: 'eval-run-not-rescorable' });
   });
 
   test('it takes no fields: the test set and settings are the latest evaluation’s (400)', async () => {
     const h = await evaluated(0);
-    const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`, {
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`, {
       testSetId: 'acme.other',
     });
     expect(res.status).toBe(400);
@@ -1169,27 +1173,29 @@ describe('POST /v1/proposals/:id/rescore', () => {
   });
 });
 
-describe('POST /v1/proposals/:id/request', () => {
+describe('POST /v1/suggested-changes/:id/pin', () => {
   test('a draft cannot be requested (409)', async () => {
     const { call, id } = await drafted();
-    const res = await call('POST', `/v1/proposals/${id}/request`, {});
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status).toBe(409);
     expect(res.body.error.details.status).toBe('draft');
   });
 
-  test('a not-better proposal can still be requested: the gate decides', async () => {
+  test('a not-better suggested change can still be requested: the gate decides', async () => {
     const { call, id } = await evaluated(0);
-    expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('not-better');
-    const res = await call('POST', `/v1/proposals/${id}/request`, {});
+    expect((await call('GET', `/v1/suggested-changes/${id}`)).body.status).toBe('not-better');
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body.status).toBe('promoted');
+    expect(res.body.status).toBe('pinned');
   });
 
   test('with no gate policy it promotes the candidate for the scope (201), live now', async () => {
     const { call, id, releases } = await evaluated(0.1);
-    const res = await call('POST', `/v1/proposals/${id}/request`, { reason: 'acme wants recency' });
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {
+      reason: 'acme wants recency',
+    });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body.status).toBe('promoted');
+    expect(res.body.status).toBe('pinned');
     expect(res.body.promotion).toMatchObject({ status: 'promoted', liveNow: true });
     const request = releases.calls.find((c) => c.method === 'request')?.input as Record<
       string,
@@ -1216,22 +1222,24 @@ describe('POST /v1/proposals/:id/request', () => {
       spec,
       createdAt: NOW,
     };
-    const res = await call('POST', `/v1/proposals/${id}/request`, {});
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body).toMatchObject({
       status: 'in-review',
       promotion: { status: 'pending-approval', approvalId: 'appr-1' },
     });
-    expect((await call('POST', `/v1/proposals/${id}/withdraw`, { reason: 'x' })).status).toBe(409);
+    expect(
+      (await call('POST', `/v1/suggested-changes/${id}/withdraw`, { reason: 'x' })).status,
+    ).toBe(409);
 
     releases.decide(res.body.promotion.id, 'promoted');
-    expect((await call('GET', `/v1/proposals/${id}`)).body).toMatchObject({
-      status: 'promoted',
+    expect((await call('GET', `/v1/suggested-changes/${id}`)).body).toMatchObject({
+      status: 'pinned',
       promotion: { liveNow: true },
     });
   });
 
-  test("a gate refusal is 422 gate-failed with the proposal's id; it can be evaluated again", async () => {
+  test("a gate refusal is 422 gate-failed with the suggested change's id; it can be evaluated again", async () => {
     const { call, id, releases } = await evaluated(0.1);
     releases.state.policy = {
       id: 'acme.prod',
@@ -1242,12 +1250,15 @@ describe('POST /v1/proposals/:id/request', () => {
       spec: { metrics: [{ name: 'weightedYesShare', minCandidate: 0.99 }] },
       createdAt: NOW,
     };
-    const res = await call('POST', `/v1/proposals/${id}/request`, {});
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(422);
-    expect(res.body.error).toMatchObject({ code: 'gate-failed', details: { proposalId: id } });
-    expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('refused');
+    expect(res.body.error).toMatchObject({
+      code: 'gate-failed',
+      details: { suggestedChangeId: id },
+    });
+    expect((await call('GET', `/v1/suggested-changes/${id}`)).body.status).toBe('refused');
 
-    const again = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const again = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(again.status).toBe(202);
@@ -1256,47 +1267,15 @@ describe('POST /v1/proposals/:id/request', () => {
   });
 });
 
-describe('POST /v1/proposals/:id/rollback and /withdraw', () => {
-  test('rollback puts the scope back on its version before (here: unpins it, since it had no pin)', async () => {
-    const { call, id, releases } = await evaluated(0.1);
-    await call('POST', `/v1/proposals/${id}/request`, {});
-    const res = await call('POST', `/v1/proposals/${id}/rollback`, { reason: 'acme complained' });
-    expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(res.body).toMatchObject({
-      status: 'rolled-back',
-      rolledBack: { by: 'user:user-1', reason: 'acme complained' },
-    });
-    expect(releases.calls.map((c) => c.method)).toContain('unpin');
-    expect(releases.pins.find((p) => p.scope.kind === 'segment')).toBeUndefined();
-  });
-
-  test('rollback goes back to the scope pin it replaced', async () => {
-    const { call, id, releases } = await evaluated(0.1);
-    releases.pin(SEGMENT, '1.0.0');
-    await call('POST', `/v1/proposals/${id}/request`, {});
-    const res = await call('POST', `/v1/proposals/${id}/rollback`, {});
-    expect(res.status, JSON.stringify(res.body)).toBe(200);
-    const rollback = releases.calls.find((c) => c.method === 'rollback')?.input;
-    expect(rollback).toMatchObject({ scope: SEGMENT, toVersion: '1.0.0' });
-    expect(releases.pins.find((p) => p.scope.kind === 'segment')?.version).toBe('1.0.0');
-  });
-
-  test("once the scope has moved on, there's nothing of it to roll back (409)", async () => {
-    const { call, id, releases } = await evaluated(0.1);
-    const promoted = await call('POST', `/v1/proposals/${id}/request`, {});
-    releases.pin(SEGMENT, '1.0.0');
-    const res = await call('POST', `/v1/proposals/${id}/rollback`, {});
-    expect(res.status).toBe(409);
-    expect(promoted.body.promotion.liveNow).toBe(true);
-    expect((await call('GET', `/v1/proposals/${id}`)).body.promotion.liveNow).toBe(false);
-  });
-
-  test('withdraw needs a reason, closes a draft, and a withdrawn proposal can no longer be evaluated', async () => {
+describe('POST /v1/suggested-changes/:id/withdraw', () => {
+  test('withdraw needs a reason, closes a draft, and a withdrawn suggested change can no longer be evaluated', async () => {
     const { call, id } = await drafted();
-    expect((await call('POST', `/v1/proposals/${id}/withdraw`, {})).status).toBe(400);
-    const res = await call('POST', `/v1/proposals/${id}/withdraw`, { reason: 'wrong segment' });
+    expect((await call('POST', `/v1/suggested-changes/${id}/withdraw`, {})).status).toBe(400);
+    const res = await call('POST', `/v1/suggested-changes/${id}/withdraw`, {
+      reason: 'wrong segment',
+    });
     expect(res.body).toMatchObject({ status: 'withdrawn', withdrawn: { reason: 'wrong segment' } });
-    const evaluate = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const evaluate = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(evaluate.status).toBe(409);
@@ -1324,28 +1303,26 @@ describe('an agent an environment order carries: a tenant- or org-wide change sp
   async function wideDraft(scope: unknown) {
     const h = await harness(wide);
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const res = await h.call('POST', '/v1/proposals', { ...DRAFT, scope });
+    const res = await h.call('POST', '/v1/suggested-changes', { ...DRAFT, scope });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     return { ...h, id: res.body.id as string };
   }
 
-  const spans = (scope: unknown, verb: 'request' | 'rollback') => async () => {
+  const spans = (scope: unknown) => async () => {
     const { call, id } = await wideDraft(scope);
-    const res = await call('POST', `/v1/proposals/${id}/${verb}`, {});
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error.code).toBe('live-scope-spans-environments');
   };
 
-  test('a tenant-wide request is refused', spans({ kind: 'tenant' }, 'request'));
-  test('a tenant-wide rollback is refused', spans({ kind: 'tenant' }, 'rollback'));
-  test('an org-wide request is refused', spans({ kind: 'org', orgId: ORG }, 'request'));
-  test('an org-wide rollback is refused', spans({ kind: 'org', orgId: ORG }, 'rollback'));
+  test('a tenant-wide pin is refused', spans({ kind: 'tenant' }));
+  test('an org-wide pin is refused', spans({ kind: 'org', orgId: ORG }));
 
   test('a project-scoped change for the same agent is not a width refusal', async () => {
     const { call, id } = await wideDraft({ kind: 'project', projectId: PROD });
     // The project scope stays within one environment: past the width check,
-    // on to the service (which here has nothing pinned at that scope to roll back).
-    const res = await call('POST', `/v1/proposals/${id}/rollback`, {});
+    // on to the service (which here has no evaluation to pin).
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.body.error?.code).not.toBe('live-scope-spans-environments');
   });
 
@@ -1361,73 +1338,76 @@ describe('an agent an environment order carries: a tenant- or org-wide change sp
       grants: [`publish agent:${AGENT}`, `promote agent:${AGENT}`, `read agent:${AGENT}`],
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const draft = await h.call('POST', '/v1/proposals', { ...DRAFT, scope: { kind: 'tenant' } });
+    const draft = await h.call('POST', '/v1/suggested-changes', {
+      ...DRAFT,
+      scope: { kind: 'tenant' },
+    });
     expect(draft.status, JSON.stringify(draft.body)).toBe(201);
-    const res = await h.call('POST', `/v1/proposals/${draft.body.id}/request`, {});
+    const res = await h.call('POST', `/v1/suggested-changes/${draft.body.id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error.code).toBe('live-scope-spans-environments');
   });
 });
 
-describe('GET /v1/proposals', () => {
+describe('GET /v1/suggested-changes', () => {
   test('lists newest first with derived statuses; filters by status and agent', async () => {
     const { call, id, evalRuns } = await drafted();
-    const second = await call('POST', '/v1/proposals', {
+    const second = await call('POST', '/v1/suggested-changes', {
       ...DRAFT,
       change: { blockId: WEIGHTS, content: { values: { recency: 0.4, fit: 0.6 } } },
     });
-    const started = await call('POST', `/v1/proposals/${second.body.id}/evaluate`, {
+    const started = await call('POST', `/v1/suggested-changes/${second.body.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     await evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0.2 });
 
-    const all = await call('GET', '/v1/proposals');
+    const all = await call('GET', '/v1/suggested-changes');
     expect(all.body.data.map((p: { id: string }) => p.id)).toEqual([second.body.id, id]);
     expect(all.body.data.map((p: { status: string }) => p.status)).toEqual(['evaluated', 'draft']);
-    const evaluatedOnly = await call('GET', '/v1/proposals?status=evaluated');
+    const evaluatedOnly = await call('GET', '/v1/suggested-changes?status=evaluated');
     expect(evaluatedOnly.body.data.map((p: { id: string }) => p.id)).toEqual([second.body.id]);
-    expect((await call('GET', '/v1/proposals?agentId=acme.other')).body.data).toEqual([]);
-    expect((await call('GET', '/v1/proposals?status=applied')).status).toBe(400);
+    expect((await call('GET', '/v1/suggested-changes?agentId=acme.other')).body.data).toEqual([]);
+    expect((await call('GET', '/v1/suggested-changes?status=applied')).status).toBe(400);
   });
 
-  test('filters by the live scope a proposal is for, as the promotions history does', async () => {
+  test('filters by the live scope a suggested change is for, as the promotions history does', async () => {
     const { call, id } = await drafted();
-    const tenantWide = await call('POST', '/v1/proposals', {
+    const tenantWide = await call('POST', '/v1/suggested-changes', {
       ...DRAFT,
       scope: { kind: 'tenant' },
     });
     const segment = await call(
       'GET',
-      `/v1/proposals?scopeKind=segment&scopeId=${projectId}&segment=company:acme`,
+      `/v1/suggested-changes?scopeKind=segment&scopeId=${projectId}&segment=company:acme`,
     );
     expect(segment.body.data.map((p: { id: string }) => p.id)).toEqual([id]);
-    const tenant = await call('GET', '/v1/proposals?scopeKind=tenant');
+    const tenant = await call('GET', '/v1/suggested-changes?scopeKind=tenant');
     expect(tenant.body.data.map((p: { id: string }) => p.id)).toEqual([tenantWide.body.id]);
-    expect((await call('GET', '/v1/proposals?scopeKind=segment')).status).toBe(400);
+    expect((await call('GET', '/v1/suggested-changes?scopeKind=segment')).status).toBe(400);
   });
 });
 
 describe('authorization on the agent', () => {
-  test("a proposal of an agent the caller can't read is 404, and isn't listed", async () => {
+  test("a suggested change of an agent the caller can't read is 404, and isn't listed", async () => {
     const { call, id } = await drafted({
       grants: [`publish agent:${AGENT}`, `read agent:${AGENT}`],
     });
     const outsider = await harness({ grants: [] });
-    expect((await outsider.call('GET', `/v1/proposals/${id}`)).status).toBe(404);
-    expect((await call('GET', `/v1/proposals/${id}`)).status).toBe(200);
+    expect((await outsider.call('GET', `/v1/suggested-changes/${id}`)).status).toBe(404);
+    expect((await call('GET', `/v1/suggested-changes/${id}`)).status).toBe(200);
   });
 
   test('drafting needs publish; requesting needs promote', async () => {
     const readOnly = await harness({ grants: [`read agent:${AGENT}`] });
-    const draft = await readOnly.call('POST', '/v1/proposals', DRAFT);
+    const draft = await readOnly.call('POST', '/v1/suggested-changes', DRAFT);
     expect(draft.status).toBe(403);
 
     const h = await drafted({ grants: [`read agent:${AGENT}`, `publish agent:${AGENT}`] });
-    const started = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+    const started = await h.call('POST', `/v1/suggested-changes/${h.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0.1 });
-    const request = await h.call('POST', `/v1/proposals/${h.id}/request`, {});
+    const request = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(request.status).toBe(403);
     expect(request.body.error.message).toContain('promote');
   });
@@ -1435,12 +1415,12 @@ describe('authorization on the agent', () => {
   test('rescoring needs publish, as evaluating does', async () => {
     const grants = [`read agent:${AGENT}`, `publish agent:${AGENT}`];
     const h = await drafted({ grants });
-    const started = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+    const started = await h.call('POST', `/v1/suggested-changes/${h.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0 });
     grants.pop(); // read only, from here on
-    const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`);
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.status).toBe(403);
     expect(res.body.error.message).toContain('publish');
     expect(h.evalRuns.started).toHaveLength(1);
@@ -1450,18 +1430,18 @@ describe('authorization on the agent', () => {
     const grants = [`read agent:${AGENT}`, `publish agent:${AGENT}`];
     const h = await drafted({ grants });
     grants.pop(); // read only, from here on
-    const res = await h.call('POST', `/v1/proposals/${h.id}/withdraw`, { reason: 'x' });
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/withdraw`, { reason: 'x' });
     expect(res.status).toBe(403);
     expect(res.body.error.message).toContain('publish');
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('draft');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('draft');
   });
 });
 
-describe('a proposal a drafter wrote (not a person)', () => {
+describe('a suggested change a drafter wrote (not a person)', () => {
   test('it answers with the corrections it names and how many it rests on in all', async () => {
     const h = await harness();
-    const service = createProposalService({
-      store: h.proposals,
+    const service = createSuggestedChangeService({
+      store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
       evalRuns: h.evalRuns.binding,
@@ -1480,7 +1460,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
       drafter: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
-    const res = await h.call('GET', `/v1/proposals/${drafted.value.proposal.id}`);
+    const res = await h.call('GET', `/v1/suggested-changes/${drafted.value.suggestedChange.id}`);
     expect(res.status).toBe(200);
     expect(res.body.evidence).toEqual({ fixes: ['j-1', 'j-2'], correctionCount: 140 });
   });
@@ -1488,8 +1468,8 @@ describe('a proposal a drafter wrote (not a person)', () => {
   test('its request waits for a reviewer even where no gate policy asks for one (K2)', async () => {
     const h = await harness();
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const service = createProposalService({
-      store: h.proposals,
+    const service = createSuggestedChangeService({
+      store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
       evalRuns: h.evalRuns.binding,
@@ -1510,7 +1490,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const evaluated = await service.evaluate({
       tenantId,
-      proposal: drafted.value.proposal,
+      suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
       actor,
@@ -1518,7 +1498,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
     const runId = evaluated.value.evaluation?.evalRunId as string;
     await h.evalRuns.finish(runId, { delta: 0.2 });
-    const requested = await service.request({ tenantId, proposal: evaluated.value, actor });
+    const requested = await service.pin({ tenantId, suggestedChange: evaluated.value, actor });
     if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
     expect(requested.value.promotion).toMatchObject({
       kind: 'ok',
@@ -1614,8 +1594,8 @@ describe('a proposal a drafter wrote (not a person)', () => {
   ): Promise<{ role: string; count: number; separateApprover: boolean } | undefined> {
     const h = await harness();
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const service = createProposalService({
-      store: h.proposals,
+    const service = createSuggestedChangeService({
+      store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
       evalRuns: h.evalRuns.binding,
@@ -1637,7 +1617,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const evaluated = await service.evaluate({
       tenantId,
-      proposal: drafted.value.proposal,
+      suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
       actor,
@@ -1645,7 +1625,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
     const runId = evaluated.value.evaluation?.evalRunId as string;
     await h.evalRuns.finish(runId, { delta: 0.2 });
-    const requested = await service.request({ tenantId, proposal: evaluated.value, actor });
+    const requested = await service.pin({ tenantId, suggestedChange: evaluated.value, actor });
     if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
     const request = h.releases.calls.find((c) => c.method === 'request')?.input as {
       gate: { approval?: { role: string; count: number; separateApprover: boolean } };
@@ -1810,8 +1790,8 @@ describe('a proposal a drafter wrote (not a person)', () => {
           : { approvals },
       createdAt: NOW,
     };
-    const service = createProposalService({
-      store: h.proposals,
+    const service = createSuggestedChangeService({
+      store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
       evalRuns: h.evalRuns.binding,
@@ -1832,7 +1812,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const evaluated = await service.evaluate({
       tenantId,
-      proposal: drafted.value.proposal,
+      suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
       actor,
@@ -1840,7 +1820,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
     const runId = evaluated.value.evaluation?.evalRunId as string;
     await h.evalRuns.finish(runId, { delta: 0.2 });
-    const requested = await service.request({ tenantId, proposal: evaluated.value, actor });
+    const requested = await service.pin({ tenantId, suggestedChange: evaluated.value, actor });
     if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
     const request = h.releases.calls.find((c) => c.method === 'request')?.input as {
       gate: { approval?: { role: string; count: number; separateApprover: boolean } };
@@ -1948,11 +1928,11 @@ describe("a change held to the current version's replays (an improvement pass's 
   );
 
   /** A draft evaluated against a reference run of the current version, both still running. */
-  async function held(rule: ProposalRule) {
+  async function held(rule: SuggestedChangeRule) {
     const h = await harness();
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    const service = createProposalService({
-      store: h.proposals,
+    const service = createSuggestedChangeService({
+      store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
       evalRuns: h.evalRuns.binding,
@@ -1980,7 +1960,7 @@ describe("a change held to the current version's replays (an improvement pass's 
     const referenceId = reference.runId as unknown as string;
     const evaluated = await service.evaluate({
       tenantId,
-      proposal: drafted.value.proposal,
+      suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
       actor: { kind: 'service', id: 'improvement-pass' },
@@ -1991,8 +1971,8 @@ describe("a change held to the current version's replays (an improvement pass's 
     const runId = evaluated.value.evaluation?.evalRunId as string;
     /** What the service makes of it now. */
     const seen = async () => {
-      const stored = h.proposals.rows.get(id);
-      if (stored === undefined) throw new Error(`no proposal ${id}`);
+      const stored = h.suggestedChanges.rows.get(id);
+      if (stored === undefined) throw new Error(`no suggested change ${id}`);
       return service.facts(tenantId)(stored);
     };
     return { ...h, service, id, runId, referenceId, seen };
@@ -2000,7 +1980,7 @@ describe("a change held to the current version's replays (an improvement pass's 
 
   test('no worse on the same cases, cheaper beyond the spread, every decision kept: evaluated, and the wire says why', async () => {
     const h = await held('cheaper');
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('evaluating');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluating');
     await h.evalRuns.finish(h.runId, {
       delta: 0,
       more: more(
@@ -2013,9 +1993,9 @@ describe("a change held to the current version's replays (an improvement pass's 
       ),
     });
     // The candidate finished; the current version's replays it's held to haven't.
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('evaluating');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluating');
     await h.evalRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
-    const res = await h.call('GET', `/v1/proposals/${h.id}`);
+    const res = await h.call('GET', `/v1/suggested-changes/${h.id}`);
     expect(res.body.status).toBe('evaluated');
     expect(res.body.evaluation).toMatchObject({
       evalRunId: h.runId,
@@ -2142,7 +2122,7 @@ describe("a change held to the current version's replays (an improvement pass's 
     const h = await held('cheaper');
     await h.evalRuns.finish(h.runId, candidate);
     await h.evalRuns.finish(h.referenceId, reference);
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('not-better');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('not-better');
     expect((await h.seen()).evaluation).toMatchObject({ kept: false, notKept });
   });
 
@@ -2159,7 +2139,7 @@ describe("a change held to the current version's replays (an improvement pass's 
       ),
     });
     await h.evalRuns.finish(h.referenceId, { delta: 0, spread: 0.05, more: CURRENT });
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('evaluated');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluated');
   });
 
   test('under `better` it must beat the recorded outputs as well as keep every decision', async () => {
@@ -2172,7 +2152,7 @@ describe("a change held to the current version's replays (an improvement pass's 
       ]),
     });
     await kept.evalRuns.finish(kept.referenceId, { delta: 0, more: CURRENT });
-    expect((await kept.call('GET', `/v1/proposals/${kept.id}`)).body).toMatchObject({
+    expect((await kept.call('GET', `/v1/suggested-changes/${kept.id}`)).body).toMatchObject({
       status: 'evaluated',
       evaluation: { rule: 'better', decisions: { checked: 3, held: 2, broken: 0, stillWrong: 1 } },
     });
@@ -2189,7 +2169,9 @@ describe("a change held to the current version's replays (an improvement pass's 
       ),
     });
     await same.evalRuns.finish(same.referenceId, { delta: 0, more: CURRENT });
-    expect((await same.call('GET', `/v1/proposals/${same.id}`)).body.status).toBe('not-better');
+    expect((await same.call('GET', `/v1/suggested-changes/${same.id}`)).body.status).toBe(
+      'not-better',
+    );
     expect((await same.seen()).evaluation).toMatchObject({ notKept: 'not-better' });
   });
 
@@ -2197,14 +2179,14 @@ describe("a change held to the current version's replays (an improvement pass's 
     const failed = await held('cheaper');
     await failed.evalRuns.finish(failed.runId, { delta: 0, more: CURRENT });
     await failed.evalRuns.finish(failed.referenceId, 'failed');
-    expect((await failed.call('GET', `/v1/proposals/${failed.id}`)).body.status).toBe(
+    expect((await failed.call('GET', `/v1/suggested-changes/${failed.id}`)).body.status).toBe(
       'evaluation-failed',
     );
 
     const gone = await held('cheaper');
     await gone.evalRuns.finish(gone.runId, { delta: 0, more: CURRENT });
     gone.evalRuns.runs.delete(gone.referenceId);
-    expect((await gone.call('GET', `/v1/proposals/${gone.id}`)).body.status).toBe(
+    expect((await gone.call('GET', `/v1/suggested-changes/${gone.id}`)).body.status).toBe(
       'evaluation-failed',
     );
   });
@@ -2213,9 +2195,9 @@ describe("a change held to the current version's replays (an improvement pass's 
     const h = await held('cheaper');
     await h.evalRuns.finish(h.runId, { delta: null, more: more([['j1', true]]) });
     await h.evalRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('not-better');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('not-better');
 
-    const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`);
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body.evaluation).toMatchObject({ rule: 'cheaper' });
     const [candidate, reference] = h.evalRuns.started.slice(-2);
@@ -2227,7 +2209,7 @@ describe("a change held to the current version's replays (an improvement pass's 
       agentRef: { agentId: AGENT, version: '1.0.0' },
       comparison: { rescoreOf: h.referenceId },
     });
-    const stored = h.proposals.rows.get(h.id)?.evaluation;
+    const stored = h.suggestedChanges.rows.get(h.id)?.evaluation;
     const rescoredReference = stored?.reference?.evalRunId as string;
     expect(stored).toMatchObject({ rule: 'cheaper', evalRunId: res.body.evaluation.evalRunId });
     expect(rescoredReference).not.toBe(h.referenceId);
@@ -2242,9 +2224,9 @@ describe("a change held to the current version's replays (an improvement pass's 
         { candidate: 0.2, cases: 12 },
       ),
     });
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('evaluating');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluating');
     await h.evalRuns.finish(rescoredReference, { delta: 0, more: CURRENT });
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('evaluated');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluated');
   });
 
   test('a rescore whose reference run is no comparison of a test set is refused, and starts nothing', async () => {
@@ -2255,7 +2237,7 @@ describe("a change held to the current version's replays (an improvement pass's 
     if (run === undefined) throw new Error('no run');
     h.evalRuns.runs.set(h.referenceId, { ...run, kind: 'accuracy' });
     const before = h.evalRuns.started.length;
-    const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`);
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({ code: 'eval-run-not-rescorable' });
     expect(h.evalRuns.started).toHaveLength(before);
@@ -2264,7 +2246,7 @@ describe("a change held to the current version's replays (an improvement pass's 
     const h = await held('cheaper');
     await h.evalRuns.finish(h.runId, { delta: 0, more: CURRENT });
     await h.evalRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
-    const before = h.proposals.rows.get(h.id);
+    const before = h.suggestedChanges.rows.get(h.id);
     const start = h.evalRuns.binding.start;
     h.evalRuns.binding.start = async (input) =>
       input.comparison?.rescoreOf === h.referenceId
@@ -2275,11 +2257,11 @@ describe("a change held to the current version's replays (an improvement pass's 
       cancelled.push(runId as unknown as string);
       return { kind: 'ok' };
     };
-    const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`);
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.body.error).toMatchObject({ code: 'test-set-not-found' });
     const rescored = [...h.evalRuns.runs.values()].find((r) => r.comparison?.rescoreOf === h.runId);
     expect(cancelled).toEqual([rescored?.runId]);
-    expect(h.proposals.rows.get(h.id)).toEqual(before);
+    expect(h.suggestedChanges.rows.get(h.id)).toEqual(before);
   });
 });
 
@@ -2310,26 +2292,26 @@ function refused(res: { status: number; body: Record<string, any> }): string[] {
   );
 }
 
-describe("what a proposal names must be in its agent's project's reach", () => {
+describe("what a suggested change names must be in its agent's project's reach", () => {
   test('a draft for a scope in another project is refused', async () => {
-    const { call, proposals } = await harness({ referenceScope: reach(new Set()) });
-    const res = await call('POST', '/v1/proposals', { ...DRAFT, scope: OTHER_SEGMENT });
+    const { call, suggestedChanges } = await harness({ referenceScope: reach(new Set()) });
+    const res = await call('POST', '/v1/suggested-changes', { ...DRAFT, scope: OTHER_SEGMENT });
     expect(refused(res)).toEqual([`/scope agent ${AGENT}`]);
-    expect(proposals.rows.size).toBe(0);
+    expect(suggestedChanges.rows.size).toBe(0);
   });
 
   test('a draft editing a block out of reach is refused, before the block is read', async () => {
-    const { call, proposals } = await harness({ referenceScope: reach(new Set([WEIGHTS])) });
-    const res = await call('POST', '/v1/proposals', DRAFT);
+    const { call, suggestedChanges } = await harness({ referenceScope: reach(new Set([WEIGHTS])) });
+    const res = await call('POST', '/v1/suggested-changes', DRAFT);
     expect(refused(res)).toEqual([`/change/blockId block ${WEIGHTS}`]);
-    expect(proposals.rows.size).toBe(0);
+    expect(suggestedChanges.rows.size).toBe(0);
   });
 
   test('evaluating on a test set out of reach is refused, and starts no eval run', async () => {
     const out = new Set<string>();
     const { call, id, evalRuns } = await drafted({ referenceScope: reach(out) });
     out.add('acme.scoring-judged');
-    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(refused(res)).toEqual(['/testSetId test-set acme.scoring-judged']);
@@ -2340,7 +2322,7 @@ describe("what a proposal names must be in its agent's project's reach", () => {
     const out = new Set<string>();
     const { call, id, releases } = await evaluated(0.1, { referenceScope: reach(out) });
     out.add(AGENT);
-    const res = await call('POST', `/v1/proposals/${id}/request`, {});
+    const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(refused(res)).toEqual([`/scope agent ${AGENT}`]);
     expect(releases.calls.filter((c) => c.method === 'request')).toEqual([]);
   });
@@ -2677,7 +2659,7 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test('a missing testSet falls back to the project the agent is made in', async () => {
+  test('a missing test set falls back to the project the agent is made in', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
     // The test set binding finds no record; the default then keys off the agent
@@ -2955,12 +2937,12 @@ describe('improvement passes', () => {
     expect(passes.started).toHaveLength(0);
   });
 
-  test('without a tenant-wide live version: 409 proposal-needs-pin', async () => {
+  test('without a tenant-wide live version: 409 suggested-change-needs-pin', async () => {
     const passes = inMemoryPasses();
     const h = await harness({ tunable: true, passes: passes.binding });
     const res = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, fromVersion: '1.0.0' });
     expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('proposal-needs-pin');
+    expect(res.body.error.code).toBe('suggested-change-needs-pin');
   });
 
   test.each([
@@ -3010,10 +2992,10 @@ describe('improvement passes', () => {
   });
 });
 
-describe("POST /v1/proposals/:id/evaluate: who is made the derived version's owner", () => {
+describe("POST /v1/suggested-changes/:id/evaluate: who is made the derived version's owner", () => {
   const evaluate = async (token?: string) => {
     const h = await drafted(token === undefined ? {} : { token });
-    const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -3266,7 +3248,7 @@ describe('an agent an order carries from its project to prod', () => {
 
   async function evaluatedBy(grants: string[]) {
     const h = await drafted({ grants, orders, items: items() });
-    const started = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+    const started = await h.call('POST', `/v1/suggested-changes/${h.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(started.status, JSON.stringify(started.body)).toBe(202);
@@ -3276,17 +3258,17 @@ describe('an agent an order carries from its project to prod', () => {
 
   test('drafting and evaluating are write where its versions are made, not publish on the agent', async () => {
     const h = await evaluatedBy([...maker]);
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).body.status).toBe('evaluated');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluated');
 
     const prodOnly = await harness({
       grants: [`read project:${PROD}`, `write project:${PROD}`, `publish agent:${AGENT}`],
       orders,
       items: items(),
     });
-    const res = await prodOnly.call('POST', '/v1/proposals', DRAFT);
+    const res = await prodOnly.call('POST', '/v1/suggested-changes', DRAFT);
     expect(res.status, JSON.stringify(res.body)).toBe(403);
     expect(res.body.error.message).toContain(
-      `changing a proposal for agent "${AGENT}" needs write on project ${projectId}`,
+      `changing a suggested change for agent "${AGENT}" needs write on project ${projectId}`,
     );
   });
 
@@ -3304,42 +3286,43 @@ describe('an agent an order carries from its project to prod', () => {
       ['rescore', {}],
       ['withdraw', { reason: 'x' }],
     ] as const) {
-      const res = await h.call('POST', `/v1/proposals/${h.id}/${verb}`, body);
+      const res = await h.call('POST', `/v1/suggested-changes/${h.id}/${verb}`, body);
       expect(res.status, JSON.stringify(res.body)).toBe(403);
       expect(res.body.error.message).toContain(
-        `changing a proposal for agent "${AGENT}" needs write on project ${projectId}`,
+        `changing a suggested change for agent "${AGENT}" needs write on project ${projectId}`,
       );
     }
     grants.splice(0, grants.length, ...maker);
-    const res = await h.call('POST', `/v1/proposals/${h.id}/withdraw`, { reason: 'x' });
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/withdraw`, { reason: 'x' });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.status).toBe('withdrawn');
   });
 
-  test("requesting and rolling back are admin where the proposal's scope is, with no promote on the agent", async () => {
+  test("pinning is admin where the suggested change's scope is, with no promote on the agent", async () => {
     const grants = [...maker];
     const h = await evaluatedBy(grants);
-    const refused = await h.call('POST', `/v1/proposals/${h.id}/request`, {});
+    const refused = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(refused.status, JSON.stringify(refused.body)).toBe(403);
     expect(refused.body.error.message).toContain('needs admin on each project it changes');
     grants.push(`admin project:${PROD}`); // prod's admin doesn't reach a scope in the agent's project
-    expect((await h.call('POST', `/v1/proposals/${h.id}/request`, {})).status).toBe(403);
-    expect((await h.call('POST', `/v1/proposals/${h.id}/rollback`, {})).status).toBe(403);
+    expect((await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {})).status).toBe(403);
     grants.push(`admin project:${projectId}`);
-    const res = await h.call('POST', `/v1/proposals/${h.id}/request`, {});
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body.status).toBe('promoted');
+    expect(res.body.status).toBe('pinned');
   });
 
-  test('a prod member reads its proposals; someone in neither project gets 404', async () => {
+  test('a prod member reads its suggested changes; someone in neither project gets 404', async () => {
     const grants = [...maker];
     const h = await drafted({ grants, orders, items: items() });
     grants.splice(0, grants.length, `read project:${PROD}`);
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).status).toBe(200);
-    expect((await h.call('GET', `/v1/proposals?agentId=${AGENT}`)).body.data).toHaveLength(1);
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).status).toBe(200);
+    expect((await h.call('GET', `/v1/suggested-changes?agentId=${AGENT}`)).body.data).toHaveLength(
+      1,
+    );
     grants.splice(0, grants.length);
-    expect((await h.call('GET', `/v1/proposals/${h.id}`)).status).toBe(404);
-    expect((await h.call('GET', `/v1/proposals?agentId=${AGENT}`)).body.data).toEqual([]);
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).status).toBe(404);
+    expect((await h.call('GET', `/v1/suggested-changes?agentId=${AGENT}`)).body.data).toEqual([]);
   });
 
   test('an improvement pass starts and cancels with write where versions are made', async () => {
@@ -3378,7 +3361,7 @@ describe('an agent an order carries from its project to prod', () => {
   test('an agent with one project: publish and promote on the agent, as before', async () => {
     const one: ItemRow[] = [{ kind: 'agent', id: AGENT, projects: [projectId] }];
     const h = await harness({ grants: [...maker, `read agent:${AGENT}`], orders, items: one });
-    const res = await h.call('POST', '/v1/proposals', DRAFT);
+    const res = await h.call('POST', '/v1/suggested-changes', DRAFT);
     expect(res.status).toBe(403);
     expect(res.body.error.message).toContain(`publish on agent "${AGENT}"`);
   });
@@ -3433,18 +3416,18 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
 
   test('a draft for a narrower scope is refused the same way, and none is kept', async () => {
     const h = await harness({ readOnly: 'takes-candidates' });
-    const res = await h.call('POST', '/v1/proposals', DRAFT);
+    const res = await h.call('POST', '/v1/suggested-changes', DRAFT);
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject(NARROWER);
-    expect(h.proposals.rows.size).toBe(0);
+    expect(h.suggestedChanges.rows.size).toBe(0);
   });
 
-  test('a narrower proposal from before is not evaluated: nothing published or started', async () => {
+  test('a narrower suggested change from before is not evaluated: nothing published or started', async () => {
     const h = await drafted({ readOnly: 'takes-candidates' });
-    const row = h.proposals.rows.get(h.id);
-    if (row === undefined) throw new Error('no proposal');
-    h.proposals.rows.set(h.id, { ...row, scope: { kind: 'project', projectId } });
-    const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+    const row = h.suggestedChanges.rows.get(h.id);
+    if (row === undefined) throw new Error('no suggested change');
+    h.suggestedChanges.rows.set(h.id, { ...row, scope: { kind: 'project', projectId } });
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
@@ -3454,26 +3437,12 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
 
   test('an evaluation publishes the block version, derives its agent version, and starts the comparison (202)', async () => {
     const { call, id, evalRuns } = await drafted({ readOnly: 'takes-candidates' });
-    const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
+    const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body.candidate).toMatchObject({ agentVersion: '1.0.1', blockVersion: '1.0.1' });
     expect(evalRuns.started).toHaveLength(1);
-  });
-
-  test("a proposal's roll back is refused with the undo reason, and nothing is rolled back or unpinned", async () => {
-    const { call, id, releases } = await evaluated(0.1, { readOnly: 'takes-candidates' });
-    expect((await call('POST', `/v1/proposals/${id}/request`, {})).status).not.toBe(409);
-    const before = releases.calls.length;
-    const res = await call('POST', `/v1/proposals/${id}/rollback`, {});
-    expect(res.status).toBe(409);
-    expect(res.body.error).toMatchObject({
-      code: 'registry-read-only',
-      message: TAKES_CANDIDATES.takesCandidates.undoReason,
-    });
-    expect(releases.calls.slice(before).map((c) => c.method)).not.toContain('unpin');
-    expect(releases.calls.slice(before).map((c) => c.method)).not.toContain('rollback');
   });
 });
 

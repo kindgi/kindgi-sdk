@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi proposals …`: improvement proposals (evals step 5). */
+/** `kindgi suggested-changes …`: suggested changes (evals step 5). */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -36,7 +36,7 @@ async function run(argv: readonly string[], client: Record<string, unknown>) {
 function recorder() {
   const calls: [string, ...unknown[]][] = [];
   const rec =
-    (name: string, result: unknown = PROPOSAL) =>
+    (name: string, result: unknown = SUGGESTED_CHANGE) =>
     async (...args: unknown[]) => {
       calls.push([name, ...args]);
       return result;
@@ -45,7 +45,7 @@ function recorder() {
 }
 
 const PROJECT = '0b9f4c1e-1111-4a2b-8c3d-000000000001';
-const PROPOSAL = {
+const SUGGESTED_CHANGE = {
   id: 'prop-1',
   agentId: 'acme.scorer',
   fromVersion: '1.4.0',
@@ -63,14 +63,14 @@ const PROPOSAL = {
   updatedAt: '2026-10-07T10:00:00.000Z',
 };
 
-describe('kindgi proposals draft', () => {
+describe('kindgi suggested-changes draft', () => {
   test('settings values from a file, for a segment, with evidence', async () => {
     const { calls, rec } = recorder();
     const file = join(cwd, 'values.json');
     await writeFile(file, JSON.stringify({ recency: 0.4, fit: 0.6 }));
     const out = await run(
       [
-        'proposals',
+        'suggested-changes',
         'draft',
         '--agent=acme.scorer',
         '--from-version=1.4.0',
@@ -79,11 +79,11 @@ describe('kindgi proposals draft', () => {
         '--block=acme.weights',
         `--values=@${file}`,
         '--hypothesis=Recent filings matter more',
-        '--judgment=j-1',
-        '--judgment=j-2',
+        '--correction=j-1',
+        '--correction=j-2',
         '--idempotency-key=k-1',
       ],
-      { proposals: { create: rec('create') } },
+      { suggestedChanges: { create: rec('create') } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -111,7 +111,7 @@ describe('kindgi proposals draft', () => {
     for (const template of ['Score it.', `@${file}`]) {
       const out = await run(
         [
-          'proposals',
+          'suggested-changes',
           'draft',
           '--agent=acme.scorer',
           '--from-version=1.4.0',
@@ -120,7 +120,7 @@ describe('kindgi proposals draft', () => {
           `--template=${template}`,
           '--hypothesis=Clearer',
         ],
-        { proposals: { create: rec('create') } },
+        { suggestedChanges: { create: rec('create') } },
       );
       expect(out.exitCode, out.stderr).toBe(0);
     }
@@ -166,8 +166,8 @@ describe('kindgi proposals draft', () => {
     ],
   ])('refuses %j: %s', async (flags, message) => {
     const { calls, rec } = recorder();
-    const out = await run(['proposals', 'draft', ...flags], {
-      proposals: { create: rec('create') },
+    const out = await run(['suggested-changes', 'draft', ...flags], {
+      suggestedChanges: { create: rec('create') },
     });
     expect(out.exitCode).toBe(2); // a usage error
     expect(out.stderr).toContain(message);
@@ -175,12 +175,12 @@ describe('kindgi proposals draft', () => {
   });
 });
 
-describe('kindgi proposals evaluate', () => {
+describe('kindgi suggested-changes evaluate', () => {
   test('sends the test set and the comparison options', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'proposals',
+        'suggested-changes',
         'evaluate',
         'prop-1',
         '--test-set=acme.judged',
@@ -190,7 +190,11 @@ describe('kindgi proposals evaluate', () => {
         '--repetitions=3',
         '--group-weights=experts-only',
       ],
-      { proposals: { evaluate: rec('evaluate', { ...PROPOSAL, status: 'evaluating' }) } },
+      {
+        suggestedChanges: {
+          evaluate: rec('evaluate', { ...SUGGESTED_CHANGE, status: 'evaluating' }),
+        },
+      },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -209,21 +213,24 @@ describe('kindgi proposals evaluate', () => {
     ]);
   });
 
-  test('--wait reads the proposal until it is no longer evaluating', async () => {
+  test('--wait reads the suggested change until it is no longer evaluating', async () => {
     const reads = [
-      { ...PROPOSAL, status: 'evaluating' },
-      { ...PROPOSAL, status: 'evaluated', evaluation: { delta: 0.12 } },
+      { ...SUGGESTED_CHANGE, status: 'evaluating' },
+      { ...SUGGESTED_CHANGE, status: 'evaluated', evaluation: { delta: 0.12 } },
     ];
     const gets: string[] = [];
-    const out = await run(['proposals', 'evaluate', 'prop-1', '--test-set=acme.judged', '--wait'], {
-      proposals: {
-        evaluate: async () => ({ ...PROPOSAL, status: 'evaluating' }),
-        get: async (id: string) => {
-          gets.push(id);
-          return reads.shift();
+    const out = await run(
+      ['suggested-changes', 'evaluate', 'prop-1', '--test-set=acme.judged', '--wait'],
+      {
+        suggestedChanges: {
+          evaluate: async () => ({ ...SUGGESTED_CHANGE, status: 'evaluating' }),
+          get: async (id: string) => {
+            gets.push(id);
+            return reads.shift();
+          },
         },
       },
-    });
+    );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(gets).toEqual(['prop-1', 'prop-1']);
     expect(JSON.parse(out.stdout)).toMatchObject({ status: 'evaluated' });
@@ -232,8 +239,8 @@ describe('kindgi proposals evaluate', () => {
   test('an unknown objective or group weighting is refused before any call', async () => {
     const { calls, rec } = recorder();
     for (const flag of ['--objective=accuracy', '--group-weights=all']) {
-      const out = await run(['proposals', 'evaluate', 'prop-1', '--test-set=s', flag], {
-        proposals: { evaluate: rec('evaluate') },
+      const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--test-set=s', flag], {
+        suggestedChanges: { evaluate: rec('evaluate') },
       });
       expect(out.exitCode).toBe(2); // a usage error
       expect(out.stderr).toContain('must be one of');
@@ -243,10 +250,10 @@ describe('kindgi proposals evaluate', () => {
 
   test('--rescore rescores the latest evaluation, and --wait follows it', async () => {
     const { calls, rec } = recorder();
-    const reads = [{ ...PROPOSAL, status: 'evaluated', evaluation: { delta: 0.2 } }];
-    const out = await run(['proposals', 'evaluate', 'prop-1', '--rescore', '--wait'], {
-      proposals: {
-        rescore: rec('rescore', { ...PROPOSAL, status: 'evaluating' }),
+    const reads = [{ ...SUGGESTED_CHANGE, status: 'evaluated', evaluation: { delta: 0.2 } }];
+    const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--rescore', '--wait'], {
+      suggestedChanges: {
+        rescore: rec('rescore', { ...SUGGESTED_CHANGE, status: 'evaluating' }),
         evaluate: rec('evaluate'),
         get: async () => reads.shift(),
       },
@@ -259,8 +266,8 @@ describe('kindgi proposals evaluate', () => {
   test('--rescore takes no comparison flag: they come from the evaluation it rescores', async () => {
     const { calls, rec } = recorder();
     for (const flag of ['--test-set=acme.judged', '--repetitions=3', '--reads=live']) {
-      const out = await run(['proposals', 'evaluate', 'prop-1', '--rescore', flag], {
-        proposals: { rescore: rec('rescore'), evaluate: rec('evaluate') },
+      const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--rescore', flag], {
+        suggestedChanges: { rescore: rec('rescore'), evaluate: rec('evaluate') },
       });
       expect(out.exitCode).toBe(2); // a usage error
       expect(out.stderr).toContain(`--rescore cannot be combined with ${flag.split('=')[0]}`);
@@ -269,12 +276,12 @@ describe('kindgi proposals evaluate', () => {
   });
 
   test("the server's needs-a-tenant-pin refusal comes through with its fix", async () => {
-    const out = await run(['proposals', 'evaluate', 'prop-1', '--test-set=s'], {
-      proposals: {
+    const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--test-set=s'], {
+      suggestedChanges: {
         evaluate: async () => {
           throw new KindgiApiError({
             code: 'conflict',
-            reason: 'proposal-needs-pin',
+            reason: 'suggested-change-needs-pin',
             message:
               'acme.scorer has no live version for the whole tenant: promote one for {kind:"tenant"} first.',
           } as never);
@@ -282,53 +289,56 @@ describe('kindgi proposals evaluate', () => {
       },
     });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain('Error [proposal-needs-pin]');
+    expect(out.stderr).toContain('Error [suggested-change-needs-pin]');
     expect(out.stderr).toContain('promote one');
   });
 });
 
-describe('kindgi proposals request / rollback / withdraw', () => {
-  test('request and rollback take an optional reason', async () => {
+describe('kindgi suggested-changes request / withdraw', () => {
+  test('request takes an optional reason', async () => {
     const { calls, rec } = recorder();
-    const client = { proposals: { request: rec('request'), rollback: rec('rollback') } };
-    await run(['proposals', 'request', 'prop-1'], client);
-    await run(['proposals', 'request', 'prop-1', '--reason=Better on acme'], client);
+    const client = { suggestedChanges: { pin: rec('pin') } };
+    await run(['suggested-changes', 'request', 'prop-1'], client);
+    await run(['suggested-changes', 'request', 'prop-1', '--reason=Better on acme'], client);
     await run(
-      ['proposals', 'rollback', 'prop-1', '--reason=Complaints', '--idempotency-key=r'],
+      ['suggested-changes', 'request', 'prop-1', '--reason=Complaints', '--idempotency-key=r'],
       client,
     );
     expect(calls).toEqual([
-      ['request', 'prop-1', {}],
-      ['request', 'prop-1', { reason: 'Better on acme' }],
-      ['rollback', 'prop-1', { reason: 'Complaints', idempotencyKey: 'r' }],
+      ['pin', 'prop-1', {}],
+      ['pin', 'prop-1', { reason: 'Better on acme' }],
+      ['pin', 'prop-1', { reason: 'Complaints', idempotencyKey: 'r' }],
     ]);
   });
 
   test('withdraw needs a reason', async () => {
     const { calls, rec } = recorder();
-    const client = { proposals: { withdraw: rec('withdraw') } };
-    const missing = await run(['proposals', 'withdraw', 'prop-1'], client);
+    const client = { suggestedChanges: { withdraw: rec('withdraw') } };
+    const missing = await run(['suggested-changes', 'withdraw', 'prop-1'], client);
     expect(missing.exitCode).toBe(2); // a usage error
     expect(missing.stderr).toContain('--reason is required');
-    await run(['proposals', 'withdraw', 'prop-1', '--reason=Superseded by a better idea'], client);
+    await run(
+      ['suggested-changes', 'withdraw', 'prop-1', '--reason=Superseded by a better idea'],
+      client,
+    );
     expect(calls).toEqual([['withdraw', 'prop-1', { reason: 'Superseded by a better idea' }]]);
   });
 });
 
-describe('kindgi proposals list / get', () => {
+describe('kindgi suggested-changes list / get', () => {
   test('filters, and a table with the scope, block, status and delta', async () => {
     const { calls, rec } = recorder();
     const page = {
       data: [
-        { ...PROPOSAL, status: 'evaluated', evaluation: { delta: 0.12 } },
-        { ...PROPOSAL, id: 'prop-2', status: 'not-better', evaluation: { delta: -0.034 } },
-        { ...PROPOSAL, id: 'prop-3' },
+        { ...SUGGESTED_CHANGE, status: 'evaluated', evaluation: { delta: 0.12 } },
+        { ...SUGGESTED_CHANGE, id: 'prop-2', status: 'not-better', evaluation: { delta: -0.034 } },
+        { ...SUGGESTED_CHANGE, id: 'prop-3' },
       ],
       hasMore: false,
     };
     const out = await run(
       [
-        'proposals',
+        'suggested-changes',
         'list',
         '--agent=acme.scorer',
         '--tier=settings-block',
@@ -336,7 +346,7 @@ describe('kindgi proposals list / get', () => {
         '--limit=10',
         '--table',
       ],
-      { proposals: { list: rec('list', page) } },
+      { suggestedChanges: { list: rec('list', page) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -349,12 +359,12 @@ describe('kindgi proposals list / get', () => {
     expect(out.stdout).toContain('-0.034');
   });
 
-  test('a scope keeps the proposals for exactly that scope', async () => {
+  test('a scope keeps the suggested changes for exactly that scope', async () => {
     const { calls, rec } = recorder();
     const list = rec('list', { data: [], hasMore: false });
-    await run(['proposals', 'list', '--tenant'], { proposals: { list } });
-    await run(['proposals', 'list', `--project=${PROJECT}`, '--segment=company:acme'], {
-      proposals: { list },
+    await run(['suggested-changes', 'list', '--tenant'], { suggestedChanges: { list } });
+    await run(['suggested-changes', 'list', `--project=${PROJECT}`, '--segment=company:acme'], {
+      suggestedChanges: { list },
     });
     expect(calls).toEqual([
       ['list', { scope: { kind: 'tenant' } }],
@@ -370,7 +380,9 @@ describe('kindgi proposals list / get', () => {
   test('an unknown status or tier is refused before any call', async () => {
     const { calls, rec } = recorder();
     for (const flag of ['--status=approved', '--tier=prompt']) {
-      const out = await run(['proposals', 'list', flag], { proposals: { list: rec('list') } });
+      const out = await run(['suggested-changes', 'list', flag], {
+        suggestedChanges: { list: rec('list') },
+      });
       expect(out.exitCode).toBe(2); // a usage error
     }
     expect(calls).toEqual([]);
@@ -378,13 +390,15 @@ describe('kindgi proposals list / get', () => {
 
   test('get reads one', async () => {
     const { calls, rec } = recorder();
-    const out = await run(['proposals', 'get', 'prop-1'], { proposals: { get: rec('get') } });
+    const out = await run(['suggested-changes', 'get', 'prop-1'], {
+      suggestedChanges: { get: rec('get') },
+    });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['get', 'prop-1']]);
   });
 
   test('is wired: help lists the group', async () => {
-    const out = await run(['proposals', '--help'], {});
+    const out = await run(['suggested-changes', '--help'], {});
     expect(out.exitCode).toBe(0);
     expect(`${out.stdout}${out.stderr}`).toContain('evaluate');
   });
@@ -479,7 +493,7 @@ describe('kindgi proposals improve', () => {
         status: 'completed',
         candidatesEvaluated: 7,
         costUsd: '0.84',
-        outcome: { kind: 'proposed', proposalId: 'prop-9' },
+        outcome: { kind: 'proposed', suggestedChangeId: 'prop-9' },
       },
     ];
     const gets: string[] = [];
@@ -498,7 +512,7 @@ describe('kindgi proposals improve', () => {
     expect(out.exitCode, out.stderr).toBe(0);
     expect(gets).toEqual(['pass-1', 'pass-1']);
     expect(JSON.parse(out.stdout)).toMatchObject({
-      outcome: { kind: 'proposed', proposalId: 'prop-9' },
+      outcome: { kind: 'proposed', suggestedChangeId: 'prop-9' },
     });
   }, 10_000);
 
@@ -608,7 +622,7 @@ describe('kindgi proposals passes', () => {
           status: 'completed',
           candidatesEvaluated: 7,
           costUsd: '0.84',
-          outcome: { kind: 'proposed', proposalId: 'prop-9' },
+          outcome: { kind: 'proposed', suggestedChangeId: 'prop-9' },
         },
         {
           ...PASS,

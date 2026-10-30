@@ -66,12 +66,12 @@ const list: LeafCommand = {
   description: 'List test sets (the latest version of each).',
   usage: `kindgi test-sets list [--project=<id>] [--kind=${KINDS.join('|')}] [--include-retired] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: {
-    project: { type: 'string', description: 'Only testSets in this project.' },
+    project: { type: 'string', description: 'Only test sets in this project.' },
     kind: { type: 'string', description: `Only this kind: ${KINDS.join(', ')}.` },
     'include-retired': {
       type: 'boolean',
       description:
-        'Include retired testSets (every version unregistered), each as its highest version with `unregisteredAt`.',
+        'Include retired test sets (every version unregistered), each as its highest version with `unregisteredAt`.',
     },
     ...PAGE_FLAGS,
   },

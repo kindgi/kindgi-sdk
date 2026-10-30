@@ -32,7 +32,7 @@ import {
   referencesOutOfScope,
 } from '../reference-scope.js';
 import { refusesCandidates, refusesScope } from '../registry-read-only.js';
-import type { ProposalObjective } from '../supervisor-binding.js';
+import type { SuggestedChangeObjective } from '../supervisor-binding.js';
 import type { TestSetRegistryBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, coordinatesOf } from './agent-releases.js';
@@ -160,14 +160,17 @@ async function testSetProjectId(
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
 const MAX_COST_USD = 100;
 const MAX_CANDIDATES = 200;
-const OBJECTIVES: readonly ProposalObjective[] = ['weightedYesShare', 'weightedPrecisionAtK'];
+const OBJECTIVES: readonly SuggestedChangeObjective[] = [
+  'weightedYesShare',
+  'weightedPrecisionAtK',
+];
 
 /**
- * `POST /improve` (under `/v1/proposals`): start an improvement pass for
+ * `POST /improve` (under `/v1/suggested-changes`): start an improvement pass for
  * an agent version and a live scope. It answers 202 with the pass; the
  * pass carries on in the background (`GET /v1/improvement-passes/:id`).
  *
- * Checked first, as evaluating its proposal would be: the version must be
+ * Checked first, as evaluating its suggested change would be: the version must be
  * active and pinned, it must pin a settings block with tunable keys, the
  * agent registry must take writes, and the agent must have a live version
  * for the whole tenant. Needs `publish` on the agent; for an agent more
@@ -179,8 +182,8 @@ const OBJECTIVES: readonly ProposalObjective[] = ['weightedYesShare', 'weightedP
  * `projectId` named, else the scope's project, else the agent version's.
  * A project or segment scope must be in it, the version must reach it,
  * and a project other than the version's needs `write` there, as the
- * pass's eval runs do. Its proposal's version is made where the agent's
- * versions are, as any proposal's.
+ * pass's eval runs do. Its suggested change's version is made where the agent's
+ * versions are, as any suggested change's.
  */
 export function mountImproveRoute(
   r: Hono<AppEnv>,
@@ -232,9 +235,9 @@ export function mountImproveRoute(
       });
     }
     if ((await deps.releases.live.resolve({ tenantId, agentId: parsed.agentId })) === null) {
-      return fail(c, 'proposal-needs-pin', {
-        code: 'proposal-needs-pin',
-        message: `${parsed.agentId} has no live version for the whole tenant, so the version a pass proposes would serve every scope nothing is pinned for. Promote its current version for the tenant first (scope { "kind": "tenant" }), then start the pass.`,
+      return fail(c, 'suggested-change-needs-pin', {
+        code: 'suggested-change-needs-pin',
+        message: `${parsed.agentId} has no live version for the whole tenant, so the version a pass suggests would serve every scope nothing is pinned for. Promote its current version for the tenant first (scope { "kind": "tenant" }), then start the pass.`,
       });
     }
     // The `groupWeights` default keys off the project the pass READS its
@@ -317,7 +320,7 @@ export function mountImproveRoute(
  *
  *   GET  /               newest first; `?agentId=` narrows
  *   GET  /:passId        one
- *   POST /:passId/cancel stop a running pass (it writes no proposal)
+ *   POST /:passId/cancel stop a running pass (it writes no suggested change)
  *
  * Authorized on the pass's agent: `read`, and `publish` to cancel. A pass
  * the caller can't read answers 404. For an agent more than one project
@@ -612,7 +615,7 @@ interface ImproveBody {
   readonly scope: ImprovementPass['scope'];
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
-  readonly objective: ProposalObjective;
+  readonly objective: SuggestedChangeObjective;
   readonly groupWeights?: EvalGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
@@ -735,7 +738,7 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
     return "`tiers` is ['settings'] (tunable settings values) or ['prompt'] (a drafted prompt template)";
   }
   const tier = tiers[0] as ImprovementTier;
-  if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as ProposalObjective)) {
+  if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as SuggestedChangeObjective)) {
     return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
   }
   const groupWeights = b.groupWeights;
@@ -752,7 +755,7 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   if (typeof budget === 'string') return budget;
   return {
     tiers: [tier],
-    objective: (b.objective as ProposalObjective | undefined) ?? 'weightedYesShare',
+    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'weightedYesShare',
     ...(groupWeights !== undefined && { groupWeights }),
     ...prompt,
     budget,

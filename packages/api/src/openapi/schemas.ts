@@ -3489,10 +3489,10 @@ export const VersionDerivationSchema: JsonSchema = {
     },
     label: { type: 'string', description: 'For `edited`: a short label for the version.' },
     by: { type: 'string', description: 'For `edited`: who derived it (`user:<id>`).' },
-    proposalId: {
+    suggestedChangeId: {
       type: 'string',
       description:
-        'For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live.',
+        'For `edited`: the suggested change it was derived for. Such a version serves no scope until a promotion makes it live.',
     },
   },
 };
@@ -6555,16 +6555,16 @@ export const RevokeSigningKeyResultSchema: JsonSchema = {
   },
 };
 
-// ---------------- improvement proposals ----------------
+// ---------------- suggested changes ----------------
 
-export const ProposalTierSchema: JsonSchema = {
+export const SuggestedChangeTierSchema: JsonSchema = {
   type: 'string',
   enum: ['settings-block', 'prompt-block'],
   description:
-    'What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.',
+    'What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.',
 };
 
-export const FixProposalStatusSchema: JsonSchema = {
+export const SuggestedChangeStatusSchema: JsonSchema = {
   type: 'string',
   enum: [
     'draft',
@@ -6573,7 +6573,7 @@ export const FixProposalStatusSchema: JsonSchema = {
     'not-better',
     'evaluation-failed',
     'in-review',
-    'promoted',
+    'pinned',
     'refused',
     'rejected',
     'expired',
@@ -6582,10 +6582,10 @@ export const FixProposalStatusSchema: JsonSchema = {
     'withdrawn',
   ],
   description:
-    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
+    "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the suggested change. `withdrawn`: withdrawn.",
 };
 
-export const ProposalChangeSchema: JsonSchema = {
+export const SuggestedChangeBlockEditSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['blockId', 'fromVersion', 'content'],
@@ -6608,11 +6608,11 @@ export const ProposalChangeSchema: JsonSchema = {
   },
 };
 
-export const ProposalDrafterSchema: JsonSchema = {
+export const SuggestedChangeDrafterSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind'],
-  description: "Who wrote the proposal: a person, or one of the runtime's drafters.",
+  description: "Who wrote the suggested change: a person, or one of the runtime's drafters.",
   properties: {
     kind: { type: 'string', enum: ['person', 'settings-optimizer', 'prompt-drafter'] },
     by: { type: 'string', description: 'For a person: `user:<id>` (or `service:<id>`).' },
@@ -6632,16 +6632,16 @@ export const ProposalDrafterSchema: JsonSchema = {
   },
 };
 
-export const ProposalEvidenceSchema: JsonSchema = {
+export const SuggestedChangeEvidenceSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'What a proposal rests on.',
+  description: 'What a suggested change rests on.',
   properties: {
     fixes: {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The corrections it fixes, by id. An improvement pass's proposal names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.",
+        "The corrections it fixes, by id. An improvement pass's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.",
     },
     correctionCount: {
       type: 'integer',
@@ -6652,31 +6652,32 @@ export const ProposalEvidenceSchema: JsonSchema = {
   },
 };
 
-export const ProposalCandidateSchema: JsonSchema = {
+export const SuggestedChangeCandidateSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['agentVersion', 'blockVersion', 'pinsDigest'],
   description:
-    'The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.',
+    'The versions evaluating the suggested change published. They serve no scope until a promotion makes the agent version live.',
   properties: {
     agentVersion: {
       type: 'string',
-      description: 'The derived agent version (its `derivedFrom.proposalId` names the proposal).',
+      description:
+        'The derived agent version (its `derivedFrom.suggestedChangeId` names the suggested change).',
     },
     blockVersion: {
       type: 'string',
-      description: "The block version published from the proposal's content.",
+      description: "The block version published from the suggested change's content.",
     },
     pinsDigest: { type: 'string' },
   },
 };
 
-export const ProposalEvaluationSchema: JsonSchema = {
+export const SuggestedChangeEvaluationSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['evalRunId', 'testSetId', 'objective', 'startedAt'],
   description:
-    "The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
+    "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
   properties: {
     evalRunId: { type: 'string', format: 'uuid' },
     testSetId: { type: 'string', description: 'The test set (a corrections test set).' },
@@ -6706,12 +6707,12 @@ export const ProposalEvaluationSchema: JsonSchema = {
       description:
         "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.",
     },
-    costUsd: { $ref: '#/components/schemas/ProposalCost' },
-    decisions: { $ref: '#/components/schemas/ProposalDecisions' },
+    costUsd: { $ref: '#/components/schemas/SuggestedChangeCost' },
+    decisions: { $ref: '#/components/schemas/SuggestedChangeDecisions' },
   },
 };
 
-export const ProposalCostSchema: JsonSchema = {
+export const SuggestedChangeCostSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['current', 'candidate'],
@@ -6723,7 +6724,7 @@ export const ProposalCostSchema: JsonSchema = {
   },
 };
 
-export const ProposalDecisionsSchema: JsonSchema = {
+export const SuggestedChangeDecisionsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['checked', 'held', 'broken', 'stillWrong'],
@@ -6749,11 +6750,11 @@ export const ProposalDecisionsSchema: JsonSchema = {
   },
 };
 
-export const ProposalPromotionSchema: JsonSchema = {
+export const SuggestedChangePromotionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'status'],
-  description: "The promotion the proposal's request made.",
+  description: "The promotion the suggested change's request made.",
   properties: {
     id: { type: 'string' },
     status: {
@@ -6763,16 +6764,16 @@ export const ProposalPromotionSchema: JsonSchema = {
     approvalId: { type: 'string', description: 'The approval a request in review waits on.' },
     liveNow: {
       type: 'boolean',
-      description: 'For a promoted proposal: whether its version still serves the scope.',
+      description: 'For a pinned suggested change: whether its version still serves the scope.',
     },
   },
 };
 
-export const FixProposalSchema: JsonSchema = {
+export const SuggestedChangeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.',
+    'A suggested change: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.',
   required: [
     'id',
     'agentId',
@@ -6791,15 +6792,15 @@ export const FixProposalSchema: JsonSchema = {
     agentId: { type: 'string' },
     fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
     scope: { $ref: '#/components/schemas/LiveScope' },
-    tier: { $ref: '#/components/schemas/ProposalTier' },
-    change: { $ref: '#/components/schemas/ProposalChange' },
+    tier: { $ref: '#/components/schemas/SuggestedChangeTier' },
+    change: { $ref: '#/components/schemas/SuggestedChangeBlockEdit' },
     hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
-    evidence: { $ref: '#/components/schemas/ProposalEvidence' },
-    drafter: { $ref: '#/components/schemas/ProposalDrafter' },
-    status: { $ref: '#/components/schemas/FixProposalStatus' },
-    candidate: { $ref: '#/components/schemas/ProposalCandidate' },
-    evaluation: { $ref: '#/components/schemas/ProposalEvaluation' },
-    promotion: { $ref: '#/components/schemas/ProposalPromotion' },
+    evidence: { $ref: '#/components/schemas/SuggestedChangeEvidence' },
+    drafter: { $ref: '#/components/schemas/SuggestedChangeDrafter' },
+    status: { $ref: '#/components/schemas/SuggestedChangeStatus' },
+    candidate: { $ref: '#/components/schemas/SuggestedChangeCandidate' },
+    evaluation: { $ref: '#/components/schemas/SuggestedChangeEvaluation' },
+    promotion: { $ref: '#/components/schemas/SuggestedChangePromotion' },
     rolledBack: {
       type: 'object',
       additionalProperties: false,
@@ -6826,12 +6827,12 @@ export const FixProposalSchema: JsonSchema = {
   },
 };
 
-export const FixProposalCollectionPageSchema: JsonSchema = {
+export const SuggestedChangeCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/FixProposal' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/SuggestedChange' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
@@ -6862,10 +6863,10 @@ export const ImprovementPassOutcomeSchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind'],
   description:
-    "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
+    "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
   properties: {
     kind: { type: 'string', enum: ['proposed', 'nothing-found', 'failed'] },
-    proposalId: { type: 'string', format: 'uuid' },
+    suggestedChangeId: { type: 'string', format: 'uuid' },
     reason: { type: 'string' },
     holdOut: {
       type: 'object',
@@ -6886,7 +6887,7 @@ export const ImprovementPassSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.",
+    "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.",
   required: [
     'id',
     'agentId',
@@ -6939,12 +6940,12 @@ export const ImprovementPassSchema: JsonSchema = {
     cancelReason: {
       type: 'string',
       description:
-        "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled.",
+        "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.",
     },
     comparisons: {
       type: 'array',
       description:
-        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
+        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -7030,7 +7031,7 @@ export const ImproveBodySchema: JsonSchema = {
       maxItems: 1,
       default: ['settings'],
       description:
-        "`['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.",
+        "`['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer.",
     },
     model: {
       type: 'object',
@@ -7106,9 +7107,9 @@ export const ImprovementPassEstimateSchema: JsonSchema = {
   },
 };
 
-export const CreateProposalBodySchema: JsonSchema = {
+export const CreateSuggestedChangeBodySchema: JsonSchema = {
   description:
-    'A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).',
+    'A hand-written suggested change: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).',
   type: 'object',
   additionalProperties: false,
   required: ['agentId', 'fromVersion', 'scope', 'tier', 'change', 'hypothesis'],
@@ -7116,7 +7117,7 @@ export const CreateProposalBodySchema: JsonSchema = {
     agentId: { type: 'string' },
     fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
     scope: { $ref: '#/components/schemas/LiveScope' },
-    tier: { $ref: '#/components/schemas/ProposalTier' },
+    tier: { $ref: '#/components/schemas/SuggestedChangeTier' },
     change: {
       type: 'object',
       additionalProperties: false,
@@ -7144,9 +7145,9 @@ export const CreateProposalBodySchema: JsonSchema = {
   },
 };
 
-export const EvaluateProposalBodySchema: JsonSchema = {
+export const EvaluateSuggestedChangeBodySchema: JsonSchema = {
   description:
-    "Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
+    "Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
   type: 'object',
   additionalProperties: false,
   required: ['testSetId'],
@@ -7166,7 +7167,7 @@ export const EvaluateProposalBodySchema: JsonSchema = {
   },
 };
 
-export const ProposalReasonBodySchema: JsonSchema = {
+export const SuggestedChangeReasonBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -7174,7 +7175,7 @@ export const ProposalReasonBodySchema: JsonSchema = {
   },
 };
 
-export const WithdrawProposalBodySchema: JsonSchema = {
+export const WithdrawSuggestedChangeBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['reason'],
@@ -9090,7 +9091,7 @@ export const TestSetSchema: JsonSchema = {
     version: {
       type: 'string',
       pattern: '^\\d+\\.\\d+\\.\\d+$',
-      description: 'Semver — publishing a modified testSet produces a new version.',
+      description: 'Semver — publishing a modified test set produces a new version.',
     },
     kind: { $ref: '#/components/schemas/EvalKind' },
     description: { type: 'string' },
@@ -9098,7 +9099,7 @@ export const TestSetSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific testSet body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.',
+        'Kind-specific test set body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.',
     },
     unregisteredAt: {
       type: 'string',
@@ -14002,7 +14003,7 @@ export const ImproveScheduleTargetSchema: JsonSchema = {
   additionalProperties: false,
   required: ['agentId', 'scope'],
   description:
-    'What an improve schedule works on: the agent, and the live scope its passes propose for and count corrections in.',
+    'What an improve schedule works on: the agent, and the live scope its passes suggest changes for and count corrections in.',
   properties: {
     agentId: { type: 'string', minLength: 1 },
     scope: { $ref: '#/components/schemas/LiveScope' },
@@ -16034,7 +16035,7 @@ export const ImprovementPassFinishedEventSchema: JsonSchema = {
   additionalProperties: false,
   required: ['id', 'type', 'createdAt', 'data'],
   description:
-    'An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.',
+    'An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.',
   properties: {
     id: {
       type: 'string',
@@ -16583,28 +16584,28 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ReplayMemoryErasuresBody', ReplayMemoryErasuresBodySchema],
   ['ResumeMemoryErasureBody', ResumeMemoryErasureBodySchema],
   ['ReplayMemoryErasuresResult', ReplayMemoryErasuresResultSchema],
-  ['ProposalTier', ProposalTierSchema],
-  ['FixProposalStatus', FixProposalStatusSchema],
-  ['ProposalChange', ProposalChangeSchema],
-  ['ProposalDrafter', ProposalDrafterSchema],
-  ['ProposalEvidence', ProposalEvidenceSchema],
-  ['ProposalCandidate', ProposalCandidateSchema],
-  ['ProposalEvaluation', ProposalEvaluationSchema],
-  ['ProposalCost', ProposalCostSchema],
-  ['ProposalDecisions', ProposalDecisionsSchema],
-  ['ProposalPromotion', ProposalPromotionSchema],
-  ['FixProposal', FixProposalSchema],
-  ['FixProposalCollectionPage', FixProposalCollectionPageSchema],
+  ['SuggestedChangeTier', SuggestedChangeTierSchema],
+  ['SuggestedChangeStatus', SuggestedChangeStatusSchema],
+  ['SuggestedChangeBlockEdit', SuggestedChangeBlockEditSchema],
+  ['SuggestedChangeDrafter', SuggestedChangeDrafterSchema],
+  ['SuggestedChangeEvidence', SuggestedChangeEvidenceSchema],
+  ['SuggestedChangeCandidate', SuggestedChangeCandidateSchema],
+  ['SuggestedChangeEvaluation', SuggestedChangeEvaluationSchema],
+  ['SuggestedChangeCost', SuggestedChangeCostSchema],
+  ['SuggestedChangeDecisions', SuggestedChangeDecisionsSchema],
+  ['SuggestedChangePromotion', SuggestedChangePromotionSchema],
+  ['SuggestedChange', SuggestedChangeSchema],
+  ['SuggestedChangeCollectionPage', SuggestedChangeCollectionPageSchema],
   ['ImprovementBudget', ImprovementBudgetSchema],
   ['ImprovementPassOutcome', ImprovementPassOutcomeSchema],
   ['ImprovementPass', ImprovementPassSchema],
   ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
   ['ImproveBody', ImproveBodySchema],
   ['ImprovementPassEstimate', ImprovementPassEstimateSchema],
-  ['CreateProposalBody', CreateProposalBodySchema],
-  ['EvaluateProposalBody', EvaluateProposalBodySchema],
-  ['ProposalReasonBody', ProposalReasonBodySchema],
-  ['WithdrawProposalBody', WithdrawProposalBodySchema],
+  ['CreateSuggestedChangeBody', CreateSuggestedChangeBodySchema],
+  ['EvaluateSuggestedChangeBody', EvaluateSuggestedChangeBodySchema],
+  ['SuggestedChangeReasonBody', SuggestedChangeReasonBodySchema],
+  ['WithdrawSuggestedChangeBody', WithdrawSuggestedChangeBodySchema],
   ['ProvenanceNodeKind', ProvenanceNodeKindSchema],
   ['ProvenanceEdgeKind', ProvenanceEdgeKindSchema],
   ['ProvenanceNode', ProvenanceNodeSchema],

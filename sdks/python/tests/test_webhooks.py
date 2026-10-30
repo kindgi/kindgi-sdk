@@ -263,7 +263,7 @@ def test_parse_event_reads_an_improvement_pass_finished() -> None:
                 "costUsd": "0.12",
                 "outcome": {
                     "kind": "proposed",
-                    "proposalId": "9b2e9c4a-0000-4000-8000-000000000005",
+                    "suggestedChangeId": "9b2e9c4a-0000-4000-8000-000000000005",
                 },
                 "trigger": {
                     "triggerId": "1c3e9c4a-0000-4000-8000-000000000006",

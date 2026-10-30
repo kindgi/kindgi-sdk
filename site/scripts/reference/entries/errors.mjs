@@ -1486,23 +1486,23 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/observability/export-signed-evidence'],
   },
-  'proposal-not-found': {
+  'suggested-change-not-found': {
     description:
       "The suggested change doesn't exist in the tenant, or your key can't see its agent.",
     details: [
       {
-        key: 'proposalId',
+        key: 'suggestedChangeId',
         meaning: 'the suggested change id that was looked up',
       },
     ],
     seeAlso: ['guides/evals/propose-a-change'],
   },
-  'proposal-invalid-state-transition': {
+  'suggested-change-invalid-state-transition': {
     description:
       "The suggested change's status doesn't allow this action, or it changed while the request ran. Read the suggested change again and retry if it still applies.",
     details: [
       {
-        key: 'proposalId',
+        key: 'suggestedChangeId',
         meaning: 'the suggested change id',
       },
       {
@@ -1512,7 +1512,7 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'proposal-needs-pin': {
+  'suggested-change-needs-pin': {
     description:
       'The agent has no live version for the whole tenant, so a new version would serve every scope nothing is pinned for. Make its current version live tenant-wide, then retry.',
     details: [],
@@ -1982,7 +1982,7 @@ export const ERROR_ENTRIES = {
         meaning: 'every check the release gate policy ran, with whether each passed',
       },
       {
-        key: 'proposalId',
+        key: 'suggestedChangeId',
         meaning: 'the suggested change, when the request came through a suggested change',
       },
     ],

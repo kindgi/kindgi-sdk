@@ -14,7 +14,7 @@ pins, for one live scope: new settings values, or new instructions. You draft
 it. Kindgi publishes the block version, makes the agent version that runs it,
 tries it on the test cases, and makes it live through the scope's release gate
 policy when you ask. Nothing serves any scope until then, and a suggested
-change made live can be rolled back.
+change made live is a pin like any other, which `kindgi agents rollback` puts back.
 
 ## Before you start
 
@@ -28,20 +28,20 @@ change made live can be rolled back.
   shows: `kindgi agents promote <agent-id> <version> --tenant`. Without one,
   the version a suggested change makes would serve every scope nothing is
   pinned for.
-  So evaluating is refused with `409 proposal-needs-pin`.
+  So evaluating is refused with `409 suggested-change-needs-pin`.
 - **A runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
   Under `kindgi dev`, making a suggested change live writes it into the pack's
   files,
   as [Under `kindgi dev`](#under-kindgi-dev) shows.
 - **`publish` on the agent** to draft and evaluate, and **`promote`** to ask
-  to make it live and to roll back.
+  to make it live.
 
 ## Draft one
 
 A draft says what to change, for which scope, and why:
 
 ```sh
-pnpm exec kindgi proposals draft --agent=acme.rank.scorer --from-version=1.0.0 --tenant \
+pnpm exec kindgi suggested-changes draft --agent=acme.rank.scorer --from-version=1.0.0 --tenant \
   --block=acme.rank.weights --values='{"recency":0.2,"fit":0.8}' \
   --hypothesis="Fit matters more than recency for acme rankings."
 ```
@@ -53,7 +53,7 @@ pnpm exec kindgi proposals draft --agent=acme.rank.scorer --from-version=1.0.0 -
 - **For which scope:** `--tenant`, `--org=<org-id>`, or
   `--project=<project-id>` with `--segment=<key:value>`s for a segment.
 - **Why:** `--hypothesis` says what the change should improve. Each
-  `--judgment=<correction-id>` keeps a correction behind the change as evidence.
+  `--correction=<correction-id>` keeps a correction behind the change as evidence.
   Repeat it for several.
 
 It prints the suggested change, with its `id` and the status `draft`:
@@ -97,10 +97,10 @@ same version for the same scope returns the suggested change drafted before.
 An evaluation tests the change on your test cases before anything serves it:
 
 ```sh
-pnpm exec kindgi proposals evaluate <proposal-id> --test-set=acme.rank-prompt-52080 --wait
+pnpm exec kindgi suggested-changes evaluate <suggested-change-id> --test-set=acme.rank-prompt-52080 --wait
 ```
 
-- `<proposal-id>` is the suggested change's `id`.
+- `<suggested-change-id>` is the suggested change's `id`.
 - `--test-set` names the test cases to try it on, built from corrections.
 - `--wait` waits for the result, at most 30 minutes, and prints the
   suggested change.
@@ -221,7 +221,7 @@ It prints the correction as JSON.
 Then rescore the suggested change:
 
 ```sh
-pnpm exec kindgi proposals evaluate <proposal-id> --rescore --wait
+pnpm exec kindgi suggested-changes evaluate <suggested-change-id> --rescore --wait
 ```
 
 A rescore is a new run on the test cases, with the same version of the test
@@ -280,7 +280,7 @@ corrected since. `comparison.rescoreOf` names the run rescored. Each metric's
 - **A run on the test cases you started yourself,** not through a suggested
   change, rescores
   with `kindgi eval-runs rescore <eval-run-id> --wait`.
-- **In the clients:** `proposals.rescore(proposalId)` and
+- **In the clients:** `suggestedChanges.rescore(suggestedChangeId)` and
   `evalRuns.rescore(runId)`, or `eval_runs.rescore(run_id)` in Python.
 
 #### In the console
@@ -315,16 +315,16 @@ the scope's release gate policy, with the evaluation as its run on the test
 cases:
 
 ```sh
-pnpm exec kindgi proposals request <proposal-id> --reason="Live check: promote by hand."
+pnpm exec kindgi suggested-changes request <suggested-change-id> --reason="Live check: promote by hand."
 ```
 
 `--reason` is kept with the request to make it live.
 [Gate a release](../release-an-agent-version/#gate-a-release) describes the
 release gate policy. The suggested change is then:
 
-- `promoted`: the candidate is live for the scope;
+- `pinned`: the candidate is live for the scope;
 - `in-review`: the release gate policy passed and a reviewer decides, with
-  `kindgi approvals complete`. Then it's `promoted` or `rejected`, `expired`
+  `kindgi approvals complete`. Then it's `pinned` or `rejected`, `expired`
   if nobody decides in time, or `superseded` if the scope's live version or
   its policy changed meanwhile;
 - `refused`: the release gate policy refused it, listing every check.
@@ -339,7 +339,7 @@ gate policy let it through:
 {
   "id": "3bca94f1-61a4-48b5-a3d7-f3664e466613",
   …
-  "status": "promoted",
+  "status": "pinned",
   …
   "promotion": {
     "id": "47319459-4131-4ef6-85c6-64afe0514900",
@@ -357,40 +357,13 @@ than whoever asked to make it live must, even where the policy's `approvals`
 sets `"separateApprover": false`. Asking to make it live needs `promote` on the
 agent.
 
-## Roll it back, or withdraw it
-
-A rollback puts the scope back on the version that served it before:
-
-```sh
-pnpm exec kindgi proposals rollback <proposal-id> --reason="Live check: put it back."
-```
-
-It prints the suggested change, now `rolled-back`:
-
-```json
-{
-  "id": "3bca94f1-61a4-48b5-a3d7-f3664e466613",
-  …
-  "status": "rolled-back",
-  …
-  "rolledBack": {
-    "at": "2026-10-09T13:24:29.234Z",
-    "by": "user:62e1ffe2-30f4-4dff-948e-ae774107a7db",
-    "reason": "Live check: put it back.",
-    "promotionId": "d19efc3c-d08a-44f8-8daa-8e2bdaedc1d8"
-  },
-  …
-}
-```
-
-The suggested change and its versions stay, as history. A rollback needs
-`promote` on the agent.
+## Withdraw it
 
 A withdrawal closes a suggested change before review, or after its request
 to make it live was refused, superseded or expired:
 
 ```sh
-pnpm exec kindgi proposals withdraw <proposal-id> --reason="Superseded by a better draft"
+pnpm exec kindgi suggested-changes withdraw <suggested-change-id> --reason="Superseded by a better draft"
 ```
 
 It prints the suggested change, now `withdrawn`. `--reason` is required, and
@@ -420,7 +393,7 @@ ends in them:
 - **For the whole tenant only,** since the pack's files serve every scope. An
   Improve run, a draft, an evaluation or a request for a project or a segment is
   refused with `409 registry-read-only`, before anything is made.
-- **The suggested change is `promoted`, with `liveNow` false:** nothing is
+- **The suggested change is `pinned`, with `liveNow` false:** nothing is
   pinned.
   The console says it was written into the pack's files.
 - **If the block's file changed since the suggested change was made,** so it
@@ -437,8 +410,8 @@ ends in them:
 ## Find them
 
 ```sh
-pnpm exec kindgi proposals list --agent=acme.rank.scorer --table
-pnpm exec kindgi proposals get <proposal-id>
+pnpm exec kindgi suggested-changes list --agent=acme.rank.scorer --table
+pnpm exec kindgi suggested-changes get <suggested-change-id>
 ```
 
 - `--agent` lists one agent's suggested changes, and `--table` prints a
@@ -459,16 +432,16 @@ Suggested changes are authorized on their agent: `read` to see one.
 | `not-better` | It didn't. |
 | `evaluation-failed` | The run on the test cases failed or was cancelled. |
 | `in-review` | Asked to make it live; the release gate policy passed and an approval is open. |
-| `promoted` | Live for its scope. |
+| `pinned` | Live for its scope. |
 | `refused` | Asked to make it live; the release gate policy refused it. |
 | `rejected` | The reviewer rejected it. |
 | `expired` | The approval expired undecided. |
 | `superseded` | Approved after the scope's live version or policy changed. |
-| `rolled-back` | Rolled back through the suggested change. |
+| `rolled-back` | The scope was rolled back after it was pinned. |
 | `withdrawn` | Withdrawn. |
 
-From your app, the clients have the same calls: `proposals.create`, `list`,
-`get`, `evaluate`, `rescore`, `request`, `rollback` and `withdraw`.
+From your app, the clients have the same calls: `suggestedChanges.create`, `list`,
+`get`, `evaluate`, `rescore`, `pin` and `withdraw`.
 
 ## Next
 
