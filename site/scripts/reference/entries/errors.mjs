@@ -810,7 +810,6 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-
   'guardrail-config-invalid': {
     description:
       "The guardrail's `config` doesn't satisfy the config schema of the check it names, so the check would refuse it on every call. Fix the config and register again.",
