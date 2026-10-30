@@ -244,6 +244,37 @@ describe('kindgi exports create', () => {
     expect(journals.filter((l) => l.parent.runId === 'run-0').map((l) => l.item)).toEqual(journal);
   });
 
+  test('test sets of every kind: an agent’s frozen one too, which the list holds only when asked by kind', async () => {
+    const frozen = 'agent.acme.desk.p-1';
+    const page = (data: readonly unknown[]) => json(200, { data, hasMore: false });
+    const fake = server({
+      '/v1/test-sets': (url) =>
+        page(
+          url.searchParams.get('kind') === 'corrections'
+            ? [{ id: frozen, kind: 'corrections', version: '1.0.0' }]
+            : [{ id: 'acme.smoke', kind: 'custom', version: '1.0.0' }],
+        ),
+      [`/v1/test-sets/${frozen}/versions`]: [{ id: frozen, version: '1.0.0' }],
+      [`/v1/test-sets/${frozen}/versions/1.0.0/cases`]: [{ caseId: 'c-1' }],
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(fake.calls).toContain(
+      'GET /v1/test-sets?includeRetired=true&kind=corrections&limit=100',
+    );
+    expect(((await lines('test-sets')) as { id: string }[]).map((s) => s.id)).toEqual([
+      'acme.smoke',
+      frozen,
+    ]);
+    const cases = (await lines('eval-cases')) as {
+      parent: Record<string, string>;
+      item: unknown;
+    }[];
+    expect(cases).toEqual([
+      { parent: { testSetId: frozen, version: '1.0.0' }, item: { caseId: 'c-1' } },
+    ]);
+  });
+
   test('env and secrets are read for each env name at each scope; a secret’s versions at its own', async () => {
     const fake = server({
       '/v1/environments': [{ envName: 'prod' }],

@@ -435,7 +435,11 @@ async function* topLines(
   tally: { gone: number },
 ): AsyncGenerator<string> {
   const query = kind.query ?? {};
-  const queries = kind.envScoped === true ? await envScopes(ctx, query) : [query];
+  const listed = kind.envScoped === true ? await envScopes(ctx, query) : [query];
+  const queries = listed.flatMap((q) => [
+    q,
+    ...(kind.alsoAsk ?? []).map((more) => ({ ...q, ...more })),
+  ]);
   for (const q of queries) {
     for await (const listed of read(ctx.reader, kind, kind.route, q)) {
       const record =

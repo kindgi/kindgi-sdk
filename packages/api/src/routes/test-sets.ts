@@ -173,20 +173,14 @@ export function testSetsRouter(
     // items with an active version only (the default).
     const includeRetired = c.req.query('includeRetired') === 'true';
 
-    if (
-      kindRaw !== undefined &&
-      kindRaw.length > 0 &&
-      !(LISTED_EVAL_KINDS as readonly string[]).includes(kindRaw)
-    ) {
+    const askedKind = kindRaw !== undefined && kindRaw.length > 0 ? kindRaw : undefined;
+    if (askedKind !== undefined && !(EVAL_KINDS as readonly string[]).includes(askedKind)) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
           {
             code: 'bad-input',
-            message:
-              kindRaw === 'corrections'
-                ? "Test sets built from corrections aren't listed: an agent's corrections are its test set, at `/v1/agents/{agentId}/test-set`."
-                : `Unknown eval kind "${kindRaw}". Expected one of: ${LISTED_EVAL_KINDS.join(', ')}.`,
+            message: `Unknown eval kind "${askedKind}". Expected one of: ${EVAL_KINDS.join(', ')}.`,
           },
           requestId,
         ),
@@ -205,16 +199,19 @@ export function testSetsRouter(
       tenantId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
-      ...(kindRaw !== undefined && kindRaw.length > 0 && { evalKind: kindRaw as EvalKind }),
+      ...(askedKind !== undefined && { evalKind: askedKind as EvalKind }),
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...(includeRetired && { includeRetired: true }),
     });
+    // Asked by kind, the list holds that kind, `corrections` too.
     const visible = await readable(
       c,
       tenantId,
-      page.data.filter((s) => LISTED_EVAL_KINDS.includes(s.kind)),
+      askedKind !== undefined
+        ? page.data
+        : page.data.filter((s) => LISTED_EVAL_KINDS.includes(s.kind)),
     );
     return c.json({
       data: visible.map(serializeTestSet),

@@ -325,7 +325,7 @@ describe('API — test-sets list', () => {
     expect(body.error.code).toBe('bad-input');
   });
 
-  test("a test set built from corrections isn't listed, but is still read by id", async () => {
+  test('a test set built from corrections is listed only when asked by kind, and read by id', async () => {
     const { app, binding } = makeApp();
     await seed(binding, testSetSpec({ id: 'a.accuracy', kind: 'accuracy' }));
     await seed(
@@ -342,10 +342,9 @@ describe('API — test-sets list', () => {
     const byKind = await app.request('/v1/test-sets?kind=corrections', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
-    expect(byKind.status).toBe(400);
-    const refused = (await byKind.json()) as { error: { code: string; message: string } };
-    expect(refused.error.code).toBe('bad-input');
-    expect(refused.error.message).toContain('/v1/agents/{agentId}/test-set');
+    expect(byKind.status).toBe(200);
+    const corrections = (await byKind.json()) as { data: Array<{ id: string }> };
+    expect(corrections.data.map((s) => s.id)).toEqual(['b.corrected']);
 
     const byId = await app.request('/v1/test-sets/b.corrected', {
       headers: { authorization: `Bearer ${TOKEN}` },

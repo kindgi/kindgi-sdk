@@ -1273,10 +1273,18 @@ const TestSetKindFilterQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    "Filter to test sets of a single kind. `corrections` isn't listed: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
+    "Filter to test sets of a single kind. `corrections` is listed only when asked for here: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`), and its frozen versions are `corrections` test sets.",
   schema: {
     type: 'string',
-    enum: ['accuracy', 'pairwise', 'regression', 'human-review', 'benchmark', 'custom'],
+    enum: [
+      'accuracy',
+      'pairwise',
+      'regression',
+      'human-review',
+      'benchmark',
+      'custom',
+      'corrections',
+    ],
   },
 };
 
@@ -6822,7 +6830,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'testSets.list',
     summary: 'List tenant test sets',
     description:
-      "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A test set built from corrections (`kind: corrections`) isn't listed, though it's still read by id: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
+      "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A test set built from corrections (`kind: corrections`), an agent's frozen versions and those built before, is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
     tags: ['test-sets'],
     security: 'bearer',
     parameters: [

@@ -61,8 +61,12 @@ export interface PublishTestSetOptions {
 export interface ListTestSetsFilter {
   readonly limit?: number;
   readonly cursor?: string;
-  /** `corrections` isn't listed: an agent's corrections are its test set (`agents.testSet`). */
-  readonly kind?: Exclude<EvalKind, 'corrections'>;
+  /**
+   * One kind only. `corrections` is listed only when asked for here: an
+   * agent's corrections are its test set (`agents.testSet`), and its frozen
+   * versions are `corrections` test sets.
+   */
+  readonly kind?: EvalKind;
   readonly name?: string;
   readonly scopeKind?: ScopeKind;
   readonly scopeId?: string;

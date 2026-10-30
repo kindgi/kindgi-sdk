@@ -43,6 +43,11 @@ export interface ExportKind {
   /** Query parameters sent on every read: what the route leaves out unless asked. */
   readonly query?: Readonly<Record<string, string>>;
   /**
+   * More reads of a top-level kind into the same file, each with these
+   * added to `query`: what the route lists only when asked for by name.
+   */
+  readonly alsoAsk?: readonly Readonly<Record<string, string>>[];
+  /**
    * Read once for each env name (`GET /v1/environments`) at each scope:
    * the tenant, each org, each project (with `inherit=false` in `query`,
    * so nothing is read twice). A child kind is read at its parent's env
@@ -363,6 +368,8 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/test-sets',
     paging: cursor,
     query: { includeRetired: 'true' },
+    // Agents' frozen test sets, and those built from corrections before, are listed by kind only.
+    alsoAsk: [{ kind: 'corrections' }],
     covers: ['/v1/test-sets/{testSetId}'],
   },
   {

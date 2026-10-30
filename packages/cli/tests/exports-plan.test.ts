@@ -212,14 +212,18 @@ describe('each kind reads its route as the route takes it', () => {
 
   test.each(kinds)('%s: the route takes each query value it sends', (_name, kind: ExportKind) => {
     const query = params(kind.route, 'query');
-    const unknown = Object.keys(kind.query ?? {}).filter((name) => !query.has(name));
-    expect(unknown, kind.route).toEqual([]);
-    const outside = Object.entries(kind.query ?? {}).filter(([name, value]) => {
-      const schema = query.get(name)?.schema;
-      const allowed = schema === undefined ? undefined : deref(schema).enum;
-      return allowed !== undefined && !allowed.includes(value);
-    });
-    expect(outside, kind.route).toEqual([]);
+    // A further read is only for a top-level kind: a child kind is read once per parent.
+    expect(kind.alsoAsk === undefined || kind.parent === undefined, kind.route).toBe(true);
+    for (const sent of [kind.query ?? {}, ...(kind.alsoAsk ?? [])]) {
+      const unknown = Object.keys(sent).filter((name) => !query.has(name));
+      expect(unknown, kind.route).toEqual([]);
+      const outside = Object.entries(sent).filter(([name, value]) => {
+        const schema = query.get(name)?.schema;
+        const allowed = schema === undefined ? undefined : deref(schema).enum;
+        return allowed !== undefined && !allowed.includes(value);
+      });
+      expect(outside, kind.route).toEqual([]);
+    }
   });
 
   test.each(kinds)('%s: it sends every query value the route needs', (_name, kind: ExportKind) => {
