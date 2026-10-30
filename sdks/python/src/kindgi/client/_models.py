@@ -6691,7 +6691,7 @@ class TestRunFlowRef(BaseModel):
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
 
 
-class EvalBaseline1(BaseModel):
+class TestRunBaseline1(BaseModel):
     """
     What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
@@ -6716,7 +6716,7 @@ class Pinned(BaseModel):
     """
 
 
-class EvalBaseline2(BaseModel):
+class TestRunBaseline2(BaseModel):
     """
     What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
@@ -6736,7 +6736,7 @@ class Prompts(BaseModel):
     template: str
 
 
-class EvalOverrides(BaseModel):
+class TestRunOverrides(BaseModel):
     """
     For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
     """
@@ -6749,7 +6749,7 @@ class EvalOverrides(BaseModel):
     prompts: Annotated[dict[str, Prompts] | None, Field(max_length=1)] = None
 
 
-class EvalSample(BaseModel):
+class TestRunSample(BaseModel):
     """
     Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
     """
@@ -6763,7 +6763,7 @@ class EvalSample(BaseModel):
     hold_out_share: Annotated[float, Field(alias="holdOutShare", ge=0.1, le=0.9)]
 
 
-class EvalComparison(BaseModel):
+class TestRunComparison(BaseModel):
     """
     A comparison test run's settings (a `corrections` test set).
     """
@@ -6772,7 +6772,7 @@ class EvalComparison(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    baseline: Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2
+    baseline: Annotated[Literal["recorded"] | str, _open.OPEN] | TestRunBaseline1 | TestRunBaseline2
     """
     What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
@@ -6790,8 +6790,8 @@ class EvalComparison(BaseModel):
     """
     Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).
     """
-    overrides: EvalOverrides | None = None
-    sample: EvalSample | None = None
+    overrides: TestRunOverrides | None = None
+    sample: TestRunSample | None = None
     rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
     """
     Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{testRunId}/rescore`.
@@ -7080,7 +7080,7 @@ class TestRun(BaseModel):
     Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
-    comparison: EvalComparison | None = None
+    comparison: TestRunComparison | None = None
 
 
 class TestRunCollectionPage(BaseModel):
@@ -7111,7 +7111,10 @@ class StartTestRunBody(BaseModel):
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
     baseline: (
-        Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2 | None
+        Annotated[Literal["recorded"] | str, _open.OPEN]
+        | TestRunBaseline1
+        | TestRunBaseline2
+        | None
     ) = None
     """
     What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
@@ -7126,8 +7129,8 @@ class StartTestRunBody(BaseModel):
     """
     Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).
     """
-    overrides: EvalOverrides | None = None
-    sample: EvalSample | None = None
+    overrides: TestRunOverrides | None = None
+    sample: TestRunSample | None = None
 
 
 class RescoreTestRunBody(BaseModel):
@@ -12573,7 +12576,7 @@ class CorrectedRunContextFlow(BaseModel):
     """
 
 
-class CorrectedEvalCaseCorrection(BaseModel):
+class CorrectedTestCaseCorrection(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -14393,7 +14396,7 @@ class CorrectionWithCopies(Correction):
     """
 
 
-class CorrectedEvalCase(BaseModel):
+class CorrectedTestCase(BaseModel):
     """
     One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up.
     """
@@ -14411,7 +14414,7 @@ class CorrectedEvalCase(BaseModel):
     context: CorrectedRunContext | None = None
     output: Any
     items: list[CorrectedItemSummary]
-    corrections: list[CorrectedEvalCaseCorrection] | None = None
+    corrections: list[CorrectedTestCaseCorrection] | None = None
     """
     Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `experts-only` keeps only the entries whose correction was restricted.
     """
@@ -14421,12 +14424,12 @@ class CorrectedEvalCase(BaseModel):
     """
 
 
-class CorrectedEvalCaseCollectionPage(BaseModel):
+class CorrectedTestCaseCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[CorrectedEvalCase]
+    data: list[CorrectedTestCase]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor. Treat as opaque on the client.
@@ -15008,7 +15011,7 @@ class EvaluateSuggestedChangeBody(BaseModel):
     group_weights: Annotated[
         Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
     ] = None
-    sample: EvalSample | None = None
+    sample: TestRunSample | None = None
 
 
 class CallUsage(BaseModel):
@@ -15324,7 +15327,7 @@ class CorrectedComparisonSummary(BaseModel):
     """
     Which corrections counted. Absent from a comparison recorded before expert groups: `as-recorded`.
     """
-    sample: EvalSample | None = None
+    sample: TestRunSample | None = None
     """
     The part of the test set it ran. Absent: every case.
     """

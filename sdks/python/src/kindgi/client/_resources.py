@@ -6466,7 +6466,7 @@ class TestSetsResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.CorrectedEvalCaseCollectionPage:
+    ) -> _models.CorrectedTestCaseCollectionPage:
         """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
         Cursor-paginated, in the order the cases were stored (newest corrected run first).
@@ -6476,7 +6476,7 @@ class TestSetsResource:
             path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.CorrectedEvalCaseCollectionPage,
+            response=_models.CorrectedTestCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -16149,7 +16149,7 @@ class AsyncTestSetsResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.CorrectedEvalCaseCollectionPage:
+    ) -> _models.CorrectedTestCaseCollectionPage:
         """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
         Cursor-paginated, in the order the cases were stored (newest corrected run first).
@@ -16159,7 +16159,7 @@ class AsyncTestSetsResource:
             path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.CorrectedEvalCaseCollectionPage,
+            response=_models.CorrectedTestCaseCollectionPage,
             timeout=timeout,
         )
 

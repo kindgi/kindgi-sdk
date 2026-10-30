@@ -31,7 +31,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   case item's `restricted` is `expert`.
 - `kindgi`: **Eval suites are now test sets.** This is a breaking rename, and no
   old name is kept. `client.eval_suites` is `client.test_sets`, sync and async.
-  The models follow (`EvalSuite*` models are `TestSet*`), `suite_id` is
+  The models follow (`EvalSuite*` models are `TestSet*`, and `CorrectedEvalCase*`
+  models are `CorrectedTestCase*`), `suite_id` is
   `test_set_id` and `suite_version` is `test_set_version`, and a test set's or
   an eval run's kind `judged` is `corrections`. A release gate's
   `comparison.suite` is `comparison.test_set`, and a comparison's summary says
@@ -48,7 +49,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   suggested change's status `promoted` is `pinned`.
 - `kindgi`: **Eval runs are now test runs.** This is a breaking rename, and no
   old name is kept. `client.eval_runs` is `client.test_runs`, sync and async.
-  The models follow (`EvalRun*` models are `TestRun*`). A test run's own id is
+  The models follow (`EvalRun*` models are `TestRun*`, and `EvalComparison`,
+  `EvalBaseline1`, `EvalBaseline2`, `EvalOverrides` and `EvalSample` are
+  `TestRunComparison`, `TestRunBaseline1`, `TestRunBaseline2`, `TestRunOverrides`
+  and `TestRunSample`). A test run's own id is
   `test_run_id` where it was `run_id`, `eval_run_id` is `test_run_id`, and the
   stream's `eval-run.*` events are `test-run.*`.
 - `kindgi`: **Improvement passes are now Improve runs.** This is a breaking

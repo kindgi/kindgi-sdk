@@ -21,6 +21,6 @@
   - The compliance evidence kind `eval-run` is `test-run`.
   - `GET /v1/compliance/evidence?kind=` answers 400 for a kind that is neither a built-in evidence kind nor one the classifier names, such as `eval-run`. It was an empty page. A kind the classifier names but doesn't mark exportable is still an empty page.
 - **Errors.** Codes starting `eval-run-` start `test-run-`.
-- **Schemas and types.** `EvalRun*` names are `TestRun*`.
+- **Schemas and types.** `EvalRun*` names are `TestRun*`. A comparison's `EvalComparison`, `EvalBaseline`, `EvalOverrides` and `EvalSample` are `TestRunComparison`, `TestRunBaseline`, `TestRunOverrides` and `TestRunSample`, and the types `EvalReads` and `EvalGroupWeights` are `TestRunReads` and `TestRunGroupWeights`.
 - **TypeScript client.** `client.evalRuns` is `client.testRuns`.
 - **CLI.** `kindgi eval-runs` is `kindgi test-runs`, and `--eval-run` is `--test-run` (on `kindgi agents pin` and `kindgi runs list`). `kindgi exports create` writes them as `test-runs`.

@@ -5455,7 +5455,7 @@ export const CorrectedItemSummarySchema: JsonSchema = {
   },
 };
 
-export const CorrectedEvalCaseSchema: JsonSchema = {
+export const CorrectedTestCaseSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['caseId', 'subject', 'input', 'output', 'items'],
@@ -5505,12 +5505,12 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
   },
 };
 
-export const CorrectedEvalCaseCollectionPageSchema: JsonSchema = {
+export const CorrectedTestCaseCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/CorrectedEvalCase' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/CorrectedTestCase' } },
     nextCursor: { type: 'string', description: 'Opaque cursor. Treat as opaque on the client.' },
     hasMore: { type: 'boolean' },
   },
@@ -6850,7 +6850,7 @@ export const EvaluateSuggestedChangeBodySchema: JsonSchema = {
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
     groupWeights: { type: 'string', enum: ['as-recorded', 'experts-only'] },
-    sample: { $ref: '#/components/schemas/EvalSample' },
+    sample: { $ref: '#/components/schemas/TestRunSample' },
   },
 };
 
@@ -8743,7 +8743,7 @@ export const RetentionSweepResultSchema: JsonSchema = {
  * additively — new kinds require a spec + validator update in tandem so
  * the registry never accepts a kind no runtime consumer honors.
  */
-export const EvalKindSchema: JsonSchema = {
+export const TestSetKindSchema: JsonSchema = {
   type: 'string',
   enum: [
     'accuracy',
@@ -8780,7 +8780,7 @@ export const TestSetSchema: JsonSchema = {
       pattern: '^\\d+\\.\\d+\\.\\d+$',
       description: 'Semver — publishing a modified test set produces a new version.',
     },
-    kind: { $ref: '#/components/schemas/EvalKind' },
+    kind: { $ref: '#/components/schemas/TestSetKind' },
     description: { type: 'string' },
     spec: {
       type: 'object',
@@ -8825,7 +8825,7 @@ export const PublishTestSetBodySchema: JsonSchema = {
         'Optional. When present, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected.',
     },
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
-    kind: { $ref: '#/components/schemas/EvalKind' },
+    kind: { $ref: '#/components/schemas/TestSetKind' },
     description: { type: 'string' },
     spec: { type: 'object', additionalProperties: true },
   },
@@ -9027,7 +9027,7 @@ export const TestRunFlowRefSchema: JsonSchema = {
   },
 };
 
-export const EvalBaselineSchema: JsonSchema = {
+export const TestRunBaselineSchema: JsonSchema = {
   description:
     "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.",
   oneOf: [
@@ -9062,7 +9062,7 @@ export const EvalBaselineSchema: JsonSchema = {
   ],
 };
 
-export const EvalOverridesSchema: JsonSchema = {
+export const TestRunOverridesSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
@@ -9086,7 +9086,7 @@ export const EvalOverridesSchema: JsonSchema = {
   },
 };
 
-export const EvalSampleSchema: JsonSchema = {
+export const TestRunSampleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['part', 'seed', 'holdOutShare'],
@@ -9099,13 +9099,13 @@ export const EvalSampleSchema: JsonSchema = {
   },
 };
 
-export const EvalComparisonSchema: JsonSchema = {
+export const TestRunComparisonSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['baseline', 'reads', 'repetitions', 'k'],
   description: "A comparison test run's settings (a `corrections` test set).",
   properties: {
-    baseline: { $ref: '#/components/schemas/EvalBaseline' },
+    baseline: { $ref: '#/components/schemas/TestRunBaseline' },
     reads: {
       type: 'string',
       enum: ['recorded', 'live'],
@@ -9121,8 +9121,8 @@ export const EvalComparisonSchema: JsonSchema = {
       description:
         "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).",
     },
-    overrides: { $ref: '#/components/schemas/EvalOverrides' },
-    sample: { $ref: '#/components/schemas/EvalSample' },
+    overrides: { $ref: '#/components/schemas/TestRunOverrides' },
+    sample: { $ref: '#/components/schemas/TestRunSample' },
     rescoreOf: {
       type: 'string',
       description:
@@ -9343,7 +9343,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
         'Which corrections counted. Absent from a comparison recorded before expert groups: `as-recorded`.',
     },
     sample: {
-      $ref: '#/components/schemas/EvalSample',
+      $ref: '#/components/schemas/TestRunSample',
       description: 'The part of the test set it ran. Absent: every case.',
     },
     sampling: {
@@ -9684,7 +9684,7 @@ export const TestRunSchema: JsonSchema = {
     },
     testSetId: { type: 'string' },
     testSetVersion: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
-    kind: { $ref: '#/components/schemas/EvalKind' },
+    kind: { $ref: '#/components/schemas/TestSetKind' },
     agentRef: { $ref: '#/components/schemas/TestRunAgentRef' },
     flowRef: { $ref: '#/components/schemas/TestRunFlowRef' },
     status: TestRunStatusSchema,
@@ -9704,7 +9704,7 @@ export const TestRunSchema: JsonSchema = {
         "Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
     },
     correlationId: { type: 'string' },
-    comparison: { $ref: '#/components/schemas/EvalComparison' },
+    comparison: { $ref: '#/components/schemas/TestRunComparison' },
   },
 };
 
@@ -9729,7 +9729,7 @@ export const StartTestRunBodySchema: JsonSchema = {
     flowRef: { $ref: '#/components/schemas/TestRunFlowRef' },
     dryRun: { type: 'boolean' },
     correlationId: { type: 'string' },
-    baseline: { $ref: '#/components/schemas/EvalBaseline' },
+    baseline: { $ref: '#/components/schemas/TestRunBaseline' },
     reads: { type: 'string', enum: ['recorded', 'live'] },
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
@@ -9740,8 +9740,8 @@ export const StartTestRunBodySchema: JsonSchema = {
       description:
         "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).",
     },
-    overrides: { $ref: '#/components/schemas/EvalOverrides' },
-    sample: { $ref: '#/components/schemas/EvalSample' },
+    overrides: { $ref: '#/components/schemas/TestRunOverrides' },
+    sample: { $ref: '#/components/schemas/TestRunSample' },
   },
   description:
     "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
@@ -16150,8 +16150,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CorrectedItemSummary', CorrectedItemSummarySchema],
   ['CorrectorGroupAssertableBy', CorrectorGroupAssertableBySchema],
   ['CorrectorGroupAssertableByView', CorrectorGroupAssertableByViewSchema],
-  ['CorrectedEvalCase', CorrectedEvalCaseSchema],
-  ['CorrectedEvalCaseCollectionPage', CorrectedEvalCaseCollectionPageSchema],
+  ['CorrectedTestCase', CorrectedTestCaseSchema],
+  ['CorrectedTestCaseCollectionPage', CorrectedTestCaseCollectionPageSchema],
   ['BuildCorrectedTestSetBody', BuildCorrectedTestSetBodySchema],
   ['BuildCorrectedTestSetResult', BuildCorrectedTestSetResultSchema],
   ['PromptParameter', PromptParameterSchema],
@@ -16362,7 +16362,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RetentionSweepBody', RetentionSweepBodySchema],
   ['RetentionSweepDomainBody', RetentionSweepDomainBodySchema],
   ['RetentionSweepResult', RetentionSweepResultSchema],
-  ['EvalKind', EvalKindSchema],
+  ['TestSetKind', TestSetKindSchema],
   ['TestSet', TestSetSchema],
   ['TestSetCollectionPage', TestSetCollectionPageSchema],
   ['PublishTestSetBody', PublishTestSetBodySchema],
@@ -16381,10 +16381,10 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['TestRunStatus', TestRunStatusSchema],
   ['TestRunAgentRef', TestRunAgentRefSchema],
   ['TestRunFlowRef', TestRunFlowRefSchema],
-  ['EvalBaseline', EvalBaselineSchema],
-  ['EvalOverrides', EvalOverridesSchema],
-  ['EvalSample', EvalSampleSchema],
-  ['EvalComparison', EvalComparisonSchema],
+  ['TestRunBaseline', TestRunBaselineSchema],
+  ['TestRunOverrides', TestRunOverridesSchema],
+  ['TestRunSample', TestRunSampleSchema],
+  ['TestRunComparison', TestRunComparisonSchema],
   ['ComparisonMetric', ComparisonMetricSchema],
   ['ComparisonCandidate', ComparisonCandidateSchema],
   ['CorrectedComparisonSummary', CorrectedComparisonSummarySchema],

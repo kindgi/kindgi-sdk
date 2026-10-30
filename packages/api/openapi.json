@@ -156,7 +156,7 @@
     },
     {
       "name": "test-runs",
-      "description": "Test-run data plane (start, list, get, cancel, events SSE). Dispatches a test run against a registered test set. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `TestRunBinding`."
+      "description": "Test-run data plane (start, list, get, cancel, events SSE). Dispatches a test run against a registered test set. Dispatch is per-`TestSetKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `TestRunBinding`."
     },
     {
       "name": "auth",
@@ -6753,7 +6753,7 @@
           }
         }
       },
-      "CorrectedEvalCase": {
+      "CorrectedTestCase": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6838,7 +6838,7 @@
           }
         }
       },
-      "CorrectedEvalCaseCollectionPage": {
+      "CorrectedTestCaseCollectionPage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6849,7 +6849,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/CorrectedEvalCase"
+              "$ref": "#/components/schemas/CorrectedTestCase"
             }
           },
           "nextCursor": {
@@ -11746,7 +11746,7 @@
             ]
           },
           "sample": {
-            "$ref": "#/components/schemas/EvalSample"
+            "$ref": "#/components/schemas/TestRunSample"
           }
         }
       },
@@ -14831,7 +14831,7 @@
           }
         }
       },
-      "EvalKind": {
+      "TestSetKind": {
         "type": "string",
         "enum": [
           "accuracy",
@@ -14873,7 +14873,7 @@
             "description": "Semver — publishing a modified test set produces a new version."
           },
           "kind": {
-            "$ref": "#/components/schemas/EvalKind"
+            "$ref": "#/components/schemas/TestSetKind"
           },
           "description": {
             "type": "string"
@@ -14942,7 +14942,7 @@
             "pattern": "^\\d+\\.\\d+\\.\\d+$"
           },
           "kind": {
-            "$ref": "#/components/schemas/EvalKind"
+            "$ref": "#/components/schemas/TestSetKind"
           },
           "description": {
             "type": "string"
@@ -15273,7 +15273,7 @@
           }
         }
       },
-      "EvalBaseline": {
+      "TestRunBaseline": {
         "description": "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.",
         "oneOf": [
           {
@@ -15326,7 +15326,7 @@
           }
         ]
       },
-      "EvalOverrides": {
+      "TestRunOverrides": {
         "type": "object",
         "additionalProperties": false,
         "description": "For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.",
@@ -15357,7 +15357,7 @@
           }
         }
       },
-      "EvalSample": {
+      "TestRunSample": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -15386,7 +15386,7 @@
           }
         }
       },
-      "EvalComparison": {
+      "TestRunComparison": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -15398,7 +15398,7 @@
         "description": "A comparison test run's settings (a `corrections` test set).",
         "properties": {
           "baseline": {
-            "$ref": "#/components/schemas/EvalBaseline"
+            "$ref": "#/components/schemas/TestRunBaseline"
           },
           "reads": {
             "type": "string",
@@ -15430,10 +15430,10 @@
             "description": "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`)."
           },
           "overrides": {
-            "$ref": "#/components/schemas/EvalOverrides"
+            "$ref": "#/components/schemas/TestRunOverrides"
           },
           "sample": {
-            "$ref": "#/components/schemas/EvalSample"
+            "$ref": "#/components/schemas/TestRunSample"
           },
           "rescoreOf": {
             "type": "string",
@@ -15792,7 +15792,7 @@
             "description": "Which corrections counted. Absent from a comparison recorded before expert groups: `as-recorded`."
           },
           "sample": {
-            "$ref": "#/components/schemas/EvalSample",
+            "$ref": "#/components/schemas/TestRunSample",
             "description": "The part of the test set it ran. Absent: every case."
           },
           "sampling": {
@@ -16520,7 +16520,7 @@
             "pattern": "^\\d+\\.\\d+\\.\\d+$"
           },
           "kind": {
-            "$ref": "#/components/schemas/EvalKind"
+            "$ref": "#/components/schemas/TestSetKind"
           },
           "agentRef": {
             "$ref": "#/components/schemas/TestRunAgentRef"
@@ -16565,7 +16565,7 @@
             "type": "string"
           },
           "comparison": {
-            "$ref": "#/components/schemas/EvalComparison"
+            "$ref": "#/components/schemas/TestRunComparison"
           }
         }
       },
@@ -16616,7 +16616,7 @@
             "type": "string"
           },
           "baseline": {
-            "$ref": "#/components/schemas/EvalBaseline"
+            "$ref": "#/components/schemas/TestRunBaseline"
           },
           "reads": {
             "type": "string",
@@ -16647,10 +16647,10 @@
             "description": "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`)."
           },
           "overrides": {
-            "$ref": "#/components/schemas/EvalOverrides"
+            "$ref": "#/components/schemas/TestRunOverrides"
           },
           "sample": {
-            "$ref": "#/components/schemas/EvalSample"
+            "$ref": "#/components/schemas/TestRunSample"
           }
         },
         "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."
@@ -49659,7 +49659,7 @@
             "name": "kind",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/EvalKind"
+              "$ref": "#/components/schemas/TestSetKind"
             },
             "required": false,
             "description": "Filter to test sets of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | corrections`."
@@ -50276,7 +50276,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CorrectedEvalCaseCollectionPage"
+                  "$ref": "#/components/schemas/CorrectedTestCaseCollectionPage"
                 }
               }
             }

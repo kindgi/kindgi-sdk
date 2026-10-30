@@ -10,9 +10,9 @@ import type {
   CorrectedCaseResult,
   CorrectedComparisonSummary,
   CorrectedDispatcherOptions,
-  CorrectedEvalCase,
+  CorrectedTestCase,
   DispatchContext,
-  EvalComparison,
+  TestRunComparison,
   TestRunSubjectInvokeInput,
   TestRunSubjectInvokeOutcome,
   TestSet,
@@ -48,7 +48,7 @@ const item = (key: string, yesWeight: number, totalWeight: number, extra: object
   ...extra,
 });
 
-const caseA: CorrectedEvalCase = {
+const caseA: CorrectedTestCase = {
   caseId: 'case-a',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find acme',
@@ -61,7 +61,7 @@ const caseA: CorrectedEvalCase = {
   ],
 };
 
-const caseB: CorrectedEvalCase = {
+const caseB: CorrectedTestCase = {
   caseId: 'case-b',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find b',
@@ -95,11 +95,11 @@ const answers: Record<string, TestRunSubjectInvokeOutcome> = {
 };
 
 async function compare(options: {
-  readonly comparison?: EvalComparison;
+  readonly comparison?: TestRunComparison;
   readonly agents?: CorrectedDispatcherOptions['agents'];
   readonly answer?: (input: TestRunSubjectInvokeInput, call: number) => TestRunSubjectInvokeOutcome;
   readonly dryRun?: boolean;
-  readonly cases?: readonly CorrectedEvalCase[];
+  readonly cases?: readonly CorrectedTestCase[];
 }) {
   const cases = inMemoryCaseStore();
   await cases.putCases({
@@ -364,7 +364,7 @@ describe('a comparison test run', () => {
 });
 
 describe('an erased case (T273 M-5)', () => {
-  const erasedB: CorrectedEvalCase = {
+  const erasedB: CorrectedTestCase = {
     caseId: 'case-b',
     subject: caseB.subject,
     input: null,
@@ -458,7 +458,7 @@ describe('groupWeights (T200)', () => {
   const expertSums = (yesWeight: number, totalWeight: number) => ({
     expert: { yesWeight, totalWeight },
   });
-  const caseARestricted: CorrectedEvalCase = {
+  const caseARestricted: CorrectedTestCase = {
     ...caseA,
     items: [
       item('answer', 1, 1, { pointer: '/appended/3/content', ...expertSums(1, 1) }),
@@ -534,7 +534,7 @@ describe('what a comparison takes', () => {
 
 describe('a comparison of a flow version', () => {
   const flowOutput = (matches: unknown[]) => ({ matches });
-  const flowCase = (caseId: string, matches: unknown[]): CorrectedEvalCase => ({
+  const flowCase = (caseId: string, matches: unknown[]): CorrectedTestCase => ({
     caseId,
     subject: { kind: 'flow', id: 'acme.intake', version: '1.0.0' },
     input: { ticket: caseId },
@@ -701,7 +701,7 @@ describe('a rescore: the replays scored again, with what people corrected on the
     correct: (j: ReturnType<typeof inMemoryCorrections>) => Promise<void>,
     options: { groupWeights?: 'experts-only'; gone?: readonly string[] } = {},
   ) {
-    const comparison: EvalComparison = {
+    const comparison: TestRunComparison = {
       ...DEFAULT_COMPARISON,
       ...(options.groupWeights !== undefined && { groupWeights: options.groupWeights }),
     };
@@ -891,7 +891,7 @@ describe('corrections graded on the replay', () => {
   });
 
   test('a matching correction passes, a differing one fails and names the difference', async () => {
-    const corrected: CorrectedEvalCase = {
+    const corrected: CorrectedTestCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
@@ -935,7 +935,7 @@ describe('corrections graded on the replay', () => {
   });
 
   test('a refused call then a real retry is counted twice, and the difference names the refused one', async () => {
-    const corrected: CorrectedEvalCase = {
+    const corrected: CorrectedTestCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
@@ -973,7 +973,7 @@ describe('corrections graded on the replay', () => {
   });
 
   test('a correction passes only when every repetition passes (k of n)', async () => {
-    const corrected: CorrectedEvalCase = {
+    const corrected: CorrectedTestCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
@@ -1014,7 +1014,7 @@ describe('corrections graded on the replay', () => {
   });
 
   test('experts-only grades only the corrections recorded under an expert group', async () => {
-    const corrected: CorrectedEvalCase = {
+    const corrected: CorrectedTestCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [

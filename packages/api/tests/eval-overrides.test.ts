@@ -20,7 +20,7 @@ import type {
   AgentRegistryBinding,
   AgentVersionRecord,
   CorrectedComparisonSummary,
-  CorrectedEvalCase,
+  CorrectedTestCase,
   GatePolicySpec,
   RunHandlerBinding,
   TestRun,
@@ -57,7 +57,7 @@ const testSet: TestSet = {
   spec: { source: 'corrections', caseCount: CASES.length },
 };
 
-function correctedCase(caseId: string, no = false): CorrectedEvalCase {
+function correctedCase(caseId: string, no = false): CorrectedTestCase {
   return {
     caseId,
     subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
@@ -74,7 +74,7 @@ function correctedCase(caseId: string, no = false): CorrectedEvalCase {
         reasons: [],
       },
     ],
-  } as CorrectedEvalCase;
+  } as CorrectedTestCase;
 }
 
 describe('sampleCases', () => {
@@ -101,7 +101,7 @@ describe('sampleCases', () => {
   });
 
   test('cases that carry a correction split on their own: two put one in each part, whatever the seed', () => {
-    const corrected = (caseId: string, no = false): CorrectedEvalCase => ({
+    const corrected = (caseId: string, no = false): CorrectedTestCase => ({
       ...correctedCase(caseId, no),
       corrections: [{ correctionId: `j-${caseId}`, calls: [] } as never],
     });

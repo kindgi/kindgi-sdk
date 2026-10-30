@@ -6,7 +6,7 @@ import type { AgentPinScope } from '@kindgi/types';
 
 import type { ComparisonMetric, CorrectedComparisonSummary } from './corrected-dispatcher.js';
 import type { GateMetricName, GateMetricSpec, GatePolicySpec } from './gate-policy-binding.js';
-import type { EvalSample } from './test-run-binding.js';
+import type { TestRunSample } from './test-run-binding.js';
 
 /**
  * The promotion gate (evals step 4b): a policy's checks against a
@@ -211,7 +211,7 @@ function testSetCheck(
  * A comparison on part of the test set: the hold-out part proves a
  * candidate; the search part chose it, so its numbers flatter it.
  */
-function sampleCheck(sample: EvalSample): GateCheck {
+function sampleCheck(sample: TestRunSample): GateCheck {
   const passed = sample.part === 'hold-out';
   return {
     name: 'comparison.sample',

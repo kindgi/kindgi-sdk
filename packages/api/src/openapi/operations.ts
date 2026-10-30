@@ -1228,7 +1228,7 @@ const TestSetKindFilterQueryParam: ParameterSpec = {
   required: false,
   description:
     'Filter to test sets of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | corrections`.',
-  schema: { $ref: '#/components/schemas/EvalKind' },
+  schema: { $ref: '#/components/schemas/TestSetKind' },
 };
 
 const TestSetNameFilterQueryParam: ParameterSpec = {
@@ -6656,7 +6656,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer',
     parameters: [TestSetIdPathParam, TestSetVersionPathParam, LimitQueryParam, CursorQueryParam],
     responses: {
-      '200': { description: 'Page of cases.', schema: ref('CorrectedEvalCaseCollectionPage') },
+      '200': { description: 'Page of cases.', schema: ref('CorrectedTestCaseCollectionPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No test set with that id.'),
     },

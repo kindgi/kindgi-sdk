@@ -20,11 +20,11 @@ import {
 } from '../reference-scope.js';
 import {
   type AgentRef,
-  type EvalComparison,
   type FlowRef,
   TEST_RUN_STATUSES,
   type TestRun,
   type TestRunBinding,
+  type TestRunComparison,
   type TestRunFilter,
   type TestRunStartOutcome,
   type TestRunStatus,
@@ -810,7 +810,7 @@ interface ParsedStartBody {
   readonly flowRef?: FlowRef;
   readonly dryRun?: boolean;
   readonly correlationId?: string;
-  readonly comparison?: EvalComparison;
+  readonly comparison?: TestRunComparison;
 }
 
 function parseStartBody(

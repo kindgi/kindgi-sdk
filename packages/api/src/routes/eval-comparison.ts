@@ -7,10 +7,10 @@ import type { ProjectId, Semver } from '@kindgi/types';
 
 import { DEFAULT_COMPARISON } from '../corrected-dispatcher.js';
 import type {
-  EvalBaseline,
-  EvalComparison,
-  EvalOverrides,
-  EvalSample,
+  TestRunBaseline,
+  TestRunComparison,
+  TestRunOverrides,
+  TestRunSample,
 } from '../test-run-binding.js';
 import { parseSegmentsBody } from './segments.js';
 
@@ -24,7 +24,7 @@ function obj(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function parsePinned(raw: unknown): EvalBaseline | string {
+function parsePinned(raw: unknown): TestRunBaseline | string {
   const pinned = obj(raw);
   if (pinned === undefined) return '`baseline.pinned` must be an object';
   if (pinned.projectId !== undefined && typeof pinned.projectId !== 'string') {
@@ -43,7 +43,7 @@ function parsePinned(raw: unknown): EvalBaseline | string {
   };
 }
 
-function parseBaseline(raw: unknown): EvalBaseline | string {
+function parseBaseline(raw: unknown): TestRunBaseline | string {
   if (raw === 'recorded') return 'recorded';
   const o = obj(raw);
   if (o === undefined) {
@@ -91,7 +91,7 @@ function integerIn(raw: unknown, name: string, max: number): number | string {
 }
 
 /** `overrides: { settings?, prompts? }`; `undefined` when it names nothing. */
-function parseOverrides(raw: unknown): EvalOverrides | undefined | string {
+function parseOverrides(raw: unknown): TestRunOverrides | undefined | string {
   const o = obj(raw);
   if (o === undefined) return '`overrides` must be an object: { settings?, prompts? }';
   const extra = Object.keys(o).filter((key) => key !== 'settings' && key !== 'prompts');
@@ -136,7 +136,7 @@ function parseOverrides(raw: unknown): EvalOverrides | undefined | string {
 }
 
 /** `sample: { part, seed, holdOutShare }`, or an error message. */
-function parseSample(raw: unknown): EvalSample | string {
+function parseSample(raw: unknown): TestRunSample | string {
   const o = obj(raw);
   const share = o?.holdOutShare;
   if (
@@ -165,7 +165,7 @@ function parseSample(raw: unknown): EvalSample | string {
 export function parseComparison(
   b: Readonly<Record<string, unknown>>,
 ):
-  | { readonly kind: 'ok'; readonly value?: EvalComparison }
+  | { readonly kind: 'ok'; readonly value?: TestRunComparison }
   | { readonly kind: 'err'; readonly message: string } {
   const { baseline, reads, repetitions, k, groupWeights } = b;
   const versions = b.versions === undefined ? undefined : parseVersions(b.versions);

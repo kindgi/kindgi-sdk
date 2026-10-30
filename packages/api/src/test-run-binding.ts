@@ -15,7 +15,7 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
-import type { EvalKind } from './test-set-binding.js';
+import type { TestSetKind } from './test-set-binding.js';
 
 /**
  * Caller-plugged surface for the evaluation-run data plane — the
@@ -105,7 +105,7 @@ export interface TestRun {
   readonly tenantId: TenantId;
   readonly testSetId: string;
   readonly testSetVersion: string;
-  readonly kind: EvalKind;
+  readonly kind: TestSetKind;
   readonly agentRef?: AgentRef;
   readonly flowRef?: FlowRef;
   readonly status: TestRunStatus;
@@ -123,7 +123,7 @@ export interface TestRun {
   readonly cancelReason?: string;
   readonly correlationId?: string;
   /** A comparison test run's baseline, reads and repetitions. */
-  readonly comparison?: EvalComparison;
+  readonly comparison?: TestRunComparison;
   /** The project the run belongs to. Absent from a runtime that doesn't say. */
   readonly projectId?: ProjectId;
 }
@@ -144,7 +144,7 @@ export interface TestRunFilter {
  *   - `{ pinned }`: the version pinned in a scope: a project, and a segment
  *     path in it (coarse to fine, as pinned versions resolve it).
  */
-export type EvalBaseline =
+export type TestRunBaseline =
   | 'recorded'
   | { readonly agentId: AgentId; readonly version: Semver }
   | {
@@ -156,7 +156,7 @@ export type EvalBaseline =
     };
 
 /** Whether replayed reads use the past run's results when it has them, or run live. */
-export type EvalReads = 'recorded' | 'live';
+export type TestRunReads = 'recorded' | 'live';
 
 /**
  * Which corrections a comparison counts: every correction at its group's
@@ -164,12 +164,12 @@ export type EvalReads = 'recorded' | 'live';
  * group was restricted (`assertableBy`), the others weighing 0
  * (`experts-only`; T200).
  */
-export type EvalGroupWeights = 'as-recorded' | 'experts-only';
+export type TestRunGroupWeights = 'as-recorded' | 'experts-only';
 
 /** How a comparison test run runs its cases (absent: the run isn't a comparison). */
-export interface EvalComparison {
-  readonly baseline: EvalBaseline;
-  readonly reads: EvalReads;
+export interface TestRunComparison {
+  readonly baseline: TestRunBaseline;
+  readonly reads: TestRunReads;
   /** How many times each case runs (1–10); with more than 1, the summary shows the spread. */
   readonly repetitions: number;
   /** How many ranked items `weightedPrecisionAtK` looks at (1–100). */
@@ -181,16 +181,16 @@ export interface EvalComparison {
    */
   readonly versions?: FlowVersionOverrides;
   /** Which corrections count (absent: `as-recorded`). */
-  readonly groupWeights?: EvalGroupWeights;
+  readonly groupWeights?: TestRunGroupWeights;
   /**
    * For an agent candidate: block content its replays run instead of the
    * version's pinned content (settings values, a prompt template: an
    * Improve run's search). A comparison with overrides can't gate a
    * promotion: it didn't run a published version.
    */
-  readonly overrides?: EvalOverrides;
+  readonly overrides?: TestRunOverrides;
   /** Only part of the test set's cases (absent: all of them). */
-  readonly sample?: EvalSample;
+  readonly sample?: TestRunSample;
   /**
    * Rescore that comparison test run instead of replaying: its replays'
    * outputs are scored again, with the corrections recorded on them since
@@ -201,7 +201,7 @@ export interface EvalComparison {
 }
 
 /** Block content that replaces a version's pinned content: settings values and prompt templates, by block id. */
-export interface EvalOverrides {
+export interface TestRunOverrides {
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   readonly prompts?: Readonly<Record<string, { readonly template: string }>>;
 }
@@ -216,7 +216,7 @@ export interface EvalOverrides {
  * part and proves its candidate on the other. A promotion gate refuses a
  * comparison on the search part.
  */
-export interface EvalSample {
+export interface TestRunSample {
   readonly part: 'search' | 'hold-out';
   readonly seed: string;
   /** 0.1 to 0.9. */
@@ -247,7 +247,7 @@ export interface TestRunStartInput {
   readonly dryRun?: boolean;
   readonly correlationId?: string;
   /** Set for a comparison test run (a `corrections` test set): its baseline, reads and repetitions. */
-  readonly comparison?: EvalComparison;
+  readonly comparison?: TestRunComparison;
 }
 
 /**
@@ -261,7 +261,7 @@ export type TestRunStartOutcome =
       readonly dryRunPreview?: Readonly<Record<string, unknown>>;
     }
   | { readonly kind: 'test-set-not-found'; readonly testSetId: string }
-  | { readonly kind: 'dispatcher-not-registered'; readonly evalKind: EvalKind }
+  | { readonly kind: 'dispatcher-not-registered'; readonly evalKind: TestSetKind }
   | { readonly kind: 'dispatcher-input-invalid'; readonly message: string }
   | {
       /**

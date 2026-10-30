@@ -34,7 +34,7 @@ import type {
   SuggestedChangeObjective,
   SuggestedChangeTier,
 } from '../supervisor-binding.js';
-import type { EvalComparison } from '../test-run-binding.js';
+import type { TestRunComparison } from '../test-run-binding.js';
 import type { AppEnv } from '../types.js';
 import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import { actorOf, pinResponse, scopeFromQuery } from './agent-pins.js';
@@ -499,7 +499,7 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
 interface EvaluateBody {
   readonly testSetId: string;
   readonly objective: SuggestedChangeObjective;
-  readonly comparison?: EvalComparison;
+  readonly comparison?: TestRunComparison;
 }
 
 function parseEvaluateBody(b: Record<string, unknown>): EvaluateBody | string {

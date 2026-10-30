@@ -13,7 +13,6 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import { createApp } from '../src/index.js';
 import type {
   EvalGrader,
-  EvalKind,
   EvalSubjectInvoker,
   ItemReference,
   ReferenceScopeBinding,
@@ -24,6 +23,7 @@ import type {
   TestRunStatus,
   TestRunSubjectInvokeOutcome,
   TestSet,
+  TestSetKind,
   TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -136,7 +136,7 @@ async function seedTestSet(
   registry: TestSetRegistryBinding,
   overrides: Partial<TestSet> & {
     id: string;
-    kind: EvalKind;
+    kind: TestSetKind;
     spec: Readonly<Record<string, unknown>>;
   },
 ): Promise<void> {
@@ -213,7 +213,7 @@ interface AppSetup {
 function makeApp(
   options: {
     behavior?: 'pass' | 'fail' | 'mixed';
-    kinds?: readonly EvalKind[];
+    kinds?: readonly TestSetKind[];
     subject?: EvalSubjectInvoker;
     /** With authorization on: what the caller holds, as `<action> <type>:<id>`. */
     grants?: readonly string[];
@@ -224,7 +224,7 @@ function makeApp(
   const registry = makeInMemoryRegistry();
   const subject = options.subject ?? makeStubSubject(options.behavior ?? 'pass');
   const kinds = options.kinds ?? ['accuracy'];
-  const dispatchers: Partial<Record<EvalKind, ReturnType<typeof createAccuracyDispatcher>>> = {};
+  const dispatchers: Partial<Record<TestSetKind, ReturnType<typeof createAccuracyDispatcher>>> = {};
   if (kinds.includes('accuracy')) {
     dispatchers.accuracy = createAccuracyDispatcher({ grader: eqGrader });
   }
@@ -855,7 +855,7 @@ describe('API — test-runs start validation', () => {
 });
 
 describe('API — test-runs start: kind-not-yet-dispatchable', () => {
-  const otherKinds: readonly EvalKind[] = [
+  const otherKinds: readonly TestSetKind[] = [
     'pairwise',
     'regression',
     'human-review',

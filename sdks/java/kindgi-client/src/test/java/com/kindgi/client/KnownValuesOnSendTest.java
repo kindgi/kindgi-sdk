@@ -8,8 +8,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.kindgi.client.models.CreateWebhookEndpointBody;
-import com.kindgi.client.models.EvalBaseline;
-import com.kindgi.client.models.EvalComparison;
+import com.kindgi.client.models.TestRunBaseline;
+import com.kindgi.client.models.TestRunComparison;
 import com.kindgi.client.models.AgentPinScope;
 import com.kindgi.client.models.MintSystemKeyBody;
 import com.kindgi.client.models.MintTokenBody;
@@ -153,10 +153,10 @@ class KnownValuesOnSendTest {
 
   @Test
   void aBaselineReadFromANewerRuntimeIsKeptButNotSentBack() {
-    // EvalBaseline is in an answer and a body: text this client doesn't know reads as the text.
-    EvalComparison comparison =
-        KindgiJson.read("{\"baseline\":\"" + UNKNOWN + "\",\"reads\":\"" + UNKNOWN + "\",\"repetitions\":1,\"k\":1}", EvalComparison.class);
-    assertThat(comparison.baseline()).isEqualTo(EvalBaseline.of(UNKNOWN));
+    // TestRunBaseline is in an answer and a body: text this client doesn't know reads as the text.
+    TestRunComparison comparison =
+        KindgiJson.read("{\"baseline\":\"" + UNKNOWN + "\",\"reads\":\"" + UNKNOWN + "\",\"repetitions\":1,\"k\":1}", TestRunComparison.class);
+    assertThat(comparison.baseline()).isEqualTo(TestRunBaseline.of(UNKNOWN));
     assertThatCode(() -> comparison.toBuilder().build()).doesNotThrowAnyException();
 
     StartTestRunBody start =
@@ -170,7 +170,7 @@ class KnownValuesOnSendTest {
 
     // A value it knows is sent as before.
     answer = "{\"runId\":\"f531e37d-f29f-463c-81d2-ffad65e4d4e9\"}";
-    client.testRuns().start("acme.suite", start.toBuilder().baseline(EvalBaseline.RECORDED).build());
+    client.testRuns().start("acme.suite", start.toBuilder().baseline(TestRunBaseline.RECORDED).build());
     assertThat(sent).hasSize(1);
     assertThat(sent.get(0)).contains("\"baseline\":\"recorded\"");
   }

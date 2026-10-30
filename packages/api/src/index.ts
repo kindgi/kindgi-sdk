@@ -680,7 +680,7 @@ export type {
   EvalCasePutInput,
   EvalCaseStoreBinding,
   TestCaseExpectedDecisions,
-  CorrectedEvalCase,
+  CorrectedTestCase,
   CorrectedItemSummary,
   CorrectedReason,
 } from './eval-case-binding.js';
@@ -790,9 +790,9 @@ export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentPinGateDeps } from './routes/agent-pins.js';
 export { coordinatesOf as agentPinScopeCoordinates } from './routes/agent-pins.js';
 export type { GuardrailConfigCheck } from './routes/guardrails.js';
-export { EVAL_KINDS } from './test-set-binding.js';
+export { TEST_SET_KINDS } from './test-set-binding.js';
 export type {
-  EvalKind,
+  TestSetKind,
   TestSet,
   TestSetGetInput,
   TestSetGetVersionInput,
@@ -811,10 +811,10 @@ export type {
 export { TEST_RUN_STATUSES } from './test-run-binding.js';
 export type {
   AgentRef,
-  EvalBaseline,
-  EvalGroupWeights,
-  EvalComparison,
-  EvalReads,
+  TestRunBaseline,
+  TestRunGroupWeights,
+  TestRunComparison,
+  TestRunReads,
   TestRun,
   TestRunBinding,
   TestRunCancelInput,
@@ -1051,7 +1051,7 @@ export {
   serializeImproveRun,
 } from './routes/improve-runs.js';
 export { sampleCases } from './eval-sample.js';
-export type { EvalOverrides, EvalSample } from './test-run-binding.js';
+export type { TestRunOverrides, TestRunSample } from './test-run-binding.js';
 export {
   DRAFTED_SUGGESTED_CHANGE_APPROVAL,
   createSuggestedChangeService,

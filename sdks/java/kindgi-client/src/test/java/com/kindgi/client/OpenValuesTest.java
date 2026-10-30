@@ -9,7 +9,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.kindgi.client.models.Checks;
-import com.kindgi.client.models.EvalBaseline;
+import com.kindgi.client.models.TestRunBaseline;
 import com.kindgi.client.models.AgentPinScope;
 import com.kindgi.client.models.Model;
 import com.kindgi.client.models.OpenEnum;
@@ -199,7 +199,7 @@ class OpenValuesTest {
       }
       unions.add(type.getSimpleName());
     }
-    assertThat(unions).contains(AgentPinScope.class.getSimpleName(), EvalBaseline.class.getSimpleName()).hasSizeGreaterThan(10);
+    assertThat(unions).contains(AgentPinScope.class.getSimpleName(), TestRunBaseline.class.getSimpleName()).hasSizeGreaterThan(10);
   }
 
   @Test
@@ -224,6 +224,6 @@ class OpenValuesTest {
         }
       }
     }
-    assertThat(refused).containsExactly(EvalBaseline.class.getSimpleName());
+    assertThat(refused).containsExactly(TestRunBaseline.class.getSimpleName());
   }
 }

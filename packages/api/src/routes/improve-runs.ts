@@ -32,7 +32,7 @@ import {
 } from '../reference-scope.js';
 import { refusesCandidates, refusesScope } from '../registry-read-only.js';
 import type { SuggestedChangeObjective } from '../supervisor-binding.js';
-import type { EvalGroupWeights } from '../test-run-binding.js';
+import type { TestRunGroupWeights } from '../test-run-binding.js';
 import type { TestSetRegistryBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
@@ -87,8 +87,8 @@ async function resolveGroupWeights(
   tenantId: TenantId,
   projectId: ProjectId | undefined,
   agentId: string | undefined,
-  explicit: EvalGroupWeights | undefined,
-): Promise<EvalGroupWeights> {
+  explicit: TestRunGroupWeights | undefined,
+): Promise<TestRunGroupWeights> {
   if (explicit !== undefined) return explicit;
   if (deps.correctorGroups === undefined) return 'experts-only';
   return (await projectHasExpertClass(deps.correctorGroups, tenantId, projectId, agentId))
@@ -628,7 +628,7 @@ interface StartImproveRunBody {
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: SuggestedChangeObjective;
-  readonly groupWeights?: EvalGroupWeights;
+  readonly groupWeights?: TestRunGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   readonly budget: ImprovementBudget;

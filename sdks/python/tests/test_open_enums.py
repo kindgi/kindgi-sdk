@@ -448,7 +448,7 @@ def test_every_response_enum_in_the_api_is_read_open() -> None:
         "ApprovalCollectionPage.decidedBy",
         "BuildCorrectedTestSetResult.kind",
         "ConversationCollectionPage.openedBy",
-        "EvalComparison.baseline",
+        "TestRunComparison.baseline",
         "Fact.review",
         "TrustedSigningKey.algorithm",
         "Warning1.code",
@@ -469,20 +469,20 @@ def test_every_response_enum_in_the_api_is_read_open() -> None:
 
 def test_the_unions_of_text_and_models_are_the_ones_known() -> None:
     # Opened beside models, an enum takes any text: text must never be read as a model.
-    assert sorted(TEXT_OR_MODEL) == ["EvalComparison.baseline"]
+    assert sorted(TEXT_OR_MODEL) == ["TestRunComparison.baseline"]
 
 
 @pytest.mark.parametrize(
-    "model", [models.EvalComparison, models.StartTestRunBody], ids=lambda m: m.__name__
+    "model", [models.TestRunComparison, models.StartTestRunBody], ids=lambda m: m.__name__
 )
 def test_a_baseline_reads_each_member_it_knows_as_before_and_other_text_as_text(
     model: type[BaseModel],
 ) -> None:
     opened = TypeAdapter(field_type(model.model_fields["baseline"]))
-    before = TypeAdapter(Literal["recorded"] | models.EvalBaseline1 | models.EvalBaseline2)
+    before = TypeAdapter(Literal["recorded"] | models.TestRunBaseline1 | models.TestRunBaseline2)
     for body in ("recorded", {"agentId": "acme.triage", "version": "1.0.0"}, {"pinned": {}}):
         assert type(opened.validate_python(body)) is type(before.validate_python(body))
-    assert type(opened.validate_python({"pinned": {}})) is models.EvalBaseline2
+    assert type(opened.validate_python({"pinned": {}})) is models.TestRunBaseline2
     read = opened.validate_python(UNKNOWN)
     assert type(read) is str and read == UNKNOWN
     # Sent, it's refused as the closed union refuses it.
@@ -575,7 +575,7 @@ def test_an_enum_value_this_client_doesnt_know_isnt_sent() -> None:
 
 
 def test_a_baseline_this_client_doesnt_know_isnt_sent() -> None:
-    # `EvalBaseline` is in a request and a response: read open, sent closed.
+    # `TestRunBaseline` is in a request and a response: read open, sent closed.
     api, seen = client({"testRunId": PIN_CHANGE["id"]})
     body = {"projectId": PIN_CHANGE["id"], "agentRef": {"agentId": "acme.triage"}}
     with pytest.raises(pydantic.ValidationError) as refused:

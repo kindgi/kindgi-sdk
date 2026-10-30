@@ -66,9 +66,9 @@ import type {
   SupervisorBinding,
 } from './supervisor-binding.js';
 import type {
-  EvalComparison,
   TestRun,
   TestRunBinding,
+  TestRunComparison,
   TestRunStartOutcome,
 } from './test-run-binding.js';
 
@@ -154,7 +154,7 @@ export interface EvaluateSuggestedChangeInput {
   readonly suggestedChange: StoredSuggestedChange;
   readonly testSetId: string;
   readonly objective: SuggestedChangeObjective;
-  readonly comparison?: EvalComparison;
+  readonly comparison?: TestRunComparison;
   /**
    * The current version replayed on the same cases (an Improve run's
    * model-settings change): no correction it passes may fail on the

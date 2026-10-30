@@ -5,7 +5,7 @@ import type { AgentPinScope, Cursor, ProjectId, TenantId, Timestamp } from '@kin
 
 import type { PinActor } from './agent-pin-binding.js';
 import type { SuggestedChangeObjective } from './supervisor-binding.js';
-import type { EvalGroupWeights } from './test-run-binding.js';
+import type { TestRunGroupWeights } from './test-run-binding.js';
 
 /**
  * Improve runs (`POST /v1/improve-runs`,
@@ -86,7 +86,7 @@ export interface StartImproveRunInput {
    * Which corrections its comparisons count: everyone (`as-recorded`) or trusted
    * only (`experts-only`).
    */
-  readonly groupWeights: EvalGroupWeights;
+  readonly groupWeights: TestRunGroupWeights;
   /** For a prompt Improve run: what drafts the templates. */
   readonly model?: ImprovementModel;
   /** For a prompt Improve run: how many templates it drafts. */
@@ -153,7 +153,7 @@ export interface ImproveScheduleInput {
    * resolves the project default — everyone (`as-recorded`) until the
    * project names an expert group, then `experts-only`.
    */
-  readonly groupWeights?: EvalGroupWeights;
+  readonly groupWeights?: TestRunGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   /** Each Improve run's budget; never more than what's left of the month's cap. */
@@ -206,7 +206,7 @@ export interface ImproveRun {
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: SuggestedChangeObjective;
-  readonly groupWeights: EvalGroupWeights;
+  readonly groupWeights: TestRunGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   readonly budget: ImprovementBudget;
