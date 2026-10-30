@@ -121,8 +121,7 @@ export interface Schedule {
  * memory writes and retrievals, guardrail evaluations against the
  * projected state, and a cost estimate. A dry run on the API is
  * `runs.start({ ..., options: { dryRun: true } })`, which returns a
- * `Run` marked `dryRun: true`. Distinct from
- * `client.supervisor.proposals.dryRun`, which is proposal-scoped.
+ * `Run` marked `dryRun: true`.
  */
 export interface DryRunResult {
   readonly plannedNodes: readonly PlannedNode[];
@@ -363,58 +362,19 @@ export interface TurnDetailEvent {
 }
 
 // ============================================================
-// Supervisor + fix-proposal shapes.
+// Proposal shapes.
 // ============================================================
 
 // (These are re-exported at the top of the file already; imported here
 // for internal use in the shape declarations below.)
 import type {
   AuditBundleId,
-  DatasetId,
   Filter,
   FixProposalId,
   ObservationId,
   ReviewerId,
   SupervisorId,
 } from '@kindgi/types';
-
-/**
- * @unwired SDK-defined supervisor shape; the API has no supervisor
- * definition routes (only `/v1/proposals` and `/v1/observations`). A
- * supervisor is an agent with fix-proposal tools; it observes guardrail
- * violations + structured failure patterns on a subscribed set of
- * agents.
- *
- * A supervisor's own guardrails + eval criteria cannot be modified
- * after it is defined, so an update is a define-with-new-version
- * operation, not a mutation.
- */
-export interface SupervisorSpec {
-  readonly id: string;
-  readonly version: string;
-  readonly name: string;
-  readonly description?: string;
-  /** Agent-ids this supervisor observes. Empty = observes all agents in tenant. */
-  readonly subscribedAgents?: readonly string[];
-  /** Which guardrails trigger fix-proposal drafting. */
-  readonly triggerGuardrails: readonly string[];
-  /** Proposer tiers enabled (`prompt` | `retrieval` | `tool-config`). */
-  readonly proposerTiers: readonly ('prompt' | 'retrieval' | 'tool-config')[];
-  /** Dry-run eval criterion applied to every proposal. */
-  readonly defaultCriterion?: DryRunCriterion;
-}
-
-export interface Supervisor {
-  readonly id: SupervisorId;
-  readonly version: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly subscribedAgents: readonly string[];
-  readonly triggerGuardrails: readonly string[];
-  readonly proposerTiers: readonly ('prompt' | 'retrieval' | 'tool-config')[];
-  readonly createdAt: import('@kindgi/types').Timestamp;
-  readonly deprecatedAt?: import('@kindgi/types').Timestamp;
-}
 
 /**
  * Where an improvement proposal stands — `@kindgi/api/openapi.json#FixProposalStatus`.
@@ -551,82 +511,6 @@ export interface FixProposal {
   };
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
-}
-
-/**
- * @deprecated Per-example dry-run scores do not cross the wire:
- *   `supervisor.proposals.dryRun` returns `DryRunProposalResult
- *   { proposal, passed }`. This type is not returned by any SDK method.
- */
-export interface ProposalDryRunResult {
-  readonly outcome: 'pass' | 'fail';
-  readonly criterion: DryRunCriterion;
-  readonly datasetId: DatasetId;
-  readonly datasetVersion: string;
-  readonly scores: readonly ProposalDryRunScore[];
-  readonly summary: {
-    readonly baselineMean: number;
-    readonly candidateMean: number;
-    readonly delta: number;
-  };
-  readonly ranAt: import('@kindgi/types').Timestamp;
-}
-
-export interface ProposalDryRunScore {
-  readonly index: number;
-  readonly baseline: number;
-  readonly candidate: number;
-  readonly judgeRationale?: string;
-}
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
-export type DryRunCriterion =
-  | { readonly kind: 'min-pass-rate'; readonly minPassRate: number }
-  | {
-      readonly kind: 'strict-improvement';
-      readonly baselinePassRate: number;
-      readonly minDelta: number;
-    };
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
-export interface DryRunProposalResult {
-  readonly proposal: FixProposal;
-  /** True when the candidate met the criterion (proposal moved to `dry-run-passed`). */
-  readonly passed: boolean;
-}
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
-export interface SubmitReviewProposalResult {
-  readonly proposal: FixProposal;
-  readonly approvalId: ApprovalId;
-  /** True when the proposal targets one of the supervisor's own agent ids. */
-  readonly metaFix: boolean;
-}
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
-export interface ApplyProposalResult {
-  readonly proposalId: FixProposalId;
-  readonly appliedVersion: string;
-  readonly appliedAt: import('@kindgi/types').Timestamp;
-}
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
-export interface RollbackProposalResult {
-  readonly proposalId: FixProposalId;
-  readonly rolledBackAt: import('@kindgi/types').Timestamp;
-}
-
-/**
- * @deprecated Wire does not surface a `ProposalReviewOutcome` sub-object
- *   on the proposal row. Review decisions live in the linked HITL
- *   approval — see `client.approvals.decide` + the returned
- *   `CompleteApprovalResult.decision`. Not returned by any SDK method.
- */
-export interface ProposalReviewOutcome {
-  readonly decision: 'approved' | 'rejected' | 'changes-requested';
-  readonly reviewer: ReviewerId;
-  readonly reviewedAt: import('@kindgi/types').Timestamp;
-  readonly comments?: string;
 }
 
 // ============================================================

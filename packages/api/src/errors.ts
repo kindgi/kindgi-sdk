@@ -219,7 +219,6 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'improvement-pass-not-found': 404,
   'improvement-pass-finished': 409,
   'version-already-exists': 409,
-  'supervisor-header-missing': 400,
   // Artifacts.
   'blob-not-found': 404,
   'blob-hash-mismatch': 400,
