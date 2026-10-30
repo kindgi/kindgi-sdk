@@ -526,6 +526,7 @@ export type {
   AgentMadeFor,
   AgentMarkLatestInput,
   AgentMarkLatestOutcome,
+  AgentOwner,
   AgentPage,
   AgentPublishInput,
   AgentPublishOutcome,
@@ -533,6 +534,8 @@ export type {
   AgentVersionRecord,
   AgentReinstateVersionInput,
   AgentReinstateVersionOutcome,
+  AgentSetOwnerInput,
+  AgentSetOwnerOutcome,
   AgentUnregisterInput,
   AgentUnregisterOutcome,
 } from './agent-binding.js';
@@ -683,12 +686,29 @@ export type {
   PolicyVersionRow,
 } from '@kindgi/policy-contract';
 export {
+  CORRECTION_FIXED_HOW,
+  CORRECTION_SORTED_TO,
+  CORRECTION_STATUSES,
   CORRECTOR_GROUP_SCOPE_KINDS,
+  NOT_FIXED_STATUSES,
   VERDICTS,
   isReplayCopy,
   correctorGroupApplies,
   whyNotAssertable,
 } from './correction-binding.js';
+export {
+  STATUSES_SET_BY_HAND,
+  parseCorrectionLink,
+  planChange,
+  sortAtSave,
+} from './correction-sorting.js';
+export type {
+  CorrectionChange,
+  PlannedChange,
+  PlannedChangeOutcome,
+  SortedAtSave,
+  StatusSetByHand,
+} from './correction-sorting.js';
 export type {
   EvalCaseListInput,
   EvalCasePage,
@@ -729,14 +749,29 @@ export type {
   CorrectedRunPage,
   CorrectedRunWithCorrections,
   CorrectedSubject,
+  CorrectedAnswerItem,
   Correction,
-  CorrectionAssertedBy,
+  CorrectionMadeBy,
+  CorrectionCounts,
+  CorrectionCountsInput,
+  CorrectionFixedHow,
+  CorrectionFixedIn,
   CorrectionGetInput,
+  CorrectionLink,
   CorrectionListInput,
   CorrectionPage,
   CorrectionRecordInput,
   CorrectionRegistryBinding,
+  CorrectionSorted,
+  CorrectionSortedBy,
+  CorrectionSortedTo,
+  CorrectionStanding,
+  CorrectionStatus,
+  CorrectionStatusNote,
+  CorrectionUpdateInput,
+  CorrectionUpdateOutcome,
   CorrectionWithCopies,
+  CorrectionsByIdsInput,
   Verdict,
 } from './correction-binding.js';
 export { resolvePointer } from './routes/corrections.js';

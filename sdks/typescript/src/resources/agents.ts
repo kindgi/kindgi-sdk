@@ -17,6 +17,7 @@ import type {
   PromotionCheck,
   PromotionPage,
   ScopeSegment,
+  SetAgentOwnerResult,
   UnregisterAgentResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -74,6 +75,15 @@ export interface AgentsClient {
    * @wire GET /v1/agents/:agentId/projects
    */
   projects(agentId: AgentId | string): Promise<AgentProjectList>;
+
+  /**
+   * Set the agent's owner: the person its corrections go to when they need
+   * the owner. Setting it again replaces the one before. Needs `admin` on
+   * the agent. `get` answers it as `owner`.
+   *
+   * @wire PUT /v1/agents/:agentId/owner
+   */
+  setOwner(agentId: AgentId | string, userId: string): Promise<SetAgentOwnerResult>;
 
   readonly versions: AgentVersionsClient;
 
@@ -402,6 +412,13 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
       return transport.request<AgentProjectList>({
         method: 'GET',
         path: `/v1/agents/${seg(agentId as string)}/projects`,
+      });
+    },
+    async setOwner(agentId, userId) {
+      return transport.request<SetAgentOwnerResult>({
+        method: 'PUT',
+        path: `/v1/agents/${seg(agentId as string)}/owner`,
+        body: { userId },
       });
     },
     versions,

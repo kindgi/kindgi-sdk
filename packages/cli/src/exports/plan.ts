@@ -634,6 +634,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',
   '/v1/projects/{projectId}/queue-rules/preview': 'computed from queue-rules and runs',
   '/v1/projects/{projectId}/queue-rules/{ruleId}/results': 'computed from corrections',
+  '/v1/corrections/counts': 'computed from corrections',
   '/v1/projects/{projectId}/access':
     'computed from project-memberships, team-project-grants, orgs and users',
   '/v1/projects/default': 'one of projects',

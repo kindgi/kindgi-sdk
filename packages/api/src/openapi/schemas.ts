@@ -3536,6 +3536,11 @@ export const AgentSchema: JsonSchema = {
       description:
         "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.",
     },
+    owner: {
+      $ref: '#/components/schemas/AgentOwner',
+      description:
+        "`GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).",
+    },
   },
 };
 
@@ -3719,6 +3724,40 @@ export const PublishAgentResultSchema: JsonSchema = {
         properties: { code: { type: 'string' }, message: { type: 'string' } },
       },
     },
+  },
+};
+
+export const AgentOwnerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId'],
+  description:
+    "The person the agent's corrections go to when they need its owner. Until one is set, those go to everyone who may publish the agent.",
+  properties: {
+    userId: { type: 'string', minLength: 1 },
+    name: {
+      type: 'string',
+      description: "The person's display name, when the runtime's directory has one.",
+    },
+  },
+};
+
+export const SetAgentOwnerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId'],
+  properties: {
+    userId: { type: 'string', minLength: 1, description: "The new owner's user id." },
+  },
+};
+
+export const SetAgentOwnerResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'owner'],
+  properties: {
+    agentId: { type: 'string' },
+    owner: { $ref: '#/components/schemas/AgentOwner' },
   },
 };
 
@@ -5092,7 +5131,7 @@ export const CorrectedItemSchema: JsonSchema = {
     key: {
       type: 'string',
       minLength: 1,
-      description: `The caller's stable id for the item. \`${CORRECTION_ITEM.key}\` is reserved: a correction on it is accepted only when it carries expected decisions (\`correction\`) at pointer \`""\`.`,
+      description: `The caller's stable id for the item, such as a matched case's id, never the item's own text. \`${CORRECTION_ITEM.key}\` is reserved for Kindgi.`,
     },
     pointer: {
       type: 'string',
@@ -5107,7 +5146,7 @@ export const CorrectedItemSchema: JsonSchema = {
   },
 };
 
-export const CorrectionAssertedBySchema: JsonSchema = {
+export const CorrectionMadeBySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind', 'id'],
@@ -5238,19 +5277,182 @@ export const CallDifferenceSchema: JsonSchema = {
   ],
 } as const;
 
+const verdictProperty = { type: 'string', enum: ['right', 'wrong'] } as const;
+
+/**
+ * One item of a ranked answer, and whether it was right there. A read
+ * answers it as stored, so it has no length caps: corrections made before
+ * the caps may hold longer keys.
+ */
+export const CorrectedAnswerItemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['key', 'verdict'],
+  properties: {
+    key: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The caller's stable id for the item, such as a matched case's id, never the item's own text.",
+    },
+    pointer: {
+      type: 'string',
+      description:
+        "Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.",
+    },
+    rank: {
+      type: 'integer',
+      minimum: 0,
+      description: "The item's position in the ranked list (0 = first).",
+    },
+    verdict: verdictProperty,
+  },
+};
+
+/** One item of a ranked answer as a new correction sends it: its key and pointer have caps. */
+export const CorrectedAnswerItemInputSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['key', 'verdict'],
+  properties: {
+    key: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 200,
+      description:
+        "The caller's stable id for the item, such as a matched case's id, never the item's own text.",
+    },
+    pointer: {
+      type: 'string',
+      maxLength: 500,
+      description:
+        "Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.",
+    },
+    rank: {
+      type: 'integer',
+      minimum: 0,
+      description: "The item's position in the ranked list (0 = first).",
+    },
+    verdict: verdictProperty,
+  },
+};
+
+const correctionActorProperty = { $ref: '#/components/schemas/CorrectionMadeBy' } as const;
+
+/** What sorted a correction, why, and when. */
+export const CorrectionSortedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['by', 'at'],
+  properties: {
+    by: {
+      description:
+        'The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.',
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind'],
+          properties: { kind: { type: 'string', enum: ['fix-job', 'rule'] } },
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'id'],
+          properties: {
+            kind: { type: 'string', enum: ['user', 'service'] },
+            id: { type: 'string' },
+          },
+        },
+      ],
+    },
+    reason: { type: 'string' },
+    at: { type: 'string', format: 'date-time' },
+  },
+};
+
+/** The work fixing a correction: an Improve run, a suggested change, or a pull request. */
+export const CorrectionLinkSchema: JsonSchema = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'id'],
+      properties: {
+        kind: { type: 'string', enum: ['improve-run', 'suggested-change'] },
+        id: { type: 'string' },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'url'],
+      properties: {
+        kind: { type: 'string', enum: ['pull-request'] },
+        url: { type: 'string', format: 'uri' },
+      },
+    },
+  ],
+};
+
+/** How a fixed correction was fixed. */
+export const CorrectionFixedInSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['how', 'at'],
+  properties: {
+    version: {
+      type: 'string',
+      description:
+        'The version that fixed it. Absent for `recorded-right`, which nothing had to fix.',
+    },
+    how: {
+      type: 'string',
+      enum: ['pin', 'latest', 'recorded-right'],
+      description:
+        '`pin`: a pin fixed it. `latest`: a deploy or an add moved Latest in a project that follows it. `recorded-right`: it said nothing was wrong.',
+    },
+    by: correctionActorProperty,
+    at: { type: 'string', format: 'date-time' },
+  },
+};
+
+/** A person's note on a status: why Won't fix, or why it went back to Open. */
+export const CorrectionStatusNoteSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['text', 'by', 'at'],
+  properties: {
+    text: { type: 'string' },
+    by: correctionActorProperty,
+    at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const correctionStatusProperty = {
+  type: 'string',
+  enum: ['open', 'being-fixed', 'with-owner', 'fixed', 'wont-fix', 'removed'],
+} as const;
+const correctionSortedToProperty = {
+  type: 'string',
+  enum: ['improve', 'developer', 'owner'],
+} as const;
+
 export const CorrectionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    "A person's correction of one run: whether its decisions (the tool calls) and its answer were right, and what was right instead. It says at least one of `decisions`, `answer` and `items`.",
   required: [
     'id',
     'tenantId',
     'projectId',
     'runId',
     'subject',
-    'item',
-    'verdict',
-    'assertedBy',
+    'madeBy',
+    'status',
     'createdAt',
+    'updatedAt',
   ],
   properties: {
     id: { type: 'string' },
@@ -5258,12 +5460,32 @@ export const CorrectionSchema: JsonSchema = {
     projectId: { type: 'string' },
     runId: { type: 'string' },
     subject: { $ref: '#/components/schemas/CorrectedSubject' },
-    item: { $ref: '#/components/schemas/CorrectedItem' },
-    verdict: { type: 'string', enum: ['yes', 'no'] },
-    reason: { type: 'string' },
-    correction: {
-      $ref: '#/components/schemas/ExpectedDecisions',
-      description: "The expert's correction of the run's decisions, when they gave one.",
+    decisions: {
+      ...verdictProperty,
+      description:
+        "Whether the run's decisions were right. Absent when it says nothing about them.",
+    },
+    shouldCall: {
+      type: 'array',
+      description: 'With `decisions: "wrong"`: the calls the agent should have made.',
+      items: { $ref: '#/components/schemas/ExpectedCall' },
+    },
+    mustNotCall: {
+      type: 'array',
+      description: 'With `decisions: "wrong"`: the tools that should not have been called.',
+      items: { type: 'string' },
+    },
+    answer: {
+      ...verdictProperty,
+      description: "Whether the run's answer was right. Absent when it says nothing about it.",
+    },
+    shouldSay: { type: 'string', description: 'With `answer: "wrong"`: what it should have said.' },
+    why: { type: 'string' },
+    items: {
+      type: 'array',
+      description:
+        'For an answer that is a ranked list: each item, and whether it was right there.',
+      items: { $ref: '#/components/schemas/CorrectedAnswerItem' },
     },
     correctorGroupId: {
       type: 'string',
@@ -5276,13 +5498,38 @@ export const CorrectionSchema: JsonSchema = {
       description:
         "Present (true) when the corrector group was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it.",
     },
-    assertedBy: { $ref: '#/components/schemas/CorrectionAssertedBy' },
+    madeBy: { $ref: '#/components/schemas/CorrectionMadeBy' },
     participantId: {
       type: 'string',
       description:
         "The app's opaque id for its end user who corrected it, when an app corrected it on their behalf.",
     },
+    status: {
+      ...correctionStatusProperty,
+      description:
+        "Where it is in being fixed. `with-owner` while the agent's owner decides; `fixed` only when a pin or a deploy fixed it, or it said nothing was wrong; `removed` can't come back.",
+    },
+    sortedTo: {
+      ...correctionSortedToProperty,
+      description:
+        "Who works on it: Improve, a developer, or the agent's owner. Absent while unsorted.",
+    },
+    sorted: { $ref: '#/components/schemas/CorrectionSorted' },
+    link: {
+      $ref: '#/components/schemas/CorrectionLink',
+      description: 'The work fixing it. Present while it is `being-fixed`.',
+    },
+    fixedIn: {
+      $ref: '#/components/schemas/CorrectionFixedIn',
+      description: 'Present while it is `fixed`.',
+    },
+    statusNote: { $ref: '#/components/schemas/CorrectionStatusNote' },
     createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it last changed: `createdAt` until something changes it.',
+    },
     unregisteredAt: {
       type: 'string',
       format: 'date-time',
@@ -5429,9 +5676,6 @@ export const CorrectionWithCopiesSchema: JsonSchema = {
       required: ['run'],
       properties: {
         run: { $ref: '#/components/schemas/CorrectedRunCopy' },
-        itemValue: {
-          description: "The corrected item's value, when the correction pointed at it.",
-        },
       },
     },
   ],
@@ -5451,12 +5695,52 @@ export const CorrectionCollectionPageSchema: JsonSchema = {
 export const CreateCorrectionBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['runId', 'item', 'verdict'],
+  required: ['runId'],
+  description:
+    'At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.',
   properties: {
     runId: { type: 'string', minLength: 1 },
-    item: { $ref: '#/components/schemas/CorrectedItem' },
-    verdict: { type: 'string', enum: ['yes', 'no'] },
-    reason: { type: 'string', maxLength: 4000 },
+    decisions: verdictProperty,
+    shouldCall: {
+      type: 'array',
+      maxItems: 50,
+      description: 'Only with `decisions: "wrong"`: the calls the agent should have made.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['tool'],
+        properties: {
+          tool: { type: 'string', minLength: 1, maxLength: 200 },
+          args: {
+            type: 'object',
+            maxProperties: 100,
+            description:
+              'Only when the inputs matter: the top-level argument fields to compare, by value. Left out, only the call is checked. At most 4000 characters in canonical JSON.',
+          },
+        },
+      },
+    },
+    mustNotCall: {
+      type: 'array',
+      maxItems: 50,
+      description:
+        'Only with `decisions: "wrong"`: tools that shouldn\'t have been called. A tool can\'t be in both.',
+      items: { type: 'string', minLength: 1, maxLength: 200 },
+    },
+    answer: verdictProperty,
+    shouldSay: {
+      type: 'string',
+      maxLength: 4000,
+      description: 'Only with `answer: "wrong"`: what it should have said.',
+    },
+    why: { type: 'string', maxLength: 4000 },
+    items: {
+      type: 'array',
+      maxItems: 100,
+      description:
+        'For an answer that is a ranked list: each item, and whether it was right. Each key once.',
+      items: { $ref: '#/components/schemas/CorrectedAnswerItemInput' },
+    },
     correctorGroupId: {
       type: 'string',
       minLength: 1,
@@ -5467,10 +5751,54 @@ export const CreateCorrectionBodySchema: JsonSchema = {
       minLength: 1,
       description: "An app's opaque id for its end user, when correcting on their behalf.",
     },
-    correction: {
-      $ref: '#/components/schemas/ExpectedDecisions',
-      description: `Optional. The tool calls the agent should have made, graded on a replay. Expected decisions cover the run's whole output, so they are recorded under one reserved item (\`item.key\` \`"${CORRECTION_ITEM.key}"\`, \`item.pointer\` \`""\`): expected decisions on any other item are a 400, and a second set from the same expert on the run replaces the first, so it counts once.`,
+  },
+};
+
+export const ChangeCorrectionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description:
+    'A re-sort, a status, or both (the re-sort first). `fixed` is set only by a pin or a deploy, and `removed` by `POST /v1/corrections/{correctionId}/remove`.',
+  properties: {
+    sortedTo: {
+      ...correctionSortedToProperty,
+      description:
+        'From `open`, `being-fixed` or `with-owner`. To `owner` sets `with-owner`; away from `owner`, `open`.',
     },
+    status: {
+      type: 'string',
+      enum: ['open', 'being-fixed', 'wont-fix'],
+      description:
+        '`being-fixed` from `open` or `with-owner`, with `link`. `open` from `being-fixed` or `wont-fix`. `wont-fix` from anything but `removed`, with `reason`.',
+    },
+    link: {
+      type: 'string',
+      description:
+        'With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`).',
+    },
+    reason: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 4000,
+      description:
+        "Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason.",
+    },
+  },
+};
+
+export const CorrectionCountsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['open', 'beingFixed', 'withOwner', 'fixed', 'wontFix', 'removed'],
+  description: "How many of a project's (or an agent's) live corrections are in each status.",
+  properties: {
+    open: { type: 'integer', minimum: 0 },
+    beingFixed: { type: 'integer', minimum: 0 },
+    withOwner: { type: 'integer', minimum: 0 },
+    fixed: { type: 'integer', minimum: 0 },
+    wontFix: { type: 'integer', minimum: 0 },
+    removed: { type: 'integer', minimum: 0 },
   },
 };
 
@@ -16177,8 +16505,16 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CorrectedItem', CorrectedItemSchema],
   ['ExpectedCall', ExpectedCallSchema],
   ['ExpectedDecisions', ExpectedDecisionsSchema],
-  ['CorrectionAssertedBy', CorrectionAssertedBySchema],
+  ['CorrectionMadeBy', CorrectionMadeBySchema],
   ['Correction', CorrectionSchema],
+  ['CorrectedAnswerItem', CorrectedAnswerItemSchema],
+  ['CorrectedAnswerItemInput', CorrectedAnswerItemInputSchema],
+  ['CorrectionSorted', CorrectionSortedSchema],
+  ['CorrectionLink', CorrectionLinkSchema],
+  ['CorrectionFixedIn', CorrectionFixedInSchema],
+  ['CorrectionStatusNote', CorrectionStatusNoteSchema],
+  ['ChangeCorrectionBody', ChangeCorrectionBodySchema],
+  ['CorrectionCounts', CorrectionCountsSchema],
   ['CorrectedRunContext', CorrectedRunContextSchema],
   ['CorrectedRunCopy', CorrectedRunCopySchema],
   ['CorrectionWithCopies', CorrectionWithCopiesSchema],
@@ -16213,6 +16549,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FlowVersionOverrides', FlowVersionOverridesSchema],
   ['PublishAgentBody', PublishAgentBodySchema],
   ['PublishAgentResult', PublishAgentResultSchema],
+  ['AgentOwner', AgentOwnerSchema],
+  ['SetAgentOwnerBody', SetAgentOwnerBodySchema],
+  ['SetAgentOwnerResult', SetAgentOwnerResultSchema],
   ['UnregisterAgentResult', UnregisterAgentResultSchema],
   ['ReinstateAgentVersionResult', ReinstateAgentVersionResultSchema],
   ['AgentCollectionPage', AgentCollectionPageSchema],

@@ -1932,6 +1932,14 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/evals/judge-a-runs-output'],
   },
+  'correction-status-change-not-allowed': {
+    description:
+      "The change isn't allowed from the correction's status: re-sorting only from `open`, `being-fixed` or `with-owner`; `being-fixed` only from `open` or `with-owner`; `open` only from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`. `fixed` is set only by a pin or a deploy.",
+    details: [
+      { key: 'from', meaning: "the correction's status" },
+      { key: 'to', meaning: 'the status the change would have set' },
+    ],
+  },
   'corrector-group-not-found': {
     description: 'No live corrector group exists with that id.',
     details: [],
@@ -2550,6 +2558,11 @@ export const ERROR_ENTRIES = {
   'person-grants-unsupported': {
     description:
       "The runtime runs without an authorization store, so it can't read or change a person's grants.",
+    details: [],
+  },
+  'agent-owner-unsupported': {
+    description:
+      "The runtime's agent store doesn't keep an owner, so an agent's owner can't be set. Nothing changed.",
     details: [],
   },
   'permissions-unsupported': {

@@ -6,18 +6,17 @@ import { type Context, Hono } from 'hono';
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { Cursor, ProjectId, ScopeSegment, TenantId, UserId } from '@kindgi/types';
 
-import { groupWeightReader, summarizeCorrections } from '../corrected-summary.js';
+import { outputItems } from '../corrected-items.js';
+import { groupWeightReader, summarizeByItem } from '../corrected-summary.js';
 import {
   type CorrectedRunListInput,
   type CorrectedRunWithCorrections,
-  type Correction,
   type CorrectionRegistryBinding,
   isReplayCopy,
 } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type {
   CorrectedEvalCase,
-  CorrectedItemSummary,
   EvalCaseStoreBinding,
   TestCaseExpectedDecisions,
 } from '../eval-case-binding.js';
@@ -280,27 +279,28 @@ async function toCase(
             j.correctorGroupId !== undefined && q.correctorGroupIds?.includes(j.correctorGroupId),
         );
   if (kept.length === 0 || kept.length < (q.minCorrections ?? 1)) return undefined;
-  const byKey = new Map<string, Correction[]>();
-  for (const j of kept) byKey.set(j.item.key, [...(byKey.get(j.item.key) ?? []), j]);
-  const items: CorrectedItemSummary[] = [];
-  for (const [key, list] of byKey) items.push(await summarizeCorrections(key, list, weightOf));
-  items.sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
+  const run = corrected.run;
+  // The answer's place in this output, so a replay's same answer matches it.
+  const answerAt = outputItems(run.output, run.subject.kind === 'agent').find(
+    (i) => i.key === 'answer',
+  )?.pointer;
+  const items = await summarizeByItem(kept, weightOf, answerAt);
   // Each kept correction's expected decisions ride onto the case, keyed by
   // its correction and carrying its corrector group and restriction, so a
   // experts-only comparison filters them the way it filters items.
   const corrections: TestCaseExpectedDecisions[] = kept.flatMap((j) =>
-    j.correction === undefined
+    j.shouldCall === undefined && j.mustNotCall === undefined
       ? []
       : [
           {
-            ...j.correction,
+            calls: j.shouldCall ?? [],
+            notCalled: j.mustNotCall ?? [],
             correctionId: j.id,
             ...(j.correctorGroupId !== undefined && { correctorGroupId: j.correctorGroupId }),
             ...(j.expert === true && { expert: true as const }),
           },
         ],
   );
-  const run = corrected.run;
   return {
     caseId: run.runId,
     subject: run.subject,

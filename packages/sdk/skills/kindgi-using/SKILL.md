@@ -130,9 +130,9 @@ agent finished in the last day. The cost page takes `range=` one of `7d`,
 
 When Kindgi erased what it kept about a customer, their runs keep their
 record but not their words: a run with `contentErasedAt` has no message,
-tool calls or answer any more. A rating of such a run keeps its `verdict`
-and loses its `reason`, so a rating of an erased run shows no reason even
-when it had one. Say the words were erased with the customer's data; never
+tool calls or answer any more. A correction of such a run keeps `decisions`
+and `answer` and loses what it said (`why`, `shouldSay`, `shouldCall`,
+`mustNotCall`). Say the words were erased with the customer's data; never
 say there were none.
 
 ## Answering common questions
@@ -251,8 +251,8 @@ say there were none.
 **"Show me the answers I rated."**
 - In the CLI: `kindgi auth whoami` gives `identity.principal`;
   `kindgi corrections list` lists ratings, newest first: keep those whose
-  `assertedBy` is that principal (same `kind` and `id`), and say each
-  one's run, `verdict` and `reason`. In `kindgi dev`, the CLI and the
+  `madeBy` is that principal (same `kind` and `id`), and say each
+  one's run, `answer` and `why`. In `kindgi dev`, the CLI and the
   console's sign-in are the same seed user.
 - In the console: each run's `runs/<runId>/corrections`, and `quality`.
 

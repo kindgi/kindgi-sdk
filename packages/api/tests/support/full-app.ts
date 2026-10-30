@@ -384,6 +384,9 @@ const noopCorrectionRegistry: CorrectionRegistryBinding = {
   list: async () => ({ data: [], hasMore: false }),
   get: async () => null,
   unregister: async () => ({ unregistered: false }),
+  update: async () => ({ kind: 'not-found' }),
+  counts: async () => ({ open: 0, beingFixed: 0, withOwner: 0, fixed: 0, wontFix: 0, removed: 0 }),
+  correctionsByIds: async () => [],
 };
 
 const noopExpertQueue: ExpertQueueBinding = {

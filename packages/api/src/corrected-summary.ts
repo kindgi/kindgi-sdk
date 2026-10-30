@@ -7,12 +7,74 @@
  * the same sums for corrections recorded while their group was restricted,
  * the corrections' ids, and the reasons. A test set's cases are built this way, and so is a
  * comparison's evidence from correcting a replay's own answers.
+ *
+ * A correction says right or wrong about a run's decisions, its answer and
+ * its ranked items at once; each of those is one item here, kept as cases
+ * keep them (`yes` for right, `no` for wrong).
  */
 
-import type { TenantId } from '@kindgi/types';
+import { CORRECTION_ITEM, type TenantId } from '@kindgi/types';
 
-import type { Correction, CorrectionRegistryBinding } from './correction-binding.js';
+import type { Correction, CorrectionRegistryBinding, Verdict } from './correction-binding.js';
 import type { CorrectedItemSummary } from './eval-case-binding.js';
+
+/** What one correction says about one item. */
+export interface ItemVerdict {
+  readonly key: string;
+  readonly pointer?: string;
+  readonly rank?: number;
+  readonly verdict: 'yes' | 'no';
+  /** The correction's `why`, on its answer (or, without one, its decisions). */
+  readonly reason?: string;
+  readonly correction: Correction;
+}
+
+/** The output item a correction's `answer` is about: an agent turn's last message, or a flow run's whole output. */
+export function answerKey(j: Pick<Correction, 'subject'>): 'answer' | 'output' {
+  return j.subject.kind === 'agent' ? 'answer' : 'output';
+}
+
+const asCaseVerdict = (v: Verdict): 'yes' | 'no' => (v === 'right' ? 'yes' : 'no');
+
+/**
+ * A correction as items: its decisions on the reserved item, its answer on
+ * the output's answer item (at `answerAt`, the answer's pointer in the run's
+ * output, when the caller knows it; a flow's is `''`), and each ranked item.
+ */
+export function itemVerdicts(j: Correction, answerAt?: string): ItemVerdict[] {
+  const out: ItemVerdict[] = [];
+  const why = j.why !== undefined && { reason: j.why };
+  if (j.decisions !== undefined) {
+    out.push({
+      key: CORRECTION_ITEM.key,
+      pointer: CORRECTION_ITEM.pointer,
+      verdict: asCaseVerdict(j.decisions),
+      ...(j.answer === undefined && why),
+      correction: j,
+    });
+  }
+  if (j.answer !== undefined) {
+    const key = answerKey(j);
+    const pointer = key === 'output' ? '' : answerAt;
+    out.push({
+      key,
+      ...(pointer !== undefined && { pointer }),
+      verdict: asCaseVerdict(j.answer),
+      ...why,
+      correction: j,
+    });
+  }
+  for (const i of j.items ?? []) {
+    out.push({
+      key: i.key,
+      ...(i.pointer !== undefined && { pointer: i.pointer }),
+      ...(i.rank !== undefined && { rank: i.rank }),
+      verdict: asCaseVerdict(i.verdict),
+      correction: j,
+    });
+  }
+  return out;
+}
 
 export type GroupWeightOf = (correctorGroupId: string | undefined) => Promise<number>;
 
@@ -33,9 +95,10 @@ export function groupWeightReader(
   };
 }
 
+/** One item's verdicts (all with this `key`), summed. */
 export async function summarizeCorrections(
   key: string,
-  corrections: readonly Correction[],
+  verdicts: readonly ItemVerdict[],
   weightOf: GroupWeightOf,
 ): Promise<CorrectedItemSummary> {
   let yes = 0;
@@ -44,14 +107,15 @@ export async function summarizeCorrections(
   let totalWeight = 0;
   // What the people a group was restricted to asserted, as it was when each correction was recorded.
   const expert = { yesWeight: 0, totalWeight: 0, correctionIds: [] as string[] };
-  for (const j of corrections) {
+  for (const v of verdicts) {
+    const j = v.correction;
     const w = await weightOf(j.correctorGroupId);
     totalWeight += w;
     if (j.expert === true) {
       expert.totalWeight += w;
       expert.correctionIds.push(j.id);
     }
-    if (j.verdict === 'yes') {
+    if (v.verdict === 'yes') {
       yes += 1;
       yesWeight += w;
       if (j.expert === true) expert.yesWeight += w;
@@ -59,25 +123,27 @@ export async function summarizeCorrections(
       no += 1;
     }
   }
-  const first = corrections[0];
+  const first = verdicts[0];
   return {
     key,
-    ...(first?.item.pointer !== undefined && { pointer: first.item.pointer }),
-    ...(first?.item.rank !== undefined && { rank: first.item.rank }),
+    ...(first?.pointer !== undefined && { pointer: first.pointer }),
+    ...(first?.rank !== undefined && { rank: first.rank }),
     yes,
     no,
     yesWeight,
     totalWeight,
     expert,
-    correctionIds: corrections.map((j) => j.id),
-    reasons: corrections.flatMap((j) =>
-      j.reason !== undefined
+    correctionIds: verdicts.map((v) => v.correction.id),
+    reasons: verdicts.flatMap((v) =>
+      v.reason !== undefined
         ? [
             {
-              verdict: j.verdict,
-              reason: j.reason,
-              ...(j.correctorGroupId !== undefined && { correctorGroupId: j.correctorGroupId }),
-              ...(j.expert === true && { expert: true as const }),
+              verdict: v.verdict,
+              reason: v.reason,
+              ...(v.correction.correctorGroupId !== undefined && {
+                correctorGroupId: v.correction.correctorGroupId,
+              }),
+              ...(v.correction.expert === true && { expert: true as const }),
             },
           ]
         : [],
@@ -85,13 +151,16 @@ export async function summarizeCorrections(
   };
 }
 
-/** Corrections of one run's output, summed per item key, by rank. */
+/** Corrections of one run's output, summed per item key, by rank (`answerAt` as for {@link itemVerdicts}). */
 export async function summarizeByItem(
   corrections: readonly Correction[],
   weightOf: GroupWeightOf,
+  answerAt?: string,
 ): Promise<CorrectedItemSummary[]> {
-  const byKey = new Map<string, Correction[]>();
-  for (const j of corrections) byKey.set(j.item.key, [...(byKey.get(j.item.key) ?? []), j]);
+  const byKey = new Map<string, ItemVerdict[]>();
+  for (const v of corrections.flatMap((j) => itemVerdicts(j, answerAt))) {
+    byKey.set(v.key, [...(byKey.get(v.key) ?? []), v]);
+  }
   const items: CorrectedItemSummary[] = [];
   for (const [key, list] of byKey) items.push(await summarizeCorrections(key, list, weightOf));
   return items.sort(

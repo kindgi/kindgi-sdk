@@ -1444,9 +1444,47 @@ const CorrectionListQueryParams: readonly ParameterSpec[] = [
     type: 'string',
     minLength: 1,
   }),
-  correctionQuery('verdict', 'Only corrections with this verdict.', {
+  {
+    name: 'status',
+    in: 'query',
+    required: false,
+    description:
+      'Only corrections in these statuses: one, or several, repeated or comma-separated. `not-fixed` is short for `open`, `being-fixed` and `with-owner`. Removed corrections come back only when `removed` is asked for.',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'string',
+        enum: ['not-fixed', 'open', 'being-fixed', 'with-owner', 'fixed', 'wont-fix', 'removed'],
+      },
+    },
+  },
+  {
+    name: 'sortedTo',
+    in: 'query',
+    required: false,
+    description:
+      'Only corrections sorted to these (repeated or comma-separated), with `none` for unsorted ones.',
+    schema: {
+      type: 'array',
+      items: { type: 'string', enum: ['none', 'improve', 'developer', 'owner'] },
+    },
+  },
+  correctionQuery(
+    'from',
+    "`experts`: corrections under a restricted corrector group. `end-users`: an app's end users' (`participantId`), not experts'. `all` (the default): every one.",
+    { type: 'string', enum: ['experts', 'end-users', 'all'] },
+  ),
+  correctionQuery('madeBy', "`me`: only the caller's own corrections.", {
     type: 'string',
-    enum: ['yes', 'no'],
+    enum: ['me'],
+  }),
+  correctionQuery('since', 'Only corrections made at or after this time.', {
+    type: 'string',
+    format: 'date-time',
+  }),
+  correctionQuery('until', 'Only corrections made before this time.', {
+    type: 'string',
+    format: 'date-time',
   }),
   correctionQuery('correctorGroupId', 'Only corrections recorded under this corrector group.', {
     type: 'string',
@@ -3771,6 +3809,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'put',
+    honoPath: '/v1/agents/:agentId/owner',
+    openapiPath: '/v1/agents/{agentId}/owner',
+    operationId: 'agents.setOwner',
+    summary: "Set an agent's owner",
+    description:
+      "One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam],
+    requestBody: { required: true, schema: ref('SetAgentOwnerBody') },
+    responses: {
+      '200': { description: 'The owner is set.', schema: ref('SetAgentOwnerResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('The body is not `{ "userId": "…" }`.'),
+      '404': ErrorResponse(
+        'No agent with that id under this tenant (`agent-not-found`), or no person with that id in it (`identity-user-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "`registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source).",
+      ),
+      '501': ErrorResponse(
+        "The runtime's agent store doesn't keep an owner (`agent-owner-unsupported`).",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/agents/:agentId/versions/:version/unregister',
     openapiPath: '/v1/agents/{agentId}/versions/{version}/unregister',
@@ -5807,9 +5872,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/corrections',
     openapiPath: '/v1/corrections',
     operationId: 'corrections.create',
-    summary: "Correct an item of a run's output",
+    summary: 'Correct a run',
     description:
-      "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+      "Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
     tags: ['corrections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5818,7 +5883,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Correction recorded.', schema: ref('Correction') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `corrector-group-not-applicable`.',
+        "Malformed body, or `item-not-found` (an item's pointer resolves to nothing in the output), or `corrector-group-not-applicable`.",
       ),
       '403': ErrorResponse(
         '`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.',
@@ -5837,7 +5902,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'corrections.list',
     summary: 'List corrections',
     description:
-      'Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project.',
+      'Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.',
     tags: ['corrections'],
     security: 'bearer',
     parameters: [
@@ -5860,7 +5925,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'corrections.get',
     summary: 'Fetch a correction with its copies',
     description:
-      "Returns the correction (live or not) with the stored copy of the run's input and output and, when the correction pointed at an item, its value.",
+      "Returns the correction (live or not) with the stored copy of the run's input and output.",
     tags: ['corrections'],
     security: 'bearer',
     parameters: [CorrectionIdPathParam],
@@ -5877,7 +5942,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'corrections.remove',
     summary: 'Remove a correction',
     description:
-      'Soft delete: the correction stops listing; retention policy decides when it is purged.',
+      "Its status becomes `removed`, and it can't come back. It lists only when `status=removed` is asked for; retention policy decides when it is purged. Needs to be its author, or `admin` on its project.",
     tags: ['corrections'],
     security: 'bearer',
     parameters: [CorrectionIdPathParam, IdempotencyKeyParam],
@@ -5886,6 +5951,69 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse('`permission-denied`.'),
       '404': ErrorResponse('No live correction with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/corrections/:correctionId',
+    openapiPath: '/v1/corrections/{correctionId}',
+    operationId: 'corrections.change',
+    summary: 'Re-sort a correction or change its status',
+    description:
+      "A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix` (`with-owner` for one sorted to the owner); `wont-fix` from anything but `removed`, with `reason`, and it drops `fixedIn`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow), or, for one more than one project serves, `write` on the correction's project.",
+    tags: ['corrections'],
+    security: 'bearer',
+    parameters: [CorrectionIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ChangeCorrectionBody') },
+    responses: {
+      '200': { description: 'The changed correction.', schema: ref('Correction') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'Malformed body: a link without `being-fixed`, `being-fixed` without a link, or `wont-fix` without a reason.',
+      ),
+      '403': ErrorResponse(
+        "`permission-denied`: this needs publish on the agent, or write on the correction's project for an agent more than one project serves.",
+      ),
+      '404': ErrorResponse('No live correction with that id under this tenant.'),
+      '409': ErrorResponse(
+        '`correction-status-change-not-allowed`: the change table does not allow it from its status, or it changed twice while the change was made: read it and try again (`details: { from, to }`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/corrections/counts',
+    openapiPath: '/v1/corrections/counts',
+    operationId: 'corrections.counts',
+    summary: 'Count corrections by status',
+    description:
+      "How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project. Only a project scope is taken: the list filters each row by what the caller reads, and a count can't.",
+    tags: ['corrections'],
+    security: 'bearer',
+    parameters: [
+      correctionQuery('agentId', 'Only corrections of runs of this agent.', {
+        type: 'string',
+        minLength: 1,
+      }),
+      {
+        name: 'scopeKind',
+        in: 'query',
+        required: true,
+        description: '`project`, the only scope a count is taken in.',
+        schema: { type: 'string', enum: ['project'] },
+      },
+      {
+        name: 'scopeId',
+        in: 'query',
+        required: true,
+        description: 'The project whose corrections are counted.',
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    responses: {
+      '200': { description: 'Counts by status.', schema: ref('CorrectionCounts') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter, or no project scope.'),
     },
   },
 

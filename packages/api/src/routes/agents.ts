@@ -29,6 +29,7 @@ import {
 } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import {
   type ItemCheck,
   type ItemRights,
@@ -115,6 +116,8 @@ export function agentsRouter(
   itemServing?: ItemServing,
   /** The tools' pinned versions, read when a version is pinned; absent → each range's newest. */
   pinnedVersions?: PinnedVersionBinding,
+  /** Who an owner is (`owner.name`), and that a new owner is a person of the tenant; absent → the id alone. */
+  identityDirectory?: Pick<IdentityDirectoryBinding, 'getUser'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -144,6 +147,7 @@ export function agentsRouter(
   //   POST /:agentId/versions                        → publish on the agent (derive)
   //   POST /:agentId/versions/:version/unregister    → admin on the agent
   //   POST /:agentId/versions/:version/reinstate     → admin on the agent
+  //   PUT /:agentId/owner                            → admin on the agent
   //   POST /:agentId/promotions, /live/rollback, /live/unpin → promote on the agent
   //   POST /:agentId/promotions/check                → read on the agent (changes nothing)
   //   GET /:agentId/live, /live-versions, /promotions[/…]    → read on the agent
@@ -397,8 +401,26 @@ export function agentsRouter(
         ),
       );
     }
-    return c.json(serializeAgent(shown.row));
+    // The owner is the agent's, not a version's: it's read off the head
+    // record, whichever version is shown.
+    return c.json({ ...serializeAgent(shown.row), ...(await ownerField(tenantId, highest)) });
   });
+
+  /** `owner: { userId, name? }`, the name when the directory has one for the person. */
+  async function ownerField(
+    tenantId: TenantId,
+    a: AgentVersionRecord,
+  ): Promise<{ owner?: { userId: string; name?: string } }> {
+    if (a.owner === undefined) return {};
+    const user = await identityDirectory?.getUser({ tenantId, userId: a.owner.userId });
+    const name = user?.displayName;
+    return {
+      owner: {
+        userId: a.owner.userId as unknown as string,
+        ...(name !== undefined && name.length > 0 && { name }),
+      },
+    };
+  }
 
   // ---------- GET /:agentId/projects (the projects it runs in) ----------
   // Its own project first, then each other project a version of it can run
@@ -894,11 +916,101 @@ export function agentsRouter(
     });
   });
 
+  // ---------- PUT /:agentId/owner ----------
+  // The person the agent's corrections go to when they need its owner. One
+  // per agent; setting it again replaces the one before. With a directory,
+  // the person must be one of the tenant's.
+  r.put('/:agentId/owner', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const agentId = c.req.param('agentId') as AgentId;
+
+    if (binding.setOwner === undefined) {
+      c.status(statusFor('agent-owner-unsupported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-owner-unsupported',
+            message: "This runtime's agent store doesn't keep an owner.",
+          },
+          requestId,
+        ),
+      );
+    }
+    const userId = await ownerBody(c);
+    if (userId === undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: 'The body is { "userId": "<the person\'s id>" }.' },
+          requestId,
+        ),
+      );
+    }
+    const user = await identityDirectory?.getUser({ tenantId, userId });
+    if (identityDirectory !== undefined && (user === null || user?.unregisteredAt !== undefined)) {
+      c.status(statusFor('identity-user-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'identity-user-not-found',
+            message: `No person "${userId as unknown as string}" in this tenant to own the agent`,
+            userId: userId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    const principal = c.get('principal') as Principal | undefined;
+    const outcome = await binding.setOwner({
+      tenantId,
+      agentId,
+      userId,
+      ...(principal !== undefined && { setBy: principal.actor.id }),
+    });
+    if (outcome.kind === 'not-found') {
+      c.status(statusFor('agent-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-not-found',
+            message: `No agent registered with id "${agentId as unknown as string}"`,
+            agentId: agentId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    const name = user?.displayName;
+    return c.json({
+      agentId: agentId as unknown as string,
+      owner: {
+        userId: userId as unknown as string,
+        ...(name !== undefined && name.length > 0 && { name }),
+      },
+    });
+  });
+
   if (releases !== undefined) {
     mountAgentReleaseRoutes(r, binding, releases, gateDeps, referenceScope, itemRights);
   }
 
   return r;
+}
+
+/** The owner body's `userId`: `{ "userId": "…" }` and nothing else, or undefined. */
+async function ownerBody(c: Context<AppEnv>): Promise<UserId | undefined> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return undefined;
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const fields = body as Record<string, unknown>;
+  const { userId } = fields;
+  if (Object.keys(fields).some((k) => k !== 'userId')) return undefined;
+  return typeof userId === 'string' && userId.length > 0 ? (userId as UserId) : undefined;
 }
 
 /** The scope a promotion, rollback or unpin body names; `undefined` when it names none (the route's 400). */

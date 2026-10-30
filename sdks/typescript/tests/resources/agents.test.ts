@@ -192,6 +192,16 @@ describe('agents.live and agents.promotions', () => {
     expect(got).toEqual({ data: [{ projectId: PROJECT_ID }] });
   });
 
+  it('setOwner PUTs the person to /owner and returns the answer as sent', async () => {
+    const answer = { agentId: 'acme.drafter', owner: { userId: 'u-1', name: 'Ana Ortiz' } };
+    const stub = jsonFetch(answer);
+    const got = await client(stub).agents.setOwner('acme.drafter', 'u-1');
+    expect(stub.calls[0]!.url).toBe('https://api.example.com/v1/agents/acme.drafter/owner');
+    expect(stub.calls[0]!.method).toBe('PUT');
+    expect(JSON.parse(stub.calls[0]!.body as string)).toEqual({ userId: 'u-1' });
+    expect(got).toEqual(answer);
+  });
+
   it('promotions.create POSTs the version and scope, with an idempotency key', async () => {
     const stub = jsonFetch(promotion, { status: 201 });
     const made = await client(stub).agents.promotions.create(

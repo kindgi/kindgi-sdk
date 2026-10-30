@@ -2235,7 +2235,7 @@ class CorrectedItem(BaseModel):
     )
     key: Annotated[str, Field(min_length=1)]
     """
-    The caller's stable id for the item. `kindgi:correction` is reserved: a correction on it is accepted only when it carries expected decisions (`correction`) at pointer `""`.
+    The caller's stable id for the item, such as a matched case's id, never the item's own text. `kindgi:correction` is reserved for Kindgi.
     """
     pointer: str | None = None
     """
@@ -2282,7 +2282,7 @@ class ExpectedDecisions(BaseModel):
     """
 
 
-class CorrectionAssertedBy(BaseModel):
+class CorrectionMadeBy(BaseModel):
     """
     Who asserted a correction: the authenticated caller, never a typed name.
     """
@@ -2298,45 +2298,160 @@ class CorrectionAssertedBy(BaseModel):
     """
 
 
-class Correction(BaseModel):
+class CorrectedAnswerItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    key: Annotated[str, Field(min_length=1)]
+    """
+    The caller's stable id for the item, such as a matched case's id, never the item's own text.
+    """
+    pointer: str | None = None
+    """
+    Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.
+    """
+    rank: Annotated[int | None, Field(ge=0)] = None
+    """
+    The item's position in the ranked list (0 = first).
+    """
+    verdict: Annotated[Literal["right", "wrong"] | str, _open.OPEN]
+
+
+class CorrectedAnswerItemInput(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[str, Field(max_length=200, min_length=1)]
+    """
+    The caller's stable id for the item, such as a matched case's id, never the item's own text.
+    """
+    pointer: Annotated[str | None, Field(max_length=500)] = None
+    """
+    Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.
+    """
+    rank: Annotated[int | None, Field(ge=0)] = None
+    """
+    The item's position in the ranked list (0 = first).
+    """
+    verdict: Literal["right", "wrong"]
+
+
+class By(BaseModel):
+    """
+    The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["fix-job", "rule"]
+
+
+class By1(BaseModel):
+    """
+    The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service"]
     id: str
-    tenant_id: Annotated[str, Field(alias="tenantId")]
-    project_id: Annotated[str, Field(alias="projectId")]
-    run_id: Annotated[str, Field(alias="runId")]
-    subject: CorrectedSubject
-    item: CorrectedItem
-    verdict: Annotated[Literal["yes", "no"] | str, _open.OPEN]
-    reason: str | None = None
-    correction: ExpectedDecisions | None = None
+
+
+class CorrectionLink1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["improve-run", "suggested-change"]
+    id: str
+
+
+class CorrectionLink2(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["pull-request"]
+    url: AnyUrl
+
+
+class CorrectionFixedIn(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str | None = None
     """
-    The expert's correction of the run's decisions, when they gave one.
+    The version that fixed it. Absent for `recorded-right`, which nothing had to fix.
     """
-    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")] = None
+    how: Annotated[Literal["pin", "latest", "recorded-right"] | str, _open.OPEN]
     """
-    The corrector group the correction is recorded under. Absent when unclassified (counts with weight 1).
+    `pin`: a pin fixed it. `latest`: a deploy or an add moved Latest in a project that follows it. `recorded-right`: it said nothing was wrong.
     """
-    expert: Literal[True] | None = None
+    by: CorrectionMadeBy | None = None
+    at: AwareDatetime
+
+
+class CorrectionStatusNote(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    text: str
+    by: CorrectionMadeBy
+    at: AwareDatetime
+
+
+class ChangeCorrectionBody(BaseModel):
     """
-    Present (true) when the corrector group was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it.
+    A re-sort, a status, or both (the re-sort first). `fixed` is set only by a pin or a deploy, and `removed` by `POST /v1/corrections/{correctionId}/remove`.
     """
-    asserted_by: Annotated[CorrectionAssertedBy, Field(alias="assertedBy")]
-    participant_id: Annotated[str | None, Field(alias="participantId")] = None
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    sorted_to: Annotated[
+        Literal["improve", "developer", "owner"] | None, Field(alias="sortedTo")
+    ] = None
     """
-    The app's opaque id for its end user who corrected it, when an app corrected it on their behalf.
+    From `open`, `being-fixed` or `with-owner`. To `owner` sets `with-owner`; away from `owner`, `open`.
     """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    status: Literal["open", "being-fixed", "wont-fix"] | None = None
     """
-    Set when the correction was removed or superseded.
+    `being-fixed` from `open` or `with-owner`, with `link`. `open` from `being-fixed` or `wont-fix`. `wont-fix` from anything but `removed`, with `reason`.
     """
-    superseded_by: Annotated[str | None, Field(alias="supersededBy")] = None
+    link: str | None = None
     """
-    The correction that replaced this one.
+    With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`).
     """
+    reason: Annotated[str | None, Field(max_length=4000, min_length=1)] = None
+    """
+    Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason.
+    """
+
+
+class CorrectionCounts(BaseModel):
+    """
+    How many of a project's (or an agent's) live corrections are in each status.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    open: Annotated[int, Field(ge=0)]
+    being_fixed: Annotated[int, Field(alias="beingFixed", ge=0)]
+    with_owner: Annotated[int, Field(alias="withOwner", ge=0)]
+    fixed: Annotated[int, Field(ge=0)]
+    wont_fix: Annotated[int, Field(alias="wontFix", ge=0)]
+    removed: Annotated[int, Field(ge=0)]
 
 
 class SessionApproval(BaseModel):
@@ -2355,28 +2470,55 @@ class SessionApproval(BaseModel):
     """
 
 
-class CorrectionCollectionPage(BaseModel):
+class ShouldCallItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Correction]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    tool: Annotated[str, Field(max_length=200, min_length=1)]
+    args: Annotated[dict[str, Any] | None, Field(max_length=100)] = None
     """
-    Opaque cursor. Treat as opaque on the client.
+    Only when the inputs matter: the top-level argument fields to compare, by value. Left out, only the call is checked. At most 4000 characters in canonical JSON.
     """
-    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class MustNotCallItem(RootModel[str]):
+    root: Annotated[str, Field(max_length=200, min_length=1)]
 
 
 class CreateCorrectionBody(BaseModel):
+    """
+    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     run_id: Annotated[str, Field(alias="runId", min_length=1)]
-    item: CorrectedItem
-    verdict: Literal["yes", "no"]
-    reason: Annotated[str | None, Field(max_length=4000)] = None
+    decisions: Literal["right", "wrong"] | None = None
+    should_call: Annotated[
+        list[ShouldCallItem] | None, Field(alias="shouldCall", max_length=50)
+    ] = None
+    """
+    Only with `decisions: "wrong"`: the calls the agent should have made.
+    """
+    must_not_call: Annotated[
+        list[MustNotCallItem] | None, Field(alias="mustNotCall", max_length=50)
+    ] = None
+    """
+    Only with `decisions: "wrong"`: tools that shouldn't have been called. A tool can't be in both.
+    """
+    answer: Literal["right", "wrong"] | None = None
+    should_say: Annotated[str | None, Field(alias="shouldSay", max_length=4000)] = None
+    """
+    Only with `answer: "wrong"`: what it should have said.
+    """
+    why: Annotated[str | None, Field(max_length=4000)] = None
+    items: Annotated[list[CorrectedAnswerItemInput] | None, Field(max_length=100)] = None
+    """
+    For an answer that is a ranked list: each item, and whether it was right. Each key once.
+    """
     corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId", min_length=1)] = None
     """
     Optional. When given it must exist and apply to the run.
@@ -2384,10 +2526,6 @@ class CreateCorrectionBody(BaseModel):
     participant_id: Annotated[str | None, Field(alias="participantId", min_length=1)] = None
     """
     An app's opaque id for its end user, when correcting on their behalf.
-    """
-    correction: ExpectedDecisions | None = None
-    """
-    Optional. The tool calls the agent should have made, graded on a replay. Expected decisions cover the run's whole output, so they are recorded under one reserved item (`item.key` `"kindgi:correction"`, `item.pointer` `""`): expected decisions on any other item are a 400, and a second set from the same expert on the run replaces the first, so it counts once.
     """
 
 
@@ -3048,6 +3186,42 @@ class PublishAgentResult(BaseModel):
     """
     What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).
     """
+
+
+class AgentOwner(BaseModel):
+    """
+    The person the agent's corrections go to when they need its owner. Until one is set, those go to everyone who may publish the agent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    name: str | None = None
+    """
+    The person's display name, when the runtime's directory has one.
+    """
+
+
+class SetAgentOwnerBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    """
+    The new owner's user id.
+    """
+
+
+class SetAgentOwnerResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    owner: AgentOwner
 
 
 class UnregisterAgentResult(BaseModel):
@@ -12934,6 +13108,36 @@ class CompleteApprovalResultResumeUnrecognized(BaseModel):
     """
 
 
+class CorrectionLinkUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class CorrectionSortedByUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
 class CorrectorGroupScopeUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
@@ -14424,6 +14628,22 @@ class UpdateCorrectorGroupBody(BaseModel):
     """
 
 
+class CorrectionSorted(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    by: Annotated[
+        By | By1 | CorrectionSortedByUnrecognized,
+        _open.OpenUnion("kind", CorrectionSortedByUnrecognized),
+    ]
+    """
+    The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.
+    """
+    reason: str | None = None
+    at: AwareDatetime
+
+
 class CorrectedRunContext(BaseModel):
     """
     What a corrected run needs besides its input to be replayed, captured when it was first corrected. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.
@@ -14486,22 +14706,6 @@ class CorrectedRunCopy(BaseModel):
     The segment path the run was started with (empty: none). Absent for runs corrected before it was recorded.
     """
     captured_at: Annotated[AwareDatetime, Field(alias="capturedAt")]
-
-
-class CorrectionWithCopies(Correction):
-    """
-    A correction with the stored copies of what was corrected.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    run: CorrectedRunCopy
-    item_value: Annotated[Any | None, Field(alias="itemValue")] = None
-    """
-    The corrected item's value, when the correction pointed at it.
-    """
 
 
 class CorrectedEvalCase(BaseModel):
@@ -14612,6 +14816,10 @@ class Agent(BaseModel):
     ] = None
     """
     Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
+    """
+    owner: AgentOwner | None = None
+    """
+    `GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).
     """
 
 
@@ -17135,6 +17343,128 @@ class RunCollectionPage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class Correction(BaseModel):
+    """
+    A person's correction of one run: whether its decisions (the tool calls) and its answer were right, and what was right instead. It says at least one of `decisions`, `answer` and `items`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    run_id: Annotated[str, Field(alias="runId")]
+    subject: CorrectedSubject
+    decisions: Annotated[Literal["right", "wrong"] | str, _open.OPEN] | None = None
+    """
+    Whether the run's decisions were right. Absent when it says nothing about them.
+    """
+    should_call: Annotated[list[ExpectedCall] | None, Field(alias="shouldCall")] = None
+    """
+    With `decisions: "wrong"`: the calls the agent should have made.
+    """
+    must_not_call: Annotated[list[str] | None, Field(alias="mustNotCall")] = None
+    """
+    With `decisions: "wrong"`: the tools that should not have been called.
+    """
+    answer: Annotated[Literal["right", "wrong"] | str, _open.OPEN] | None = None
+    """
+    Whether the run's answer was right. Absent when it says nothing about it.
+    """
+    should_say: Annotated[str | None, Field(alias="shouldSay")] = None
+    """
+    With `answer: "wrong"`: what it should have said.
+    """
+    why: str | None = None
+    items: list[CorrectedAnswerItem] | None = None
+    """
+    For an answer that is a ranked list: each item, and whether it was right there.
+    """
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")] = None
+    """
+    The corrector group the correction is recorded under. Absent when unclassified (counts with weight 1).
+    """
+    expert: Literal[True] | None = None
+    """
+    Present (true) when the corrector group was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it.
+    """
+    made_by: Annotated[CorrectionMadeBy, Field(alias="madeBy")]
+    participant_id: Annotated[str | None, Field(alias="participantId")] = None
+    """
+    The app's opaque id for its end user who corrected it, when an app corrected it on their behalf.
+    """
+    status: Annotated[
+        Literal["open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"] | str,
+        _open.OPEN,
+    ]
+    """
+    Where it is in being fixed. `with-owner` while the agent's owner decides; `fixed` only when a pin or a deploy fixed it, or it said nothing was wrong; `removed` can't come back.
+    """
+    sorted_to: Annotated[
+        Annotated[Literal["improve", "developer", "owner"] | str, _open.OPEN] | None,
+        Field(alias="sortedTo"),
+    ] = None
+    """
+    Who works on it: Improve, a developer, or the agent's owner. Absent while unsorted.
+    """
+    sorted: CorrectionSorted | None = None
+    link: (
+        Annotated[
+            CorrectionLink1 | CorrectionLink2 | CorrectionLinkUnrecognized,
+            _open.OpenUnion("kind", CorrectionLinkUnrecognized),
+        ]
+        | None
+    ) = None
+    """
+    The work fixing it. Present while it is `being-fixed`.
+    """
+    fixed_in: Annotated[CorrectionFixedIn | None, Field(alias="fixedIn")] = None
+    """
+    Present while it is `fixed`.
+    """
+    status_note: Annotated[CorrectionStatusNote | None, Field(alias="statusNote")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    """
+    When it last changed: `createdAt` until something changes it.
+    """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Set when the correction was removed or superseded.
+    """
+    superseded_by: Annotated[str | None, Field(alias="supersededBy")] = None
+    """
+    The correction that replaced this one.
+    """
+
+
+class CorrectionWithCopies(Correction):
+    """
+    A correction with the stored copies of what was corrected.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run: CorrectedRunCopy
+
+
+class CorrectionCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Correction]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
 
