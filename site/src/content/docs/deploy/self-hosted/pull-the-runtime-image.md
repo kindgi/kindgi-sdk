@@ -115,7 +115,7 @@ base64-encoded, so anyone who can read that file can read the key.
 ## Pull
 
 ```sh
-docker pull registry.kindgi.com/kindgi/runtime:0.3.0
+docker pull registry.kindgi.com/kindgi/runtime:0.3.1
 ```
 
 `docker pull` prints the image's digest when it's done. The image is built
@@ -131,8 +131,8 @@ copy the image into your own registry first, by digest, with every platform
 it was built for:
 
 ```sh
-docker buildx imagetools create --tag "$REPO/runtime:0.3.0" \
-  registry.kindgi.com/kindgi/runtime:0.3.0
+docker buildx imagetools create --tag "$REPO/runtime:0.3.1" \
+  registry.kindgi.com/kindgi/runtime:0.3.1
 ```
 
 `REPO` is your registry and repository. `crane copy` does the same. Either one
