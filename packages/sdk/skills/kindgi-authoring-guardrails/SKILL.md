@@ -506,7 +506,7 @@ ready for the stricter enforcement.
 - Type surface: hover any `@kindgi/sdk/define` export for full JSDoc;
   `Guardrail`, `validateGuardrail` and the built-in checks are in
   `@kindgi/guardrails`.
-- API reference: https://docs.kindgi.com/v0.2/reference/typescript/sdk/kindgi/sdk/define/
+- API reference: https://docs.kindgi.com/v0.3/reference/typescript/sdk/kindgi/sdk/define/
 - Built-in check implementations: `packages/guardrails/src/checks.ts`.
 
 ## When the framework itself is the problem
