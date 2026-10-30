@@ -2907,9 +2907,9 @@ class VersionDerivation(BaseModel):
     """
     For `edited`: who derived it (`user:<id>`).
     """
-    proposal_id: Annotated[str | None, Field(alias="proposalId")] = None
+    suggested_change_id: Annotated[str | None, Field(alias="suggestedChangeId")] = None
     """
-    For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live.
+    For `edited`: the suggested change it was derived for. Such a version serves no scope until a promotion makes it live.
     """
 
 
@@ -4419,7 +4419,7 @@ class Content(BaseModel):
     template: str | None = None
 
 
-class ProposalChange(BaseModel):
+class SuggestedChangeBlockEdit(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4451,9 +4451,9 @@ class Model(BaseModel):
     model: str
 
 
-class ProposalDrafter(BaseModel):
+class SuggestedChangeDrafter(BaseModel):
     """
-    Who wrote the proposal: a person, or one of the runtime's drafters.
+    Who wrote the suggested change: a person, or one of the runtime's drafters.
     """
 
     model_config = ConfigDict(
@@ -4479,9 +4479,9 @@ class ProposalDrafter(BaseModel):
     """
 
 
-class ProposalEvidence(BaseModel):
+class SuggestedChangeEvidence(BaseModel):
     """
-    What a proposal rests on.
+    What a suggested change rests on.
     """
 
     model_config = ConfigDict(
@@ -4490,7 +4490,7 @@ class ProposalEvidence(BaseModel):
     )
     fixes: list[str] | None = None
     """
-    The corrections it fixes, by id. An improvement pass's proposal names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.
+    The corrections it fixes, by id. An improvement pass's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.
     """
     correction_count: Annotated[int | None, Field(alias="correctionCount", ge=0)] = None
     """
@@ -4498,9 +4498,9 @@ class ProposalEvidence(BaseModel):
     """
 
 
-class ProposalCandidate(BaseModel):
+class SuggestedChangeCandidate(BaseModel):
     """
-    The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.
+    The versions evaluating the suggested change published. They serve no scope until a promotion makes the agent version live.
     """
 
     model_config = ConfigDict(
@@ -4509,16 +4509,16 @@ class ProposalCandidate(BaseModel):
     )
     agent_version: Annotated[str, Field(alias="agentVersion")]
     """
-    The derived agent version (its `derivedFrom.proposalId` names the proposal).
+    The derived agent version (its `derivedFrom.suggestedChangeId` names the suggested change).
     """
     block_version: Annotated[str, Field(alias="blockVersion")]
     """
-    The block version published from the proposal's content.
+    The block version published from the suggested change's content.
     """
     pins_digest: Annotated[str, Field(alias="pinsDigest")]
 
 
-class ProposalCost(BaseModel):
+class SuggestedChangeCost(BaseModel):
     """
     What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.
     """
@@ -4531,7 +4531,7 @@ class ProposalCost(BaseModel):
     candidate: Annotated[float, Field(ge=0.0)]
 
 
-class ProposalDecisions(BaseModel):
+class SuggestedChangeDecisions(BaseModel):
     """
     The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.
     """
@@ -4555,9 +4555,9 @@ class ProposalDecisions(BaseModel):
     """
 
 
-class ProposalPromotion(BaseModel):
+class SuggestedChangePromotion(BaseModel):
     """
-    The promotion the proposal's request made.
+    The promotion the suggested change's request made.
     """
 
     model_config = ConfigDict(
@@ -4576,7 +4576,7 @@ class ProposalPromotion(BaseModel):
     """
     live_now: Annotated[bool | None, Field(alias="liveNow")] = None
     """
-    For a promoted proposal: whether its version still serves the scope.
+    For a pinned suggested change: whether its version still serves the scope.
     """
 
 
@@ -4632,7 +4632,7 @@ class HoldOut(BaseModel):
 
 class ImprovementPassOutcome(BaseModel):
     """
-    What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
+    What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
     """
 
     model_config = ConfigDict(
@@ -4640,7 +4640,7 @@ class ImprovementPassOutcome(BaseModel):
         populate_by_name=True,
     )
     kind: Annotated[Literal["proposed", "nothing-found", "failed"] | str, _open.OPEN]
-    proposal_id: Annotated[UUID | None, Field(alias="proposalId")] = None
+    suggested_change_id: Annotated[UUID | None, Field(alias="suggestedChangeId")] = None
     reason: str | None = None
     hold_out: Annotated[HoldOut | None, Field(alias="holdOut")] = None
     message: str | None = None
@@ -4807,7 +4807,7 @@ class Evidence1(BaseModel):
     fixes: list[str] | None = None
 
 
-class ProposalReasonBody(BaseModel):
+class SuggestedChangeReasonBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4815,7 +4815,7 @@ class ProposalReasonBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
 
 
-class WithdrawProposalBody(BaseModel):
+class WithdrawSuggestedChangeBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6495,7 +6495,7 @@ class TestSet(BaseModel):
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     """
-    Semver — publishing a modified testSet produces a new version.
+    Semver — publishing a modified test set produces a new version.
     """
     kind: Annotated[
         Literal[
@@ -6513,7 +6513,7 @@ class TestSet(BaseModel):
     description: str | None = None
     spec: dict[str, Any]
     """
-    Kind-specific testSet body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.
+    Kind-specific test set body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.
     """
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
@@ -14745,9 +14745,9 @@ class RegisterToolBody(BaseModel):
     spec: ToolSpec | None = None
 
 
-class ProposalEvaluation(BaseModel):
+class SuggestedChangeEvaluation(BaseModel):
     """
-    The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
+    The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
     """
 
     model_config = ConfigDict(
@@ -14793,13 +14793,13 @@ class ProposalEvaluation(BaseModel):
     """
     How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.
     """
-    cost_usd: Annotated[ProposalCost | None, Field(alias="costUsd")] = None
-    decisions: ProposalDecisions | None = None
+    cost_usd: Annotated[SuggestedChangeCost | None, Field(alias="costUsd")] = None
+    decisions: SuggestedChangeDecisions | None = None
 
 
-class FixProposal(BaseModel):
+class SuggestedChange(BaseModel):
     """
-    An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.
+    A suggested change: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.
     """
 
     model_config = ConfigDict(
@@ -14825,15 +14825,15 @@ class FixProposal(BaseModel):
     """
     tier: Annotated[Literal["settings-block", "prompt-block"] | str, _open.OPEN]
     """
-    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
     """
-    change: ProposalChange
+    change: SuggestedChangeBlockEdit
     hypothesis: str
     """
     What the change should improve, and why.
     """
-    evidence: ProposalEvidence | None = None
-    drafter: ProposalDrafter
+    evidence: SuggestedChangeEvidence | None = None
+    drafter: SuggestedChangeDrafter
     status: Annotated[
         Literal[
             "draft",
@@ -14842,7 +14842,7 @@ class FixProposal(BaseModel):
             "not-better",
             "evaluation-failed",
             "in-review",
-            "promoted",
+            "pinned",
             "refused",
             "rejected",
             "expired",
@@ -14854,30 +14854,30 @@ class FixProposal(BaseModel):
         _open.OPEN,
     ]
     """
-    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
+    Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the suggested change. `withdrawn`: withdrawn.
     """
-    candidate: ProposalCandidate | None = None
-    evaluation: ProposalEvaluation | None = None
-    promotion: ProposalPromotion | None = None
+    candidate: SuggestedChangeCandidate | None = None
+    evaluation: SuggestedChangeEvaluation | None = None
+    promotion: SuggestedChangePromotion | None = None
     rolled_back: Annotated[RolledBack | None, Field(alias="rolledBack")] = None
     withdrawn: Withdrawn | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
 
 
-class FixProposalCollectionPage(BaseModel):
+class SuggestedChangeCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[FixProposal]
+    data: list[SuggestedChange]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class ImprovementPass(BaseModel):
     """
-    An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.
+    An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.
     """
 
     model_config = ConfigDict(
@@ -14933,11 +14933,11 @@ class ImprovementPass(BaseModel):
     outcome: ImprovementPassOutcome | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
     """
-    Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled.
+    Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.
     """
     comparisons: list[Comparison1] | None = None
     """
-    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
+    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.
     """
     trigger: Trigger | None = None
     """
@@ -14995,7 +14995,7 @@ class ImproveBody(BaseModel):
         list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
     ] = ["settings"]
     """
-    `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.
+    `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer.
     """
     model: Model2 | None = None
     """
@@ -15018,9 +15018,9 @@ class ImproveBody(BaseModel):
     """
 
 
-class CreateProposalBody(BaseModel):
+class CreateSuggestedChangeBody(BaseModel):
     """
-    A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).
+    A hand-written suggested change: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).
     """
 
     model_config = ConfigDict(
@@ -15045,16 +15045,16 @@ class CreateProposalBody(BaseModel):
     """
     tier: Annotated[Literal["settings-block", "prompt-block"] | str, _open.OPEN]
     """
-    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
     """
     change: Change
     hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
     evidence: Evidence1 | None = None
 
 
-class EvaluateProposalBody(BaseModel):
+class EvaluateSuggestedChangeBody(BaseModel):
     """
-    Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
+    Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
     """
 
     model_config = ConfigDict(
@@ -16795,7 +16795,7 @@ class Data1(BaseModel):
 
 class ImprovementPassFinishedEvent(BaseModel):
     """
-    An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.
+    An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.
     """
 
     model_config = ConfigDict(
@@ -16813,7 +16813,7 @@ class ImprovementPassFinishedEvent(BaseModel):
 
 class ImproveScheduleTarget(BaseModel):
     """
-    What an improve schedule works on: the agent, and the live scope its passes propose for and count corrections in.
+    What an improve schedule works on: the agent, and the live scope its passes suggest changes for and count corrections in.
     """
 
     model_config = ConfigDict(

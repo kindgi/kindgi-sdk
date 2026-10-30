@@ -410,7 +410,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                   },
                 },
                 optional: {
-                  proposalId: {
+                  suggestedChangeId: {
                     kind: 'string',
                     format: 'uuid',
                   },

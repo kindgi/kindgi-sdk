@@ -733,7 +733,7 @@ export async function runIn(
 
 /**
  * A change that makes a new version of an item more than one project
- * serves (an improvement pass, a proposal): `write` where its new
+ * serves (an improvement pass, a suggested change): `write` where its new
  * versions are made (`madeIn`), the item's own right not asked.
  * `undefined` when allowed; else the 403, naming that project.
  */
@@ -931,7 +931,7 @@ function spansEnvironments(
  * or several. The 409 to answer, else `undefined`. For an agent in no order,
  * with a project scope, or with no rights to ask, `undefined` — today's
  * checks hold. It reads no body and answers nothing but the refusal. The
- * proposals' request and rollback call it after their own `deny`, as the
+ * suggested changes' request and rollback call it after their own `deny`, as the
  * live routes and a deployment's make-live call it through
  * `liveChangeRefusal`.
  */

@@ -6,12 +6,11 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
-from typing import Any, Literal, NoReturn, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from . import _models
 from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
-from ._errors import InvalidRequestError
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
 
@@ -440,29 +439,48 @@ OPERATIONS: dict[str, Operation] = {
     "memory.getErasure": Operation(
         "memory.getErasure", "GET", "/v1/memory/erasures/{erasureId}", "json", False
     ),
-    "proposals.list": Operation("proposals.list", "GET", "/v1/proposals", "json", False),
-    "proposals.create": Operation("proposals.create", "POST", "/v1/proposals", "json", True),
+    "suggestedChanges.list": Operation(
+        "suggestedChanges.list", "GET", "/v1/suggested-changes", "json", False
+    ),
+    "suggestedChanges.create": Operation(
+        "suggestedChanges.create", "POST", "/v1/suggested-changes", "json", True
+    ),
     "proposals.improve": Operation(
         "proposals.improve", "POST", "/v1/proposals/improve", "json", True
     ),
     "proposals.improveEstimate": Operation(
         "proposals.improveEstimate", "POST", "/v1/proposals/improve/estimate", "json", False
     ),
-    "proposals.get": Operation("proposals.get", "GET", "/v1/proposals/{proposalId}", "json", False),
-    "proposals.evaluate": Operation(
-        "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
+    "suggestedChanges.get": Operation(
+        "suggestedChanges.get", "GET", "/v1/suggested-changes/{suggestedChangeId}", "json", False
     ),
-    "proposals.rescore": Operation(
-        "proposals.rescore", "POST", "/v1/proposals/{proposalId}/rescore", "json", True
+    "suggestedChanges.evaluate": Operation(
+        "suggestedChanges.evaluate",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/evaluate",
+        "json",
+        True,
     ),
-    "proposals.request": Operation(
-        "proposals.request", "POST", "/v1/proposals/{proposalId}/request", "json", True
+    "suggestedChanges.rescore": Operation(
+        "suggestedChanges.rescore",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/rescore",
+        "json",
+        True,
     ),
-    "proposals.rollback": Operation(
-        "proposals.rollback", "POST", "/v1/proposals/{proposalId}/rollback", "json", True
+    "suggestedChanges.pin": Operation(
+        "suggestedChanges.pin",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/pin",
+        "json",
+        True,
     ),
-    "proposals.withdraw": Operation(
-        "proposals.withdraw", "POST", "/v1/proposals/{proposalId}/withdraw", "json", True
+    "suggestedChanges.withdraw": Operation(
+        "suggestedChanges.withdraw",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/withdraw",
+        "json",
+        True,
     ),
     "improvementPasses.list": Operation(
         "improvementPasses.list", "GET", "/v1/improvement-passes", "json", False
@@ -4580,8 +4598,8 @@ class MemoryResource:
         )
 
 
-class ProposalsResource:
-    """`client.proposals` — the `proposals` operations."""
+class SuggestedChangesResource:
+    """`client.suggested_changes` — the `suggestedChanges` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -4599,7 +4617,7 @@ class ProposalsResource:
             "not-better",
             "evaluation-failed",
             "in-review",
-            "promoted",
+            "pinned",
             "refused",
             "rejected",
             "expired",
@@ -4614,13 +4632,13 @@ class ProposalsResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.FixProposalCollectionPage:
-        """List improvement proposals. `GET /v1/proposals`
+    ) -> _models.SuggestedChangeCollectionPage:
+        """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
         """
         return self._client._request(
-            _OPERATIONS["proposals.list"],
+            _OPERATIONS["suggestedChanges.list"],
             path={},
             query={
                 "limit": limit,
@@ -4633,32 +4651,148 @@ class ProposalsResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.FixProposalCollectionPage,
+            response=_models.SuggestedChangeCollectionPage,
             timeout=timeout,
         )
 
     def create(
         self,
-        body: _models.CreateProposalBody | Mapping[str, Any] | None = None,
+        body: _models.CreateSuggestedChangeBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Propose new content for a data block. `POST /v1/proposals`
+    ) -> _models.SuggestedChange:
+        """Suggest new content for a data block. `POST /v1/suggested-changes`
 
-        A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.
+        A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["proposals.create"],
+            _OPERATIONS["suggestedChanges.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateProposalBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.CreateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
+
+    def get(
+        self, suggested_change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SuggestedChange:
+        """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
+
+        Needs `read` on its agent.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.get"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def evaluate(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.EvaluateSuggestedChangeBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
+
+        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.evaluate"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EvaluateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def rescore(
+        self,
+        suggested_change_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SuggestedChange:
+        """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
+
+        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.rescore"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def pin(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Pin a suggested change's version for its scope. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
+
+        A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def withdraw(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.WithdrawSuggestedChangeBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
+
+        Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.withdraw"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.WithdrawSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+
+class ProposalsResource:
+    """`client.proposals` — the `proposals` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
 
     def improve(
         self,
@@ -4671,7 +4805,7 @@ class ProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -4703,163 +4837,6 @@ class ProposalsResource:
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPassEstimate,
             timeout=timeout,
-        )
-
-    def get(
-        self, proposal_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.FixProposal:
-        """Fetch an improvement proposal. `GET /v1/proposals/{proposalId}`
-
-        Needs `read` on its agent.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.get"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def evaluate(
-        self,
-        proposal_id: str | UUID,
-        body: _models.EvaluateProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Compare a proposal on a test set. `POST /v1/proposals/{proposalId}/evaluate`
-
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.evaluate"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def rescore(
-        self,
-        proposal_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.FixProposal:
-        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
-
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.rescore"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def request(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
-
-        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.request"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def rollback(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Roll back a promoted proposal. `POST /v1/proposals/{proposalId}/rollback`
-
-        The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.rollback"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def withdraw(
-        self,
-        proposal_id: str | UUID,
-        body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Withdraw a proposal. `POST /v1/proposals/{proposalId}/withdraw`
-
-        Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.withdraw"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.WithdrawProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def draft(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.create`."""
-        raise InvalidRequestError(
-            "proposals.draft was removed in 0.1.5: use client.proposals.create", issues=[]
-        )
-
-    def dry_run(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.evaluate`."""
-        raise InvalidRequestError(
-            "proposals.dry_run was removed in 0.1.5: use client.proposals.evaluate", issues=[]
-        )
-
-    def submit_review(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.submit_review was removed in 0.1.5: use client.proposals.request", issues=[]
-        )
-
-    def apply(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
         )
 
 
@@ -4917,7 +4894,7 @@ class ImprovementPassesResource:
     ) -> _models.ImprovementPass:
         """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
 
-        A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.
+        A running pass stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
         """
         return self._client._request(
             _OPERATIONS["improvementPasses.cancel"],
@@ -6360,7 +6337,7 @@ class TestSetsVersionsResource:
     ) -> _models.TestSetCollectionPage:
         """List versions of an test set. `GET /v1/test-sets/{testSetId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired testSet (every version unregistered) answers too, with its versions to reinstate.
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
             _OPERATIONS["testSets.versions.list"],
@@ -6436,7 +6413,7 @@ class TestSetsResource:
     ) -> _models.TestSetCollectionPage:
         """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: testSet id ascending. Latest version per id. A retired testSet (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["testSets.list"],
@@ -6871,7 +6848,7 @@ class EvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's testSet and `write` on its project.
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.rescore"],
@@ -14337,8 +14314,8 @@ class AsyncMemoryResource:
         )
 
 
-class AsyncProposalsResource:
-    """`client.proposals` — the `proposals` operations."""
+class AsyncSuggestedChangesResource:
+    """`client.suggested_changes` — the `suggestedChanges` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -14356,7 +14333,7 @@ class AsyncProposalsResource:
             "not-better",
             "evaluation-failed",
             "in-review",
-            "promoted",
+            "pinned",
             "refused",
             "rejected",
             "expired",
@@ -14371,13 +14348,13 @@ class AsyncProposalsResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.FixProposalCollectionPage:
-        """List improvement proposals. `GET /v1/proposals`
+    ) -> _models.SuggestedChangeCollectionPage:
+        """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
         """
         return await self._client._request(
-            _OPERATIONS["proposals.list"],
+            _OPERATIONS["suggestedChanges.list"],
             path={},
             query={
                 "limit": limit,
@@ -14390,32 +14367,148 @@ class AsyncProposalsResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.FixProposalCollectionPage,
+            response=_models.SuggestedChangeCollectionPage,
             timeout=timeout,
         )
 
     async def create(
         self,
-        body: _models.CreateProposalBody | Mapping[str, Any] | None = None,
+        body: _models.CreateSuggestedChangeBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Propose new content for a data block. `POST /v1/proposals`
+    ) -> _models.SuggestedChange:
+        """Suggest new content for a data block. `POST /v1/suggested-changes`
 
-        A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.
+        A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.create"],
+            _OPERATIONS["suggestedChanges.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateProposalBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.CreateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
+
+    async def get(
+        self, suggested_change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SuggestedChange:
+        """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
+
+        Needs `read` on its agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.get"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def evaluate(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.EvaluateSuggestedChangeBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
+
+        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.evaluate"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EvaluateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def rescore(
+        self,
+        suggested_change_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SuggestedChange:
+        """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
+
+        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.rescore"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def pin(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Pin a suggested change's version for its scope. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
+
+        A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def withdraw(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.WithdrawSuggestedChangeBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
+
+        Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.withdraw"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.WithdrawSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+
+class AsyncProposalsResource:
+    """`client.proposals` — the `proposals` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
 
     async def improve(
         self,
@@ -14428,7 +14521,7 @@ class AsyncProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -14460,163 +14553,6 @@ class AsyncProposalsResource:
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPassEstimate,
             timeout=timeout,
-        )
-
-    async def get(
-        self, proposal_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.FixProposal:
-        """Fetch an improvement proposal. `GET /v1/proposals/{proposalId}`
-
-        Needs `read` on its agent.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.get"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def evaluate(
-        self,
-        proposal_id: str | UUID,
-        body: _models.EvaluateProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Compare a proposal on a test set. `POST /v1/proposals/{proposalId}/evaluate`
-
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.evaluate"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def rescore(
-        self,
-        proposal_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.FixProposal:
-        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
-
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.rescore"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def request(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
-
-        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.request"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def rollback(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Roll back a promoted proposal. `POST /v1/proposals/{proposalId}/rollback`
-
-        The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.rollback"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def withdraw(
-        self,
-        proposal_id: str | UUID,
-        body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Withdraw a proposal. `POST /v1/proposals/{proposalId}/withdraw`
-
-        Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.withdraw"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.WithdrawProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def draft(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.create`."""
-        raise InvalidRequestError(
-            "proposals.draft was removed in 0.1.5: use client.proposals.create", issues=[]
-        )
-
-    async def dry_run(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.evaluate`."""
-        raise InvalidRequestError(
-            "proposals.dry_run was removed in 0.1.5: use client.proposals.evaluate", issues=[]
-        )
-
-    async def submit_review(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.submit_review was removed in 0.1.5: use client.proposals.request", issues=[]
-        )
-
-    async def apply(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
         )
 
 
@@ -14674,7 +14610,7 @@ class AsyncImprovementPassesResource:
     ) -> _models.ImprovementPass:
         """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
 
-        A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.
+        A running pass stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
         """
         return await self._client._request(
             _OPERATIONS["improvementPasses.cancel"],
@@ -16121,7 +16057,7 @@ class AsyncTestSetsVersionsResource:
     ) -> _models.TestSetCollectionPage:
         """List versions of an test set. `GET /v1/test-sets/{testSetId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired testSet (every version unregistered) answers too, with its versions to reinstate.
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
             _OPERATIONS["testSets.versions.list"],
@@ -16197,7 +16133,7 @@ class AsyncTestSetsResource:
     ) -> _models.TestSetCollectionPage:
         """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: testSet id ascending. Latest version per id. A retired testSet (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["testSets.list"],
@@ -16634,7 +16570,7 @@ class AsyncEvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's testSet and `write` on its project.
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.rescore"],
@@ -20862,6 +20798,7 @@ class Resources:
     guardrails: GuardrailsResource
     conversations: ConversationsResource
     memory: MemoryResource
+    suggested_changes: SuggestedChangesResource
     proposals: ProposalsResource
     improvement_passes: ImprovementPassesResource
     provenance: ProvenanceResource
@@ -20923,6 +20860,7 @@ class Resources:
         self.guardrails = GuardrailsResource(client)
         self.conversations = ConversationsResource(client)
         self.memory = MemoryResource(client)
+        self.suggested_changes = SuggestedChangesResource(client)
         self.proposals = ProposalsResource(client)
         self.improvement_passes = ImprovementPassesResource(client)
         self.provenance = ProvenanceResource(client)
@@ -20986,6 +20924,7 @@ class AsyncResources:
     guardrails: AsyncGuardrailsResource
     conversations: AsyncConversationsResource
     memory: AsyncMemoryResource
+    suggested_changes: AsyncSuggestedChangesResource
     proposals: AsyncProposalsResource
     improvement_passes: AsyncImprovementPassesResource
     provenance: AsyncProvenanceResource
@@ -21047,6 +20986,7 @@ class AsyncResources:
         self.guardrails = AsyncGuardrailsResource(client)
         self.conversations = AsyncConversationsResource(client)
         self.memory = AsyncMemoryResource(client)
+        self.suggested_changes = AsyncSuggestedChangesResource(client)
         self.proposals = AsyncProposalsResource(client)
         self.improvement_passes = AsyncImprovementPassesResource(client)
         self.provenance = AsyncProvenanceResource(client)

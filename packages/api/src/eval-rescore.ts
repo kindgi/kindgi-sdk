@@ -6,7 +6,7 @@
  * candidate and settings that replays nothing. It scores the run's replays
  * again, with what people corrected on them since (`comparison.rescoreOf`).
  * The run rescored stays as it was. `POST /v1/eval-runs/{runId}/rescore`
- * and `POST /v1/proposals/{proposalId}/rescore` both start one.
+ * and `POST /v1/suggested-changes/{suggestedChangeId}/rescore` both start one.
  */
 
 import type { ProjectId } from '@kindgi/types';

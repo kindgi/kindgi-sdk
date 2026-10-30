@@ -452,7 +452,7 @@ export const CLI_DEFAULTS = {
   'memory erasures export': {
     out: 'standard output',
   },
-  'proposals list': {
+  'suggested-changes list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -462,20 +462,20 @@ export const CLI_DEFAULTS = {
     status: 'none',
     tier: 'none',
   },
-  'proposals draft': {
+  'suggested-changes draft': {
     agent: 'required',
     block: 'required',
+    correction: 'none',
     'from-version': 'required',
     hypothesis: 'required',
     'idempotency-key': 'none',
-    judgment: 'none',
     org: 'none',
     project: 'none',
     segment: 'none',
     template: 'none',
     values: 'none',
   },
-  'proposals evaluate': {
+  'suggested-changes evaluate': {
     'group-weights': '`as-recorded`',
     'idempotency-key': 'none',
     k: '`10`',
@@ -484,15 +484,11 @@ export const CLI_DEFAULTS = {
     repetitions: '`1`',
     'test-set': 'required',
   },
-  'proposals request': {
+  'suggested-changes request': {
     'idempotency-key': 'none',
     reason: 'none',
   },
-  'proposals rollback': {
-    'idempotency-key': 'none',
-    reason: 'none',
-  },
-  'proposals withdraw': {
+  'suggested-changes withdraw': {
     'idempotency-key': 'none',
     reason: 'required',
   },
@@ -944,7 +940,7 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
     status: 'none',
-    testSet: 'none',
+    'test-set': 'none',
   },
   'eval-runs rescore': {
     project: 'none',
@@ -2114,7 +2110,7 @@ export const CLI_EXAMPLES = {
       line: 'kindgi test-sets list --project=<project-id> --kind=corrections',
     },
     {
-      purpose: 'List testSets including retired ones.',
+      purpose: 'List test sets including retired ones.',
       line: 'kindgi test-sets list --include-retired',
     },
   ],

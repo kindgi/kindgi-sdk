@@ -655,10 +655,10 @@ const noopSecretsBinding: SecretBinding = {
 };
 
 const noopSupervisor: SupervisorBinding = {
-  listProposals: async () => ({ data: [] }),
-  getProposal: async () => null,
-  createProposal: async () => ({ kind: 'ok', proposal: {} as never }),
-  recordProposal: async () => ({ kind: 'not-found' }),
+  listSuggestedChanges: async () => ({ data: [] }),
+  getSuggestedChange: async () => null,
+  createSuggestedChange: async () => ({ kind: 'ok', suggestedChange: {} as never }),
+  recordSuggestedChange: async () => ({ kind: 'not-found' }),
   queryObservations: async () => ({ kind: 'ok', page: { data: [] } }),
 };
 

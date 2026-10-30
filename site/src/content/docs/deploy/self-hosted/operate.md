@@ -984,7 +984,7 @@ and what's different after:
   - **Improve:** suggest new settings or a new prompt for an agent
     version, try the candidate on the test cases, and make it live through
     the release gate policy where it goes live, after review
-    (`kindgi proposals`). Improve can look for better settings on its own,
+    (`kindgi suggested-changes`). Improve can look for better settings on its own,
     and a schedule can start an Improve run.
   - **Files kept with a run** (artifacts) and the capability catalog
     ([Keep files with a run](../../../guides/runs/keep-files-with-a-run/)).

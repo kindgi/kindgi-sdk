@@ -7,11 +7,11 @@ import type { LiveScope, ProjectId, RunId, TenantId } from '@kindgi/types';
 /**
  * What an approval is authorized on: its project, else its provenance run's
  * project, else the tenant. The approve/decide route resolves it from a
- * stored approval (its `projectId` and `provenanceRef.runId`); the proposal
+ * stored approval (its `projectId` and `provenanceRef.runId`); the suggested change
  * service resolves the SAME ref for the approval a drafter's promotion WILL
  * open, so its separate-approver count admits exactly the reviewers the
  * decide route would let through. `getRun` is only consulted when a
- * run id is present and no project is set, so the proposal service — which
+ * run id is present and no project is set, so the suggested change service — which
  * passes a project (or none) and never a run — may omit it.
  */
 export async function approvalResourceRef(
@@ -34,7 +34,7 @@ export async function approvalResourceRef(
 /**
  * A live scope's project: the project a promotion's approval is opened with
  * (a project or segment scope names one; a tenant or org scope names none),
- * and no provenance run. The proposal service feeds the result to
+ * and no provenance run. The suggested change service feeds the result to
  * {@link approvalResourceRef} so its count resolves the resource the opened
  * approval will carry — not the eval run's project.
  */

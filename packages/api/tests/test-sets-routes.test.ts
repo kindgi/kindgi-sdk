@@ -366,7 +366,7 @@ describe('API — test-sets publish + get', () => {
     });
   });
 
-  test('publish human-review testSet carries rubric through spec verbatim', async () => {
+  test('publish human-review test set carries rubric through spec verbatim', async () => {
     const { app } = makeApp();
     const rubric = [
       { id: 'clarity', description: 'Is the answer clear?', weight: 0.5 },

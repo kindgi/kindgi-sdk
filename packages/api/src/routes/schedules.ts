@@ -1016,7 +1016,7 @@ function parseImproveTarget(
   agentVersion: unknown,
 ): { kind: 'ok'; value: TriggerTarget } | { kind: 'err'; message: string } {
   const shape =
-    'An improve schedule names `improve: { agentId, scope }`: the agent its passes work on, and the live scope they propose for';
+    'An improve schedule names `improve: { agentId, scope }`: the agent its passes work on, and the live scope they suggest changes for';
   if (flowVersion !== undefined || agentVersion !== undefined) {
     return {
       kind: 'err',

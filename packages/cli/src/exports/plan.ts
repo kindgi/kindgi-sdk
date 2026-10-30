@@ -524,10 +524,10 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     admin: true,
   },
   {
-    name: 'proposals',
-    route: '/v1/proposals',
+    name: 'suggested-changes',
+    route: '/v1/suggested-changes',
     paging: cursor,
-    covers: ['/v1/proposals/{proposalId}'],
+    covers: ['/v1/suggested-changes/{suggestedChangeId}'],
   },
   {
     name: 'improvement-passes',

@@ -5,7 +5,7 @@ import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
-import type { Cursor, FixProposalId, LiveScope, TenantId } from '@kindgi/types';
+import type { Cursor, LiveScope, SuggestedChangeId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalComparison } from '../eval-run-binding.js';
@@ -13,23 +13,22 @@ import { type ItemRights, liveScopeCheck, widthRefusal, writeWhereMade } from '.
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
-  type ProposalFacts,
-  type ProposalService,
-  type ProposalServiceDeps,
-  type ProposalServiceError,
-  createProposalService,
-  proposalNotFound,
-} from '../proposal-service.js';
+  type SuggestedChangeFacts,
+  type SuggestedChangeServiceDeps,
+  type SuggestedChangeServiceError,
+  createSuggestedChangeService,
+  suggestedChangeNotFound,
+} from '../suggested-change-service.js';
 import {
-  FIX_PROPOSAL_STATUSES,
-  type FixProposalStatus,
-  type ProposalEvaluationOutcome,
-} from '../proposal-status.js';
+  SUGGESTED_CHANGE_STATUSES,
+  type SuggestedChangeEvaluationOutcome,
+  type SuggestedChangeStatus,
+} from '../suggested-change-status.js';
 import type {
-  ProposalObjective,
-  ProposalTier,
   ProposedChange,
-  StoredProposal,
+  StoredSuggestedChange,
+  SuggestedChangeObjective,
+  SuggestedChangeTier,
 } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, promotionResponse, scopeFromQuery } from './agent-releases.js';
@@ -37,59 +36,58 @@ import { parseComparison } from './eval-comparison.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 
-/** What the proposal lifecycle runs on besides its own store. */
-export type ProposalsRouteDeps = Omit<ProposalServiceDeps, 'store'>;
+/** What the suggested change lifecycle runs on besides its own store. */
+export type SuggestedChangesRouteDeps = Omit<SuggestedChangeServiceDeps, 'store'>;
 
-const TIERS: readonly ProposalTier[] = ['settings-block', 'prompt-block'];
-const OBJECTIVES: readonly ProposalObjective[] = ['weightedYesShare', 'weightedPrecisionAtK'];
+const TIERS: readonly SuggestedChangeTier[] = ['settings-block', 'prompt-block'];
+const OBJECTIVES: readonly SuggestedChangeObjective[] = [
+  'weightedYesShare',
+  'weightedPrecisionAtK',
+];
 const MAX_TEXT = 2000;
 
 type Ctx = Context<AppEnv>;
 
 /**
- * Improvement proposals (`/v1/proposals`): a change to one data block an
+ * suggested changes (`/v1/suggested-changes`): a change to one data block an
  * agent version pins (new settings values, or a new prompt template),
  * for one live scope, taken through the same comparison, gate and
- * promotion as any other version (`createProposalService`).
+ * promotion as any other version (`createSuggestedChangeService`).
  *
  *   GET  /                 list (statuses derived): by agent, tier, status and live scope
  *   GET  /:id              one
- *   POST /                 a hand-written proposal (a draft)
+ *   POST /                 a hand-written suggested change (a draft)
  *   POST /:id/evaluate     publish the block version and derive the agent
  *                          version (inert until promoted), then compare it
  *                          on a test set (202)
  *   POST /:id/rescore      the latest evaluation scored again, with what
  *                          people corrected on its replays since (202)
- *   POST /:id/request      a gated promotion of the candidate for the scope
- *                          (201 promoted, 202 in review, 422 gate-failed)
- *   POST /:id/rollback     the scope goes back to what served it before
+ *   POST /:id/pin          a gated pin of the candidate for the scope
+ *                          (201 pinned, 202 in review, 422 gate-failed)
  *   POST /:id/withdraw     closed by a person
  *
- * Authorized on the proposal's agent: reading is `read`, drafting,
+ * Authorized on the suggested change's agent: reading is `read`, drafting,
  * evaluating, rescoring and withdrawing are `publish`, and
- * requesting and rolling back are `promote`. A proposal the caller can't
+ * pinning is `promote`. A suggested change the caller can't
  * read answers 404, as one that doesn't exist.
  *
  * For an agent more than one project serves (`item-rights.ts`): reading
  * is `read` on the agent or on any of its projects; drafting, evaluating,
  * rescoring and withdrawing are `write` where its new versions are made;
- * requesting and rolling back are `admin` where the scope is (each of the
+ * pinning is `admin` where the scope is (each of the
  * agent's projects, for the tenant's or an org's).
  */
-export function proposalsRouter(
-  store: ProposalServiceDeps['store'],
-  deps: ProposalsRouteDeps,
+export function suggestedChangesRouter(
+  store: SuggestedChangeServiceDeps['store'],
+  deps: SuggestedChangesRouteDeps,
   authorizer?: Authorizer,
-  mount?: (r: Hono<AppEnv>, service: ProposalService) => void,
   /** Rights on an agent more than one project serves. Absent: one project each. */
   itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
-  const service = createProposalService({ ...deps, store });
-  // Routes mounted before `/:proposalId` (an improvement pass's `improve`).
-  mount?.(r, service);
+  const service = createSuggestedChangeService({ ...deps, store });
 
   /** The agent's projects, when more than one serves it; else `undefined` (today's checks). */
   const served = (c: Ctx, agentId: string) =>
@@ -109,7 +107,7 @@ export function proposalsRouter(
       if (action === 'promote') {
         // A live scope's check names no version, so the 404 is never answered.
         return itemRights.enforce(c, 'agent', agentId, projects, liveScopeCheck(scope), () =>
-          failWith(c, proposalNotFound(c.req.param('proposalId') ?? '')),
+          failWith(c, suggestedChangeNotFound(c.req.param('suggestedChangeId') ?? '')),
         );
       }
       return writeWhereMade(
@@ -117,7 +115,7 @@ export function proposalsRouter(
         itemRights,
         { kind: 'agent', id: agentId },
         projects,
-        `changing a proposal for agent "${agentId}"`,
+        `changing a suggested change for agent "${agentId}"`,
       );
     }
     const decision = await authorizer.check(c, action, ref('agent', agentId));
@@ -128,10 +126,10 @@ export function proposalsRouter(
     });
   }
 
-  /** The proposals of a page whose agent the caller may read (`item-rights.ts`). */
-  async function readableOnPage(c: Ctx, rows: readonly StoredProposal[]) {
+  /** The suggested changes of a page whose agent the caller may read (`item-rights.ts`). */
+  async function readableOnPage(c: Ctx, rows: readonly StoredSuggestedChange[]) {
     if (authorizer === undefined) return rows;
-    const agentOf = (p: StoredProposal) => ref('agent', p.agentId as unknown as string);
+    const agentOf = (p: StoredSuggestedChange) => ref('agent', p.agentId as unknown as string);
     return itemRights === undefined
       ? authorizer.filterByCan(c, 'read', rows, agentOf)
       : itemRights.filterItems(c, 'agent', rows, {
@@ -140,15 +138,15 @@ export function proposalsRouter(
         });
   }
 
-  /** The proposal, if it exists and the caller may read it (else the 404). */
-  async function load(c: Ctx): Promise<StoredProposal | Response> {
-    const proposalId = c.req.param('proposalId') ?? '';
-    const stored = await store.getProposal({
+  /** The suggested change, if it exists and the caller may read it (else the 404). */
+  async function load(c: Ctx): Promise<StoredSuggestedChange | Response> {
+    const suggestedChangeId = c.req.param('suggestedChangeId') ?? '';
+    const stored = await store.getSuggestedChange({
       tenantId: c.get('tenantId') as TenantId,
-      proposalId: proposalId as FixProposalId,
+      suggestedChangeId: suggestedChangeId as SuggestedChangeId,
     });
     const hidden = stored !== null && !(await readable(c, stored.agentId as unknown as string));
-    if (stored === null || hidden) return failWith(c, proposalNotFound(proposalId));
+    if (stored === null || hidden) return failWith(c, suggestedChangeNotFound(suggestedChangeId));
     return stored;
   }
 
@@ -161,46 +159,54 @@ export function proposalsRouter(
       : authorizer.can(c, 'read', ref('agent', agentId));
   }
 
-  async function answer(c: Ctx, stored: StoredProposal, status: 200 | 201 | 202 = 200) {
+  async function answer(c: Ctx, stored: StoredSuggestedChange, status: 200 | 201 | 202 = 200) {
     const f = await service.facts(c.get('tenantId') as TenantId)(stored);
     c.status(status);
     return c.json(serialize(stored, f));
   }
 
-  /** Read the body and the proposal, and check the caller may `action` it. */
+  /** Read the body and the suggested change, and check the caller may `action` it. */
   async function prepare(
     c: Ctx,
     action: Action,
-  ): Promise<{ body: Record<string, unknown>; proposal: StoredProposal } | Response> {
+  ): Promise<{ body: Record<string, unknown>; suggestedChange: StoredSuggestedChange } | Response> {
     const body = await readBody(c);
     if (body === undefined) return badInput(c, 'Request body must be a JSON object');
-    const proposal = await load(c);
-    if (proposal instanceof Response) return proposal;
-    const denied = await deny(c, action, proposal.agentId as unknown as string, proposal.scope);
-    return denied ?? { body, proposal };
+    const suggestedChange = await load(c);
+    if (suggestedChange instanceof Response) return suggestedChange;
+    const denied = await deny(
+      c,
+      action,
+      suggestedChange.agentId as unknown as string,
+      suggestedChange.scope,
+    );
+    return denied ?? { body, suggestedChange };
   }
 
   // ---------- GET / ----------
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const status = c.req.query('status');
-    if (status !== undefined && !FIX_PROPOSAL_STATUSES.includes(status as FixProposalStatus)) {
+    if (
+      status !== undefined &&
+      !SUGGESTED_CHANGE_STATUSES.includes(status as SuggestedChangeStatus)
+    ) {
       return badInput(c, `Unknown \`status\`: ${status}`);
     }
     const tier = c.req.query('tier');
-    if (tier !== undefined && !TIERS.includes(tier as ProposalTier)) {
+    if (tier !== undefined && !TIERS.includes(tier as SuggestedChangeTier)) {
       return badInput(c, `Unknown \`tier\`: ${tier} (one of ${TIERS.join(', ')})`);
     }
     const scope = scopeFromQuery((n) => c.req.query(n), c.req.queries('segment') ?? []);
     if (scope.kind === 'err') return badInput(c, scope.message);
     const agentId = c.req.query('agentId');
     const cursor = c.req.query('cursor');
-    const page = await store.listProposals({
+    const page = await store.listSuggestedChanges({
       tenantId,
       limit: clampLimit(c.req.query('limit')),
       ...(cursor !== undefined && cursor !== '' && { cursor: cursor as Cursor }),
       ...(agentId !== undefined && agentId !== '' && { agentId: agentId as AgentId }),
-      ...(tier !== undefined && { tier: tier as ProposalTier }),
+      ...(tier !== undefined && { tier: tier as SuggestedChangeTier }),
       ...(scope.scope !== undefined && { liveScope: scope.scope }),
     });
     const shown = await readableOnPage(c, page.data);
@@ -214,14 +220,14 @@ export function proposalsRouter(
     });
   });
 
-  // ---------- GET /:proposalId ----------
-  r.get('/:proposalId', async (c) => {
+  // ---------- GET /:suggestedChangeId ----------
+  r.get('/:suggestedChangeId', async (c) => {
     const stored = await load(c);
     if (stored instanceof Response) return stored;
     return answer(c, stored);
   });
 
-  // ---------- POST / (a hand-written proposal) ----------
+  // ---------- POST / (a hand-written suggested change) ----------
   r.post('/', async (c) => {
     const body = await readBody(c);
     if (body === undefined) return badInput(c, 'Request body must be a JSON object');
@@ -244,14 +250,14 @@ export function proposalsRouter(
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
     if (outcome.value.deduped) {
-      c.header('X-Proposal-Deduped', 'true');
-      return answer(c, outcome.value.proposal);
+      c.header('X-Suggested-Change-Deduped', 'true');
+      return answer(c, outcome.value.suggestedChange);
     }
-    return answer(c, outcome.value.proposal, 201);
+    return answer(c, outcome.value.suggestedChange, 201);
   });
 
-  // ---------- POST /:proposalId/evaluate ----------
-  r.post('/:proposalId/evaluate', publishCompiles, async (c) => {
+  // ---------- POST /:suggestedChangeId/evaluate ----------
+  r.post('/:suggestedChangeId/evaluate', publishCompiles, async (c) => {
     const body = await readBody(c);
     if (body === undefined) return badInput(c, 'Request body must be a JSON object');
     const parsed = parseEvaluateBody(body);
@@ -260,7 +266,7 @@ export function proposalsRouter(
     if (ready instanceof Response) return ready;
     const outcome = await service.evaluate({
       tenantId: c.get('tenantId') as TenantId,
-      proposal: ready.proposal,
+      suggestedChange: ready.suggestedChange,
       testSetId: parsed.testSetId,
       objective: parsed.objective,
       ...(parsed.comparison !== undefined && { comparison: parsed.comparison }),
@@ -270,10 +276,10 @@ export function proposalsRouter(
     return answer(c, outcome.value, 202);
   });
 
-  // ---------- POST /:proposalId/rescore ----------
+  // ---------- POST /:suggestedChangeId/rescore ----------
   // The latest evaluation scored again, with what people corrected on its
-  // replays since; the new eval run becomes the proposal's evaluation.
-  r.post('/:proposalId/rescore', async (c) => {
+  // replays since; the new eval run becomes the suggested change's evaluation.
+  r.post('/:suggestedChangeId/rescore', async (c) => {
     const ready = await prepare(c, 'publish');
     if (ready instanceof Response) return ready;
     const extra = Object.keys(ready.body);
@@ -285,63 +291,47 @@ export function proposalsRouter(
     }
     const outcome = await service.rescore({
       tenantId: c.get('tenantId') as TenantId,
-      proposal: ready.proposal,
+      suggestedChange: ready.suggestedChange,
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
     return answer(c, outcome.value, 202);
   });
 
-  // ---------- POST /:proposalId/request ----------
-  r.post('/:proposalId/request', async (c) => {
+  // ---------- POST /:suggestedChangeId/pin ----------
+  r.post('/:suggestedChangeId/pin', async (c) => {
     const ready = await prepare(c, 'promote');
     if (ready instanceof Response) return ready;
     const spans = await widthRefusal(c, {
       rights: itemRights,
-      agentId: ready.proposal.agentId as unknown as string,
-      scope: ready.proposal.scope,
+      agentId: ready.suggestedChange.agentId as unknown as string,
+      scope: ready.suggestedChange.scope,
     });
     if (spans !== undefined) return spans;
     const reason = optionalText(ready.body, 'reason');
     if (reason.kind === 'err') return badInput(c, reason.message);
-    const outcome = await service.request({
+    const outcome = await service.pin({
       tenantId: c.get('tenantId') as TenantId,
-      proposal: ready.proposal,
+      suggestedChange: ready.suggestedChange,
       actor: actorOf(c),
       ...(reason.value !== undefined && { reason: reason.value }),
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
-    const { proposal, promotion } = outcome.value;
+    const { suggestedChange, promotion } = outcome.value;
     if (promotion.kind !== 'ok') return promotionResponse(c, promotion);
     if (promotion.promotion.status === 'refused') {
-      return promotionResponse(c, promotion, { proposalId: proposal.id as unknown as string });
+      return promotionResponse(c, promotion, {
+        suggestedChangeId: suggestedChange.id as unknown as string,
+      });
     }
-    return answer(c, proposal, promotion.promotion.status === 'pending-approval' ? 202 : 201);
+    return answer(
+      c,
+      suggestedChange,
+      promotion.promotion.status === 'pending-approval' ? 202 : 201,
+    );
   });
 
-  // ---------- POST /:proposalId/rollback ----------
-  r.post('/:proposalId/rollback', async (c) => {
-    const ready = await prepare(c, 'promote');
-    if (ready instanceof Response) return ready;
-    const spans = await widthRefusal(c, {
-      rights: itemRights,
-      agentId: ready.proposal.agentId as unknown as string,
-      scope: ready.proposal.scope,
-    });
-    if (spans !== undefined) return spans;
-    const reason = optionalText(ready.body, 'reason');
-    if (reason.kind === 'err') return badInput(c, reason.message);
-    const outcome = await service.rollback({
-      tenantId: c.get('tenantId') as TenantId,
-      proposal: ready.proposal,
-      actor: actorOf(c),
-      ...(reason.value !== undefined && { reason: reason.value }),
-    });
-    if (outcome.kind === 'err') return failWith(c, outcome.error);
-    return answer(c, outcome.value);
-  });
-
-  // ---------- POST /:proposalId/withdraw ----------
-  r.post('/:proposalId/withdraw', async (c) => {
+  // ---------- POST /:suggestedChangeId/withdraw ----------
+  r.post('/:suggestedChangeId/withdraw', async (c) => {
     const ready = await prepare(c, 'publish');
     if (ready instanceof Response) return ready;
     const reason = optionalText(ready.body, 'reason');
@@ -351,7 +341,7 @@ export function proposalsRouter(
     }
     const outcome = await service.withdraw({
       tenantId: c.get('tenantId') as TenantId,
-      proposal: ready.proposal,
+      suggestedChange: ready.suggestedChange,
       actor: actorOf(c),
       reason: reason.value,
     });
@@ -365,8 +355,8 @@ export function proposalsRouter(
 // ---------- wire ----------
 
 function evaluationWire(
-  stored: NonNullable<StoredProposal['evaluation']>,
-  seen: ProposalEvaluationOutcome | null | undefined,
+  stored: NonNullable<StoredSuggestedChange['evaluation']>,
+  seen: SuggestedChangeEvaluationOutcome | null | undefined,
 ): Record<string, unknown> {
   // The reference run it's held to stays the runtime's: what it found is
   // `costUsd` and `decisions`.
@@ -392,7 +382,10 @@ function evaluationWire(
   };
 }
 
-export function serialize(p: StoredProposal, f: ProposalFacts): Record<string, unknown> {
+export function serialize(
+  p: StoredSuggestedChange,
+  f: SuggestedChangeFacts,
+): Record<string, unknown> {
   const promotion = f.promotion ?? undefined;
   return {
     id: p.id as unknown as string,
@@ -427,8 +420,8 @@ export function serialize(p: StoredProposal, f: ProposalFacts): Record<string, u
 interface CreateBody {
   readonly agentId: string;
   readonly fromVersion: string;
-  readonly scope: StoredProposal['scope'];
-  readonly tier: ProposalTier;
+  readonly scope: StoredSuggestedChange['scope'];
+  readonly tier: SuggestedChangeTier;
   readonly blockId: string;
   readonly content: ProposedChange['change']['content'];
   readonly hypothesis: string;
@@ -445,7 +438,7 @@ function nonEmpty(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '' && value.length <= MAX_TEXT;
 }
 
-function parseContent(tier: ProposalTier, raw: unknown): string | undefined {
+function parseContent(tier: SuggestedChangeTier, raw: unknown): string | undefined {
   const content = obj(raw);
   const keys = content === undefined ? [] : Object.keys(content);
   if (tier === 'settings-block') {
@@ -477,8 +470,9 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
   }
   const scope = parseLiveScopeBody(b.scope);
   if (scope.kind === 'err') return scope.message;
-  if (!TIERS.includes(b.tier as ProposalTier)) return `\`tier\` must be one of ${TIERS.join(', ')}`;
-  const tier = b.tier as ProposalTier;
+  if (!TIERS.includes(b.tier as SuggestedChangeTier))
+    return `\`tier\` must be one of ${TIERS.join(', ')}`;
+  const tier = b.tier as SuggestedChangeTier;
   const change = obj(b.change);
   if (change === undefined) return '`change` must be an object: { blockId, content }';
   if (!nonEmpty(change.blockId)) return '`change.blockId` is required';
@@ -503,7 +497,7 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
 
 interface EvaluateBody {
   readonly testSetId: string;
-  readonly objective: ProposalObjective;
+  readonly objective: SuggestedChangeObjective;
   readonly comparison?: EvalComparison;
 }
 
@@ -511,7 +505,7 @@ function parseEvaluateBody(b: Record<string, unknown>): EvaluateBody | string {
   if (!nonEmpty(b.testSetId)) {
     return '`testSetId` is required: the test set (a corrections test set) to compare on';
   }
-  if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as ProposalObjective)) {
+  if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as SuggestedChangeObjective)) {
     return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
   }
   const extra = Object.keys(b).filter(
@@ -527,7 +521,7 @@ function parseEvaluateBody(b: Record<string, unknown>): EvaluateBody | string {
   if (comparison.kind === 'err') return comparison.message;
   return {
     testSetId: b.testSetId,
-    objective: (b.objective as ProposalObjective | undefined) ?? 'weightedYesShare',
+    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'weightedYesShare',
     ...(comparison.value !== undefined && { comparison: comparison.value }),
   };
 }
@@ -572,6 +566,6 @@ function badInput(c: Ctx, message: string) {
   return fail(c, 'bad-input', { code: 'bad-input', message });
 }
 
-function failWith(c: Ctx, error: ProposalServiceError) {
+function failWith(c: Ctx, error: SuggestedChangeServiceError) {
   return fail(c, error.code, error);
 }

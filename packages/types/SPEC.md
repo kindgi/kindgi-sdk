@@ -64,7 +64,7 @@ Two things worth emphasizing:
 
 ### IDs (`src/ids.ts`)
 
-Entity kinds that appear in `@kindgi/specs/*.schema.json` and their branded IDs; the table lists the main ones (see `src/ids.ts` for the full set, including `ConversationId`, `ReviewerId`, `SupervisorId`, `ObservationId`, `FixProposalId`, `AuditBundleId`, `ScheduleId`, `ProviderId`, `ApiTokenId`, `WebhookId`, `WebhookEndpointId`, `WebhookEventId`, `WebhookDeliveryId`, `InstallationId`, `SigningKeyId`, `TriggerId`):
+Entity kinds that appear in `@kindgi/specs/*.schema.json` and their branded IDs; the table lists the main ones (see `src/ids.ts` for the full set, including `ConversationId`, `ReviewerId`, `SupervisorId`, `ObservationId`, `SuggestedChangeId`, `AuditBundleId`, `ScheduleId`, `ProviderId`, `ApiTokenId`, `WebhookId`, `WebhookEndpointId`, `WebhookEventId`, `WebhookDeliveryId`, `InstallationId`, `SigningKeyId`, `TriggerId`):
 
 | Schema entity | Type |
 |---|---|

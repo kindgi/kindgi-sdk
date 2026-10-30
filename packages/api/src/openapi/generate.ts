@@ -90,8 +90,9 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   conversations: 'Durable multi-turn threads (open, list, get, close, read messages).',
   memory:
     'Fact catalog + retrieval (list, get, write, supersede, retrieve — caller-plugged binding wraps the memory subsystem).',
-  proposals:
-    'Supervisor fix-proposal lifecycle (draft, dry-run, submit-review, apply, rollback, withdraw — caller-plugged binding wraps the supervisor).',
+  'suggested-changes':
+    'Suggested changes: a change to one data block an agent version pins, for one live scope (list, get, draft, evaluate, rescore, pin, withdraw).',
+  proposals: 'Improve runs: the runtime looking for better settings (improve, estimate).',
   provenance:
     "Causal DAG readback + signed exports (list, get, export), signed with the deployment's export key.",
   artifacts:
@@ -110,7 +111,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   retention:
     "Deleted rows' retention (scheduled, sweep) — part of the admin control plane. Deleting most things is a tombstone; a `retention` policy per domain (see `policies`) sets how long tombstones stay before a sweep purges them for good. `scheduled` lists what's due and when; `sweep` purges what's past its grace. Nothing sweeps on its own: call `sweep` from a schedule. Caller-plugged via `RetentionBinding`.",
   'test-sets':
-    'Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` test set are copies of judged runs built from corrections (`POST .../versions/from-corrections`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these testSets are started through the `eval-runs` tag. Caller-plugged via `TestSetRegistryBinding`.',
+    'Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` test set are copies of judged runs built from corrections (`POST .../versions/from-corrections`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these test sets are started through the `eval-runs` tag. Caller-plugged via `TestSetRegistryBinding`.',
   blocks:
     "Data blocks: versioned prompts and settings an agent version pins when it's published (list, get, versions, publish, unregister, reinstate). A version never changes, nor does a block's kind; a settings block's values satisfy its schema and the latest version's. A block belongs to one project and is authorized through it: `read` on the project to read, `write` to publish, unregister or reinstate. Caller-plugged via `BlockRegistryBinding`.",
   corrections:

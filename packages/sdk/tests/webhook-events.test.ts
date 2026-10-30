@@ -67,7 +67,7 @@ const PASS = {
   costUsd: '0.0123',
   outcome: {
     kind: 'proposed',
-    proposalId: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
+    suggestedChangeId: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
     holdOut: { baseline: 0.5, candidate: 0.62, delta: null },
   },
   comparisons: [{ role: 'candidate', part: 'search', score: null, changed: { anything: [1] } }],

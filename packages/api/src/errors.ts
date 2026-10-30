@@ -209,11 +209,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'signing-key-revoked': 409,
   'signing-key-algorithm-unsupported': 400,
   'signing-key-store-error': 500,
-  // Improvement proposals.
-  'proposal-not-found': 404,
-  'proposal-invalid-state-transition': 409,
+  // suggested changes.
+  'suggested-change-not-found': 404,
+  'suggested-change-invalid-state-transition': 409,
   // Evaluating would make a version that serves every unpinned scope.
-  'proposal-needs-pin': 409,
+  'suggested-change-needs-pin': 409,
   // Improvement passes.
   'improve-unsupported': 501,
   'improvement-pass-not-found': 404,

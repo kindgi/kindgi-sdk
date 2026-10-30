@@ -40,7 +40,7 @@ import { observationsCommand } from './observations.js';
 import { peopleCommand } from './people.js';
 import { projectsCommand } from './projects.js';
 import { promoteCommand } from './promote.js';
-import { proposalsCommand } from './proposals.js';
+import { proposalsCommand } from './proposals-improve.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
 import { queueRulesCommand } from './queue-rules.js';
@@ -53,6 +53,7 @@ import { signInCommand } from './sign-in.js';
 import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
+import { suggestedChangesCommand } from './suggested-changes.js';
 import { tenantCommand } from './tenant.js';
 import { testSetsCommand } from './test-sets.js';
 import { testCommand } from './test.js';
@@ -96,6 +97,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   guardrailsCommand,
   memoryCommand,
   proposalsCommand,
+  suggestedChangesCommand,
   provenanceCommand,
   exportsCommand,
   artifactsCommand,

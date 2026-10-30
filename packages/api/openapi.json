@@ -87,8 +87,12 @@
       "description": "Fact catalog + retrieval (list, get, write, supersede, retrieve — caller-plugged binding wraps the memory subsystem)."
     },
     {
+      "name": "suggested-changes",
+      "description": "Suggested changes: a change to one data block an agent version pins, for one live scope (list, get, draft, evaluate, rescore, pin, withdraw)."
+    },
+    {
       "name": "proposals",
-      "description": "Supervisor fix-proposal lifecycle (draft, dry-run, submit-review, apply, rollback, withdraw — caller-plugged binding wraps the supervisor)."
+      "description": "Improve runs: the runtime looking for better settings (improve, estimate)."
     },
     {
       "name": "provenance",
@@ -144,7 +148,7 @@
     },
     {
       "name": "test-sets",
-      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` test set are copies of judged runs built from corrections (`POST .../versions/from-corrections`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these testSets are started through the `eval-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
+      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` test set are copies of judged runs built from corrections (`POST .../versions/from-corrections`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these test sets are started through the `eval-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
     },
     {
       "name": "blocks",
@@ -351,9 +355,9 @@
           "signing-key-revoked": 409,
           "signing-key-algorithm-unsupported": 400,
           "signing-key-store-error": 500,
-          "proposal-not-found": 404,
-          "proposal-invalid-state-transition": 409,
-          "proposal-needs-pin": 409,
+          "suggested-change-not-found": 404,
+          "suggested-change-invalid-state-transition": 409,
+          "suggested-change-needs-pin": 409,
           "improve-unsupported": 501,
           "improvement-pass-not-found": 404,
           "improvement-pass-finished": 409,
@@ -7556,9 +7560,9 @@
             "type": "string",
             "description": "For `edited`: who derived it (`user:<id>`)."
           },
-          "proposalId": {
+          "suggestedChangeId": {
             "type": "string",
-            "description": "For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live."
+            "description": "For `edited`: the suggested change it was derived for. Such a version serves no scope until a promotion makes it live."
           }
         }
       },
@@ -10778,15 +10782,15 @@
           }
         }
       },
-      "ProposalTier": {
+      "SuggestedChangeTier": {
         "type": "string",
         "enum": [
           "settings-block",
           "prompt-block"
         ],
-        "description": "What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins."
+        "description": "What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins."
       },
-      "FixProposalStatus": {
+      "SuggestedChangeStatus": {
         "type": "string",
         "enum": [
           "draft",
@@ -10795,7 +10799,7 @@
           "not-better",
           "evaluation-failed",
           "in-review",
-          "promoted",
+          "pinned",
           "refused",
           "rejected",
           "expired",
@@ -10803,9 +10807,9 @@
           "rolled-back",
           "withdrawn"
         ],
-        "description": "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn."
+        "description": "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the suggested change. `withdrawn`: withdrawn."
       },
-      "ProposalChange": {
+      "SuggestedChangeBlockEdit": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -10838,13 +10842,13 @@
           }
         }
       },
-      "ProposalDrafter": {
+      "SuggestedChangeDrafter": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "kind"
         ],
-        "description": "Who wrote the proposal: a person, or one of the runtime's drafters.",
+        "description": "Who wrote the suggested change: a person, or one of the runtime's drafters.",
         "properties": {
           "kind": {
             "type": "string",
@@ -10885,17 +10889,17 @@
           }
         }
       },
-      "ProposalEvidence": {
+      "SuggestedChangeEvidence": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a proposal rests on.",
+        "description": "What a suggested change rests on.",
         "properties": {
           "fixes": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "The corrections it fixes, by id. An improvement pass's proposal names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest."
+            "description": "The corrections it fixes, by id. An improvement pass's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest."
           },
           "correctionCount": {
             "type": "integer",
@@ -10904,7 +10908,7 @@
           }
         }
       },
-      "ProposalCandidate": {
+      "SuggestedChangeCandidate": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -10912,22 +10916,22 @@
           "blockVersion",
           "pinsDigest"
         ],
-        "description": "The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.",
+        "description": "The versions evaluating the suggested change published. They serve no scope until a promotion makes the agent version live.",
         "properties": {
           "agentVersion": {
             "type": "string",
-            "description": "The derived agent version (its `derivedFrom.proposalId` names the proposal)."
+            "description": "The derived agent version (its `derivedFrom.suggestedChangeId` names the suggested change)."
           },
           "blockVersion": {
             "type": "string",
-            "description": "The block version published from the proposal's content."
+            "description": "The block version published from the suggested change's content."
           },
           "pinsDigest": {
             "type": "string"
           }
         }
       },
-      "ProposalEvaluation": {
+      "SuggestedChangeEvaluation": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -10936,7 +10940,7 @@
           "objective",
           "startedAt"
         ],
-        "description": "The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
+        "description": "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
         "properties": {
           "evalRunId": {
             "type": "string",
@@ -11008,14 +11012,14 @@
             "description": "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`."
           },
           "costUsd": {
-            "$ref": "#/components/schemas/ProposalCost"
+            "$ref": "#/components/schemas/SuggestedChangeCost"
           },
           "decisions": {
-            "$ref": "#/components/schemas/ProposalDecisions"
+            "$ref": "#/components/schemas/SuggestedChangeDecisions"
           }
         }
       },
-      "ProposalCost": {
+      "SuggestedChangeCost": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -11034,7 +11038,7 @@
           }
         }
       },
-      "ProposalDecisions": {
+      "SuggestedChangeDecisions": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -11066,14 +11070,14 @@
           }
         }
       },
-      "ProposalPromotion": {
+      "SuggestedChangePromotion": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "id",
           "status"
         ],
-        "description": "The promotion the proposal's request made.",
+        "description": "The promotion the suggested change's request made.",
         "properties": {
           "id": {
             "type": "string"
@@ -11095,14 +11099,14 @@
           },
           "liveNow": {
             "type": "boolean",
-            "description": "For a promoted proposal: whether its version still serves the scope."
+            "description": "For a pinned suggested change: whether its version still serves the scope."
           }
         }
       },
-      "FixProposal": {
+      "SuggestedChange": {
         "type": "object",
         "additionalProperties": false,
-        "description": "An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.",
+        "description": "A suggested change: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.",
         "required": [
           "id",
           "agentId",
@@ -11132,32 +11136,32 @@
             "$ref": "#/components/schemas/LiveScope"
           },
           "tier": {
-            "$ref": "#/components/schemas/ProposalTier"
+            "$ref": "#/components/schemas/SuggestedChangeTier"
           },
           "change": {
-            "$ref": "#/components/schemas/ProposalChange"
+            "$ref": "#/components/schemas/SuggestedChangeBlockEdit"
           },
           "hypothesis": {
             "type": "string",
             "description": "What the change should improve, and why."
           },
           "evidence": {
-            "$ref": "#/components/schemas/ProposalEvidence"
+            "$ref": "#/components/schemas/SuggestedChangeEvidence"
           },
           "drafter": {
-            "$ref": "#/components/schemas/ProposalDrafter"
+            "$ref": "#/components/schemas/SuggestedChangeDrafter"
           },
           "status": {
-            "$ref": "#/components/schemas/FixProposalStatus"
+            "$ref": "#/components/schemas/SuggestedChangeStatus"
           },
           "candidate": {
-            "$ref": "#/components/schemas/ProposalCandidate"
+            "$ref": "#/components/schemas/SuggestedChangeCandidate"
           },
           "evaluation": {
-            "$ref": "#/components/schemas/ProposalEvaluation"
+            "$ref": "#/components/schemas/SuggestedChangeEvaluation"
           },
           "promotion": {
-            "$ref": "#/components/schemas/ProposalPromotion"
+            "$ref": "#/components/schemas/SuggestedChangePromotion"
           },
           "rolledBack": {
             "type": "object",
@@ -11215,7 +11219,7 @@
           }
         }
       },
-      "FixProposalCollectionPage": {
+      "SuggestedChangeCollectionPage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -11226,7 +11230,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/FixProposal"
+              "$ref": "#/components/schemas/SuggestedChange"
             }
           },
           "hasMore": {
@@ -11265,7 +11269,7 @@
         "required": [
           "kind"
         ],
-        "description": "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
+        "description": "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
         "properties": {
           "kind": {
             "type": "string",
@@ -11275,7 +11279,7 @@
               "failed"
             ]
           },
-          "proposalId": {
+          "suggestedChangeId": {
             "type": "string",
             "format": "uuid"
           },
@@ -11322,7 +11326,7 @@
       "ImprovementPass": {
         "type": "object",
         "additionalProperties": false,
-        "description": "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.",
+        "description": "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.",
         "required": [
           "id",
           "agentId",
@@ -11434,11 +11438,11 @@
           },
           "cancelReason": {
             "type": "string",
-            "description": "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled."
+            "description": "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled."
           },
           "comparisons": {
             "type": "array",
-            "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.",
+            "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -11605,7 +11609,7 @@
             "default": [
               "settings"
             ],
-            "description": "`['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer."
+            "description": "`['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer."
           },
           "model": {
             "type": "object",
@@ -11704,8 +11708,8 @@
           }
         }
       },
-      "CreateProposalBody": {
-        "description": "A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).",
+      "CreateSuggestedChangeBody": {
+        "description": "A hand-written suggested change: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -11728,7 +11732,7 @@
             "$ref": "#/components/schemas/LiveScope"
           },
           "tier": {
-            "$ref": "#/components/schemas/ProposalTier"
+            "$ref": "#/components/schemas/SuggestedChangeTier"
           },
           "change": {
             "type": "object",
@@ -11777,8 +11781,8 @@
           }
         }
       },
-      "EvaluateProposalBody": {
-        "description": "Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
+      "EvaluateSuggestedChangeBody": {
+        "description": "Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -11827,7 +11831,7 @@
           }
         }
       },
-      "ProposalReasonBody": {
+      "SuggestedChangeReasonBody": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -11838,7 +11842,7 @@
           }
         }
       },
-      "WithdrawProposalBody": {
+      "WithdrawSuggestedChangeBody": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -14947,7 +14951,7 @@
           "version": {
             "type": "string",
             "pattern": "^\\d+\\.\\d+\\.\\d+$",
-            "description": "Semver — publishing a modified testSet produces a new version."
+            "description": "Semver — publishing a modified test set produces a new version."
           },
           "kind": {
             "$ref": "#/components/schemas/EvalKind"
@@ -14958,7 +14962,7 @@
           "spec": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific testSet body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`."
+            "description": "Kind-specific test set body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`."
           },
           "unregisteredAt": {
             "type": "string",
@@ -26601,7 +26605,7 @@
           "createdAt",
           "data"
         ],
-        "description": "An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.",
+        "description": "An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.",
         "properties": {
           "id": {
             "type": "string",
@@ -26718,7 +26722,7 @@
           "agentId",
           "scope"
         ],
-        "description": "What an improve schedule works on: the agent, and the live scope its passes propose for and count corrections in.",
+        "description": "What an improve schedule works on: the agent, and the live scope its passes suggest changes for and count corrections in.",
         "properties": {
           "agentId": {
             "type": "string",
@@ -35954,7 +35958,7 @@
             }
           }
         },
-        "description": "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `evalRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its proposal changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+        "description": "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `evalRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
         "parameters": [
           {
             "name": "agentId",
@@ -42594,20 +42598,20 @@
         ]
       }
     },
-    "/v1/proposals": {
+    "/v1/suggested-changes": {
       "get": {
-        "operationId": "proposals.list",
-        "summary": "List improvement proposals",
+        "operationId": "suggestedChanges.list",
+        "summary": "List suggested changes",
         "tags": [
-          "proposals"
+          "suggested-changes"
         ],
         "responses": {
           "200": {
-            "description": "Page of proposals.",
+            "description": "Page of suggested changes.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FixProposalCollectionPage"
+                  "$ref": "#/components/schemas/SuggestedChangeCollectionPage"
                 }
               }
             }
@@ -42643,7 +42647,7 @@
             }
           }
         },
-        "description": "Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).",
+        "description": "Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).",
         "parameters": [
           {
             "name": "limit",
@@ -42670,10 +42674,10 @@
             "name": "status",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/FixProposalStatus"
+              "$ref": "#/components/schemas/SuggestedChangeStatus"
             },
             "required": false,
-            "description": "Only proposals with this (derived) status."
+            "description": "Only suggested changes with this (derived) status."
           },
           {
             "name": "agentId",
@@ -42687,10 +42691,10 @@
             "name": "tier",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ProposalTier"
+              "$ref": "#/components/schemas/SuggestedChangeTier"
             },
             "required": false,
-            "description": "Only proposals of this tier."
+            "description": "Only suggested changes of this tier."
           },
           {
             "name": "scopeKind",
@@ -42738,28 +42742,28 @@
         ]
       },
       "post": {
-        "operationId": "proposals.create",
-        "summary": "Propose new content for a data block",
+        "operationId": "suggestedChanges.create",
+        "summary": "Suggest new content for a data block",
         "tags": [
-          "proposals"
+          "suggested-changes"
         ],
         "responses": {
           "200": {
-            "description": "The same proposal, made before.",
+            "description": "The same suggested change, made before.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
+                  "$ref": "#/components/schemas/SuggestedChange"
                 }
               }
             }
           },
           "201": {
-            "description": "The proposal, a `draft`.",
+            "description": "The suggested change, a `draft`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
+                  "$ref": "#/components/schemas/SuggestedChange"
                 }
               }
             }
@@ -42835,7 +42839,7 @@
             }
           }
         },
-        "description": "A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.",
+        "description": "A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -42853,7 +42857,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateProposalBody"
+                "$ref": "#/components/schemas/CreateSuggestedChangeBody"
               }
             }
           }
@@ -42914,7 +42918,7 @@
             }
           },
           "409": {
-            "description": "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `proposal-needs-pin`, or `project-suspended`: the pass's project is suspended. Or Idempotency-Key was reused with a different body.",
+            "description": "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `suggested-change-needs-pin`, or `project-suspended`: the pass's project is suspended. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42964,7 +42968,7 @@
             }
           }
         },
-        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -43081,20 +43085,20 @@
         ]
       }
     },
-    "/v1/proposals/{proposalId}": {
+    "/v1/suggested-changes/{suggestedChangeId}": {
       "get": {
-        "operationId": "proposals.get",
-        "summary": "Fetch an improvement proposal",
+        "operationId": "suggestedChanges.get",
+        "summary": "Fetch a suggested change",
         "tags": [
-          "proposals"
+          "suggested-changes"
         ],
         "responses": {
           "200": {
-            "description": "The proposal.",
+            "description": "The suggested change.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
+                  "$ref": "#/components/schemas/SuggestedChange"
                 }
               }
             }
@@ -43110,7 +43114,7 @@
             }
           },
           "404": {
-            "description": "No such proposal (or none the caller can read).",
+            "description": "No such suggested change (or none the caller can read).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43133,14 +43137,14 @@
         "description": "Needs `read` on its agent.",
         "parameters": [
           {
-            "name": "proposalId",
+            "name": "suggestedChangeId",
             "in": "path",
             "schema": {
               "type": "string",
               "format": "uuid"
             },
             "required": true,
-            "description": "The proposal id (a UUID)."
+            "description": "The suggested change id (a UUID)."
           }
         ],
         "security": [
@@ -43150,20 +43154,20 @@
         ]
       }
     },
-    "/v1/proposals/{proposalId}/evaluate": {
+    "/v1/suggested-changes/{suggestedChangeId}/evaluate": {
       "post": {
-        "operationId": "proposals.evaluate",
-        "summary": "Compare a proposal on a test set",
+        "operationId": "suggestedChanges.evaluate",
+        "summary": "Compare a suggested change on a test set",
         "tags": [
-          "proposals"
+          "suggested-changes"
         ],
         "responses": {
           "202": {
-            "description": "The proposal, `evaluating`.",
+            "description": "The suggested change, `evaluating`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
+                  "$ref": "#/components/schemas/SuggestedChange"
                 }
               }
             }
@@ -43189,7 +43193,7 @@
             }
           },
           "404": {
-            "description": "No such proposal, or no such test set.",
+            "description": "No such suggested change, or no such test set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43199,7 +43203,7 @@
             }
           },
           "409": {
-            "description": "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a proposal makes; or, under `kindgi dev`, the proposal's scope is narrower than the whole tenant, since the pack's files serve every scope.",
+            "description": "`suggested-change-needs-pin`: the agent has no live version for the whole tenant. `suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; or, under `kindgi dev`, the suggested change's scope is narrower than the whole tenant, since the pack's files serve every scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43249,17 +43253,17 @@
             }
           }
         },
-        "description": "The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
+        "description": "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
         "parameters": [
           {
-            "name": "proposalId",
+            "name": "suggestedChangeId",
             "in": "path",
             "schema": {
               "type": "string",
               "format": "uuid"
             },
             "required": true,
-            "description": "The proposal id (a UUID)."
+            "description": "The suggested change id (a UUID)."
           },
           {
             "name": "Idempotency-Key",
@@ -43277,7 +43281,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EvaluateProposalBody"
+                "$ref": "#/components/schemas/EvaluateSuggestedChangeBody"
               }
             }
           }
@@ -43289,20 +43293,20 @@
         ]
       }
     },
-    "/v1/proposals/{proposalId}/rescore": {
+    "/v1/suggested-changes/{suggestedChangeId}/rescore": {
       "post": {
-        "operationId": "proposals.rescore",
-        "summary": "Rescore a proposal's latest evaluation",
+        "operationId": "suggestedChanges.rescore",
+        "summary": "Rescore a suggested change's latest evaluation",
         "tags": [
-          "proposals"
+          "suggested-changes"
         ],
         "responses": {
           "202": {
-            "description": "The proposal, `evaluating`.",
+            "description": "The suggested change, `evaluating`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
+                  "$ref": "#/components/schemas/SuggestedChange"
                 }
               }
             }
@@ -43328,7 +43332,7 @@
             }
           },
           "404": {
-            "description": "No such proposal, or its candidate version is unregistered (`agent-version-not-found`).",
+            "description": "No such suggested change, or its candidate version is unregistered (`agent-version-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43338,7 +43342,7 @@
             }
           },
           "409": {
-            "description": "`proposal-invalid-state-transition`: the proposal's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
+            "description": "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43368,17 +43372,17 @@
             }
           }
         },
-        "description": "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+        "description": "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
         "parameters": [
           {
-            "name": "proposalId",
+            "name": "suggestedChangeId",
             "in": "path",
             "schema": {
               "type": "string",
               "format": "uuid"
             },
             "required": true,
-            "description": "The proposal id (a UUID)."
+            "description": "The suggested change id (a UUID)."
           },
           {
             "name": "Idempotency-Key",
@@ -43398,36 +43402,36 @@
         ]
       }
     },
-    "/v1/proposals/{proposalId}/request": {
+    "/v1/suggested-changes/{suggestedChangeId}/pin": {
       "post": {
-        "operationId": "proposals.request",
-        "summary": "Request a proposal's promotion for its scope",
+        "operationId": "suggestedChanges.pin",
+        "summary": "Pin a suggested change's version for its scope",
         "tags": [
-          "proposals"
+          "suggested-changes"
         ],
         "responses": {
           "201": {
-            "description": "Promoted: the proposal, `promoted`.",
+            "description": "Pinned: the suggested change, `pinned`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
+                  "$ref": "#/components/schemas/SuggestedChange"
                 }
               }
             }
           },
           "202": {
-            "description": "The gate passed and an approval is open: the proposal, `in-review`.",
+            "description": "The gate passed and an approval is open: the suggested change, `in-review`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
+                  "$ref": "#/components/schemas/SuggestedChange"
                 }
               }
             }
           },
           "400": {
-            "description": "Malformed request body. Or `reference-out-of-scope`: the proposal's project or segment scope no longer reaches the agent (`details.issues`).",
+            "description": "Malformed request body. Or `reference-out-of-scope`: the suggested change's project or segment scope no longer reaches the agent (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43447,7 +43451,7 @@
             }
           },
           "404": {
-            "description": "No such proposal.",
+            "description": "No such suggested change.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43457,7 +43461,7 @@
             }
           },
           "409": {
-            "description": "The proposal's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once; a proposal for a project (or a segment of it) can be requested.",
+            "description": "The suggested change's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the suggested change's tenant- or org-wide scope would act in every environment of the order at once; a suggested change for a project (or a segment of it) can be pinned.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43477,7 +43481,7 @@
             }
           },
           "422": {
-            "description": "`gate-failed`: the gate refused it (the error carries the checks and `proposalId`).",
+            "description": "`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43507,17 +43511,17 @@
             }
           }
         },
-        "description": "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
+        "description": "A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
         "parameters": [
           {
-            "name": "proposalId",
+            "name": "suggestedChangeId",
             "in": "path",
             "schema": {
               "type": "string",
               "format": "uuid"
             },
             "required": true,
-            "description": "The proposal id (a UUID)."
+            "description": "The suggested change id (a UUID)."
           },
           {
             "name": "Idempotency-Key",
@@ -43535,7 +43539,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ProposalReasonBody"
+                "$ref": "#/components/schemas/SuggestedChangeReasonBody"
               }
             }
           }
@@ -43547,20 +43551,20 @@
         ]
       }
     },
-    "/v1/proposals/{proposalId}/rollback": {
+    "/v1/suggested-changes/{suggestedChangeId}/withdraw": {
       "post": {
-        "operationId": "proposals.rollback",
-        "summary": "Roll back a promoted proposal",
+        "operationId": "suggestedChanges.withdraw",
+        "summary": "Withdraw a suggested change",
         "tags": [
-          "proposals"
+          "suggested-changes"
         ],
         "responses": {
           "200": {
-            "description": "The proposal, `rolled-back`.",
+            "description": "The suggested change, `withdrawn`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
+                  "$ref": "#/components/schemas/SuggestedChange"
                 }
               }
             }
@@ -43586,7 +43590,7 @@
             }
           },
           "404": {
-            "description": "No such proposal.",
+            "description": "No such suggested change.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43596,7 +43600,7 @@
             }
           },
           "409": {
-            "description": "It isn't promoted, or its version doesn't serve the scope anymore. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the proposal's tenant- or org-wide scope would act in every environment of the order at once. Or `registry-read-only`: under `kindgi dev`, a version made live was written into the pack's files; undo it there, with git.",
+            "description": "The suggested change's status doesn't allow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43636,146 +43640,17 @@
             }
           }
         },
-        "description": "The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.",
+        "description": "Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.",
         "parameters": [
           {
-            "name": "proposalId",
+            "name": "suggestedChangeId",
             "in": "path",
             "schema": {
               "type": "string",
               "format": "uuid"
             },
             "required": true,
-            "description": "The proposal id (a UUID)."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProposalReasonBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/proposals/{proposalId}/withdraw": {
-      "post": {
-        "operationId": "proposals.withdraw",
-        "summary": "Withdraw a proposal",
-        "tags": [
-          "proposals"
-        ],
-        "responses": {
-          "200": {
-            "description": "The proposal, `withdrawn`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such proposal.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The proposal's status doesn't allow it.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.",
-        "parameters": [
-          {
-            "name": "proposalId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "description": "The proposal id (a UUID)."
+            "description": "The suggested change id (a UUID)."
           },
           {
             "name": "Idempotency-Key",
@@ -43793,7 +43668,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WithdrawProposalBody"
+                "$ref": "#/components/schemas/WithdrawSuggestedChangeBody"
               }
             }
           }
@@ -44061,7 +43936,7 @@
             }
           }
         },
-        "description": "A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.",
+        "description": "A running pass stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.",
         "parameters": [
           {
             "name": "passId",
@@ -49970,7 +49845,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: testSet id ascending. Latest version per id. A retired testSet (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
+        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -50323,7 +50198,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired testSet (every version unregistered) answers too, with its versions to reinstate.",
+        "description": "Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.",
         "parameters": [
           {
             "name": "testSetId",
@@ -51946,7 +51821,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Filter to runs against a specific testSet id."
+            "description": "Filter to runs against the test set with this id."
           },
           {
             "name": "status",
@@ -52238,7 +52113,7 @@
             }
           }
         },
-        "description": "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's testSet and `write` on its project.",
+        "description": "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.",
         "parameters": [
           {
             "name": "runId",

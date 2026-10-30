@@ -394,7 +394,7 @@ has what a release gate policy checks, and how a reviewer approves.
 
 ## Changes made on the runtime
 
-Improve, proposals and edits in the console change the runtime, not git, so
+Improve, suggested changes and edits in the console change the runtime, not git, so
 the next deploy from git doesn't have them. Bring each one back as a pull
 request: copy the change into the pack's files, and open the pull request.
 [Improve an agent](../../guides/evals/improve-an-agent/) has what Improve

@@ -149,14 +149,14 @@ export type ApprovalId = Brand<string, 'ApprovalId'>;
 /** A reviewer registered with HITL — carries a role class (standard/senior/admin). */
 export type ReviewerId = Brand<string, 'ReviewerId'>;
 
-/** A supervisor definition — the actor that observes runs and proposes fixes. */
+/** A supervisor definition — the actor that observes runs and suggests fixes. */
 export type SupervisorId = Brand<string, 'SupervisorId'>;
 
 /** A recorded supervisor observation of a single agent run. */
 export type ObservationId = Brand<string, 'ObservationId'>;
 
-/** A supervisor's proposed fix to an agent artifact (prompt / retrieval / tool-config). */
-export type FixProposalId = Brand<string, 'FixProposalId'>;
+/** A suggested change to an agent artifact (prompt / retrieval / tool-config). */
+export type SuggestedChangeId = Brand<string, 'SuggestedChangeId'>;
 
 /** A signed audit bundle exported from HITL. Wraps approvals + evidence + provenance refs. */
 export type AuditBundleId = Brand<string, 'AuditBundleId'>;

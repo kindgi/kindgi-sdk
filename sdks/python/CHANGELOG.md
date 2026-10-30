@@ -37,6 +37,16 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `comparison.suite` is `comparison.test_set`, and a comparison's summary says
   `test_set`; their models are `GatePolicySpecComparisonTestSet` and
   `CorrectedComparisonSummaryTestSet` (were `Suite` and `Suite1`).
+- `kindgi`: **Proposals are now suggested changes.** This is a breaking rename,
+  and no old name is kept. `client.suggested_changes` holds suggested changes,
+  sync and async, and its `request` is `pin`; `rollback` is removed, since going
+  back is putting the agent's earlier version back in use. `client.proposals`
+  keeps only `improve` and `improve_estimate`; its `draft`, `dry_run`,
+  `submit_review` and `apply`, which only raised an error since 0.1.5, are
+  removed. The models follow (`Proposal*` and `FixProposal*` models are
+  `SuggestedChange*`, and the block edit a suggested change carries is
+  `SuggestedChangeBlockEdit`), `proposal_id` is `suggested_change_id`, and a
+  suggested change's status `promoted` is `pinned`.
 - `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
   tenant.** A run that names no flow version takes the version pinned for its
   project (the project's own pin, then its org's, then the tenant's), else the

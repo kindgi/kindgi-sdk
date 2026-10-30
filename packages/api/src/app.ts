@@ -171,7 +171,6 @@ import {
   projectProductionRouter,
 } from './routes/project-production.js';
 import { projectsRouter } from './routes/projects.js';
-import { proposalsRouter } from './routes/proposals.js';
 import { provenanceRouter } from './routes/provenance.js';
 import { providersRouter } from './routes/providers.js';
 import { publicRunTokensRouter } from './routes/public-run-tokens.js';
@@ -195,6 +194,7 @@ import {
 import { signingKeysRouter } from './routes/signing-keys.js';
 import { siteEnrollRouter, siteSignInRouter } from './routes/site-auth.js';
 import { sitesRouter } from './routes/sites.js';
+import { suggestedChangesRouter } from './routes/suggested-changes.js';
 import {
   type SystemDeploymentsOptions,
   systemDeploymentsRouter,
@@ -581,9 +581,9 @@ export interface CreateAppInput {
    */
   readonly memoryErasures?: MemoryErasureBinding;
   /**
-   * Optional. When present, mounts the supervisor proposals surface
-   * (`/v1/proposals` list/get/draft, plus lifecycle actions
-   * dry-run / submit-review / apply / rollback / withdraw). Every
+   * Optional. When present, mounts the suggested-changes surface
+   * (`/v1/suggested-changes` list/get/draft, plus lifecycle actions
+   * evaluate / rescore / pin / withdraw). Every
    * route requires an `X-Supervisor-Id` request header — the API
    * package doesn't own the supervisor registry, so the binding
    * receives that scope explicitly.
@@ -596,7 +596,7 @@ export interface CreateAppInput {
   /**
    * Optional. Improvement passes (`POST /v1/proposals/improve`,
    * `/v1/improvement-passes`): the runtime's search for better settings
-   * values, written as an improvement proposal. Without it, both answer
+   * values, written as a suggested change. Without it, both answer
    * `501 improve-unsupported`. Mounted with `/v1/proposals`.
    */
   readonly improvementPasses?: ImprovementPassBinding;
@@ -1920,9 +1920,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
       ...(input.testSetRegistry !== undefined && { testSets: input.testSetRegistry }),
     };
+    // The Improve routes stay on `/v1/proposals` until the Improve-runs step.
+    const improveRoutes = new Hono<AppEnv>();
+    mountImproveRoute(improveRoutes, improveDeps, authorizer, itemRights);
+    v1.route('/proposals', improveRoutes);
     v1.route(
-      '/proposals',
-      proposalsRouter(
+      '/suggested-changes',
+      suggestedChangesRouter(
         input.supervisor,
         {
           agents: input.agentRegistry,
@@ -1939,7 +1943,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.authz !== undefined && { authz: input.authz.authzCheckBinding }),
         },
         authorizer,
-        (r) => mountImproveRoute(r, improveDeps, authorizer, itemRights),
         itemRights,
       ),
     );

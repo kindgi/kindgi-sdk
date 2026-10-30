@@ -140,7 +140,7 @@ class ServerError(KindgiApiError):
 _NOT_FOUND = {
     "not-found", "run-not-found", "agent-not-found", "tool-not-found", "guardrail-not-found",
     "flow-not-found", "conversation-not-found", "approval-not-found", "reviewer-not-found",
-    "proposal-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
+    "suggested-change-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
     "audit-bundle-not-found", "signing-not-configured", "signing-key-not-found",
     "adapter-not-found", "fact-not-found", "identity-user-not-found", "provider-not-found",
     "capability-not-found", "token-not-found", "agent-version-not-found", "promotion-not-found",
@@ -150,7 +150,7 @@ _CONFLICT = {
     "idempotency-key-in-flight", "idempotency-key-replay-withheld",
     "hitl-required", "agent-already-registered", "tool-already-registered",
     "guardrail-already-registered", "flow-already-registered", "conversation-closed",
-    "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
+    "provider-already-registered", "suggested-change-invalid-state-transition", "approval-not-decided",
     "slug-conflict", "project-default-already-exists", "registry-read-only",
     "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
     "nothing-to-roll-back", "not-pinned", "agent-version-live", "test-set-already-registered",
