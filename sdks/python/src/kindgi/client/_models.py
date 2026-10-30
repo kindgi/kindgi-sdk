@@ -2536,6 +2536,184 @@ class RemoveCorrectionResult(BaseModel):
     unregistered: Literal[True]
 
 
+class AddTestCaseBody(BaseModel):
+    """
+    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId", min_length=1)]
+    decisions: Literal["right", "wrong"] | None = None
+    should_call: Annotated[
+        list[ShouldCallItem] | None, Field(alias="shouldCall", max_length=50)
+    ] = None
+    """
+    Only with `decisions: "wrong"`: the calls the agent should have made.
+    """
+    must_not_call: Annotated[
+        list[MustNotCallItem] | None, Field(alias="mustNotCall", max_length=50)
+    ] = None
+    """
+    Only with `decisions: "wrong"`: tools that shouldn't have been called. A tool can't be in both.
+    """
+    answer: Literal["right", "wrong"] | None = None
+    should_say: Annotated[str | None, Field(alias="shouldSay", max_length=4000)] = None
+    """
+    Only with `answer: "wrong"`: what it should have said.
+    """
+    why: Annotated[str | None, Field(max_length=4000)] = None
+    items: Annotated[list[CorrectedAnswerItemInput] | None, Field(max_length=100)] = None
+    """
+    For an answer that is a ranked list: each item, and whether it was right. Each key once.
+    """
+
+
+class RetireTestCaseBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Annotated[str, Field(max_length=4000, min_length=1)]
+    """
+    Why the case no longer applies.
+    """
+
+
+class TestCaseDecisions(BaseModel):
+    """
+    `right`: it calls the same tools the corrected run called, by name, in any order (args aren't compared). `wrong`: it calls every `shouldCall` tool (with its `args` where given) and none of `mustNotCall`, checked exactly, without a model.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    verdict: Annotated[Literal["right", "wrong"] | str, _open.OPEN]
+    should_call: Annotated[list[ExpectedCall] | None, Field(alias="shouldCall")] = None
+    must_not_call: Annotated[list[str] | None, Field(alias="mustNotCall")] = None
+
+
+class TestCaseAnswer(BaseModel):
+    """
+    A judging model checks it. `right`: it says what the corrected run's answer said. `wrong`: it does what `shouldSay` or `why` asks.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    verdict: Annotated[Literal["right", "wrong"] | str, _open.OPEN]
+    should_say: Annotated[str | None, Field(alias="shouldSay")] = None
+    why: str | None = None
+
+
+class TestCaseExpect(BaseModel):
+    """
+    One part for each part its correction gave a verdict on; at least one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    decisions: TestCaseDecisions | None = None
+    answer: TestCaseAnswer | None = None
+    items: list[CorrectedAnswerItem] | None = None
+    """
+    A ranked answer's items, scored as `weightedPrecisionAtK`.
+    """
+
+
+class TestCaseRetired(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: str
+    by: CorrectionMadeBy
+    at: AwareDatetime
+
+
+class TestCase(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    A correction's case has the correction's id; a hand case's starts `case-`.
+    """
+    kind: Annotated[Literal["correction", "hand"] | str, _open.OPEN]
+    """
+    `correction`: a correction of the run. `hand`: added by hand.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The run's project.
+    """
+    run_id: Annotated[str, Field(alias="runId")]
+    made_on: Annotated[str, Field(alias="madeOn")]
+    """
+    The agent version the run ran.
+    """
+    expect: TestCaseExpect
+    added_by: Annotated[CorrectionMadeBy, Field(alias="addedBy")]
+    """
+    Who made the correction, or added the case.
+    """
+    added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    """
+    When the case last changed: its `addedAt` until it's retired or an erasure clears its words.
+    """
+    retired: TestCaseRetired | None = None
+    """
+    Present on a retired case: it stays listed, and no test run checks it.
+    """
+
+
+class TestCaseCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TestCase]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class TestSetCaseCounts(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    active: Annotated[int, Field(ge=0)]
+    """
+    The cases a test run checks.
+    """
+    retired: Annotated[int, Field(ge=0)]
+
+
+class AgentTestSet(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    cases: TestSetCaseCounts
+    last_added_at: Annotated[AwareDatetime | None, Field(alias="lastAddedAt")] = None
+    """
+    When the newest case was added. Absent while it has none.
+    """
+
+
 class Expert(BaseModel):
     """
     The same weights, counting only corrections recorded while their group was restricted (`Correction.expert`), for a comparison weighted `experts-only`. Absent from a test set built before restrictions.

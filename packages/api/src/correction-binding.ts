@@ -5,6 +5,17 @@ import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
 import type { Cursor, ListScope, ProjectId, ScopeSegment, TenantId } from '@kindgi/types';
 
 import type { ExpectedCall } from './expected-decisions.js';
+import type {
+  TestCase,
+  TestCaseAddInput,
+  TestCaseGetInput,
+  TestCaseListInput,
+  TestCasePage,
+  TestCaseRetireInput,
+  TestCaseRetireOutcome,
+  TestSetCounts,
+  TestSetOfInput,
+} from './test-case-binding.js';
 
 /**
  * Caller-plugged surface for corrections: a person says whether a run's
@@ -75,6 +86,19 @@ export interface CorrectionRegistryBinding {
    * ids are left out; removed ones come back as `removed`.
    */
   correctionsByIds(input: CorrectionsByIdsInput): Promise<readonly CorrectionStanding[]>;
+  /** A project's test set of an agent: how many cases it has (see `TEST_CASE_KINDS`). */
+  testSet(input: TestSetOfInput): Promise<TestSetCounts>;
+  /** A project's cases of an agent's test set, newest added first. */
+  listCases(input: TestCaseListInput): Promise<TestCasePage>;
+  /** One case of the agent's test set, retired or not, or `null` when it has none by that id. */
+  getCase(input: TestCaseGetInput): Promise<TestCase | null>;
+  /**
+   * Add a case by hand. It's stored as a correction is, but it has no
+   * status, is never sorted, and nothing that counts corrections counts it.
+   */
+  addCase(input: TestCaseAddInput): Promise<TestCase>;
+  /** Retire a case: it stays listed, and no test run checks it again. */
+  retireCase(input: TestCaseRetireInput): Promise<TestCaseRetireOutcome>;
   /**
    * Corrected runs with their copies and live corrections, newest first:
    * what a test set is built from. Optional (a binding without it can't

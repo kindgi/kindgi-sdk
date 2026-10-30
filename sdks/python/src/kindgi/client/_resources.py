@@ -225,6 +225,22 @@ OPERATIONS: dict[str, Operation] = {
     "agents.setOwner": Operation(
         "agents.setOwner", "PUT", "/v1/agents/{agentId}/owner", "json", False
     ),
+    "agents.testSet.get": Operation(
+        "agents.testSet.get", "GET", "/v1/agents/{agentId}/test-set", "json", False
+    ),
+    "agents.testSet.listCases": Operation(
+        "agents.testSet.listCases", "GET", "/v1/agents/{agentId}/test-set/cases", "json", False
+    ),
+    "agents.testSet.addCase": Operation(
+        "agents.testSet.addCase", "POST", "/v1/agents/{agentId}/test-set/cases", "json", True
+    ),
+    "agents.testSet.retireCase": Operation(
+        "agents.testSet.retireCase",
+        "POST",
+        "/v1/agents/{agentId}/test-set/cases/{caseId}/retire",
+        "json",
+        True,
+    ),
     "agents.unregister": Operation(
         "agents.unregister",
         "POST",
@@ -2901,6 +2917,109 @@ class ApprovalsResource:
         )
 
 
+class AgentsTestSetResource:
+    """`client.agents.test_set` — the `agents.testSet` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(
+        self, agent_id: str | UUID, /, *, project_id: str | UUID, timeout: float | None = None
+    ) -> _models.AgentTestSet:
+        """A project's test set of an agent. `GET /v1/agents/{agentId}/test-set`
+
+        How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.get"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.AgentTestSet,
+            timeout=timeout,
+        )
+
+    def list_cases(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        include: Literal["retired"] | None = None,
+        kind: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TestCaseCollectionPage:
+        """List a project's cases of an agent's test set. `GET /v1/agents/{agentId}/test-set/cases`
+
+        Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.listCases"],
+            path={"agentId": agent_id},
+            query={
+                "projectId": project_id,
+                "include": include,
+                "kind": kind,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.TestCaseCollectionPage,
+            timeout=timeout,
+        )
+
+    def add_case(
+        self,
+        agent_id: str | UUID,
+        body: _models.AddTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Add a case to an agent's test set. `POST /v1/agents/{agentId}/test-set/cases`
+
+        A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.addCase"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+    def retire_case(
+        self,
+        agent_id: str | UUID,
+        case_id: str | UUID,
+        body: _models.RetireTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Retire a case of an agent's test set. `POST /v1/agents/{agentId}/test-set/cases/{caseId}/retire`
+
+        A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.retireCase"],
+            path={"agentId": agent_id, "caseId": case_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RetireTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+
 class AgentsLiveResource:
     """`client.agents.live` — the `agents.live` operations."""
 
@@ -3125,6 +3244,7 @@ class AgentsResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.test_set = AgentsTestSetResource(client)
         self.live = AgentsLiveResource(client)
         self.promotions = AgentsPromotionsResource(client)
         self.gate_policy = AgentsGatePolicyResource(client)
@@ -12695,6 +12815,109 @@ class AsyncApprovalsResource:
         )
 
 
+class AsyncAgentsTestSetResource:
+    """`client.agents.test_set` — the `agents.testSet` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(
+        self, agent_id: str | UUID, /, *, project_id: str | UUID, timeout: float | None = None
+    ) -> _models.AgentTestSet:
+        """A project's test set of an agent. `GET /v1/agents/{agentId}/test-set`
+
+        How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.get"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.AgentTestSet,
+            timeout=timeout,
+        )
+
+    async def list_cases(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        include: Literal["retired"] | None = None,
+        kind: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TestCaseCollectionPage:
+        """List a project's cases of an agent's test set. `GET /v1/agents/{agentId}/test-set/cases`
+
+        Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.listCases"],
+            path={"agentId": agent_id},
+            query={
+                "projectId": project_id,
+                "include": include,
+                "kind": kind,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.TestCaseCollectionPage,
+            timeout=timeout,
+        )
+
+    async def add_case(
+        self,
+        agent_id: str | UUID,
+        body: _models.AddTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Add a case to an agent's test set. `POST /v1/agents/{agentId}/test-set/cases`
+
+        A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.addCase"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+    async def retire_case(
+        self,
+        agent_id: str | UUID,
+        case_id: str | UUID,
+        body: _models.RetireTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Retire a case of an agent's test set. `POST /v1/agents/{agentId}/test-set/cases/{caseId}/retire`
+
+        A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.retireCase"],
+            path={"agentId": agent_id, "caseId": case_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RetireTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+
 class AsyncAgentsLiveResource:
     """`client.agents.live` — the `agents.live` operations."""
 
@@ -12921,6 +13144,7 @@ class AsyncAgentsResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.test_set = AsyncAgentsTestSetResource(client)
         self.live = AsyncAgentsLiveResource(client)
         self.promotions = AsyncAgentsPromotionsResource(client)
         self.gate_policy = AsyncAgentsGatePolicyResource(client)

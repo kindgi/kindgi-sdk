@@ -7,22 +7,31 @@ import {
   type CorrectedRunCopy,
   type CorrectedRunWithCorrections,
   type Correction,
+  type CorrectionRecordInput,
   type CorrectionRegistryBinding,
   type CorrectionWithCopies,
   type CorrectorGroup,
+  type TestCase,
+  type TestCaseExpect,
+  type TestCaseRetired,
+  expectOf,
   isReplayCopy,
+  isTestCase,
   segmentsStartWith,
 } from '../../src/index.js';
 
 /**
  * In-memory `CorrectionRegistryBinding` honouring supersede, one run copy per
- * run, and a change that applies only from the status and sorting it expects.
+ * run, a change that applies only from the status and sorting it expects, and
+ * the agent's test set: its correction cases, hand cases and retirements.
  */
 export function inMemoryCorrections(): CorrectionRegistryBinding {
   const groups: CorrectorGroup[] = [];
   const corrections: Correction[] = [];
   const copies = new Map<string, CorrectedRunCopy>();
   const copyProjects = new Map<string, ProjectId>();
+  const handCases: { tenantId: string; agentId: string; testCase: TestCase }[] = [];
+  const retirements = new Map<string, TestCaseRetired>();
   let seq = 0;
   const now = () => new Date(Date.UTC(2026, 9, 1, 0, 0, seq++)).toISOString();
   const sameScope = (a: CorrectorGroup['scope'], b: CorrectorGroup['scope']) =>
@@ -31,6 +40,53 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
     data: rows.slice(0, limit),
     hasMore: rows.length > limit,
   });
+  const keepCopy = (input: Pick<CorrectionRecordInput, 'runId' | 'run' | 'projectId'>) => {
+    if (copies.has(input.runId)) return;
+    copies.set(input.runId, {
+      runId: input.runId,
+      subject: input.run.subject,
+      input: input.run.input,
+      output: input.run.output,
+      ...(input.run.context !== undefined && { context: input.run.context }),
+      ...(input.run.segments !== undefined && { segments: input.run.segments }),
+      capturedAt: now(),
+    });
+    copyProjects.set(input.runId, input.projectId);
+  };
+  const withRetirement = (testCase: TestCase): TestCase => {
+    const retired = retirements.get(testCase.id);
+    return retired === undefined ? testCase : { ...testCase, retired, updatedAt: retired.at };
+  };
+  // The agent's cases, newest added first.
+  const casesOf = (tenantId: string, agentId: string): TestCase[] =>
+    [
+      ...corrections
+        .filter(
+          (j) =>
+            j.tenantId === tenantId &&
+            j.subject.id === agentId &&
+            isTestCase(j) &&
+            !isReplayCopy(copies.get(j.runId) ?? { output: null }),
+        )
+        .map(
+          (j): TestCase => ({
+            id: j.id,
+            kind: 'correction',
+            projectId: j.projectId,
+            runId: j.runId,
+            madeOn: j.subject.version,
+            expect: expectOf(j) as TestCaseExpect,
+            addedBy: j.madeBy,
+            addedAt: j.createdAt,
+            updatedAt: j.createdAt,
+          }),
+        ),
+      ...handCases
+        .filter((h) => h.tenantId === tenantId && h.agentId === agentId)
+        .map((h) => h.testCase),
+    ]
+      .map(withRetirement)
+      .sort((a, b) => (a.addedAt < b.addedAt ? 1 : a.addedAt > b.addedAt ? -1 : 0));
 
   return {
     async createGroup(input) {
@@ -106,18 +162,7 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
 
     async record(input) {
       const id = `j-${corrections.length + 1}`;
-      if (!copies.has(input.runId)) {
-        copies.set(input.runId, {
-          runId: input.runId,
-          subject: input.run.subject,
-          input: input.run.input,
-          output: input.run.output,
-          ...(input.run.context !== undefined && { context: input.run.context }),
-          ...(input.run.segments !== undefined && { segments: input.run.segments }),
-          capturedAt: now(),
-        });
-        copyProjects.set(input.runId, input.projectId);
-      }
+      keepCopy(input);
       for (let i = 0; i < corrections.length; i++) {
         const j = corrections[i] as Correction;
         if (
@@ -313,6 +358,60 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
             input.ids.includes(j.id),
         )
         .map((j) => ({ id: j.id, status: j.status, sortedTo: j.sortedTo ?? null }));
+    },
+    async testSet(input) {
+      const cases = casesOf(input.tenantId, input.agentId).filter(
+        (k) => k.projectId === input.projectId,
+      );
+      const retired = cases.filter((k) => k.retired !== undefined).length;
+      const newest = cases[0];
+      return {
+        active: cases.length - retired,
+        retired,
+        ...(newest !== undefined && { lastAddedAt: newest.addedAt }),
+      };
+    },
+    async listCases(input) {
+      const rows = casesOf(input.tenantId, input.agentId)
+        .filter((k) => k.projectId === input.projectId)
+        .filter((k) => input.kinds === undefined || input.kinds.includes(k.kind))
+        .filter((k) => input.includeRetired === true || k.retired === undefined);
+      const from = input.cursor === undefined ? 0 : Number(input.cursor);
+      const data = rows.slice(from, from + input.limit);
+      const next = from + data.length;
+      return {
+        data,
+        hasMore: next < rows.length,
+        ...(next < rows.length && { nextCursor: String(next) as Cursor }),
+      };
+    },
+    async getCase(input) {
+      return casesOf(input.tenantId, input.agentId).find((k) => k.id === input.caseId) ?? null;
+    },
+    async addCase(input) {
+      keepCopy(input);
+      const { tenantId, projectId, runId, run, madeBy, ...said } = input;
+      const at = now();
+      const testCase: TestCase = {
+        id: `case-${handCases.length + 1}`,
+        kind: 'hand',
+        projectId,
+        runId,
+        madeOn: run.subject.version,
+        expect: expectOf(said) as TestCaseExpect,
+        addedBy: madeBy,
+        addedAt: at,
+        updatedAt: at,
+      };
+      handCases.push({ tenantId, agentId: run.subject.id, testCase });
+      return testCase;
+    },
+    async retireCase(input) {
+      const testCase = casesOf(input.tenantId, input.agentId).find((k) => k.id === input.caseId);
+      if (testCase === undefined) return { kind: 'not-found' };
+      if (testCase.retired !== undefined) return { kind: 'already-retired', testCase };
+      retirements.set(input.caseId, { reason: input.reason, by: input.by, at: now() });
+      return { kind: 'retired', testCase: withRetirement(testCase) };
     },
   };
 }

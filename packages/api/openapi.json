@@ -390,6 +390,8 @@
           "correction-not-found": 404,
           "correction-status-change-not-allowed": 409,
           "corrector-group-not-found": 404,
+          "test-case-not-found": 404,
+          "test-case-retired": 409,
           "queue-rule-not-found": 404,
           "expert-queue-item-not-found": 404,
           "expert-queue-item-not-open": 409,
@@ -7044,6 +7046,322 @@
           "unregistered": {
             "type": "boolean",
             "const": true
+          }
+        }
+      },
+      "AddTestCaseBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId"
+        ],
+        "description": "A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`.",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decisions": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ]
+          },
+          "shouldCall": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "Only with `decisions: \"wrong\"`: the calls the agent should have made.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tool"
+              ],
+              "properties": {
+                "tool": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "args": {
+                  "type": "object",
+                  "maxProperties": 100,
+                  "description": "Only when the inputs matter: the top-level argument fields to compare, by value. Left out, only the call is checked. At most 4000 characters in canonical JSON."
+                }
+              }
+            }
+          },
+          "mustNotCall": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "Only with `decisions: \"wrong\"`: tools that shouldn't have been called. A tool can't be in both.",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ]
+          },
+          "shouldSay": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "Only with `answer: \"wrong\"`: what it should have said."
+          },
+          "why": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "description": "For an answer that is a ranked list: each item, and whether it was right. Each key once.",
+            "items": {
+              "$ref": "#/components/schemas/CorrectedAnswerItemInput"
+            }
+          }
+        }
+      },
+      "RetireTestCaseBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Why the case no longer applies."
+          }
+        }
+      },
+      "TestCaseDecisions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "verdict"
+        ],
+        "description": "`right`: it calls the same tools the corrected run called, by name, in any order (args aren't compared). `wrong`: it calls every `shouldCall` tool (with its `args` where given) and none of `mustNotCall`, checked exactly, without a model.",
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ]
+          },
+          "shouldCall": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExpectedCall"
+            }
+          },
+          "mustNotCall": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TestCaseAnswer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "verdict"
+        ],
+        "description": "A judging model checks it. `right`: it says what the corrected run's answer said. `wrong`: it does what `shouldSay` or `why` asks.",
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ]
+          },
+          "shouldSay": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        }
+      },
+      "TestCaseExpect": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One part for each part its correction gave a verdict on; at least one.",
+        "properties": {
+          "decisions": {
+            "$ref": "#/components/schemas/TestCaseDecisions"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/TestCaseAnswer"
+          },
+          "items": {
+            "type": "array",
+            "description": "A ranked answer's items, scored as `weightedPrecisionAtK`.",
+            "items": {
+              "$ref": "#/components/schemas/CorrectedAnswerItem"
+            }
+          }
+        }
+      },
+      "TestCaseRetired": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason",
+          "by",
+          "at"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/CorrectionMadeBy"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TestCase": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "projectId",
+          "runId",
+          "madeOn",
+          "expect",
+          "addedBy",
+          "addedAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "A correction's case has the correction's id; a hand case's starts `case-`."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "correction",
+              "hand"
+            ],
+            "description": "`correction`: a correction of the run. `hand`: added by hand."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The run's project."
+          },
+          "runId": {
+            "type": "string"
+          },
+          "madeOn": {
+            "type": "string",
+            "description": "The agent version the run ran."
+          },
+          "expect": {
+            "$ref": "#/components/schemas/TestCaseExpect"
+          },
+          "addedBy": {
+            "$ref": "#/components/schemas/CorrectionMadeBy",
+            "description": "Who made the correction, or added the case."
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the case last changed: its `addedAt` until it's retired or an erasure clears its words."
+          },
+          "retired": {
+            "$ref": "#/components/schemas/TestCaseRetired",
+            "description": "Present on a retired case: it stays listed, and no test run checks it."
+          }
+        }
+      },
+      "TestCaseCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestCase"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "Opaque cursor. Treat as opaque on the client."
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TestSetCaseCounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "active",
+          "retired"
+        ],
+        "properties": {
+          "active": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The cases a test run checks."
+          },
+          "retired": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "AgentTestSet": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "projectId",
+          "cases"
+        ],
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cases": {
+            "$ref": "#/components/schemas/TestSetCaseCounts"
+          },
+          "lastAddedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the newest case was added. Absent while it has none."
           }
         }
       },
@@ -36001,6 +36319,499 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SetAgentOwnerBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/test-set": {
+      "get": {
+        "operationId": "agents.testSet.get",
+        "summary": "A project's test set of an agent",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The test set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTestSet"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`projectId` is missing, or not a project id (a UUID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`agent-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The project whose cases to read: the agent's set, narrowed to that project's cases."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/test-set/cases": {
+      "get": {
+        "operationId": "agents.testSet.listCases",
+        "summary": "List a project's cases of an agent's test set",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of cases.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCaseCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`projectId` is missing or not a project id (a UUID), or `include` or `kind` names something else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`agent-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The project whose cases to read: the agent's set, narrowed to that project's cases."
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "retired"
+              ]
+            },
+            "required": false,
+            "description": "`retired`: retired cases too. Left out, active ones only."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^(correction|hand)(,(correction|hand))*$"
+            },
+            "required": false,
+            "description": "Comma-separated `correction` and `hand`. Left out, both."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "agents.testSet.addCase",
+        "summary": "Add a case to an agent's test set",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "201": {
+            "description": "Case added.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCase"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`run-not-found`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`run-not-finished`: the run has no output yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "`run-erased`: an erasure cleared the run's content.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTestCaseBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/test-set/cases/{caseId}/retire": {
+      "post": {
+        "operationId": "agents.testSet.retireCase",
+        "summary": "Retire a case of an agent's test set",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "Retired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCase"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`reason` is missing, empty, or over 4000 characters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`test-case-not-found`: the agent's test set has no case by that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`test-case-retired`: the case is retired already.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "caseId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "A correction's id, or a hand case's `case-…` id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireTestCaseBody"
               }
             }
           }

@@ -322,6 +322,44 @@ const ItemProjectQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+/** `?projectId=` on an agent's test set: it's read one project at a time. */
+const TestSetProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: true,
+  description:
+    "The project whose cases to read: the agent's set, narrowed to that project's cases.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const TestCaseIncludeQueryParam: ParameterSpec = {
+  name: 'include',
+  in: 'query',
+  required: false,
+  description: '`retired`: retired cases too. Left out, active ones only.',
+  schema: { type: 'string', enum: ['retired'] },
+};
+
+const TestCaseKindQueryParam: ParameterSpec = {
+  name: 'kind',
+  in: 'query',
+  required: false,
+  description: 'Comma-separated `correction` and `hand`. Left out, both.',
+  schema: { type: 'string', pattern: '^(correction|hand)(,(correction|hand))*$' },
+};
+
+const TestCaseIdPathParam: ParameterSpec = {
+  name: 'caseId',
+  in: 'path',
+  required: true,
+  description: "A correction's id, or a hand case's `case-…` id.",
+  schema: { type: 'string', minLength: 1 },
+};
+
+/** Who may change an agent's test set (`/v1/agents/{agentId}/test-set/cases…`). */
+const TEST_CASE_WRITE_RIGHTS =
+  "Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.";
+
 /** What a single read of an order's item answers (`GET /v1/agents/{agentId}` and its twins). */
 const NEWEST_VISIBLE_DESCRIPTION =
   'An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.';
@@ -3825,6 +3863,92 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         "The runtime's agent store doesn't keep an owner (`agent-owner-unsupported`).",
       ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/test-set',
+    openapiPath: '/v1/agents/{agentId}/test-set',
+    operationId: 'agents.testSet.get',
+    summary: "A project's test set of an agent",
+    description:
+      "How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, TestSetProjectQueryParam],
+    responses: {
+      '200': { description: 'The test set.', schema: ref('AgentTestSet') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is missing, or not a project id (a UUID).'),
+      '404': ErrorResponse('`agent-not-found`.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/test-set/cases',
+    openapiPath: '/v1/agents/{agentId}/test-set/cases',
+    operationId: 'agents.testSet.listCases',
+    summary: "List a project's cases of an agent's test set",
+    description:
+      'Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.',
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [
+      AgentIdPathParam,
+      TestSetProjectQueryParam,
+      TestCaseIncludeQueryParam,
+      TestCaseKindQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of cases.', schema: ref('TestCaseCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        '`projectId` is missing or not a project id (a UUID), or `include` or `kind` names something else.',
+      ),
+      '404': ErrorResponse('`agent-not-found`.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/test-set/cases',
+    openapiPath: '/v1/agents/{agentId}/test-set/cases',
+    operationId: 'agents.testSet.addCase',
+    summary: "Add a case to an agent's test set",
+    description: `A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. ${TEST_CASE_WRITE_RIGHTS}`,
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('AddTestCaseBody') },
+    responses: {
+      '201': { description: 'Case added.', schema: ref('TestCase') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
+      ),
+      '404': ErrorResponse('`run-not-found`.'),
+      '409': ErrorResponse('`run-not-finished`: the run has no output yet.'),
+      '410': ErrorResponse("`run-erased`: an erasure cleared the run's content."),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/test-set/cases/:caseId/retire',
+    openapiPath: '/v1/agents/{agentId}/test-set/cases/{caseId}/retire',
+    operationId: 'agents.testSet.retireCase',
+    summary: "Retire a case of an agent's test set",
+    description: `A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. ${TEST_CASE_WRITE_RIGHTS}`,
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, TestCaseIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RetireTestCaseBody') },
+    responses: {
+      '200': { description: 'Retired.', schema: ref('TestCase') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`reason` is missing, empty, or over 4000 characters.'),
+      '404': ErrorResponse("`test-case-not-found`: the agent's test set has no case by that id."),
+      '409': ErrorResponse('`test-case-retired`: the case is retired already.'),
     },
   },
   {

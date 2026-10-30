@@ -202,6 +202,36 @@ describe('agents.live and agents.promotions', () => {
     expect(got).toEqual(answer);
   });
 
+  it('testSet.listCases reads one project, with retired cases and kinds as the query', async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    await client(stub).agents.testSet.listCases('acme.drafter', {
+      projectId: PROJECT_ID,
+      includeRetired: true,
+      kinds: ['correction', 'hand'],
+      limit: 20,
+    });
+    const url = new URL(stub.calls[0]!.url);
+    expect(url.pathname).toBe('/v1/agents/acme.drafter/test-set/cases');
+    expect(url.searchParams.get('projectId')).toBe(PROJECT_ID);
+    expect(url.searchParams.get('include')).toBe('retired');
+    expect(url.searchParams.get('kind')).toBe('correction,hand');
+    expect(url.searchParams.get('limit')).toBe('20');
+  });
+
+  it('testSet.retireCase POSTs the reason to the case, with an idempotency key', async () => {
+    const stub = jsonFetch({ id: 'case-1', kind: 'hand' });
+    await client(stub).agents.testSet.retireCase('acme.drafter', 'case-1', 'the tool changed', {
+      idempotencyKey: 'idem-2',
+    });
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe(
+      'https://api.example.com/v1/agents/acme.drafter/test-set/cases/case-1/retire',
+    );
+    expect(req.headers['idempotency-key']).toBe('idem-2');
+    expect(JSON.parse(req.body ?? '{}')).toEqual({ reason: 'the tool changed' });
+  });
+
   it('promotions.create POSTs the version and scope, with an idempotency key', async () => {
     const stub = jsonFetch(promotion, { status: 201 });
     const made = await client(stub).agents.promotions.create(

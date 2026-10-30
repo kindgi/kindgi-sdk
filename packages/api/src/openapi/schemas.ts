@@ -5683,6 +5683,175 @@ export const CreateCorrectionBodySchema: JsonSchema = {
   },
 };
 
+// ---------- an agent's test set ----------
+
+/** A hand case's body: a correction's, without a corrector group or participant (nothing counts a case). */
+export const AddTestCaseBodySchema: JsonSchema = (() => {
+  const {
+    correctorGroupId: _group,
+    participantId: _participant,
+    ...properties
+  } = CreateCorrectionBodySchema.properties as Record<string, unknown>;
+  return {
+    ...CreateCorrectionBodySchema,
+    description: `A correction's body on one of the agent's runs. ${CreateCorrectionBodySchema.description}`,
+    properties,
+  };
+})();
+
+export const RetireTestCaseBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['reason'],
+  properties: {
+    reason: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 4000,
+      description: 'Why the case no longer applies.',
+    },
+  },
+};
+
+/** What a case expects of a run's decisions. */
+export const TestCaseDecisionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['verdict'],
+  description:
+    "`right`: it calls the same tools the corrected run called, by name, in any order (args aren't compared). `wrong`: it calls every `shouldCall` tool (with its `args` where given) and none of `mustNotCall`, checked exactly, without a model.",
+  properties: {
+    verdict: verdictProperty,
+    shouldCall: { type: 'array', items: { $ref: '#/components/schemas/ExpectedCall' } },
+    mustNotCall: { type: 'array', items: { type: 'string' } },
+  },
+};
+
+/** What a case expects of a run's answer. */
+export const TestCaseAnswerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['verdict'],
+  description:
+    "A judging model checks it. `right`: it says what the corrected run's answer said. `wrong`: it does what `shouldSay` or `why` asks.",
+  properties: {
+    verdict: verdictProperty,
+    shouldSay: { type: 'string' },
+    why: { type: 'string' },
+  },
+};
+
+export const TestCaseExpectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'One part for each part its correction gave a verdict on; at least one.',
+  properties: {
+    decisions: { $ref: '#/components/schemas/TestCaseDecisions' },
+    answer: { $ref: '#/components/schemas/TestCaseAnswer' },
+    items: {
+      type: 'array',
+      description: "A ranked answer's items, scored as `weightedPrecisionAtK`.",
+      items: { $ref: '#/components/schemas/CorrectedAnswerItem' },
+    },
+  },
+};
+
+export const TestCaseRetiredSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['reason', 'by', 'at'],
+  properties: {
+    reason: { type: 'string' },
+    by: { $ref: '#/components/schemas/CorrectionMadeBy' },
+    at: { type: 'string', format: 'date-time' },
+  },
+};
+
+/** One case of an agent's test set. */
+export const TestCaseSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'id',
+    'kind',
+    'projectId',
+    'runId',
+    'madeOn',
+    'expect',
+    'addedBy',
+    'addedAt',
+    'updatedAt',
+  ],
+  properties: {
+    id: {
+      type: 'string',
+      description: "A correction's case has the correction's id; a hand case's starts `case-`.",
+    },
+    kind: {
+      type: 'string',
+      enum: ['correction', 'hand'],
+      description: '`correction`: a correction of the run. `hand`: added by hand.',
+    },
+    projectId: { type: 'string', format: 'uuid', description: "The run's project." },
+    runId: { type: 'string' },
+    madeOn: { type: 'string', description: 'The agent version the run ran.' },
+    expect: { $ref: '#/components/schemas/TestCaseExpect' },
+    addedBy: {
+      $ref: '#/components/schemas/CorrectionMadeBy',
+      description: 'Who made the correction, or added the case.',
+    },
+    addedAt: { type: 'string', format: 'date-time' },
+    updatedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When the case last changed: its `addedAt` until it's retired or an erasure clears its words.",
+    },
+    retired: {
+      $ref: '#/components/schemas/TestCaseRetired',
+      description: 'Present on a retired case: it stays listed, and no test run checks it.',
+    },
+  },
+};
+
+export const TestCaseCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/TestCase' } },
+    nextCursor: { type: 'string', description: 'Opaque cursor. Treat as opaque on the client.' },
+    hasMore: { type: 'boolean' },
+  },
+};
+
+/** A project's test set of an agent: how many cases it has. */
+export const TestSetCaseCountsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['active', 'retired'],
+  properties: {
+    active: { type: 'integer', minimum: 0, description: 'The cases a test run checks.' },
+    retired: { type: 'integer', minimum: 0 },
+  },
+};
+
+export const AgentTestSetSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'projectId', 'cases'],
+  properties: {
+    agentId: { type: 'string' },
+    projectId: { type: 'string', format: 'uuid' },
+    cases: { $ref: '#/components/schemas/TestSetCaseCounts' },
+    lastAddedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the newest case was added. Absent while it has none.',
+    },
+  },
+};
+
 export const ChangeCorrectionBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -16510,6 +16679,16 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CorrectionCollectionPage', CorrectionCollectionPageSchema],
   ['CreateCorrectionBody', CreateCorrectionBodySchema],
   ['RemoveCorrectionResult', RemoveCorrectionResultSchema],
+  ['AddTestCaseBody', AddTestCaseBodySchema],
+  ['RetireTestCaseBody', RetireTestCaseBodySchema],
+  ['TestCaseDecisions', TestCaseDecisionsSchema],
+  ['TestCaseAnswer', TestCaseAnswerSchema],
+  ['TestCaseExpect', TestCaseExpectSchema],
+  ['TestCaseRetired', TestCaseRetiredSchema],
+  ['TestCase', TestCaseSchema],
+  ['TestCaseCollectionPage', TestCaseCollectionPageSchema],
+  ['TestSetCaseCounts', TestSetCaseCountsSchema],
+  ['AgentTestSet', AgentTestSetSchema],
   ['CorrectedItemSummary', CorrectedItemSummarySchema],
   ['CorrectorGroupAssertableBy', CorrectorGroupAssertableBySchema],
   ['CorrectorGroupAssertableByView', CorrectorGroupAssertableByViewSchema],

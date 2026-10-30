@@ -759,6 +759,23 @@ export type {
   CorrectionsByIdsInput,
   Verdict,
 } from './correction-binding.js';
+export { TEST_CASE_KINDS, expectOf, isTestCase } from './test-case-binding.js';
+export type {
+  TestCase,
+  TestCaseAddInput,
+  TestCaseAnswer,
+  TestCaseDecisions,
+  TestCaseExpect,
+  TestCaseGetInput,
+  TestCaseKind,
+  TestCaseListInput,
+  TestCasePage,
+  TestCaseRetireInput,
+  TestCaseRetireOutcome,
+  TestCaseRetired,
+  TestSetCounts,
+  TestSetOfInput,
+} from './test-case-binding.js';
 export { resolvePointer } from './routes/corrections.js';
 export type {
   BlockGetInput,

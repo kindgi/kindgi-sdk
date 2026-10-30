@@ -380,6 +380,13 @@ const noopCorrectionRegistry: CorrectionRegistryBinding = {
   update: async () => ({ kind: 'not-found' }),
   counts: async () => ({ open: 0, beingFixed: 0, withOwner: 0, fixed: 0, wontFix: 0, removed: 0 }),
   correctionsByIds: async () => [],
+  testSet: async () => ({ active: 0, retired: 0 }),
+  listCases: async () => ({ data: [], hasMore: false }),
+  getCase: async () => null,
+  addCase: async () => {
+    throw new Error('noop');
+  },
+  retireCase: async () => ({ kind: 'not-found' }),
 };
 
 const noopExpertQueue: ExpertQueueBinding = {

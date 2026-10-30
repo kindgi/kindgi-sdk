@@ -63,6 +63,7 @@ import {
   isPromotionWrite,
   mountAgentReleaseRoutes,
 } from './agent-releases.js';
+import { isTestSetPath } from './agent-test-set.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
@@ -125,6 +126,8 @@ export function agentsRouter(
   // the definitions come from), and refuses an undo with its own reason.
   const refuseWrites = refuseWritesWhenReadOnly(() => binding.readOnly);
   r.use('*', async (c, next) => {
+    // An agent's test set is the corrections store's, not the registry's.
+    if (isTestSetPath(c.req.path)) return next();
     const candidates = binding.readOnly?.takesCandidates;
     if (candidates !== undefined) {
       const { method, path } = c.req;
@@ -211,15 +214,18 @@ export function agentsRouter(
         id: (c) => c.req.param('agentId') ?? '',
         // Deriving a version (POST …/versions) is `publish` on the agent;
         // unregister and reinstate are `admin`. A change to what's live is
-        // checked above.
+        // checked above, and the test set's routes check for themselves
+        // (`agent-test-set.ts`).
         today: (c) =>
-          c.req.method === 'GET' || isPromotionCheck(c.req.method, c.req.path)
-            ? 'read'
-            : isPromotionWrite(c.req.method, c.req.path)
-              ? undefined
-              : c.req.path.endsWith('/versions')
-                ? 'publish'
-                : 'admin',
+          isTestSetPath(c.req.path)
+            ? undefined
+            : c.req.method === 'GET' || isPromotionCheck(c.req.method, c.req.path)
+              ? 'read'
+              : isPromotionWrite(c.req.method, c.req.path)
+                ? undefined
+                : c.req.path.endsWith('/versions')
+                  ? 'publish'
+                  : 'admin',
         check: (c, projects) => agentCheck(c, projects),
         versionNotFound: agentVersionNotFound,
       }),

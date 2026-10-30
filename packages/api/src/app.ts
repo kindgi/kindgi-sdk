@@ -139,6 +139,7 @@ import {
 } from './routes/connections.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { correctedTestSetsRouter } from './routes/corrected-test-sets.js';
+import { agentTestSetRouter } from './routes/agent-test-set.js';
 import { correctionsRouter, correctorGroupsRouter } from './routes/corrections.js';
 import { costRouter } from './routes/cost.js';
 import { deploymentsRouter } from './routes/deployments.js';
@@ -2298,6 +2299,21 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
     v1.route('/corrector-groups', correctorGroupsRouter(input.correctionRegistry, authorizer));
+    // An agent's test set: its corrections are its cases (`test-case-binding.ts`).
+    v1.route(
+      '/agents',
+      agentTestSetRouter({
+        corrections: input.correctionRegistry,
+        runs: runBinding,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(itemRights !== undefined && { itemRights }),
+        ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
+        ...(input.conversationBinding !== undefined && {
+          conversations: input.conversationBinding,
+        }),
+        ...(input.flowRegistry !== undefined && { flows: input.flowRegistry }),
+      }),
+    );
   }
   if (input.expertQueue !== undefined) {
     v1.route(

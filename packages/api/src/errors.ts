@@ -256,6 +256,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'correction-not-found': 404,
   'correction-status-change-not-allowed': 409,
   'corrector-group-not-found': 404,
+  /** The agent's test set has no case by that id (`/v1/agents/:agentId/test-set/cases/:caseId`). */
+  'test-case-not-found': 404,
+  /** Retiring a case that's retired already: there's no un-retire. */
+  'test-case-retired': 409,
   /** A queue rule that isn't in the project (`/v1/projects/:projectId/queue-rules/:ruleId`). */
   'queue-rule-not-found': 404,
   /** A run that isn't in the project's expert queue. */
