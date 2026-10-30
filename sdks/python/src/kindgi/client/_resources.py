@@ -470,6 +470,13 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "suggestedChanges.addAsLatest": Operation(
+        "suggestedChanges.addAsLatest",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/add-as-latest",
+        "json",
+        True,
+    ),
     "suggestedChanges.withdraw": Operation(
         "suggestedChanges.withdraw",
         "POST",
@@ -4742,6 +4749,30 @@ class SuggestedChangesResource:
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def add_as_latest(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Add a suggested change's version as its project's Latest. `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`
+
+        Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `promote` on the agent. Allowed from `ready`.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.addAsLatest"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
@@ -14508,6 +14539,30 @@ class AsyncSuggestedChangesResource:
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def add_as_latest(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Add a suggested change's version as its project's Latest. `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`
+
+        Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `promote` on the agent. Allowed from `ready`.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.addAsLatest"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},

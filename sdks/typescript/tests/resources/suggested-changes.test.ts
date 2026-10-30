@@ -105,6 +105,19 @@ describe('client.suggestedChanges', () => {
     expect(JSON.parse(req.body!)).toEqual(input);
   });
 
+  it('addAsLatest POSTs to /v1/suggested-changes/{id}/add-as-latest, with its reason', async () => {
+    const stub = jsonFetch(WIRE_SUGGESTED_CHANGE);
+    await clientWith(stub).suggestedChanges.addAsLatest(ID, {
+      reason: 'acme runs Latest',
+      idempotencyKey: 'idem-3',
+    });
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe(`https://api.example.com/v1/suggested-changes/${ID}/add-as-latest`);
+    expect(req.headers['idempotency-key']).toBe('idem-3');
+    expect(JSON.parse(req.body!)).toEqual({ reason: 'acme runs Latest' });
+  });
+
   it('get reads one; a gate refusal on pin surfaces with its code', async () => {
     const got = jsonFetch(WIRE_SUGGESTED_CHANGE);
     expect((await clientWith(got).suggestedChanges.get(ID)).id).toBe(ID);

@@ -29,16 +29,19 @@
   `fromVersion`, `scope`, `tier`, `change`, `evidence`, `candidate`, `evaluation`, `promotion` and `rolledBack` are gone.
 - **Listing.** `GET /v1/suggested-changes` filters by `agentId`, `projectId`, `status` and `madeBy` (one of its kinds). The `tier` and scope filters are gone.
 - **Pinning.** `POST /v1/suggested-changes/{suggestedChangeId}/pin` pins its version for its project, through the project's release gate policy, as before. It's refused for a project that runs Latest (`409 suggested-change-project-on-latest`).
+- **Adding it as Latest.** `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest` is new. It makes its version its project's Latest, now, for a project on Latest, with no gate. `reason` is kept on its `addedAsLatest`. It's refused for a project that runs a pin (`409 suggested-change-project-pinned`). It needs `promote` on the agent, and it's allowed from `ready`.
 - **One made before this change.** One made for a tenant, an org or a segment reads with the project its version was made in, when that's known. It can only be withdrawn: checking or pinning it is `409 suggested-change-not-for-a-project`.
-- **Errors.** Four codes are new:
+- **Errors.** Five codes are new:
   - `suggested-change-not-for-a-project` (409);
   - `suggested-change-check-unsupported` (501): the runtime freezes no test set;
   - `suggested-change-nothing-to-check` (409): the project's test set has no cases;
-  - `suggested-change-project-on-latest` (409).
-- **Binding.** `TestSetFreezeBinding` freezes a project's test set for a check. A stored suggested change keeps who drafted its content as `drafter` (`SuggestedChangeDrafter`). It gains `madeBy` (`SuggestedChangeMaker`), `builtOnVersion`, `rebuiltAt` and `addedAsLatest`.
+  - `suggested-change-project-on-latest` (409);
+  - `suggested-change-project-pinned` (409).
+- **Binding.** `TestSetFreezeBinding` freezes a project's test set for a check. A stored suggested change keeps who drafted its content as `drafter` (`SuggestedChangeDrafter`). It gains `madeBy` (`SuggestedChangeMaker`), `builtOnVersion`, `rebuiltAt` and `addedAsLatest`, and a store records the new `added-as-latest` step.
 - **TypeScript client.**
   - `client.suggestedChanges.create` takes the new body.
   - `check` replaces `evaluate` and `rescore`.
+  - `addAsLatest` is new.
   - `list` takes `projectId`, `status` and `madeBy`.
   - `SuggestedChange` follows the answer. `SuggestedChangeTier` and `EvaluateSuggestedChangeInput` are removed.
 - **CLI.**

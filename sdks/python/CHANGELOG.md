@@ -89,6 +89,9 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
     starts.
   - `client.suggested_changes.check(suggested_change_id)` checks it again. It
     replaces `evaluate` and `rescore`.
+  - `client.suggested_changes.add_as_latest(suggested_change_id)` makes its
+    version its project's Latest, for a project on Latest, with no gate. A
+    `reason` is kept on its `added_as_latest`.
   - `list` filters by `agent_id`, `project_id`, `status` and `made_by`.
   - `SuggestedChange` gains `project_id`, `title`, `built_on`, `version`,
     `changes`, `fixes`, `check`, `note`, `pinned`, `approval_id`,
@@ -120,6 +123,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
       test set has no cases;
     - `suggested-change-project-on-latest` (`ConflictError`): a pin, for a
       project that runs Latest;
+    - `suggested-change-project-pinned` (`ConflictError`): an add as Latest,
+      for a project that runs a pin;
     - `suggested-change-check-unsupported` (`ServerError`, a 501): the
       server freezes no test set, so nothing can be checked.
 

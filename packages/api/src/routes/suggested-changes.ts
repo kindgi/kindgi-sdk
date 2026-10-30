@@ -68,17 +68,20 @@ type Ctx = Context<AppEnv>;
  *   POST /:id/pin          a gated pin of its version for the project
  *                          (201 pinned, 202 waiting for a second person,
  *                          422 gate-failed)
+ *   POST /:id/add-as-latest  its version made Latest, for a project on
+ *                          Latest (200 added-as-latest; no gate)
  *   POST /:id/withdraw     closed by a person
  *
  * Authorized on the suggested change's agent: reading is `read`, making,
- * checking and withdrawing are `publish`, and pinning is `promote`. A
+ * checking and withdrawing are `publish`, and pinning and adding as
+ * Latest are `promote`. A
  * suggested change the caller can't read answers 404, as one that
  * doesn't exist.
  *
  * For an agent more than one project serves (`item-rights.ts`): reading
  * is `read` on the agent or on any of its projects; making, checking and
- * withdrawing are `write` where its new versions are made; pinning is
- * `admin` in the suggested change's project.
+ * withdrawing are `write` where its new versions are made; pinning and
+ * adding as Latest are `admin` in the suggested change's project.
  */
 export function suggestedChangesRouter(
   store: SuggestedChangeServiceDeps['store'],
@@ -342,6 +345,28 @@ export function suggestedChangesRouter(
     );
   });
 
+  // ---------- POST /:suggestedChangeId/add-as-latest ----------
+  r.post('/:suggestedChangeId/add-as-latest', async (c) => {
+    const ready = await prepare(c, 'promote');
+    if (ready instanceof Response) return ready;
+    const spans = await widthRefusal(c, {
+      rights: itemRights,
+      agentId: ready.suggestedChange.agentId as unknown as string,
+      scope: ready.suggestedChange.scope,
+    });
+    if (spans !== undefined) return spans;
+    const reason = optionalText(ready.body, 'reason');
+    if (reason.kind === 'err') return badInput(c, reason.message);
+    const outcome = await service.addAsLatest({
+      tenantId: c.get('tenantId') as TenantId,
+      suggestedChange: ready.suggestedChange,
+      actor: actorOf(c),
+      ...(reason.value !== undefined && { reason: reason.value }),
+    });
+    if (outcome.kind === 'err') return failWith(c, outcome.error);
+    return answer(c, outcome.value);
+  });
+
   // ---------- POST /:suggestedChangeId/withdraw ----------
   r.post('/:suggestedChangeId/withdraw', async (c) => {
     const ready = await prepare(c, 'publish');
@@ -491,7 +516,12 @@ export function serialize(
       promotion?.approvalId !== undefined && { approvalId: promotion.approvalId }),
     ...(p.addedAsLatest !== undefined &&
       version !== undefined && {
-        addedAsLatest: { version, by: actorWire(p.addedAsLatest.by), at: p.addedAsLatest.at },
+        addedAsLatest: {
+          version,
+          by: actorWire(p.addedAsLatest.by),
+          at: p.addedAsLatest.at,
+          ...(p.addedAsLatest.reason !== undefined && { reason: p.addedAsLatest.reason }),
+        },
       }),
     ...(p.withdrawn !== undefined && {
       withdrawn: {

@@ -1557,6 +1557,16 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'suggested-change-project-pinned': {
+    description:
+      "The suggested change's project runs a pin of the agent, not its Latest, so its version isn't added as Latest there. Pin it instead.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+    ],
+  },
   'improve-unsupported': {
     description: "This runtime doesn't run Improve.",
     details: [],

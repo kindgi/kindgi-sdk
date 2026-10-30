@@ -6858,10 +6858,13 @@ export const SuggestedChangeSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['version', 'by', 'at'],
+      description:
+        "Once `added-as-latest`: its version, who added it as its project's Latest, when, and why when given.",
       properties: {
         version: { type: 'string' },
         by: { $ref: '#/components/schemas/PinActor' },
         at: { type: 'string', format: 'date-time' },
+        reason: { type: 'string' },
       },
     },
     withdrawn: {

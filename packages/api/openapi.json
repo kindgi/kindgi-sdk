@@ -362,6 +362,7 @@
           "suggested-change-check-unsupported": 501,
           "suggested-change-nothing-to-check": 409,
           "suggested-change-project-on-latest": 409,
+          "suggested-change-project-pinned": 409,
           "improve-unsupported": 501,
           "improve-run-not-found": 404,
           "improve-run-finished": 409,
@@ -11647,6 +11648,7 @@
               "by",
               "at"
             ],
+            "description": "Once `added-as-latest`: its version, who added it as its project's Latest, when, and why when given.",
             "properties": {
               "version": {
                 "type": "string"
@@ -11657,6 +11659,9 @@
               "at": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "reason": {
+                "type": "string"
               }
             }
           },
@@ -44067,6 +44072,135 @@
           }
         },
         "description": "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/promotions` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `promote` on the agent. Allowed from `ready`.",
+        "parameters": [
+          {
+            "name": "suggestedChangeId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The suggested change id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestedChangeReasonBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/suggested-changes/{suggestedChangeId}/add-as-latest": {
+      "post": {
+        "operationId": "suggestedChanges.addAsLatest",
+        "summary": "Add a suggested change's version as its project's Latest",
+        "tags": [
+          "suggested-changes"
+        ],
+        "responses": {
+          "200": {
+            "description": "The suggested change, `added-as-latest`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestedChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such suggested change. Or `agent-version-not-found`: its version was unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-pinned`: its project runs a pin, not Latest. `registry-read-only`: the agent registry takes no writes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `promote` on the agent. Allowed from `ready`.",
         "parameters": [
           {
             "name": "suggestedChangeId",

@@ -521,10 +521,12 @@ export interface SuggestedChange {
   };
   /** While `waiting-for-second-person`: the approval the pin waits on. */
   readonly approvalId?: string;
+  /** Once `added-as-latest`: its version, who added it as its project's Latest, when, and why. */
   readonly addedAsLatest?: {
     readonly version: string;
     readonly by: SuggestedChangeActor;
     readonly at: import('@kindgi/types').Timestamp;
+    readonly reason?: string;
   };
   readonly withdrawn?: {
     readonly by: SuggestedChangeActor;

@@ -38,8 +38,10 @@ Where nothing is live, a run gets its project's **Latest**. Latest moves only
 when:
 
 - a deployment into the project ships a version: `kindgi deploy`, or
-  `kindgi promote` carrying a build to the next environment, or
-- a person publishes a full version of the agent (`POST /v1/agents`).
+  `kindgi promote` carrying a build to the next environment;
+- a person publishes a full version of the agent (`POST /v1/agents`); or
+- a person adds a suggested change's version as the project's Latest, as
+  [Add it as Latest](../propose-a-change/#add-it-as-latest) shows.
 
 It doesn't move by itself. A version derived from an edit to its prompts or
 settings (`POST /v1/agents/{agentId}/versions`) runs only where it's made

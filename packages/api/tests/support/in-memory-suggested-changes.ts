@@ -82,6 +82,9 @@ export function inMemorySuggestedChanges(): SupervisorBinding & {
         case 'promotion':
           next = { ...base, promotionId: step.promotionId };
           break;
+        case 'added-as-latest':
+          next = { ...base, addedAsLatest: step.addedAsLatest };
+          break;
         case 'withdrawn':
           next = { ...base, withdrawn: step.withdrawn };
           break;

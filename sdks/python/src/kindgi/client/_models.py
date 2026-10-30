@@ -4717,6 +4717,10 @@ class Pinned(BaseModel):
 
 
 class AddedAsLatest(BaseModel):
+    """
+    Once `added-as-latest`: its version, who added it as its project's Latest, when, and why when given.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4724,6 +4728,7 @@ class AddedAsLatest(BaseModel):
     version: str
     by: PinActor
     at: AwareDatetime
+    reason: str | None = None
 
 
 class Withdrawn(BaseModel):
@@ -4800,6 +4805,9 @@ class SuggestedChange(BaseModel):
     While `waiting-for-second-person`: the approval the pin waits on.
     """
     added_as_latest: Annotated[AddedAsLatest | None, Field(alias="addedAsLatest")] = None
+    """
+    Once `added-as-latest`: its version, who added it as its project's Latest, when, and why when given.
+    """
     withdrawn: Withdrawn | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]

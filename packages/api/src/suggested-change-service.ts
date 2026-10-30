@@ -621,7 +621,9 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
    */
   function cardReadOnly(): SuggestedChangeServiceError | undefined {
     const readOnly = deps.agents.readOnly;
-    return readOnly === undefined ? undefined : { code: 'registry-read-only', message: readOnly.reason };
+    return readOnly === undefined
+      ? undefined
+      : { code: 'registry-read-only', message: readOnly.reason };
   }
 
   /** Why the registry takes no candidate for the suggested change; `undefined` when it does. */
@@ -1106,6 +1108,60 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       });
       if (recorded.kind === 'err') return recorded;
       return { kind: 'ok', value: { suggestedChange: recorded.value, promotion } };
+    },
+
+    /**
+     * Add its version as its project's Latest, for a project on Latest:
+     * the version is marked Latest in the project it was made in (the
+     * card's), now, by the caller (`markLatest`). No gate: a project on
+     * Latest takes each new Latest as it comes. A pinned project takes a
+     * pin instead (`409 suggested-change-project-pinned`).
+     */
+    async addAsLatest(input: {
+      readonly tenantId: TenantId;
+      readonly suggestedChange: StoredSuggestedChange;
+      readonly actor: PromotionActor;
+      readonly reason?: string;
+    }): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
+      const { tenantId, suggestedChange } = input;
+      const refused = await refuseStatus('add-as-latest', suggestedChange);
+      if (refused !== undefined) return err(refused);
+      const projectId = projectOfCard(suggestedChange);
+      if (projectId === undefined) return err(notForAProject(suggestedChange, 'add-as-latest'));
+      const readOnly = cardReadOnly();
+      if (readOnly !== undefined) return err(readOnly);
+      const id = suggestedChange.id as unknown as string;
+      const agentId = suggestedChange.agentId as unknown as string;
+      const runs = await whatRuns(deps.releases, { tenantId, agentId, projectId });
+      if (runs?.follows === 'pin') {
+        return err({
+          code: 'suggested-change-project-pinned',
+          message: `Project ${projectId as unknown as string} runs a pin of ${agentId}, not its Latest: pin the change instead`,
+          suggestedChangeId: id,
+        });
+      }
+      const version = suggestedChange.candidate?.agentVersion;
+      if (version === undefined) throw new Error('a ready suggested change has its version');
+      const marked = await deps.agents.markLatest({
+        tenantId,
+        agentId: suggestedChange.agentId,
+        version: version as Semver,
+        by: input.actor,
+      });
+      if (marked.kind === 'not-found') {
+        return err({
+          code: 'agent-version-not-found',
+          message: `${agentId} has no active version ${version}, which suggested change ${id} made`,
+        });
+      }
+      return record(suggestedChange, {
+        kind: 'added-as-latest',
+        addedAsLatest: {
+          at: marked.latestAt as Timestamp,
+          by: `${input.actor.kind}:${input.actor.id}`,
+          ...(input.reason !== undefined && { reason: input.reason }),
+        },
+      });
     },
 
     async withdraw(input: {

@@ -5299,6 +5299,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/add-as-latest',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/add-as-latest',
+    operationId: 'suggestedChanges.addAsLatest',
+    summary: "Add a suggested change's version as its project's Latest",
+    description:
+      'Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `promote` on the agent. Allowed from `ready`.',
+    tags: ['suggested-changes'],
+    security: 'bearer',
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('SuggestedChangeReasonBody') },
+    responses: {
+      '200': {
+        description: 'The suggested change, `added-as-latest`.',
+        schema: ref('SuggestedChange'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
+      ),
+      '409': ErrorResponse(
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-pinned`: its project runs a pin, not Latest. `registry-read-only`: the agent registry takes no writes.",
+      ),
+    },
+  },
+  {
+    method: 'post',
     honoPath: '/v1/suggested-changes/:suggestedChangeId/withdraw',
     openapiPath: '/v1/suggested-changes/{suggestedChangeId}/withdraw',
     operationId: 'suggestedChanges.withdraw',

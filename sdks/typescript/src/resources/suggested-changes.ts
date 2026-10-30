@@ -73,6 +73,18 @@ export interface SuggestedChangesClient {
    */
   pin(id: SuggestedChangeId | string, input?: SuggestedChangeReasonInput): Promise<SuggestedChange>;
 
+  /**
+   * Its version made its project's Latest, now, for a project on Latest
+   * (no gate): the suggested change, `added-as-latest`. A pinned project
+   * takes a pin instead (`suggested-change-project-pinned`).
+   *
+   * @wire `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`
+   */
+  addAsLatest(
+    id: SuggestedChangeId | string,
+    input?: SuggestedChangeReasonInput,
+  ): Promise<SuggestedChange>;
+
   /** @wire `POST /v1/suggested-changes/{suggestedChangeId}/withdraw` */
   withdraw(id: SuggestedChangeId | string, input: WithdrawInput): Promise<SuggestedChange>;
 }
@@ -167,6 +179,15 @@ export function makeSuggestedChangesClient(transport: Transport): SuggestedChang
     async pin(id, input = {}) {
       const { idempotencyKey, ...body } = input;
       return post({ path: `/v1/suggested-changes/${seg(id)}/pin`, body, idempotencyKey });
+    },
+
+    async addAsLatest(id, input = {}) {
+      const { idempotencyKey, ...body } = input;
+      return post({
+        path: `/v1/suggested-changes/${seg(id)}/add-as-latest`,
+        body,
+        idempotencyKey,
+      });
     },
 
     async withdraw(id, input) {

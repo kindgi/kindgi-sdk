@@ -201,8 +201,15 @@ export interface StoredSuggestedChange {
   readonly builtOnVersion?: string;
   /** When it was last rebuilt. */
   readonly rebuiltAt?: Timestamp;
-  /** Its version, added as its project's Latest: when, and by whom (`user:<id>`). */
-  readonly addedAsLatest?: { readonly at: Timestamp; readonly by: string };
+  /**
+   * Its version, added as its project's Latest: when, by whom
+   * (`user:<id>`), and why, when given.
+   */
+  readonly addedAsLatest?: {
+    readonly at: Timestamp;
+    readonly by: string;
+    readonly reason?: string;
+  };
   /** Dedup key: the same change for the same scope is one suggested change. */
   readonly fingerprint: string;
   /** Goes up by one with each recorded step. */
@@ -267,6 +274,10 @@ export type SuggestedChangeStep =
   | { readonly kind: 'candidate'; readonly candidate: SuggestedChangeCandidate }
   | { readonly kind: 'evaluation'; readonly evaluation: SuggestedChangeEvaluationRef }
   | { readonly kind: 'promotion'; readonly promotionId: string }
+  | {
+      readonly kind: 'added-as-latest';
+      readonly addedAsLatest: NonNullable<StoredSuggestedChange['addedAsLatest']>;
+    }
   | {
       readonly kind: 'withdrawn';
       readonly withdrawn: NonNullable<StoredSuggestedChange['withdrawn']>;

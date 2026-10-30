@@ -48,6 +48,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp, createSuggestedChangeService } from '../src/index.js';
 import type {
+  AgentMarkLatestInput,
   AgentRegistryBinding,
   AgentReleaseBindings,
   AgentVersionRecord,
@@ -120,13 +121,15 @@ const resolveToken: TokenResolver = async (token) => {
 /** The agent registry in memory, recording each version's project and the entries its publish wrote. */
 function agentBinding(
   unregistered: ReadonlySet<string> = new Set(),
-): AgentRegistryBinding & { written: TupleIntent[] } {
+): AgentRegistryBinding & { written: TupleIntent[]; marked: AgentMarkLatestInput[] } {
   const registry = createAgentRegistry();
   const written: TupleIntent[] = [];
+  const marked: AgentMarkLatestInput[] = [];
   // Where a version was made, when it's not the agent's project (an environment order's first).
   const madeIn = new Map<string, ProjectId>();
   return {
     written,
+    marked,
     async list() {
       return { data: [] };
     },
@@ -166,7 +169,15 @@ function agentBinding(
     async unregister() {
       return { unregistered: false };
     },
-    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
+    async markLatest(input) {
+      const { agentId, version } = input;
+      const v = version as unknown as string;
+      if (registry.get(agentId, v).kind !== 'ok' || unregistered.has(v)) {
+        return { kind: 'not-found', agentId, version };
+      }
+      marked.push(input);
+      return { kind: 'ok', agentId, version, latestAt: NOW };
+    },
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -1538,6 +1549,111 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error.code).toBe('suggested-change-not-for-a-project');
     expect(h.releases.calls).toEqual([]);
+  });
+});
+
+describe('POST /v1/suggested-changes/:id/add-as-latest', () => {
+  /** A ready suggested change for a project on Latest (nothing pinned). */
+  async function readyOnLatest(opts: HarnessOpts = {}) {
+    const h = await harness(opts);
+    const res = await h.call('POST', '/v1/suggested-changes', CARD);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    await h.testRuns.finish(res.body.check.with.testRunId, { delta: 0.1 });
+    await h.testRuns.finish(res.body.check.now.testRunId, { delta: 0 });
+    return { ...h, id: res.body.id as string, version: res.body.version as string };
+  }
+
+  test('a ready one for a project on Latest is added as its Latest (200), with no gate, and keeps its reason', async () => {
+    const h = await readyOnLatest();
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {
+      reason: 'Fit first for acme',
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'added-as-latest',
+      addedAsLatest: {
+        version: h.version,
+        by: { kind: 'user', id: 'user-1' },
+        at: NOW,
+        reason: 'Fit first for acme',
+      },
+    });
+    expect(h.agents.marked).toEqual([
+      { tenantId, agentId: AGENT, version: h.version, by: { kind: 'user', id: 'user-1' } },
+    ]);
+    expect(h.releases.calls).toEqual([]);
+    const got = await h.call('GET', `/v1/suggested-changes/${h.id}`);
+    expect(got.body.status).toBe('added-as-latest');
+    // Done: it's neither added again, pinned, nor withdrawn.
+    for (const action of ['add-as-latest', 'pin']) {
+      const again = await h.call('POST', `/v1/suggested-changes/${h.id}/${action}`, {});
+      expect(again.status, action).toBe(409);
+      expect(again.body.error.details.status).toBe('added-as-latest');
+    }
+    const withdraw = await h.call('POST', `/v1/suggested-changes/${h.id}/withdraw`, {
+      reason: 'too late',
+    });
+    expect(withdraw.status).toBe(409);
+    expect(h.agents.marked).toHaveLength(1);
+  });
+
+  test('without a reason, none is kept', async () => {
+    const h = await readyOnLatest();
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.addedAsLatest).not.toHaveProperty('reason');
+  });
+
+  test('one still checking is refused (409), and nothing is marked', async () => {
+    const h = await harness();
+    const made = await h.call('POST', '/v1/suggested-changes', CARD);
+    expect(made.status, JSON.stringify(made.body)).toBe(201);
+    const res = await h.call('POST', `/v1/suggested-changes/${made.body.id}/add-as-latest`, {});
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'suggested-change-invalid-state-transition',
+      details: { status: 'checking' },
+    });
+    expect(h.agents.marked).toEqual([]);
+  });
+
+  test('a pinned project takes a pin instead (409 suggested-change-project-pinned), and nothing is marked', async () => {
+    const h = await checked(0.1);
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'suggested-change-project-pinned',
+      details: { suggestedChangeId: h.id },
+    });
+    expect(h.agents.marked).toEqual([]);
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('ready');
+  });
+
+  test('a version unregistered since is not added (404 agent-version-not-found), and it stays ready', async () => {
+    const h = await readyOnLatest();
+    // Unregistered after its check: the registry no longer finds it.
+    h.agents.markLatest = async ({ agentId, version }) => ({ kind: 'not-found', agentId, version });
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+    expect(res.body.error.code).toBe('agent-version-not-found');
+    expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('ready');
+  });
+
+  test('one made for a whole tenant before suggested changes were for a project is not added (409 suggested-change-not-for-a-project)', async () => {
+    const h = await harness();
+    const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
+    const res = await h.call('POST', `/v1/suggested-changes/${id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('suggested-change-not-for-a-project');
+    expect(h.agents.marked).toEqual([]);
+  });
+
+  test('adding as Latest needs promote, as pinning does', async () => {
+    const h = await readyOnLatest({ grants: [`read agent:${AGENT}`, `publish agent:${AGENT}`] });
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toContain('promote');
+    expect(h.agents.marked).toEqual([]);
   });
 });
 

@@ -96,7 +96,7 @@ starts the check. It prints the suggested change, `checking`:
   "fixes": [],
   "check": {
     "status": "running",
-    "testSetId": "agent:acme.rank.scorer",
+    "testSetId": "agent:acme.rank.scorer:aa0cf701-a8f7-40e5-b5d9-bec1a1cb1723",
     "now": { "testRunId": "941582fc-9e32-41bb-b148-767712664c6b" },
     "with": { "testRunId": "aefcafd1-53df-480e-b01d-05ae55724507" },
     "startedAt": "2026-10-09T13:24:24.401Z"
@@ -160,7 +160,7 @@ pnpm exec kindgi suggested-changes get <suggested-change-id>
   …
   "check": {
     "status": "done",
-    "testSetId": "agent:acme.rank.scorer",
+    "testSetId": "agent:acme.rank.scorer:aa0cf701-a8f7-40e5-b5d9-bec1a1cb1723",
     "testSetVersion": "1.0.4",
     "now": {
       "testRunId": "941582fc-9e32-41bb-b148-767712664c6b",
@@ -262,6 +262,7 @@ names that request. You can ask again.
 - **A project that runs its [Latest](../live-versions-reference/#latest)**
   takes no pin: the request is refused with
   `409 suggested-change-project-on-latest`.
+  [Add it as Latest](#add-it-as-latest) instead.
 - **A suggested change an [Improve run](../improve-an-agent/) made,** rather
   than a person, always waits for a reviewer, even where the project's
   policy asks for no approval. While another reviewer could approve it,
@@ -273,6 +274,26 @@ names that request. You can ask again.
 - **Pinning needs `promote` on the agent.** Through the API, it's
   `POST /v1/suggested-changes/{suggestedChangeId}/pin`, which answers `201`
   when it's pinned and `202` when it waits for a second person.
+
+## Add it as Latest
+
+A project that runs its [Latest](../live-versions-reference/#latest) takes a
+suggested change as its Latest instead: from then on, the project runs the
+suggested change's version, until its Latest moves again. There's no release gate policy here: a project on Latest takes each
+new Latest as it comes.
+
+- Through the API, it's
+  `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`, with an
+  optional `reason`, and it answers `200`. From your app, it's
+  `suggestedChanges.addAsLatest` in the TypeScript client, and
+  `suggested_changes.add_as_latest` in the Python client.
+- It's allowed when the suggested change is `ready`, and needs `promote` on
+  the agent. For an agent that several projects serve, it's `admin` in the
+  suggested change's project.
+- Then it's `added-as-latest`, and its `addedAsLatest` says which version,
+  who added it, when, and the `reason`.
+- **A project that runs a pin** takes a pin instead: adding it is refused
+  with `409 suggested-change-project-pinned`. [Pin it](#pin-it).
 
 ## Withdraw it
 
@@ -341,7 +362,7 @@ doesn't exist.
 | `withdrawn` | Withdrawn. |
 
 From your app, the clients have the same calls: `suggestedChanges.create`,
-`list`, `get`, `check`, `pin` and `withdraw`.
+`list`, `get`, `check`, `pin`, `addAsLatest` and `withdraw`.
 
 ## Next
 
