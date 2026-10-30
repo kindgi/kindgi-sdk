@@ -62,7 +62,7 @@ describe('kindgi corrections', () => {
         '--pointer=/matches/1',
         '--rank=1',
         '--yes',
-        '--reason=right company',
+        '--why=right company',
         '--group=jc-1',
         '--participant=end-user-1',
       ],
@@ -85,15 +85,17 @@ describe('kindgi corrections', () => {
     expect(JSON.parse(out.stdout)).toEqual({ id: 'c-9' });
   });
 
-  test('--correction says what the decisions should have been', async () => {
+  test('--decisions=wrong says what the agent should have called, and not called', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
         'corrections',
         'add',
         '--run=r-1',
-        '--no',
-        '--correction={"calls":[{"tool":"acme.refund","args":{"amount":25}}],"notCalled":["acme.escalate"]}',
+        '--decisions=wrong',
+        '--should-call=acme.refund:{"amount":25}',
+        '--should-call=acme.lookup_order',
+        '--must-not-call=acme.escalate',
       ],
       withLive(rec),
     );
@@ -103,28 +105,38 @@ describe('kindgi corrections', () => {
       {
         runId: 'r-1',
         decisions: 'wrong',
-        shouldCall: [{ tool: 'acme.refund', args: { amount: 25 } }],
+        shouldCall: [{ tool: 'acme.refund', args: { amount: 25 } }, { tool: 'acme.lookup_order' }],
         mustNotCall: ['acme.escalate'],
       },
     ]);
   });
 
-  test('--item=answer, --item=output or an empty pointer is the answer', async () => {
-    for (const flag of ['--item=answer', '--item=output', '--pointer=']) {
-      const { calls, rec } = recorder();
-      const out = await run(
-        ['corrections', 'add', '--run=r-1', flag, '--no', '--reason=wrong refund policy'],
-        withLive(rec),
-      );
-      expect(out.exitCode, out.stderr).toBe(0);
-      expect(calls[1]).toEqual([
-        'create',
-        { runId: 'r-1', answer: 'wrong', why: 'wrong refund policy' },
-      ]);
-    }
+  test('--answer says whether the answer was right, with what it should have said and why', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'corrections',
+        'add',
+        '--run=r-1',
+        '--answer=wrong',
+        '--should-say=Final-sale items are not refunded.',
+        '--why=wrong refund policy',
+      ],
+      withLive(rec),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls[1]).toEqual([
+      'create',
+      {
+        runId: 'r-1',
+        answer: 'wrong',
+        shouldSay: 'Final-sale items are not refunded.',
+        why: 'wrong refund policy',
+      },
+    ]);
   });
 
-  test("each call folds into the caller's live correction: the piece it names is replaced, the rest kept", async () => {
+  test("each call folds into the caller's live correction: the part it names is replaced, the rest kept", async () => {
     const live = {
       id: 'c-1',
       runId: 'r-1',
@@ -162,12 +174,43 @@ describe('kindgi corrections', () => {
     ]);
   });
 
-  test('an item named again under a new pointer replaces its entry, and a right answer drops what it should have said', async () => {
+  test('a part said wrong again keeps what should have happened unless given anew; said right, it drops it', async () => {
     const live = {
       id: 'c-1',
       runId: 'r-1',
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.lookup_order' }],
+      mustNotCall: ['acme.escalate'],
       answer: 'wrong',
       shouldSay: 'Final-sale items are not refunded.',
+    };
+    const again = recorder();
+    const out = await run(
+      ['corrections', 'add', '--run=r-1', '--decisions=wrong', '--must-not-call=acme.refund'],
+      withLive(again.rec, [live]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(again.calls[1]?.[1]).toEqual({
+      runId: 'r-1',
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.lookup_order' }],
+      mustNotCall: ['acme.refund'],
+      answer: 'wrong',
+      shouldSay: 'Final-sale items are not refunded.',
+    });
+    const right = recorder();
+    const answered = await run(
+      ['corrections', 'add', '--run=r-1', '--decisions=right', '--answer=right'],
+      withLive(right.rec, [live]),
+    );
+    expect(answered.exitCode, answered.stderr).toBe(0);
+    expect(right.calls[1]?.[1]).toEqual({ runId: 'r-1', decisions: 'right', answer: 'right' });
+  });
+
+  test('an item named again under a new pointer replaces its entry', async () => {
+    const live = {
+      id: 'c-1',
+      runId: 'r-1',
       items: [{ key: 'm2', pointer: '/matches/1', verdict: 'right' }],
     };
     const moved = recorder();
@@ -179,39 +222,49 @@ describe('kindgi corrections', () => {
     expect(moved.calls[1]?.[1]).toMatchObject({
       items: [{ key: 'm2', pointer: '/matches/0', verdict: 'wrong' }],
     });
-    const right = recorder();
-    const answered = await run(
-      ['corrections', 'add', '--run=r-1', '--item=answer', '--yes'],
-      withLive(right.rec, [live]),
-    );
-    expect(answered.exitCode, answered.stderr).toBe(0);
-    expect(right.calls[1]?.[1]).toMatchObject({ answer: 'right' });
-    expect(right.calls[1]?.[1]).not.toHaveProperty('shouldSay');
   });
 
-  test('add refuses --item, --pointer or --rank with --correction, and --rank on the answer', async () => {
+  test("add refuses what goes with a part it wasn't given, or with that part said right", async () => {
     const client = withLive(recorder().rec);
-    const corr = '--correction={"calls":[],"notCalled":["acme.escalate"]}';
-    for (const flag of ['--item=c1', '--pointer=/matches/0', '--rank=1']) {
-      const out = await run(['corrections', 'add', '--run=r-1', flag, '--no', corr], client);
-      expect(out.exitCode).toBe(2);
-      expect(out.stderr).toContain("--correction is about the run's decisions");
+    for (const [flags, says] of [
+      [
+        ['--should-call=acme.refund'],
+        '--should-call and --must-not-call go with --decisions=wrong',
+      ],
+      [['--decisions=right', '--must-not-call=acme.refund'], 'go with --decisions=wrong'],
+      [['--answer=right', '--should-say=No refund.'], '--should-say goes with --answer=wrong'],
+      [['--should-say=No refund.'], '--should-say goes with --answer=wrong'],
+      [['--answer=wrong', '--pointer=/matches/0'], 'go with --item=<key>'],
+      [['--answer=wrong', '--no'], 'go with --item=<key>'],
+      [['--decisions=maybe'], '--decisions must be one of right, wrong'],
+    ] as const) {
+      const out = await run(['corrections', 'add', '--run=r-1', ...flags], client);
+      expect(out.exitCode, flags.join(' ')).toBe(2);
+      expect(out.stderr, flags.join(' ')).toContain(says);
     }
-    const rankedAnswer = await run(
-      ['corrections', 'add', '--run=r-1', '--item=answer', '--rank=0', '--yes'],
+  });
+
+  test('--item=answer, --item=output or an empty pointer points to --answer', async () => {
+    const client = withLive(recorder().rec);
+    for (const flags of [['--item=answer'], ['--item=output'], ['--item=c1', '--pointer=']]) {
+      const out = await run(['corrections', 'add', '--run=r-1', ...flags, '--no'], client);
+      expect(out.exitCode, flags.join(' ')).toBe(2);
+      expect(out.stderr).toContain('--answer=right|wrong');
+    }
+  });
+
+  test("add rejects --should-call arguments that aren't JSON, and the flags --answer and --why replaced", async () => {
+    const client = withLive(recorder().rec);
+    const bad = await run(
+      ['corrections', 'add', '--run=r-1', '--decisions=wrong', '--should-call=acme.refund:{bad'],
       client,
     );
-    expect(rankedAnswer.exitCode).toBe(2);
-    expect(rankedAnswer.stderr).toContain('not the answer');
-  });
-
-  test('add rejects a malformed --correction', async () => {
-    const out = await run(
-      ['corrections', 'add', '--run=r-1', '--no', '--correction={bad'],
-      withLive(recorder().rec),
-    );
-    expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('Malformed JSON input');
+    expect(bad.exitCode).toBe(2);
+    expect(bad.stderr).toContain("--should-call's arguments must be a JSON object");
+    for (const flag of ['--correction={"calls":[]}', '--reason=old']) {
+      const out = await run(['corrections', 'add', '--run=r-1', '--answer=right', flag], client);
+      expect(out.exitCode, flag).toBe(2);
+    }
   });
 
   test('add without a group, and none before, is unclassified', async () => {
@@ -224,17 +277,19 @@ describe('kindgi corrections', () => {
     ]);
   });
 
-  test('add needs exactly one of --yes and --no, a run and an item', async () => {
+  test('add needs a run, something to say, and exactly one of --yes and --no with an item', async () => {
     const client = { corrections: {} };
     const both = await run(['corrections', 'add', '--run=r', '--item=c', '--yes', '--no'], client);
     expect(both.exitCode).toBe(2);
     expect(both.stderr).toContain('exactly one of --yes or --no');
     const neither = await run(['corrections', 'add', '--run=r', '--item=c'], client);
     expect(neither.exitCode).toBe(2);
-    const noRun = await run(['corrections', 'add', '--item=c', '--yes'], client);
+    expect(neither.stderr).toContain('exactly one of --yes or --no');
+    const noRun = await run(['corrections', 'add', '--answer=right'], client);
     expect(noRun.stderr).toContain('--run');
-    const noItem = await run(['corrections', 'add', '--run=r', '--yes'], client);
-    expect(noItem.stderr).toContain('--item');
+    const nothing = await run(['corrections', 'add', '--run=r'], client);
+    expect(nothing.exitCode).toBe(2);
+    expect(nothing.stderr).toContain('Give --decisions, --answer or --item');
   });
 
   test('list passes the filters, a project as a scope', async () => {
@@ -360,6 +415,25 @@ describe('kindgi corrections', () => {
     const empty = await run(['corrections', 'set', 'c-1', '--status=open', '--reason='], client);
     expect(empty.exitCode).toBe(2);
     expect(empty.stderr).toContain('--reason takes a value');
+  });
+
+  test('list takes who made them and since when', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['corrections', 'list', '--agent=acme.matcher', '--from=experts', '--since=2026-10-01'],
+      { corrections: { list: rec('list', { data: [], hasMore: false }) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['list', { agentId: 'acme.matcher', from: 'experts', since: '2026-10-01T00:00:00.000Z' }],
+    ]);
+    const client = { corrections: {} };
+    const from = await run(['corrections', 'list', '--from=reviewers'], client);
+    expect(from.exitCode).toBe(2);
+    expect(from.stderr).toContain('--from must be one of experts, end-users, all');
+    const since = await run(['corrections', 'list', '--since=last week'], client);
+    expect(since.exitCode).toBe(2);
+    expect(since.stderr).toContain('--since must be an ISO 8601 time');
   });
 
   test('list refuses --agent-version without --agent', async () => {

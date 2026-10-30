@@ -67,7 +67,7 @@ kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
 ## References
 
 - Experts record corrections in the console, or with
-  `kindgi corrections add --run=<run-id> --item=<key> --no --reason=<text>`.
+  `kindgi corrections add --run=<run-id> --answer=wrong --why=<text>`.
 - The guide for a person:
   <https://docs.kindgi.com/v0.3/guides/evals/fix-what-experts-corrected/>
 - Letting Improve try wordings:

@@ -8,7 +8,6 @@ import type {
   CorrectionSortedTo,
   CorrectionStatus,
   CreateCorrectionInput,
-  ExpectedDecisions,
   Verdict,
 } from '@kindgi/client';
 import type { CommandContext } from '../context.js';
@@ -17,10 +16,10 @@ import {
   givenFlag,
   integerFlag,
   listFlag,
-  readJsonInput,
   requiredPositional,
   runSdk,
   stringFlag,
+  timeFlag,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -42,6 +41,7 @@ const LISTED_STATUSES: readonly (CorrectionStatus | 'not-fixed')[] = [
   'removed',
 ];
 const LISTED_SORTED_TO: readonly (CorrectionSortedTo | 'none')[] = ['none', ...SORTED_TO];
+const FROM = ['experts', 'end-users', 'all'] as const;
 
 function oneOf<T extends string>(flag: string, value: string, allowed: readonly T[]): T {
   if (!(allowed as readonly string[]).includes(value)) {
@@ -72,135 +72,175 @@ function givenFlags<F extends string>(
   return out;
 }
 
-/** The optional `--correction` flag, parsed from JSON or `@<file>`. */
-async function expectedDecisionsFlag(ctx: CommandContext): Promise<ExpectedDecisions | undefined> {
-  const text = stringFlag(ctx, 'correction');
-  return text === undefined ? undefined : ((await readJsonInput(text)) as ExpectedDecisions);
-}
+const VERDICTS: readonly Verdict[] = ['right', 'wrong'];
 
-/** The keys a run's answer goes by: an agent turn's `answer`, a flow run's whole `output`. */
+/** The keys `--item` took for a run's answer before `--answer`: an agent turn's, a flow run's. */
 const ANSWER_KEYS: readonly string[] = ['answer', 'output'];
 
-/** What one call says: about the decisions, the answer, or one ranked item. */
-type Piece =
-  | { readonly kind: 'decisions'; readonly verdict: Verdict; readonly expected: ExpectedDecisions }
-  | { readonly kind: 'answer'; readonly verdict: Verdict }
-  | { readonly kind: 'item'; readonly item: CorrectedAnswerItem };
+type ShouldCall = NonNullable<CreateCorrectionInput['shouldCall']>[number];
 
-function pieceOf(ctx: CommandContext, verdict: Verdict, expected?: ExpectedDecisions): Piece {
-  const key = stringFlag(ctx, 'item');
+/** `--should-call=<tool>[:<json-args>]`: a tool, and the arguments that matter as a JSON object. */
+function shouldCallOf(raw: string): ShouldCall {
+  // A tool id may hold a `:`; the arguments start at the `:{`.
+  const at = raw.indexOf(':{');
+  const tool = at === -1 ? raw : raw.slice(0, at);
+  if (tool.length === 0) throw new UsageError(`--should-call needs a tool id, got "${raw}"`);
+  if (at === -1) return { tool };
+  try {
+    return { tool, args: JSON.parse(raw.slice(at + 1)) as Record<string, unknown> };
+  } catch {
+    throw new UsageError(
+      `--should-call's arguments must be a JSON object, as in <tool>:{"amount":25}; got "${raw}"`,
+    );
+  }
+}
+
+/** What one call says. Each part it gives replaces that part of your correction of the run. */
+interface Said {
+  readonly decisions?: Verdict;
+  readonly shouldCall?: readonly ShouldCall[];
+  readonly mustNotCall?: readonly string[];
+  readonly answer?: Verdict;
+  readonly shouldSay?: string;
+  readonly why?: string;
+  readonly item?: CorrectedAnswerItem;
+}
+
+function decisionsOf(ctx: CommandContext): Pick<Said, 'decisions' | 'shouldCall' | 'mustNotCall'> {
+  const given = givenFlag(ctx, 'decisions');
+  const shouldCall = listFlag(ctx, 'should-call').map(shouldCallOf);
+  const mustNotCall = listFlag(ctx, 'must-not-call');
+  const decisions = given === undefined ? undefined : oneOf('decisions', given, VERDICTS);
+  if (decisions !== 'wrong' && (shouldCall.length > 0 || mustNotCall.length > 0)) {
+    throw new UsageError('--should-call and --must-not-call go with --decisions=wrong');
+  }
+  return {
+    ...(decisions !== undefined && { decisions }),
+    ...(shouldCall.length > 0 && { shouldCall }),
+    ...(mustNotCall.length > 0 && { mustNotCall }),
+  };
+}
+
+function answerOf(ctx: CommandContext): Pick<Said, 'answer' | 'shouldSay'> {
+  const given = givenFlag(ctx, 'answer');
+  const shouldSay = givenFlag(ctx, 'should-say');
+  const answer = given === undefined ? undefined : oneOf('answer', given, VERDICTS);
+  if (answer !== 'wrong' && shouldSay !== undefined) {
+    throw new UsageError('--should-say goes with --answer=wrong');
+  }
+  return { ...(answer !== undefined && { answer }), ...(shouldSay !== undefined && { shouldSay }) };
+}
+
+/** `--item=<key> [--pointer] [--rank] (--yes | --no)`: one item of a ranked list. */
+function itemOf(ctx: CommandContext): CorrectedAnswerItem | undefined {
+  const key = givenFlag(ctx, 'item');
   const pointer = ctx.options.pointer;
   const rank = integerFlag(ctx, 'rank');
-  if (expected !== undefined) {
-    if (key !== undefined || typeof pointer === 'string' || rank !== undefined) {
-      throw new UsageError(
-        "--correction is about the run's decisions; drop --item, --pointer and --rank",
-      );
+  const yes = ctx.options.yes === true;
+  const no = ctx.options.no === true;
+  if (key === undefined) {
+    if (pointer !== undefined || rank !== undefined || yes || no) {
+      throw new UsageError('--pointer, --rank, --yes and --no go with --item=<key>');
     }
-    return { kind: 'decisions', verdict, expected };
+    return undefined;
   }
-  // An empty pointer is the whole output: the answer.
-  if ((key !== undefined && ANSWER_KEYS.includes(key)) || pointer === '') {
-    if (rank !== undefined)
-      throw new UsageError("--rank is for a ranked list's items, not the answer");
-    return { kind: 'answer', verdict };
+  // An empty pointer is the whole output: the answer, which --answer says.
+  if (ANSWER_KEYS.includes(key) || pointer === '') {
+    throw new UsageError(
+      '--item is for an item of a ranked list; say whether the answer was right with --answer=right|wrong',
+    );
   }
-  if (key === undefined) throw new UsageError('--item=<key> is required');
+  if (yes === no) throw new UsageError('--item needs exactly one of --yes or --no');
   if (rank !== undefined && rank < 0) throw new UsageError('--rank must be 0 or more');
   return {
-    kind: 'item',
-    item: {
-      key,
-      ...(typeof pointer === 'string' && { pointer }),
-      ...(rank !== undefined && { rank }),
-      verdict,
-    },
+    key,
+    ...(typeof pointer === 'string' && { pointer }),
+    ...(rank !== undefined && { rank }),
+    verdict: yes ? 'right' : 'wrong',
   };
 }
 
 /**
- * A call's piece folded into the caller's live correction on the run, if
- * there is one: a 0.4.0 correction is one per run and author, so posting
- * the piece alone would replace what earlier calls said.
+ * The call folded into the caller's live correction on the run, if there
+ * is one: a correction is one per run and author, so posting what the call
+ * says alone would replace what earlier calls said. A part said wrong
+ * again keeps what should have happened unless the call says it anew; a
+ * part said right drops it.
  */
-function foldPiece(
-  live: Correction | undefined,
-  piece: Piece,
-  runId: string,
-): CreateCorrectionInput {
-  const base: CreateCorrectionInput = {
+function fold(live: Correction | undefined, said: Said, runId: string): CreateCorrectionInput {
+  const decisions = said.decisions ?? live?.decisions;
+  const keepDecisions = decisions === 'wrong';
+  const shouldCall = said.shouldCall ?? (keepDecisions ? live?.shouldCall : undefined);
+  const mustNotCall = said.mustNotCall ?? (keepDecisions ? live?.mustNotCall : undefined);
+  const answer = said.answer ?? live?.answer;
+  const shouldSay = said.shouldSay ?? (answer === 'wrong' ? live?.shouldSay : undefined);
+  const why = said.why ?? live?.why;
+  // A correction names each item once, by key, so an item said again replaces its entry.
+  const items =
+    said.item === undefined
+      ? live?.items
+      : [...(live?.items ?? []).filter((i) => i.key !== said.item?.key), said.item];
+  return {
     runId,
-    ...(live?.decisions !== undefined && { decisions: live.decisions }),
-    ...(live?.shouldCall !== undefined && { shouldCall: live.shouldCall }),
-    ...(live?.mustNotCall !== undefined && { mustNotCall: live.mustNotCall }),
-    ...(live?.answer !== undefined && { answer: live.answer }),
-    ...(live?.shouldSay !== undefined && { shouldSay: live.shouldSay }),
-    ...(live?.why !== undefined && { why: live.why }),
-    ...(live?.items !== undefined && { items: live.items }),
+    ...(decisions !== undefined && { decisions }),
+    ...(shouldCall !== undefined && shouldCall.length > 0 && { shouldCall }),
+    ...(mustNotCall !== undefined && mustNotCall.length > 0 && { mustNotCall }),
+    ...(answer !== undefined && { answer }),
+    ...(shouldSay !== undefined && { shouldSay }),
+    ...(why !== undefined && { why }),
+    ...(items !== undefined && { items }),
     ...(live?.correctorGroupId !== undefined && { correctorGroupId: live.correctorGroupId }),
   };
-  if (piece.kind === 'answer') {
-    // What it should have said goes with a wrong answer only.
-    const { shouldSay, ...rest } = base;
-    return {
-      ...rest,
-      answer: piece.verdict,
-      ...(piece.verdict === 'wrong' && shouldSay !== undefined && { shouldSay }),
-    };
-  }
-  if (piece.kind === 'decisions') {
-    const { shouldCall: _calls, mustNotCall: _not, ...rest } = base;
-    return {
-      ...rest,
-      decisions: piece.verdict,
-      ...((piece.expected.calls ?? []).length > 0 && { shouldCall: piece.expected.calls }),
-      ...((piece.expected.notCalled ?? []).length > 0 && {
-        mustNotCall: piece.expected.notCalled,
-      }),
-    };
-  }
-  // A correction names each item once, by key, so a new pointer for it replaces the old one.
-  const same = (i: CorrectedAnswerItem) => i.key === piece.item.key;
-  return { ...base, items: [...(base.items ?? []).filter((i) => !same(i)), piece.item] };
 }
 
 const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    'Correct a finished run: say whether its decisions (`--correction`), its answer (`--item=answer`, or `output` for a flow) or an item of a ranked list was right (`--yes`) or wrong (`--no`). Each call adds to your correction of the run, replacing what you said before about the same piece.',
+    'Correct a finished run: say whether its decisions (`--decisions`) and its answer (`--answer`) were right or wrong, and what should have happened, or mark an item of a ranked list (`--item` with `--yes` or `--no`). Each call adds to your correction of the run, replacing what you said before about the same part.',
   usage:
-    'kindgi corrections add --run=<run-id> (--item=<key> [--pointer=<json-pointer>] [--rank=<n>] | --correction=<json-or-@file>) (--yes | --no) [--reason=<text>] [--group=<corrector-group-id>] [--participant=<id>]',
+    'kindgi corrections add --run=<run-id> [--decisions=right|wrong] [--should-call=<tool>[:<json-args>]]… [--must-not-call=<tool>]… [--answer=right|wrong] [--should-say=<text>] [--why=<text>] [--item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no)] [--group=<corrector-group-id>] [--participant=<id>]',
   optionSpec: {
     run: { type: 'string', description: 'The run that is corrected. Required.' },
+    decisions: {
+      type: 'string',
+      description:
+        'Whether the tools the agent called, and the ones it left alone, were `right` or `wrong`. Wrong needs `--should-call` or `--must-not-call`, now or from before.',
+    },
+    'should-call': {
+      type: 'string',
+      multiple: true,
+      description:
+        'With `--decisions=wrong`: a tool the agent should have called, as `<tool-id>`, or `<tool-id>:<json-args>` with the arguments that matter (those left out are not compared), e.g. `acme.refund:{"amount":25}`. Repeat for several.',
+    },
+    'must-not-call': {
+      type: 'string',
+      multiple: true,
+      description:
+        'With `--decisions=wrong`: a tool the agent should not have called at all. Repeat for several.',
+    },
+    answer: {
+      type: 'string',
+      description:
+        "Whether the run's answer (a flow run's whole output) was `right` or `wrong`. Wrong needs `--should-say` or `--why`, now or from before.",
+    },
+    'should-say': {
+      type: 'string',
+      description: 'With `--answer=wrong`: what the answer should have said.',
+    },
+    why: { type: 'string', description: 'Why, in your words.' },
     item: {
       type: 'string',
       description:
-        "What is corrected: `answer` (an agent turn's answer) or `output` (a flow run's whole output), or your stable id for an item of a ranked list, e.g. a matched case id.",
+        'Your stable id for an item of a ranked list in the output, e.g. a matched case id, with `--yes` or `--no`.',
     },
     pointer: {
       type: 'string',
-      description:
-        "Where the item is in the run's output, as a JSON Pointer such as `/matches/2`. An empty pointer is the whole output: the answer.",
+      description: "Where the item is in the run's output, as a JSON Pointer such as `/matches/2`.",
     },
     rank: { type: 'string', description: "The item's position in a ranked list (0 = first)." },
-    yes: {
-      type: 'boolean',
-      description: 'It was right. Give `--yes` or `--no`.',
-    },
-    no: {
-      type: 'boolean',
-      description: 'It was wrong. Give `--yes` or `--no`.',
-    },
-    reason: {
-      type: 'string',
-      description: "Why, kept as the correction's `why`. A wrong answer needs one.",
-    },
-    correction: {
-      type: 'string',
-      description:
-        'What the agent should have done, as JSON or `@<file>`: `{ "calls": [{ "tool": "<tool-id>", "args": { … } }], "notCalled": ["<tool-id>"] }`, with `--no`. `args` are the partial top-level fields to compare (those left out are not compared); `notCalled` lists tools that should not have been called at all. Graded on a replay.',
-    },
+    yes: { type: 'boolean', description: 'The item was right. With `--item`.' },
+    no: { type: 'boolean', description: 'The item was wrong. With `--item`.' },
     group: {
       type: 'string',
       description:
@@ -216,10 +256,22 @@ const add: LeafCommand = {
     runSdk(ctx, 'corrections add', async () => {
       const runId = stringFlag(ctx, 'run');
       if (runId === undefined) throw new UsageError('--run=<run-id> is required');
-      const yes = ctx.options.yes === true;
-      const no = ctx.options.no === true;
-      if (yes === no) throw new UsageError('Give exactly one of --yes or --no');
-      const piece = pieceOf(ctx, yes ? 'right' : 'wrong', await expectedDecisionsFlag(ctx));
+      const why = givenFlag(ctx, 'why');
+      const item = itemOf(ctx);
+      const said: Said = {
+        ...decisionsOf(ctx),
+        ...answerOf(ctx),
+        ...(why !== undefined && { why }),
+        ...(item !== undefined && { item }),
+      };
+      if (
+        said.decisions === undefined &&
+        said.answer === undefined &&
+        item === undefined &&
+        why === undefined
+      ) {
+        throw new UsageError('Give --decisions, --answer or --item (with --yes or --no)');
+      }
       const participantId = stringFlag(ctx, 'participant');
       const client = ctx.client();
       // Your live correction of the run, for this end user if you name one.
@@ -230,11 +282,9 @@ const add: LeafCommand = {
         limit: 100,
       });
       const live = mine.data.find((j) => j.participantId === participantId);
-      const reason = stringFlag(ctx, 'reason');
       const correctorGroupId = stringFlag(ctx, 'group');
       return await client.corrections.create({
-        ...foldPiece(live, piece, runId),
-        ...(reason !== undefined && { why: reason }),
+        ...fold(live, said, runId),
         ...(correctorGroupId !== undefined && { correctorGroupId }),
         ...(participantId !== undefined && { participantId }),
       });
@@ -247,7 +297,7 @@ const list: LeafCommand = {
   description:
     'List corrections, newest first. Replaced ones are left out, and removed ones unless `--status` names `removed`.',
   usage:
-    'kindgi corrections list [--run=<run-id>] [--agent=<id> [--agent-version=<v>]] [--flow=<id>] [--status=<status>]… [--sorted-to=<where>]… [--group=<corrector-group-id>] [--participant=<id>] [--project=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi corrections list [--run=<run-id>] [--agent=<id> [--agent-version=<v>]] [--flow=<id>] [--status=<status>]… [--sorted-to=<where>]… [--from=experts|end-users|all] [--since=<date>] [--group=<corrector-group-id>] [--participant=<id>] [--project=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     run: { type: 'string', description: 'Only corrections of this run.' },
     agent: { type: 'string', description: 'Only corrections of runs of this agent.' },
@@ -267,6 +317,16 @@ const list: LeafCommand = {
       multiple: true,
       description:
         'Only corrections sorted to these (repeat, or comma-separate): `improve`, `developer` or `owner`, or `none` for unsorted ones.',
+    },
+    from: {
+      type: 'string',
+      description:
+        "`experts` (made under a restricted corrector group), `end-users` (made for an app's end user, with a participant id) or `all`.",
+    },
+    since: {
+      type: 'string',
+      description:
+        'Only corrections made at or after this time: an ISO 8601 time with a zone, or a date (the start of that day in UTC).',
     },
     group: { type: 'string', description: 'Only corrections under this corrector group id.' },
     participant: {
@@ -293,6 +353,8 @@ const list: LeafCommand = {
       }
       const status = valuesOf(ctx, 'status', LISTED_STATUSES);
       const sortedTo = valuesOf(ctx, 'sorted-to', LISTED_SORTED_TO);
+      const from = stringFlag(ctx, 'from');
+      const since = timeFlag(ctx, 'since');
       const projectId = stringFlag(ctx, 'project');
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
@@ -307,6 +369,8 @@ const list: LeafCommand = {
         }),
         ...(status.length > 0 && { status }),
         ...(sortedTo.length > 0 && { sortedTo }),
+        ...(from !== undefined && { from: oneOf('from', from, FROM) }),
+        ...(since !== undefined && { since }),
         ...(projectId !== undefined && { scope: { kind: 'project' as const, projectId } }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor: cursor as never }),
