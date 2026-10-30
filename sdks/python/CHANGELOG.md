@@ -126,7 +126,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
     - `suggested-change-project-pinned` (`ConflictError`): an add as Latest,
       for a project that runs a pin;
     - `suggested-change-check-unsupported` (`ServerError`, a 501): the
-      server freezes no test set, so nothing can be checked.
+      server freezes no test set, so nothing can be checked;
+    - `suggested-change-out-of-date` (`ConflictError`): a pin or an add as
+      Latest of one built on a version its project no longer runs. It's
+      being rebuilt on the version the project runs now when
+      `details["rebuilding"]` is true.
+  - A suggested change built on a version its project no longer runs is
+    rebuilt there, and checked again: `built_on.rebuilt_at` says when.
   - An audit event's `kind` can be `suggested-change-created`,
     `suggested-change-pinned`, `suggested-change-added-as-latest` or
     `suggested-change-withdrawn`.

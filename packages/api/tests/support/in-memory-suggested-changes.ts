@@ -82,6 +82,16 @@ export function inMemorySuggestedChanges(): SupervisorBinding & {
         case 'promotion':
           next = { ...base, promotionId: step.promotionId };
           break;
+        case 'rebuilt': {
+          const { candidate: _c, evaluation: _e, promotionId: _p, ...rest } = base;
+          next = {
+            ...rest,
+            builtOnVersion: step.builtOnVersion,
+            rebuiltAt: step.rebuiltAt,
+            change: step.change,
+          };
+          break;
+        }
         case 'added-as-latest':
           next = { ...base, addedAsLatest: step.addedAsLatest };
           break;

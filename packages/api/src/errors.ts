@@ -223,6 +223,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'suggested-change-project-on-latest': 409,
   // An add as Latest for a project that runs a pin.
   'suggested-change-project-pinned': 409,
+  'suggested-change-out-of-date': 409,
   // Improve runs.
   'improve-unsupported': 501,
   'improve-run-not-found': 404,

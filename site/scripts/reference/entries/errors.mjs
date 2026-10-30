@@ -1567,6 +1567,28 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'suggested-change-out-of-date': {
+    description:
+      "The suggested change's project now runs another version of the agent than the one it's built on, so it isn't pinned or added as Latest. When `rebuilding` is true, it's being rebuilt on that version and checked again: try again once its check is ready. Otherwise that version doesn't use its block, or already has the change: withdraw it.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+      {
+        key: 'builtOn',
+        meaning: "the version it's built on",
+      },
+      {
+        key: 'runs',
+        meaning: 'the version its project runs now',
+      },
+      {
+        key: 'rebuilding',
+        meaning: "whether it's being rebuilt on `runs`",
+      },
+    ],
+  },
   'improve-unsupported': {
     description: "This runtime doesn't run Improve.",
     details: [],

@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
+import { type Agent, type AgentId, createAgentRegistry, pinsDigest } from '@kindgi/agents';
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type {
@@ -28,6 +28,7 @@ import type {
 } from '@kindgi/authz';
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
+import { highestVersion } from '@kindgi/tools';
 import type {
   Cursor,
   LiveScope,
@@ -80,7 +81,6 @@ import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
 import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
-import { highestAsLatest } from './support/latest.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -120,18 +120,26 @@ const resolveToken: TokenResolver = async (token) => {
   return null;
 };
 
-/** The agent registry in memory, recording each version's project and the entries its publish wrote. */
-function agentBinding(
-  unregistered: ReadonlySet<string> = new Set(),
-): AgentRegistryBinding & { written: TupleIntent[]; marked: AgentMarkLatestInput[] } {
+/**
+ * The agent registry in memory, recording each version's project, the
+ * entries its publish wrote, the versions made for a suggested change
+ * (`forACard`), and the versions added as Latest (`marked`).
+ */
+function agentBinding(unregistered: ReadonlySet<string> = new Set()): AgentRegistryBinding & {
+  written: TupleIntent[];
+  marked: AgentMarkLatestInput[];
+  forACard: Set<string>;
+} {
   const registry = createAgentRegistry();
   const written: TupleIntent[] = [];
   const marked: AgentMarkLatestInput[] = [];
+  const forACard = new Set<string>();
   // Where a version was made, when it's not the agent's project (an environment order's first).
   const madeIn = new Map<string, ProjectId>();
   return {
     written,
     marked,
+    forACard,
     async list() {
       return { data: [] };
     },
@@ -159,11 +167,12 @@ function agentBinding(
         data: registry.list().filter((a) => (a.id as unknown as string) === agentId),
       };
     },
-    async publish({ agent, projectId: into, enqueueTuples }) {
+    async publish({ agent, projectId: into, enqueueTuples, madeFor }) {
       if (registry.get(agent.id, agent.version as unknown as string).kind === 'ok') {
         return { kind: 'already-registered', agentId: agent.id, version: agent.version };
       }
       registry.register(agent);
+      if (madeFor === 'project') forACard.add(agent.version as unknown as string);
       written.push(...enqueueTuples(agent.id as unknown as string));
       if (into !== projectId) madeIn.set(agent.version as unknown as string, into);
       return { kind: 'ok', agentId: agent.id, version: agent.version };
@@ -343,14 +352,31 @@ function freezeFake(opts: { cases?: number; freezes?: boolean }) {
 }
 
 /** Live pins and promotions, kept as a store keeps them; the gate's outcome decides a request's status. */
-function releasesFake(agents: AgentRegistryBinding) {
+function releasesFake(agents: ReturnType<typeof agentBinding>) {
   const pins: LivePin[] = [];
   const promotions = new Map<string, Promotion>();
-  /** `latest`: Latest in every scope, `null` for none; absent: the highest. */
+  /**
+   * `latest`: Latest in every scope, `null` for none. Absent: the version
+   * added as Latest last, else the highest one not made for a suggested
+   * change (one made for a project serves nothing until it's pinned or
+   * added).
+   */
   const state: { policy: GatePolicy | null; latest?: LatestAnswer | null } = { policy: null };
   const calls: { method: string; input: unknown }[] = [];
   const key = (scope: LiveScope) => JSON.stringify(scope);
-  const highest = highestAsLatest(agents);
+  const highest = async (q: { tenantId: TenantId; agentId: string }) => {
+    const added = agents.marked.filter((m) => m.agentId === q.agentId).at(-1);
+    if (added !== undefined) return { version: added.version, since: NOW };
+    const { data } = await agents.listVersions({
+      tenantId: q.tenantId,
+      agentId: q.agentId as AgentId,
+      limit: 100,
+    });
+    const version = highestVersion(
+      data.map((a) => a.version as unknown as string).filter((v) => !agents.forACard.has(v)),
+    );
+    return version === undefined ? null : { version: version as Semver, since: NOW };
+  };
   const pinOf = (agentId: string, scope: LiveScope) =>
     pins.find((p) => p.agentId === agentId && key(p.scope) === key(scope));
   const setPin = (agentId: string, scope: LiveScope, version: string, promotionId: string) => {
@@ -384,7 +410,7 @@ function releasesFake(agents: AgentRegistryBinding) {
       },
     },
     latest: {
-      latest: async (q) => (state.latest === undefined ? highest.latest(q) : state.latest),
+      latest: async (q) => (state.latest === undefined ? highest(q) : state.latest),
       byProject: async () => [],
     },
     promotions: {
@@ -1696,6 +1722,130 @@ describe('POST /v1/suggested-changes/:id/withdraw', () => {
       expect(res.status, JSON.stringify(res.body)).toBe(200);
       expect(res.body.status).toBe('withdrawn');
     }
+  });
+});
+
+describe('if the project moves first: a suggested change is rebuilt on what it runs', () => {
+  /**
+   * Two ready suggested changes to the weights (`{ recency: 0.3, fit: 0.7 }`
+   * at 1.0.0), `a` then `b`, for the project: on its pin of 1.0.0, or on
+   * Latest.
+   */
+  async function twoReady(
+    a: Record<string, number>,
+    b: Record<string, number>,
+    opts: { onLatest?: boolean } = {},
+  ) {
+    const h = await harness();
+    if (opts.onLatest !== true) h.releases.pin(PROJECT, '1.0.0');
+    const ready = async (values: Record<string, number>) => {
+      const res = await h.call('POST', '/v1/suggested-changes', { ...CARD, values });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      await h.testRuns.finish(res.body.check.with.testRunId, { delta: 0.1 });
+      await h.testRuns.finish(res.body.check.now.testRunId, { delta: 0 });
+      return { id: res.body.id as string, version: res.body.version as string };
+    };
+    const first = await ready(a);
+    return { ...h, a: first, b: await ready(b) };
+  }
+
+  test("pinning one rebuilds the project's other ready ones on its version, each keeping only its own change", async () => {
+    const h = await twoReady({ recency: 0.5, fit: 0.7 }, { recency: 0.3, fit: 0.9 });
+    expect((await h.call('POST', `/v1/suggested-changes/${h.a.id}/pin`, {})).status).toBe(201);
+    const b = (await h.call('GET', `/v1/suggested-changes/${h.b.id}`)).body;
+    expect(b).toMatchObject({
+      status: 'checking',
+      builtOn: { version: h.a.version, rebuiltAt: expect.any(String) },
+      changes: [
+        {
+          blockId: WEIGHTS,
+          before: { values: { recency: 0.5, fit: 0.7 } },
+          // b changed fit only: recency comes from what the project runs now.
+          after: { values: { recency: 0.5, fit: 0.9 } },
+        },
+      ],
+    });
+    expect(b.version).not.toBe(h.b.version);
+    // Its new check: its new version against the one it's built on now.
+    const runs = h.testRuns.started.filter((r) => r.correlationId === `suggested-change:${h.b.id}`);
+    expect(runs.slice(-2).map((r) => r.agentRef.version)).toEqual([b.version, h.a.version]);
+  });
+
+  test('a pin that waits for a second person rebuilds nothing yet', async () => {
+    const h = await twoReady({ recency: 0.5, fit: 0.7 }, { recency: 0.3, fit: 0.9 });
+    h.releases.state.policy = {
+      id: 'acme.prod',
+      version: '1.0.0',
+      tenantId,
+      agentId: AGENT,
+      scope: PROJECT,
+      spec: { approvals: { role: 'standard' } },
+      createdAt: NOW,
+    };
+    expect((await h.call('POST', `/v1/suggested-changes/${h.a.id}/pin`, {})).status).toBe(202);
+    const b = (await h.call('GET', `/v1/suggested-changes/${h.b.id}`)).body;
+    expect(b).toMatchObject({ status: 'ready', builtOn: { version: '1.0.0' } });
+    expect(b.builtOn).not.toHaveProperty('rebuiltAt');
+  });
+
+  test('adding one as Latest rebuilds the others on its version', async () => {
+    const h = await twoReady(
+      { recency: 0.5, fit: 0.7 },
+      { recency: 0.3, fit: 0.9 },
+      { onLatest: true },
+    );
+    expect((await h.call('POST', `/v1/suggested-changes/${h.a.id}/add-as-latest`, {})).status).toBe(
+      200,
+    );
+    expect((await h.call('GET', `/v1/suggested-changes/${h.b.id}`)).body).toMatchObject({
+      status: 'checking',
+      builtOn: { version: h.a.version, rebuiltAt: expect.any(String) },
+    });
+  });
+
+  test('one whose project moved by another route is rebuilt instead of pinned (409 suggested-change-out-of-date), then pins once checked', async () => {
+    const h = await twoReady({ recency: 0.5, fit: 0.7 }, { recency: 0.3, fit: 0.9 });
+    h.releases.pin(PROJECT, h.a.version);
+    const res = await h.call('POST', `/v1/suggested-changes/${h.b.id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'suggested-change-out-of-date',
+      details: { builtOn: '1.0.0', runs: h.a.version, rebuilding: true },
+    });
+    const b = (await h.call('GET', `/v1/suggested-changes/${h.b.id}`)).body;
+    expect(b).toMatchObject({ status: 'checking', builtOn: { version: h.a.version } });
+    await h.testRuns.finish(b.check.with.testRunId, { delta: 0.1 });
+    await h.testRuns.finish(b.check.now.testRunId, { delta: 0 });
+    const pinned = await h.call('POST', `/v1/suggested-changes/${h.b.id}/pin`, {});
+    expect(pinned.status, JSON.stringify(pinned.body)).toBe(201);
+    expect(pinned.body.pinned.version).toBe(b.version);
+  });
+
+  test('checking one again after its project moved rebuilds it on what runs (202)', async () => {
+    const h = await twoReady({ recency: 0.5, fit: 0.7 }, { recency: 0.3, fit: 0.9 });
+    h.releases.pin(PROJECT, h.a.version);
+    const res = await h.call('POST', `/v1/suggested-changes/${h.b.id}/check`);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body).toMatchObject({
+      status: 'checking',
+      builtOn: { version: h.a.version, rebuiltAt: expect.any(String) },
+    });
+  });
+
+  test("one the project's version already has isn't rebuilt: it stays as it was, and a pin says to withdraw it", async () => {
+    // b's change (recency) is in a's too.
+    const h = await twoReady({ recency: 0.5, fit: 0.5 }, { recency: 0.5, fit: 0.7 });
+    expect((await h.call('POST', `/v1/suggested-changes/${h.a.id}/pin`, {})).status).toBe(201);
+    expect((await h.call('GET', `/v1/suggested-changes/${h.b.id}`)).body).toMatchObject({
+      status: 'ready',
+      builtOn: { version: '1.0.0' },
+      version: h.b.version,
+    });
+    const res = await h.call('POST', `/v1/suggested-changes/${h.b.id}/pin`, {});
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('suggested-change-out-of-date');
+    expect(res.body.error.details.rebuilding).toBe(false);
+    expect(res.body.error.message).toContain('already has this change');
   });
 });
 

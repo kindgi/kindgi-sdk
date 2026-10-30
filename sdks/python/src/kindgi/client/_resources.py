@@ -4722,7 +4722,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Check a suggested change again. `POST /v1/suggested-changes/{suggestedChangeId}/check`
 
-        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
+        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.check"],
@@ -14512,7 +14512,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Check a suggested change again. `POST /v1/suggested-changes/{suggestedChangeId}/check`
 
-        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
+        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.check"],

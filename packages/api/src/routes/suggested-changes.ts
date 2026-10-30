@@ -73,13 +73,21 @@ type Ctx = Context<AppEnv>;
  *   GET  /:id              one, with its block's content before and after
  *   POST /                 a suggested change by hand: published, derived
  *                          (inert until pinned) and checked (201, checking)
- *   POST /:id/check        checked again on the project's test set (202)
+ *   POST /:id/check        checked again on the project's test set (202);
+ *                          rebuilt first on what the project runs now,
+ *                          when that moved
  *   POST /:id/pin          a gated pin of its version for the project
  *                          (201 pinned, 202 waiting for a second person,
  *                          422 gate-failed)
  *   POST /:id/add-as-latest  its version made Latest, for a project on
  *                          Latest (200 added-as-latest; no gate)
  *   POST /:id/withdraw     closed by a person
+ *
+ * Once one is pinned (not waiting for a second person) or added as
+ * Latest, its project's other ready or check-failed suggested changes for
+ * the agent are rebuilt on its version. One built on a version its project
+ * no longer runs isn't pinned or added as Latest: it's rebuilt (409
+ * `suggested-change-out-of-date`).
  *
  * Making one, pinning it, adding it as Latest and withdrawing it are audit
  * events (`suggested-change-*`), with the caller as their actor.
@@ -394,7 +402,37 @@ export function suggestedChangesRouter(
       promotionId: promotion.id,
       status: waits ? 'waiting-for-second-person' : 'pinned',
     });
+    if (!waits) await rebuildOthers(c, suggestedChange);
     return answer(c, suggestedChange, waits ? 202 : 201);
+  }
+
+  /**
+   * Its project now runs its version: the project's other suggested
+   * changes for the agent are rebuilt on it. One that can't be stays as
+   * it was, and the reason is logged.
+   */
+  async function rebuildOthers(c: Ctx, suggestedChange: StoredSuggestedChange): Promise<void> {
+    const { scope } = suggestedChange;
+    if (scope.kind !== 'project') return;
+    const log = c.get('log');
+    try {
+      const { failed } = await service.rebuildOthers({
+        tenantId: c.get('tenantId') as TenantId,
+        agentId: suggestedChange.agentId,
+        projectId: scope.projectId,
+        actor: actorOf(c),
+        except: suggestedChange.id,
+      });
+      for (const f of failed) {
+        log.warn(
+          `suggested change ${f.suggestedChangeId as unknown as string} wasn't rebuilt: ${f.message}`,
+        );
+      }
+    } catch (e) {
+      log.warn(
+        `rebuilding the suggested changes for project ${scope.projectId as unknown as string} failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   // ---------- POST /:suggestedChangeId/add-as-latest ----------
@@ -417,6 +455,7 @@ export function suggestedChangesRouter(
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
     await audit(c, 'suggested-change-added-as-latest', outcome.value);
+    await rebuildOthers(c, outcome.value);
     return answer(c, outcome.value);
   });
 

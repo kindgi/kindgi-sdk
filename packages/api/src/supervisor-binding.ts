@@ -268,12 +268,22 @@ export type CreateSuggestedChangeOutcome =
 /**
  * One step's outcome, recorded on the suggested change. An `evaluation` replaces
  * the one before and clears `promotionId`: a new comparison starts the
- * request over. A `candidate` is recorded once.
+ * request over. A `candidate` is recorded once per version it's built on.
+ * A `rebuilt` moves it onto the version its project runs now: it sets
+ * `builtOnVersion`, `rebuiltAt` and its `change` on that version, and
+ * clears its `candidate`, `evaluation` and `promotionId`. It keeps its
+ * fingerprint, so the same change made on the new version is a new one.
  */
 export type SuggestedChangeStep =
   | { readonly kind: 'candidate'; readonly candidate: SuggestedChangeCandidate }
   | { readonly kind: 'evaluation'; readonly evaluation: SuggestedChangeEvaluationRef }
   | { readonly kind: 'promotion'; readonly promotionId: string }
+  | {
+      readonly kind: 'rebuilt';
+      readonly builtOnVersion: string;
+      readonly rebuiltAt: Timestamp;
+      readonly change: ProposedChange['change'];
+    }
   | {
       readonly kind: 'added-as-latest';
       readonly addedAsLatest: NonNullable<StoredSuggestedChange['addedAsLatest']>;

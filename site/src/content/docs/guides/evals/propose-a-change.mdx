@@ -209,6 +209,9 @@ pnpm exec kindgi suggested-changes evaluate <suggested-change-id> --wait
   same version.
 - The new check replaces the one before on the suggested change. The runs
   of the one before stay as they were.
+- When its project now runs another version than the one it's built on,
+  it's [rebuilt on that version](#if-the-project-moves-first) first, and the
+  check runs on the new version.
 - `--wait` waits for the check, at most 30 minutes, and prints the suggested
   change. Without it, it prints the suggested change, `checking`.
 - Checking again is allowed when it's `ready` or `check-failed`, and needs
@@ -263,6 +266,9 @@ names that request. You can ask again.
   takes no pin: the request is refused with
   `409 suggested-change-project-on-latest`.
   [Add it as Latest](#add-it-as-latest) instead.
+- **A project that runs another version** than the one the suggested change
+  is built on takes no pin of it either: it's
+  [rebuilt](#if-the-project-moves-first) first.
 - **A suggested change an [Improve run](../improve-an-agent/) made,** rather
   than a person, always waits for a reviewer, even where the project's
   policy asks for no approval. While another reviewer could approve it,
@@ -294,6 +300,46 @@ new Latest as it comes.
   who added it, when, and the `reason`.
 - **A project that runs a pin** takes a pin instead: adding it is refused
   with `409 suggested-change-project-pinned`. [Pin it](#pin-it).
+- **A project whose Latest moved** since the suggested change was built
+  takes it once it's [rebuilt](#if-the-project-moves-first).
+
+## If the project moves first
+
+A suggested change is built on the version its project runs when it's
+made. When the project moves to another version first, because another
+suggested change was pinned or added as Latest, or the project was pinned
+another way, the suggested change is rebuilt on the version the project
+runs now:
+
+- Its block change is made again on that version. A prompt keeps its
+  wording. Settings keep the values the suggested change changed, and take
+  every other value from the version the project runs now.
+- That's a new version, and its check starts again: it's `checking`.
+- `builtOn.version` is the version it's built on now, and
+  `builtOn.rebuiltAt` says when it was rebuilt.
+
+```json
+{
+  "id": "8d2f3c07-5b8e-4c1d-9a3e-2f6b7c1d0e94",
+  …
+  "builtOn": { "version": "1.0.1", "rebuiltAt": "2026-10-09T13:31:03.204Z" },
+  "version": "1.0.3",
+  "status": "checking",
+  …
+}
+```
+
+When a suggested change is pinned without waiting for a second person, or
+added as Latest, the project's other suggested changes for the agent that
+are `ready` or `check-failed` are rebuilt on its version at once. Any other one is rebuilt when it's checked
+again, pinned or added as Latest:
+
+- Pinning it, or adding it as Latest, is refused with
+  `409 suggested-change-out-of-date`, and its rebuild starts.
+  `details.rebuilding` is `true`. Ask again once it's `ready`.
+- When the version the project runs already has the change, or doesn't use
+  its block, it isn't rebuilt: `details.rebuilding` is `false`, and it stays
+  as it was. Withdraw it.
 
 ## Withdraw it
 

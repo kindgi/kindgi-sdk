@@ -5242,7 +5242,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.check',
     summary: 'Check a suggested change again',
     description:
-      "Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.",
+      "Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
@@ -5254,7 +5254,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
       ),
       '409': ErrorResponse(
-        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `suggested-change-out-of-date`: its project runs another version, which it can't be rebuilt on. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes.",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
       '501': ErrorResponse(
@@ -5290,7 +5290,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No such suggested change.'),
       '409': ErrorResponse(
-        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-on-latest`: its project runs Latest, not a pin.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-on-latest`: its project runs Latest, not a pin. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be.",
       ),
       '422': ErrorResponse(
         '`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`). The suggested change stays `ready`, with a `note`.',
@@ -5319,7 +5319,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
       ),
       '409': ErrorResponse(
-        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-pinned`: its project runs a pin, not Latest. `registry-read-only`: the agent registry takes no writes.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-pinned`: its project runs a pin, not Latest. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be. `registry-read-only`: the agent registry takes no writes.",
       ),
     },
   },
