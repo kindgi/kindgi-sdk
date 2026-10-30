@@ -32,7 +32,11 @@ import type {
   ServiceAccountBinding,
   TokenResolver,
 } from '../src/index.js';
-import { NOTHING_RUNS, toolsTargetCanCall, triggerScope } from '../src/routes/trigger-tools.js';
+import {
+  toolsAllowedUnattendedProblem,
+  toolsTargetCanCall,
+  triggerScope,
+} from '../src/routes/trigger-tools.js';
 
 const tenantId = randomUUID() as TenantId;
 const ADA = randomUUID() as UserId;
@@ -71,7 +75,8 @@ function decision(principal: unknown, action: Action, resource: ResourceRef): De
 // a loop body's tool, a fan-out branch and a subflow's tool; at 2.0.0 only
 // `acme.refund`. `acme.helper`'s highest calls a tool its pinned version
 // doesn't. `acme.digest`'s highest calls `acme.archive`; its 1.0.0, which is
-// Latest in PROJECT (`releases`), doesn't.
+// Latest in PROJECT (`releases`), doesn't. `acme.daily@1.0.0` runs
+// `acme.digest` at no version: no step names one, and it pins none.
 const tool = (id: string) => ({ id });
 const AGENTS: Record<string, Record<string, { tools: { id: string }[] }>> = {
   'acme.weekly': { latest: { tools: [tool('acme.send')] } },
@@ -97,6 +102,10 @@ const FLOWS: Record<string, Record<string, unknown>> = {
     ],
   },
   'acme.orders@2.0.0': { nodes: [leaf('refund', 'tool', 'acme.refund')] },
+  'acme.daily@1.0.0': {
+    pins: { tools: {}, agents: {} },
+    nodes: [leaf('refund', 'tool', 'acme.refund'), leaf('digest', 'agent', 'acme.digest')],
+  },
   'acme.sub@1.0.0': {
     nodes: [
       leaf('subtool', 'tool', 'acme.sub-tool'),
@@ -226,7 +235,8 @@ describe('which tools a target calls', () => {
         flowVersion: '1.0.0',
       } as never,
     );
-    expect([...(tools ?? [])].sort()).toEqual([
+    expect(tools?.nothingRuns.size).toBe(0);
+    expect([...(tools?.tools ?? [])].sort()).toEqual([
       'acme.fan',
       'acme.lookup',
       'acme.notify',
@@ -239,7 +249,7 @@ describe('which tools a target calls', () => {
     const deps = { agents: agentRegistry, flows: flowRegistry };
     const at = (target: Record<string, unknown>) =>
       toolsTargetCanCall(deps, { tenantId }, target as never).then((s) =>
-        s === undefined ? undefined : [...s].sort(),
+        s === undefined ? undefined : [...s.tools].sort(),
       );
     expect(await at({ kind: 'agent', agentId: 'acme.digest', agentVersion: '1.0.0' })).toEqual([
       'acme.send',
@@ -263,15 +273,54 @@ describe('which tools a target calls', () => {
     const deps = { agents: agentRegistry, flows: flowRegistry, releases };
     const at = (projectId: ProjectId | undefined, target: Record<string, unknown>) =>
       toolsTargetCanCall(deps, triggerScope(tenantId, projectId), target as never).then((s) =>
-        s === undefined || s === NOTHING_RUNS ? s : [...s].sort(),
+        s === undefined
+          ? undefined
+          : { tools: [...s.tools].sort(), nothingRuns: [...s.nothingRuns] },
       );
-    expect(await at(PROJECT, { kind: 'agent', agentId: 'acme.digest' })).toEqual(['acme.send']);
+    const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '1.0.0' };
+    expect(await at(PROJECT, { kind: 'agent', agentId: 'acme.digest' })).toEqual({
+      tools: ['acme.send'],
+      nothingRuns: [],
+    });
     // A named version is read as named.
     expect(
       await at(PROJECT, { kind: 'agent', agentId: 'acme.digest', agentVersion: '1.0.0' }),
-    ).toEqual(['acme.send']);
-    // No version runs there (no pin, no Latest), so there's nothing to check against.
-    expect(await at(ELSEWHERE, { kind: 'agent', agentId: 'acme.digest' })).toBe(NOTHING_RUNS);
+    ).toEqual({ tools: ['acme.send'], nothingRuns: [] });
+    // A flow's agent step at no version, the same way.
+    expect(await at(PROJECT, daily)).toEqual({
+      tools: ['acme.refund', 'acme.send'],
+      nothingRuns: [],
+    });
+    // No version runs there (no pin, no Latest), so the agent's tools can't be counted.
+    expect(await at(ELSEWHERE, { kind: 'agent', agentId: 'acme.digest' })).toEqual({
+      tools: [],
+      nothingRuns: ['acme.digest'],
+    });
+    expect(await at(ELSEWHERE, daily)).toEqual({
+      tools: ['acme.refund'],
+      nothingRuns: ['acme.digest'],
+    });
+  });
+
+  test("a flow whose agent at no version has none running: a tool it calls by itself passes, another can't be checked and says why", async () => {
+    const deps = { agents: agentRegistry, flows: flowRegistry, releases };
+    const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '1.0.0' } as never;
+    const problem = (projectId: ProjectId, tools: string[]) =>
+      toolsAllowedUnattendedProblem(deps, triggerScope(tenantId, projectId), daily, tools);
+    expect(await problem(ELSEWHERE, ['acme.refund'])).toBeUndefined();
+    const why = await problem(ELSEWHERE, ['acme.refund', 'acme.send']);
+    expect(why).toContain(
+      `can't check "acme.send": flow "acme.daily" at 1.0.0 runs agent "acme.digest" at no version`,
+    );
+    expect(why).toContain("none runs in this trigger's project yet");
+    expect(why).toContain("Publish a flow version that names the step's version");
+    expect(why).toContain('into a later environment, promote a build that ships one');
+    expect(why).not.toContain("doesn't call");
+    // Where its Latest runs, its tools count.
+    expect(await problem(PROJECT, ['acme.refund', 'acme.send'])).toBeUndefined();
+    expect(await problem(PROJECT, ['acme.archive'])).toContain(
+      `flow "acme.daily" at 1.0.0 doesn't call "acme.archive"`,
+    );
   });
 });
 

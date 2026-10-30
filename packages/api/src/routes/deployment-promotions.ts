@@ -657,7 +657,7 @@ function carriedRefusal(
     ...outcome,
     error: {
       ...outcome.error,
-      message: `The build moved, but agent "${agent.id}" ${agent.version} wasn't made live: no version of it runs in the target project yet (no pin, and no Latest; a version made for a project isn't Latest by being carried). Promote a build that ships a version of it, or make this version Latest in the project it was made in, then make it live.`,
+      message: `The build moved, but agent "${agent.id}" ${agent.version} wasn't made live: no version of it runs in the target project yet (no pin, and no Latest; a version made for a project isn't Latest by being carried). Promote a build that ships a version of it, then make it live. If this version came from a suggested change, and the project it was made in runs Latest, adding it as Latest there from that change also makes it Latest in the target project.`,
     },
   };
 }

@@ -97,29 +97,29 @@ export interface TargetToolsDeps {
 const MAX_FLOWS = 64;
 
 /**
- * Every tool `target` can call, by id, in a trigger's `projectId`: an
- * agent's tools (at its version, else what runs there, `agentAt`); a
+ * What `target` can call in a trigger's `projectId`. `tools`: every tool
+ * by id, an agent's (at its version, else what runs there, `agentAt`); a
  * flow's tool nodes and fan-out branches, in loop bodies too, its agent
  * nodes' agents' tools (at the node's version, else the flow version's
  * pin, else what runs there) and its subflows', at their versions.
- * `undefined` when the target can't be read (no registry, or no such
- * agent or flow version); `NOTHING_RUNS` when an agent that names no
- * version has none running there. An improvement pass calls none.
+ * `nothingRuns`: the agents it runs at no version that have none running
+ * there, whose tools can't be counted. `undefined` when the target can't
+ * be read (no registry, or no such agent or flow version). An improvement
+ * pass calls none.
  */
 export async function toolsTargetCanCall(
   deps: TargetToolsDeps | undefined,
   scope: TriggerScope,
   target: TriggerTarget,
-): Promise<ReadonlySet<string> | typeof NOTHING_RUNS | undefined> {
-  if (target.kind === 'improve') return new Set();
+): Promise<TargetCalls | undefined> {
+  if (target.kind === 'improve') return { tools: new Set(), nothingRuns: new Set() };
   if (target.kind === 'agent') {
-    const agent = await agentAt(
-      deps,
-      scope,
-      target.agentId as unknown as string,
-      target.agentVersion,
-    );
-    return agent === undefined || agent === NOTHING_RUNS ? agent : new Set(agentToolIds(agent));
+    const agentId = target.agentId as unknown as string;
+    const agent = await agentAt(deps, scope, agentId, target.agentVersion);
+    if (agent === undefined) return undefined;
+    return agent === NOTHING_RUNS
+      ? { tools: new Set(), nothingRuns: new Set([agentId]) }
+      : { tools: new Set(agentToolIds(agent)), nothingRuns: new Set() };
   }
   const root = await flowAt(
     deps,
@@ -130,6 +130,7 @@ export async function toolsTargetCanCall(
   if (root === undefined) return undefined;
   const walk: FlowWalk = {
     tools: new Set(),
+    nothingRuns: new Set(),
     seen: new Set([`${target.flowId as unknown as string}@${target.flowVersion}`]),
   };
   const pending: Flow[] = [root];
@@ -140,11 +141,18 @@ export async function toolsTargetCanCall(
       if (sub !== undefined) pending.push(sub);
     }
   }
-  return walk.tools;
+  return { tools: walk.tools, nothingRuns: walk.nothingRuns };
+}
+
+/** What a trigger's target can call (`toolsTargetCanCall`). */
+export interface TargetCalls {
+  readonly tools: ReadonlySet<string>;
+  /** The agents it runs at no version that have none running in the trigger's project. */
+  readonly nothingRuns: ReadonlySet<string>;
 }
 
 /** No version of an agent runs in the trigger's project: no pin covers it, and it has no Latest. */
-export const NOTHING_RUNS = 'nothing-runs';
+const NOTHING_RUNS = 'nothing-runs';
 
 /** The tenant and project a trigger runs in: a run it starts is in `projectId` (none: the tenant). */
 export interface TriggerScope {
@@ -157,9 +165,10 @@ export function triggerScope(tenantId: TenantId, projectId: string | undefined):
   return { tenantId, ...(projectId !== undefined && { projectId: projectId as ProjectId }) };
 }
 
-/** The tools a flow walk has found, and the subflow versions it has followed (`id@version`). */
+/** The tools a flow walk has found, the agents at no version with none running, and the subflow versions it has followed (`id@version`). */
 interface FlowWalk {
   readonly tools: Set<string>;
+  readonly nothingRuns: Set<string>;
   readonly seen: Set<string>;
 }
 
@@ -178,7 +187,8 @@ async function visitLeaf(
   if (leaf.kind === 'agent') {
     const version = leaf.version ?? flow.pins?.agents[leaf.id];
     const agent = await agentAt(deps, scope, leaf.id, version);
-    if (agent !== undefined && agent !== NOTHING_RUNS) {
+    if (agent === NOTHING_RUNS) walk.nothingRuns.add(leaf.id);
+    else if (agent !== undefined) {
       for (const id of agentToolIds(agent)) walk.tools.add(id);
     }
     return undefined;
@@ -285,7 +295,9 @@ function targetName(target: TriggerTarget): string {
  * Why `tools` can't be the list of a trigger that runs `target` (a
  * `bad-input` message), or `undefined` when it can: an improvement pass
  * calls no tools, so only `[]`; else each id must be one the target can
- * call. An empty list is always fine.
+ * call. An id it doesn't call where one of its agents at no version has
+ * none running can't be checked, and the message says why. An empty list
+ * is always fine.
  */
 export async function toolsAllowedUnattendedProblem(
   deps: TargetToolsDeps | undefined,
@@ -297,17 +309,25 @@ export async function toolsAllowedUnattendedProblem(
   if (target.kind === 'improve') {
     return 'an improvement pass calls no tools: its `toolsAllowedUnattended` can only be empty';
   }
-  const callable = await toolsTargetCanCall(deps, scope, target);
-  if (callable === NOTHING_RUNS) {
-    return `\`toolsAllowedUnattended\`: no version of ${targetName(target)} runs in this trigger's project yet: none is pinned there, and none is its Latest, so its tools can't be checked. Name \`agentVersion\`, or deploy or publish a version into the project first (into a later environment, promote a build that ships one)`;
-  }
-  if (callable === undefined) {
+  const calls = await toolsTargetCanCall(deps, scope, target);
+  if (calls === undefined) {
     return `\`toolsAllowedUnattended\`: can't read ${targetName(target)} to check the tools it calls`;
   }
-  const uncallable = tools.filter((id) => !callable.has(id));
-  return uncallable.length === 0
-    ? undefined
-    : `\`toolsAllowedUnattended\`: ${targetName(target)} doesn't call ${uncallable.map((id) => `"${id}"`).join(', ')}`;
+  const uncallable = tools.filter((id) => !calls.tools.has(id));
+  if (uncallable.length === 0) return undefined;
+  const ids = uncallable.map((id) => `"${id}"`).join(', ');
+  if (calls.nothingRuns.size === 0) {
+    return `\`toolsAllowedUnattended\`: ${targetName(target)} doesn't call ${ids}`;
+  }
+  const first =
+    'deploy or publish a version into the project first (into a later environment, promote a build that ships one)';
+  if (target.kind === 'agent') {
+    return `\`toolsAllowedUnattended\`: no version of ${targetName(target)} runs in this trigger's project yet: none is pinned there, and none is its Latest, so its tools can't be checked. Name \`agentVersion\`, or ${first}`;
+  }
+  // A flow: the listed tools it doesn't call by itself may be its agents' there.
+  const one = calls.nothingRuns.size === 1;
+  const agents = [...calls.nothingRuns].map((id) => `"${id}"`).join(', ');
+  return `\`toolsAllowedUnattended\`: can't check ${ids}: ${targetName(target)} runs ${one ? 'agent' : 'agents'} ${agents} at no version (${one ? 'its step names' : 'their steps name'} none, and the flow version pins none), and none runs in this trigger's project yet: none is pinned there, and none is ${one ? 'its' : 'their'} Latest. Publish a flow version that names the step's version, or ${first}`;
 }
 
 /** Whether two lists name the same tools (order aside). */
