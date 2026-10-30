@@ -120,7 +120,7 @@ export type TestSetKind = (typeof TEST_SET_KINDS)[number];
  * frozen versions and those built before, is listed with `kind=corrections`
  * and read by id.
  */
-export const LISTED_EVAL_KINDS: readonly TestSetKind[] = TEST_SET_KINDS.filter(
+export const LISTED_TEST_SET_KINDS: readonly TestSetKind[] = TEST_SET_KINDS.filter(
   (kind) => kind !== 'corrections',
 );
 

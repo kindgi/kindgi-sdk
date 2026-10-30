@@ -17,7 +17,7 @@ import {
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
-  LISTED_EVAL_KINDS,
+  LISTED_TEST_SET_KINDS,
   TEST_SET_KINDS,
   type TestSet,
   type TestSetKind,
@@ -213,7 +213,7 @@ export function testSetsRouter(
       tenantId,
       askedKind !== undefined
         ? page.data
-        : page.data.filter((s) => LISTED_EVAL_KINDS.includes(s.kind)),
+        : page.data.filter((s) => LISTED_TEST_SET_KINDS.includes(s.kind)),
     );
     return c.json({
       data: visible.map(serializeTestSet),
