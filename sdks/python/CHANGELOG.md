@@ -78,6 +78,50 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `hypothesis` is `why`, and an Improve run's outcome `proposed` is
   `suggested`. The webhook event `improvement-pass.finished` is
   `improve-run.finished`, and its `data.pass_` is `data.improve_run`.
+- `kindgi`: **A suggested change is made for one project, and checked on that
+  project's test set.** This is a breaking change.
+  - `client.suggested_changes.create` takes `agent_id`, `project_id`, `block`,
+    then `values` (a settings block) or `template` (a prompt block), `why` and
+    `fixes`. The change is built on the version the project runs, and its
+    check starts at once.
+  - In the check, its version (`with`) and the version it's built on (`now`)
+    run the same cases of the project's test set, frozen when the check
+    starts.
+  - `client.suggested_changes.check(suggested_change_id)` checks it again. It
+    replaces `evaluate` and `rescore`.
+  - `list` filters by `agent_id`, `project_id`, `status` and `made_by`.
+  - `SuggestedChange` gains `project_id`, `title`, `built_on`, `version`,
+    `changes`, `fixes`, `check`, `note`, `pinned`, `approval_id`,
+    `added_as_latest` and `withdrawn`.
+  - Its `made_by` is now who or what made it: an Improve run, a person, a
+    service account, a deploy or an offer. It no longer says which drafter
+    wrote it.
+  - `from_version`, `scope`, `tier`, `change`, `evidence`, `candidate`,
+    `evaluation`, `promotion` and `rolled_back` are gone.
+  - Its statuses are `checking`, `check-failed`, `ready`,
+    `waiting-for-second-person`, `pinned`, `added-as-latest` and `withdrawn`.
+  - New models: `SuggestedChangeChange`, `SuggestedChangeCheck`,
+    `SuggestedChangeCheckSide`, `SuggestedChangeNote` and
+    `SuggestedChangeBlockContent`.
+  - Removed models: `SuggestedChangeBlockEdit`, `SuggestedChangeCandidate`,
+    `SuggestedChangeCost`, `SuggestedChangeDecisions`,
+    `SuggestedChangeEvaluation`, `SuggestedChangeEvidence`,
+    `SuggestedChangePromotion` and `EvaluateSuggestedChangeBody`.
+  - The numbered models `Model` to `Model4` are named after their owners:
+    - `ImproveRunModel` (an Improve run's model);
+    - `StartImproveRunBodyModel` (the start body's);
+    - `CorrectedComparisonSummarySamplingModel` (a corrected comparison's
+      sampling models);
+    - `ImproveScheduleInputModel` (an improve schedule's).
+  - New `server_code` values:
+    - `suggested-change-not-for-a-project` (`ConflictError`): one made for a
+      tenant, an org or a segment can only be withdrawn;
+    - `suggested-change-nothing-to-check` (`ConflictError`): the project's
+      test set has no cases;
+    - `suggested-change-project-on-latest` (`ConflictError`): a pin, for a
+      project that runs Latest;
+    - `suggested-change-check-unsupported` (`ServerError`, a 501): the
+      server freezes no test set, so nothing can be checked.
 
 ## 0.3.0
 

@@ -36,7 +36,6 @@ import type {
   EnvBinding,
   EnvironmentOrderBinding,
   EvalCaseStoreBinding,
-  TestRunBinding,
   ExpertQueueBinding,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
@@ -61,6 +60,8 @@ import type {
   SessionStoreBinding,
   SigningKeyBinding as SigningKeyRegistryBinding,
   SupervisorBinding,
+  TestRunBinding,
+  TestSetFreezeBinding,
   TestSetRegistryBinding,
   TokenAdmin,
   TokenResolver,
@@ -339,6 +340,10 @@ const noopPolicyRegistry: PolicyRegistryBinding = {
   publish: async ({ policy }) => ({ kind: 'ok', policyId: policy.id, version: policy.version }),
   unregister: async () => ({ unregistered: false }),
   reinstateVersion: async ({ policyId, version }) => ({ kind: 'not-found', policyId, version }),
+};
+
+const noopTestSetFreeze: TestSetFreezeBinding = {
+  freezeTestSet: async () => ({ testSetId: 'noop', testSetVersion: '1.0.0', cases: [] }),
 };
 
 const noopTestSetRegistry: TestSetRegistryBinding = {
@@ -701,6 +706,7 @@ export function fullAppInput(): CreateAppInput {
     policyRegistry: noopPolicyRegistry,
     retention: noopRetention,
     testSetRegistry: noopTestSetRegistry,
+    testSetFreeze: noopTestSetFreeze,
     blockRegistry: noopBlockRegistry,
     testRunBinding: noopTestRunBinding,
     correctionRegistry: noopCorrectionRegistry,

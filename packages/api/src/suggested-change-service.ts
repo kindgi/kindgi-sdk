@@ -614,6 +614,16 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     };
   }
 
+  /**
+   * A registry that takes no writes makes no suggested change, nor checks
+   * one: under `kindgi dev`, the pack's files serve every project, and a
+   * suggested change is for one. Even one that takes Improve's candidates.
+   */
+  function cardReadOnly(): SuggestedChangeServiceError | undefined {
+    const readOnly = deps.agents.readOnly;
+    return readOnly === undefined ? undefined : { code: 'registry-read-only', message: readOnly.reason };
+  }
+
   /** Why the registry takes no candidate for the suggested change; `undefined` when it does. */
   function readOnlyRefusal(scope: LiveScope): SuggestedChangeServiceError | undefined {
     // Checking derives an agent version: not into a registry that takes
@@ -810,9 +820,9 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId, projectId } = input;
       const agentId = input.agentId as AgentId;
       const scope: LiveScope = { kind: 'project', projectId };
-      if (deps.testSets === undefined) return err(checkUnsupported());
-      const readOnly = readOnlyRefusal(scope);
+      const readOnly = cardReadOnly();
       if (readOnly !== undefined) return err(readOnly);
+      if (deps.testSets === undefined) return err(checkUnsupported());
       const later = await laterEnvironment(deps.orders, tenantId, projectId);
       if (later !== undefined) return err(environmentTakesPromotions(later));
       const runs = await whatRuns(deps.releases, { tenantId, agentId: input.agentId, projectId });
@@ -874,9 +884,9 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (refused !== undefined) return err(refused);
       const projectId = projectOfCard(suggestedChange);
       if (projectId === undefined) return err(notForAProject(suggestedChange, 'check'));
-      if (deps.testSets === undefined) return err(checkUnsupported());
-      const readOnly = readOnlyRefusal(suggestedChange.scope);
+      const readOnly = cardReadOnly();
       if (readOnly !== undefined) return err(readOnly);
+      if (deps.testSets === undefined) return err(checkUnsupported());
       const frozen = await frozenSet(deps.testSets, tenantId, suggestedChange.agentId, projectId);
       if (frozen.kind === 'err') return frozen;
       return checkOn(suggestedChange, input.actor, projectId, frozen.value);

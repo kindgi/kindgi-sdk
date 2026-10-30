@@ -27,9 +27,10 @@ export interface RegistryReadOnly {
    * and `…/promotions/check` get through. Rolling back and unpinning stay
    * refused, a suggested change's roll back too, with `undoReason`: there's one
    * live version, and what undoes a change is where it was written. And
-   * only the whole tenant is improved: an Improve run, a suggested change or its
-   * evaluation for a narrower scope is refused with `scopeReason`, as
-   * the binding refuses making a version live there.
+   * only the whole tenant is improved: an Improve run or its evaluation
+   * for a narrower scope is refused with `scopeReason`, as the binding
+   * refuses making a version live there. A suggested change is for one
+   * project, so it's refused with `reason`.
    */
   readonly takesCandidates?: {
     /** Why a roll back or an unpin is refused, and what to do instead. */

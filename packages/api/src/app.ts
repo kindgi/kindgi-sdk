@@ -233,7 +233,7 @@ import type { SupervisorBinding } from './supervisor-binding.js';
 import { ONE_TENANT_SYSTEM_SCOPES } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TestRunBinding } from './test-run-binding.js';
-import type { TestSetRegistryBinding } from './test-set-binding.js';
+import type { TestSetFreezeBinding, TestSetRegistryBinding } from './test-set-binding.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
@@ -938,6 +938,12 @@ export interface CreateAppInput {
    * — new kinds require a spec + validator update in tandem.
    */
   readonly testSetRegistry?: TestSetRegistryBinding;
+  /**
+   * Freezes a project's test set for a suggested change's check
+   * (`/v1/suggested-changes`). Absent: making or checking a suggested
+   * change answers `501 suggested-change-check-unsupported`.
+   */
+  readonly testSetFreeze?: TestSetFreezeBinding;
   /**
    * Data blocks (`/v1/blocks`): versioned prompts and settings that agent
    * versions pin. Mounted when supplied. Authorized through each block's
@@ -1938,6 +1944,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           blocks: input.blockRegistry,
           testRuns: input.testRunBinding,
           releases: input.agentReleases,
+          ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
           ...(input.projectSuspended !== undefined && {

@@ -395,9 +395,9 @@ async function blockBefore(
     : { template: block.content.template as string };
 }
 
-/** The first line of why, cut to fit, then the block's change. */
+/** The first line of why (no closing stop), cut to fit, then the block's change. */
 function titleOf(p: StoredSuggestedChange): string {
-  const line = p.why.split('\n')[0]?.trim() ?? '';
+  const line = (p.why.split('\n')[0] ?? '').trim().replace(/[.:;,!?]+$/, '');
   const cut = line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH).trimEnd()}…` : line;
   const to = p.candidate === undefined ? 'a new version' : `v${p.candidate.blockVersion}`;
   return `${cut}: ${p.change.blockId} v${p.change.fromVersion} → ${to}`;
