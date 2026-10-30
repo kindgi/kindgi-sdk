@@ -47,6 +47,104 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `SuggestedChange*`, and the block edit a suggested change carries is
   `SuggestedChangeBlockEdit`), `proposal_id` is `suggested_change_id`, and a
   suggested change's status `promoted` is `pinned`.
+
+## 0.3.0
+
+- `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
+  tenant.** A run that names no flow version takes the version pinned for its
+  project (the project's own pin, then its org's, then the tenant's), else the
+  newest version the project reaches, so a new version can be published and
+  tried by naming it without going into use. `resolve`, `list`, `pin`, `unpin`
+  and `history`, sync and async. A run says how its version was chosen, in
+  `flow_version_via` (`explicit`, `pinned` or `latest`) and, for a pin,
+  `flow_pinned_scope`.
+- `kindgi`: **`client.tools.pinned` pins a tool's version per project, org or
+  tenant.** An agent or flow version made in a project a pin covers locks the
+  tool at the pinned version (an agent's tool range, when the pinned version
+  is in it), so a new tool version can be published without reaching what's
+  made there. The same five calls as `client.flows.pinned`, sync and async.
+- `kindgi`: **`DeploymentPromotion.pinned_flows`** lists each carried flow
+  version a promotion with `make_live` pinned in the target project.
+
+- `kindgi`: **a `retry` guardrail sends a failed answer back to the model,
+  for a new one**, until it has failed `maxAttempts` answers (2 when left
+  out), and then the turn fails with `guardrail-violation`.
+  `GuardrailViolationError.attempts` says how many answers the turn had
+  (`None` when a `halt` guardrail stopped it). The `@guardrail` docstring
+  says what `retry` does.
+- `kindgi`: **a trigger's versions.** `client.schedules.list_versions(trigger_id)` pages a schedule's versions, newest first (`GET /v1/schedules/{triggerId}/versions`), and `get_version(trigger_id, version)` reads one; `client.webhooks` and `client.mail_triggers` have the same. Each says when it was made (`created_at`), by whom (`created_by`), why (`cause`) and what the trigger was then (`definition`). A trigger's `version` names its newest, and a fire's and a run's `trigger.version` the one its run used; all three are absent from an older runtime. A version the trigger doesn't have is `404 trigger-version-not-found`.
+- `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
+- `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a model
+  step asks for on its own.** By default an agent now runs a step's calls to
+  read-only tools (`mutating=False`, no changing effect) that come one after
+  another at the same time, up to 8 at once, and any other call on its own, in
+  the order the model asked; the results reach the conversation in that order
+  either way. A call that may wait, for another system's answer or for the
+  person who started the run to connect an app, runs on its own too. The
+  indexer writes it as the agent's `parallelToolCalls`, and `Agent` refuses a
+  value that isn't `True` or `False`. The client's `Agent` and
+  `PublishAgentBody` models gain `parallel_tool_calls`. `mutating`'s
+  description says it decides what runs together.
+- `kindgi`: **A union's members are named by the value that tells them
+  apart.** The members of five inline unions in `kindgi.client.models` had
+  numbered names, and four other models' numbered names would have shifted
+  into the freed ones. These names change, and no old name is kept:
+  - **A union's members, by their discriminator:**
+    - `Config`, `Config1`, `Config2` (an MCP endpoint's config: stdio,
+      http-sse, streamable-http): `MCPEndpointConfigStdio`,
+      `MCPEndpointConfigHttpSse`, `MCPEndpointConfigStreamableHttp`.
+    - `Config3` to `5` (the same, in a registration's body):
+      `RegisterMCPEndpointBodyConfigStdio`,
+      `RegisterMCPEndpointBodyConfigHttpSse`,
+      `RegisterMCPEndpointBodyConfigStreamableHttp`.
+    - `Content2`, `Content3` (an MCP prompt message's content: text, image):
+      `MCPPromptMessageContentText`, `MCPPromptMessageContentImage`.
+    - `Resume`, `Resume1` (how completing an approval resumed its run: ok,
+      failed): `CompleteApprovalResultResumeOk`,
+      `CompleteApprovalResultResumeFailed`.
+    - `Baseline`, `Baseline1` (what a judged comparison compared with:
+      recorded runs, a version): `JudgedComparisonSummaryBaselineRecorded`,
+      `JudgedComparisonSummaryBaselineVersion`.
+  - **Named after their field, so no freed name passes to them:**
+    - `Config6`, `Config7` (a schedule's config, registering and patching):
+      `RegisterScheduleBodyConfig`, `PatchScheduleBodyConfig`.
+    - `Config8` (a webhook trigger's config, in both bodies): now one class
+      per body, `RegisterWebhookTriggerBodyConfig` and
+      `PatchWebhookTriggerBodyConfig`. A mapping works for either; an
+      instance of one isn't taken by the other.
+    - `Baseline2` (a compared case's baseline score):
+      `ComparisonCaseResultBaseline`.
+
+  Code that imports an old name fails at the import, and an `isinstance` or
+  `match` on one needs the new name. The client's generation now keeps a
+  dropped name dropped, so no later model takes `Config` or `Baseline` with
+  another meaning. (#938)
+- `kindgi`: **An error inside a field is logged like `err`, and a value that
+  raises when read never fails the log call.** An error nested in a field (in a
+  mapping or a list) was written as its scrubbed `str()`, so its `name`, `code`
+  and causes were lost. It's now written as `err` is — its `name` (its class's),
+  scrubbed `message` and `code`, and its causes — without its stack at any
+  level. The message is written as the error gives it, with known secret shapes
+  masked; a database driver's message can itself quote the statement and the
+  values it was bound to (SQLAlchemy appends `[SQL: …]` and `[parameters: …]`
+  unless the engine has `hide_parameters=True`, and libpq keeps a `DETAIL:`
+  line), so when that matters log a field such as the SQLSTATE rather than the
+  error. None of the error's other attributes are written. An attribute that
+  raises when read counts as missing (a message that can't be read is empty), a
+  value that raises when read is `[unreadable]`, and fields whose keys can't be
+  listed are left out; the record is still written.
+- `kindgi`: **a guardrail the client reads or registers carries where in the
+  agent's turn it runs.** `at` is `"before-tool"`, `"after-tool"`,
+  `"model-step"` or `"final-answer"` (left out, the final answer); `sees` is
+  `"turn"` or `"conversation"`; and the scope's `tools` names the tools a
+  guardrail at a tool point checks. Registering one with a built-in check
+  that doesn't run at its `at` answers `guardrail-config-invalid`; a pack
+  check's points aren't checked then, and at such a point the guardrail
+  fails as a check that can't run (`check-point-unsupported`). The Python
+  pack's `@guardrail` doesn't take them yet.
+
+## 0.3.0rc0
+
 - `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
   tenant.** A run that names no flow version takes the version pinned for its
   project (the project's own pin, then its org's, then the tenant's), else the

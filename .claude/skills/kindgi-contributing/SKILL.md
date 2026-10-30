@@ -24,7 +24,7 @@ A docs suggestion names a page of docs.kindgi.com and what's wrong with it.
 
 - **A hand-written page** lives at `site/src/content/docs/<path>.md` or
   `.mdx`, where `<path>` is the URL's path without the version
-  (`https://docs.kindgi.com/v0.2/guides/runs/start-a-run/` →
+  (`https://docs.kindgi.com/v0.3/guides/runs/start-a-run/` →
   `site/src/content/docs/guides/runs/start-a-run.mdx`; a section's overview
   is its `index.md`).
 - **A reference page is generated.** Change its source, never the page:
