@@ -598,6 +598,23 @@ describe("API — guardrails register: the point against its check's points", ()
     ]);
   });
 
+  test("a body naming its check's points → 400 validation-failed, nothing registered: only a deploy gives a pack check's points", async () => {
+    // A runtime runs a pack check at the points its deploy gave; a guardrail
+    // registered here never widens them.
+    const { app, binding } = makeApp({ checkGuardrailConfig: async () => [] });
+    const guardrail = { check: 'my-pack.checks.args', at: 'before-tool' };
+    const res = await post(app, { ...guardrail, checkPoints: ['before-tool', 'final-answer'] });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.details.issues).toEqual([
+      { path: '', message: 'must NOT have additional properties' },
+    ]);
+    expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+    // The same body without them registers: the points were what it refused.
+    expect((await post(app, guardrail)).status).toBe(201);
+  });
+
   test("what a point can't do → 400 validation-failed", async () => {
     const { app } = makeApp();
     const res = await post(app, {
