@@ -818,6 +818,14 @@ export const CLI_DEFAULTS = {
     participant: 'none',
     project: 'none',
     run: 'none',
+    'sorted-to': 'none (sorted anywhere, or not at all)',
+    status: 'none (every status but `removed`)',
+  },
+  'corrections set': {
+    link: 'none',
+    reason: 'none',
+    'sorted-to': 'none (at least one of `--status` or `--sorted-to` is required)',
+    status: 'none (at least one of `--status` or `--sorted-to` is required)',
   },
   'corrector-groups list': {
     agent: 'none',
@@ -1965,6 +1973,26 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Stop sending new approvals to a reviewer.',
       line: 'kindgi reviewers unregister <reviewer-id>',
+    },
+  ],
+  'corrections list': [
+    {
+      purpose: "List an agent's corrections that aren't fixed yet, sorted to its owner.",
+      line: 'kindgi corrections list --agent=acme-ops.reply-drafter --status=not-fixed --sorted-to=owner',
+    },
+  ],
+  'corrections set': [
+    {
+      purpose: 'Say a pull request is fixing a correction.',
+      line: 'kindgi corrections set <correction-id> --status=being-fixed --link=https://github.com/acme/agents/pull/7',
+    },
+    {
+      purpose: "Close a correction that won't be fixed, with why.",
+      line: "kindgi corrections set <correction-id> --status=wont-fix --reason='The refund policy changed.'",
+    },
+    {
+      purpose: 'Send a correction to the developer instead.',
+      line: "kindgi corrections set <correction-id> --sorted-to=developer --reason='It needs a new tool.'",
     },
   ],
   'corrector-groups list': [

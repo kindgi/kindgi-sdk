@@ -274,6 +274,94 @@ describe('kindgi corrections', () => {
     ]);
   });
 
+  test('list takes statuses and sortings, repeated or comma-separated', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'corrections',
+        'list',
+        '--status=not-fixed,wont-fix',
+        '--status=removed',
+        '--sorted-to=owner',
+        '--sorted-to=none',
+      ],
+      { corrections: { list: rec('list', { data: [], hasMore: false }) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['list', { status: ['not-fixed', 'wont-fix', 'removed'], sortedTo: ['owner', 'none'] }],
+    ]);
+  });
+
+  test('list refuses a status or sorting there is none of, and has no --verdict', async () => {
+    const client = { corrections: {} };
+    const status = await run(['corrections', 'list', '--status=open,done'], client);
+    expect(status.exitCode).toBe(2);
+    expect(status.stderr).toContain('--status must be one of');
+    expect(status.stderr).toContain('got "done"');
+    const sorted = await run(['corrections', 'list', '--sorted-to=improve,expert'], client);
+    expect(sorted.exitCode).toBe(2);
+    expect(sorted.stderr).toContain('--sorted-to must be one of');
+    expect((await run(['corrections', 'list', '--verdict=wrong'], client)).exitCode).toBe(2);
+  });
+
+  test('set re-sorts and changes the status in one PATCH, with the link or reason', async () => {
+    const { calls, rec } = recorder();
+    const client = { corrections: { change: rec('change', { id: 'c-1', status: 'being-fixed' }) } };
+    const fixing = await run(
+      [
+        'corrections',
+        'set',
+        'c-1',
+        '--sorted-to=developer',
+        '--status=being-fixed',
+        '--link=https://github.com/acme/agents/pull/7',
+      ],
+      client,
+    );
+    expect(fixing.exitCode, fixing.stderr).toBe(0);
+    expect(JSON.parse(fixing.stdout)).toEqual({ id: 'c-1', status: 'being-fixed' });
+    const wontFix = await run(
+      ['corrections', 'set', 'c-1', '--status=wont-fix', '--reason=The policy changed.'],
+      client,
+    );
+    expect(wontFix.exitCode, wontFix.stderr).toBe(0);
+    const resorted = await run(['corrections', 'set', 'c-1', '--sorted-to=owner'], client);
+    expect(resorted.exitCode, resorted.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'change',
+        'c-1',
+        {
+          sortedTo: 'developer',
+          status: 'being-fixed',
+          link: 'https://github.com/acme/agents/pull/7',
+        },
+      ],
+      ['change', 'c-1', { status: 'wont-fix', reason: 'The policy changed.' }],
+      ['change', 'c-1', { sortedTo: 'owner' }],
+    ]);
+  });
+
+  test('set needs a correction and --status or --sorted-to, each a value it takes', async () => {
+    const client = { corrections: {} };
+    const noId = await run(['corrections', 'set', '--status=open'], client);
+    expect(noId.exitCode).toBe(2);
+    expect(noId.stderr).toContain('correction-id');
+    const nothing = await run(['corrections', 'set', 'c-1', '--reason=Why.'], client);
+    expect(nothing.exitCode).toBe(2);
+    expect(nothing.stderr).toContain('Give --status, --sorted-to, or both');
+    // `fixed` comes from a pin or a deploy, and `removed` from `remove`.
+    for (const flag of ['--status=fixed', '--status=removed', '--sorted-to=none']) {
+      const out = await run(['corrections', 'set', 'c-1', flag], client);
+      expect(out.exitCode, flag).toBe(2);
+      expect(out.stderr, flag).toContain('must be one of');
+    }
+    const empty = await run(['corrections', 'set', 'c-1', '--status=open', '--reason='], client);
+    expect(empty.exitCode).toBe(2);
+    expect(empty.stderr).toContain('--reason takes a value');
+  });
+
   test('list refuses --agent-version without --agent', async () => {
     const client = { corrections: {} };
     expect((await run(['corrections', 'list', '--agent-version=1.0.0'], client)).stderr).toContain(

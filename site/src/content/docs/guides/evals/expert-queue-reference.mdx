@@ -120,7 +120,9 @@ When a correction is saved, it's sorted by these rules, in order:
 ### Change a correction
 
 `PATCH /v1/corrections/{id}`, or `corrections.change` in the clients, takes
-`sortedTo`, `status`, or both, with a `link` or a `reason`. It needs
+`sortedTo`, `status`, or both, with a `link` or a `reason`. In the CLI,
+it's `kindgi corrections set <id>` with `--sorted-to`, `--status`, `--link`
+and `--reason`. It needs
 `publish` on the correction's agent or flow, or, for one that more than one
 project serves, `write` on the correction's project.
 

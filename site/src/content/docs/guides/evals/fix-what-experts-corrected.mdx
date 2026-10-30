@@ -58,12 +58,12 @@ Then list that version's corrections — and newer versions' as you go
 (`agents live-versions` lists everywhere a version is live):
 
 ```sh
-pnpm exec kindgi corrections list --agent=acme-store.refunds --agent-version=1.0.3
+pnpm exec kindgi corrections list --agent=acme-store.refunds --agent-version=1.0.3 --status=not-fixed
 ```
 
 Each correction has a `status`. Work on the ones that are `open`,
-`being-fixed` or `with-owner`; in the clients, `corrections.list` takes
-`status: 'not-fixed'` for those. A `fixed` one found nothing wrong, or is
+`being-fixed` or `with-owner`: `--status=not-fixed` lists those, and
+`status: 'not-fixed'` does in the clients. A `fixed` one found nothing wrong, or is
 fixed already. Each also says who fixes it, in `sortedTo`. A wrong answer is
 sorted to `improve`. Wrong decisions wait with the agent's owner, as
 `with-owner`, since a change to what the agent does may loosen a limit; the
