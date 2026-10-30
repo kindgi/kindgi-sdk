@@ -272,6 +272,20 @@ def test_a_guardrail_can_t_ship_its_check_under_a_built_in_id() -> None:
     assert own.check_id == "acme.checks.must-cite"
 
 
+def test_an_llm_judge_guardrail_needs_its_judge() -> None:
+    with pytest.raises(DefinitionError, match='is kind "llm-judge" with no judge_capabilities='):
+
+        @guardrail(id="acme.tone", kind="llm-judge", on_violation="halt")
+        def unjudged(config: dict[str, Any], trace: RunTrace) -> bool: ...
+
+    needs = {"needs": [{"feature": "structured-output"}]}
+
+    @guardrail(id="acme.tone", kind="llm-judge", on_violation="halt", judge_capabilities=needs)
+    def tone(config: dict[str, Any], trace: RunTrace) -> bool: ...
+
+    assert tone.judge_capabilities == needs
+
+
 def test_a_guardrails_configured_values_are_checked_where_declared() -> None:
     class Config(BaseModel):
         min_length: int = Field(1, alias="minLength", ge=0)
