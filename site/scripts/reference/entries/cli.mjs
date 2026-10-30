@@ -819,7 +819,6 @@ export const CLI_DEFAULTS = {
     participant: 'none',
     project: 'none',
     run: 'none',
-    verdict: 'none',
   },
   'corrector-groups list': {
     agent: 'none',
