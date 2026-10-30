@@ -108,7 +108,7 @@ async function implicitAgentVersion(
     });
     return runs?.version as unknown as string | undefined;
   }
-  // No pins or Latest wired (`createApp` without `agentReleases`): the highest version, as a run gets.
+  // No pins or Latest wired (`createApp` without `agentPins`): the highest version, as a run gets.
   const highest = await agents.get({ tenantId, agentId: id as AgentId });
   return highest === null ? undefined : (highest.version as unknown as string);
 }

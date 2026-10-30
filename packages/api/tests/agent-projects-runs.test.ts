@@ -16,17 +16,17 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { LiveScope, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
+import type { AgentPinScope, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
-  AgentReleaseBindings,
+  AgentPinBindings,
+  AgentPinResolveInput,
+  AgentPinnedVersion,
   CreateAppInput,
   LatestInProject,
-  LivePin,
-  LiveResolveInput,
   TokenResolver,
 } from '../src/index.js';
 import { environmentOrders } from './support/environment-orders.js';
@@ -60,16 +60,16 @@ const PEOPLE: Record<string, readonly Grant[]> = {
 const resolveToken: TokenResolver = async (token) =>
   token in PEOPLE ? { tenantId, userId: token as UserId } : null;
 
-const pin = (scope: LiveScope, version: string, promotionId: string): LivePin => ({
+const pin = (scope: AgentPinScope, version: string, changeId: string): AgentPinnedVersion => ({
   agentId: DESK,
   scope,
   version: version as Semver,
-  promotionId,
-  setAt: '2026-10-20T09:00:00.000Z' as LivePin['setAt'],
+  changeId,
+  setAt: '2026-10-20T09:00:00.000Z' as AgentPinnedVersion['setAt'],
 });
 
-const PROD_PIN = pin({ kind: 'project', projectId: PROD }, '1.0.0', 'promo-prod');
-const EU_PIN = pin({ kind: 'segment', projectId: PROD, path: EU }, '1.1.0', 'promo-eu');
+const PROD_PIN = pin({ kind: 'project', projectId: PROD }, '1.0.0', 'pin-prod');
+const EU_PIN = pin({ kind: 'segment', projectId: PROD, path: EU }, '1.1.0', 'pin-eu');
 
 const STAGING_LATEST: LatestInProject = {
   projectId: STAGING,
@@ -83,9 +83,9 @@ const STAGING_LATEST: LatestInProject = {
  * pin covering the scope (segment, project, tenant). `asked` names each
  * read, so a test can count them.
  */
-function releasesOf(pins: readonly LivePin[], latest: readonly LatestInProject[]) {
+function agentPinsOf(pins: readonly AgentPinnedVersion[], latest: readonly LatestInProject[]) {
   const asked: string[] = [];
-  const covers = (scope: LiveScope, q: LiveResolveInput) => {
+  const covers = (scope: AgentPinScope, q: AgentPinResolveInput) => {
     switch (scope.kind) {
       case 'tenant':
         return true;
@@ -101,9 +101,9 @@ function releasesOf(pins: readonly LivePin[], latest: readonly LatestInProject[]
     }
   };
   const rank = { segment: 0, project: 1, org: 2, tenant: 3 } as const;
-  const releases = {
-    live: {
-      async resolve(q: LiveResolveInput) {
+  const agentPins = {
+    pinned: {
+      async resolve(q: AgentPinResolveInput) {
         asked.push(`resolve ${q.projectId ?? 'none'}`);
         const found = pins
           .filter((p) => covers(p.scope, q))
@@ -124,18 +124,18 @@ function releasesOf(pins: readonly LivePin[], latest: readonly LatestInProject[]
         return latest;
       },
     },
-    promotions: {
+    changes: {
       async get(_tenantId: TenantId, id: string) {
-        asked.push(`promotion ${id}`);
+        asked.push(`change ${id}`);
         return { id, requestedBy: { kind: 'user', id: `owner-of-${id}` } };
       },
     },
   };
-  return { releases: releases as unknown as AgentReleaseBindings, asked };
+  return { agentPins: agentPins as unknown as AgentPinBindings, asked };
 }
 
-function harness(pins: readonly LivePin[], latest: readonly LatestInProject[]) {
-  const { releases, asked } = releasesOf(pins, latest);
+function harness(pins: readonly AgentPinnedVersion[], latest: readonly LatestInProject[]) {
+  const { agentPins, asked } = agentPinsOf(pins, latest);
   const authz = grantsAuthz(PEOPLE, { [`agent:${DESK}`]: STAGING });
   const app = createApp({
     ...createStubAppBindings(),
@@ -145,7 +145,7 @@ function harness(pins: readonly LivePin[], latest: readonly LatestInProject[]) {
         return { id: DESK, version: '1.2.0', tenantId, projectId: STAGING };
       },
     },
-    agentReleases: releases,
+    agentPins,
     resolveToken,
     authz: authz.authz,
     itemProjects: itemProjects(ROWS),
@@ -181,10 +181,10 @@ describe('GET /v1/agents/:agentId/projects: what runs in each project', () => {
           follows: 'pin',
           runs: {
             version: '1.0.0',
-            liveScope: { kind: 'project', projectId: PROD },
+            pinnedScope: { kind: 'project', projectId: PROD },
             since: '2026-10-20T09:00:00.000Z',
-            promotionId: 'promo-prod',
-            by: { kind: 'user', id: 'owner-of-promo-prod' },
+            pinChangeId: 'pin-prod',
+            by: { kind: 'user', id: 'owner-of-pin-prod' },
           },
           segments: [{ path: EU, version: '1.1.0' }],
         },
@@ -223,17 +223,17 @@ describe('GET /v1/agents/:agentId/projects: what runs in each project', () => {
   });
 
   test('a pin above the project (the tenant) covers it, and is named as such', async () => {
-    const tenantPin = pin({ kind: 'tenant' }, '1.0.0', 'promo-tenant');
+    const tenantPin = pin({ kind: 'tenant' }, '1.0.0', 'pin-tenant');
     const { projects } = harness([tenantPin], [STAGING_LATEST]);
     const body = await projects('both');
     for (const row of body.data as { follows: string; runs: Record<string, unknown> }[]) {
       expect(row.follows).toBe('pin');
       expect(row.runs).toEqual({
         version: '1.0.0',
-        liveScope: { kind: 'tenant' },
+        pinnedScope: { kind: 'tenant' },
         since: '2026-10-20T09:00:00.000Z',
-        promotionId: 'promo-tenant',
-        by: { kind: 'user', id: 'owner-of-promo-tenant' },
+        pinChangeId: 'pin-tenant',
+        by: { kind: 'user', id: 'owner-of-pin-tenant' },
       });
     }
   });
@@ -247,7 +247,7 @@ describe('GET /v1/agents/:agentId/projects: what runs in each project', () => {
   });
 
   test("a version the caller can't see is left out: a segment pin's, and the highest", async () => {
-    const hiddenEu = pin({ kind: 'segment', projectId: PROD, path: EU }, '1.2.0', 'promo-eu');
+    const hiddenEu = pin({ kind: 'segment', projectId: PROD, path: EU }, '1.2.0', 'pin-eu');
     const { projects } = harness([PROD_PIN, hiddenEu], [STAGING_LATEST]);
     expect(await projects('prod')).toEqual({
       data: [
@@ -256,10 +256,10 @@ describe('GET /v1/agents/:agentId/projects: what runs in each project', () => {
           follows: 'pin',
           runs: {
             version: '1.0.0',
-            liveScope: { kind: 'project', projectId: PROD },
+            pinnedScope: { kind: 'project', projectId: PROD },
             since: '2026-10-20T09:00:00.000Z',
-            promotionId: 'promo-prod',
-            by: { kind: 'user', id: 'owner-of-promo-prod' },
+            pinChangeId: 'pin-prod',
+            by: { kind: 'user', id: 'owner-of-pin-prod' },
           },
         },
       ],
@@ -267,10 +267,10 @@ describe('GET /v1/agents/:agentId/projects: what runs in each project', () => {
   });
 
   test("when the caller can't see what runs, the project is named alone", async () => {
-    const hiddenPin = pin({ kind: 'project', projectId: PROD }, '1.2.0', 'promo-prod');
+    const hiddenPin = pin({ kind: 'project', projectId: PROD }, '1.2.0', 'pin-prod');
     const { projects, asked } = harness([hiddenPin], []);
     expect(await projects('prod')).toEqual({ data: [{ projectId: PROD }] });
-    // Nothing is said about the hidden pin, so its promotion isn't read.
-    expect(asked.some((a) => a.startsWith('promotion'))).toBe(false);
+    // Nothing is said about the hidden pin, so its pin change isn't read.
+    expect(asked.some((a) => a.startsWith('change'))).toBe(false);
   });
 });

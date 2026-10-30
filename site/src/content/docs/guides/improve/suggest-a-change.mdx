@@ -202,7 +202,7 @@ pnpm exec kindgi suggested-changes get <suggested-change-id>
   and why.
 
 `ready` says the check finished, not that the change is better. The release
-gate policy decides when you [pin it](#pin-it).
+gate decides when you [pin it](#pin-it).
 
 ### Check it again
 
@@ -231,24 +231,24 @@ pnpm exec kindgi suggested-changes check <suggested-change-id> --wait
 ## Pin it
 
 Pinning it pins the suggested change's version for its project, through the
-project's release gate policy, with its check's run (`with`) as the run on
-the test cases:
+project's release gate, with its check's run (`with`) as the run on the test
+cases:
 
 ```sh
 pnpm exec kindgi suggested-changes pin <suggested-change-id> --reason="Fit first: 25 of 27 against 23."
 ```
 
 `--reason` is kept with the request to pin it.
-[Gate a release](../release-an-agent-version/#gate-a-release) describes the
-release gate policy. Pinning is allowed when the suggested change is
-`ready`, whatever its check says: the release gate policy decides. Then:
+[Gate a pin](../release-an-agent-version/#gate-a-pin) describes the release
+gate. Pinning is allowed when the suggested change is `ready`, whatever its
+check says: the release gate decides. Then:
 
 - it's `pinned`: its version runs in the project, and `pinned` says which
   version, who pinned it and when;
-- it's `waiting-for-second-person`: the release gate policy passed, and a
+- it's `waiting-for-second-person`: the release gate passed, and a
   reviewer decides the approval in `approvalId`, with
   `kindgi approvals complete`. Approved, it's `pinned`;
-- or the release gate policy refused it, with `422 gate-failed`, listing
+- or the release gate refused it, with `422 gate-failed`, listing
   every check.
 
 ```json
@@ -268,10 +268,11 @@ release gate policy. Pinning is allowed when the suggested change is
 A pin that doesn't go through leaves the suggested change `ready`, with a
 `note` that says why: `gate-refused`, `rejected` by the second person,
 `expired` when nobody decided the approval in time, or `superseded` when the
-project's version or its policy changed before the approval. `promotionId`
-names that request. You can ask again.
+project's version or its release gate changed before the approval.
+`pinChangeId` names that request in the agent's pin history. You can ask
+again.
 
-- **A project that runs its [Latest](../live-versions-reference/#latest)**
+- **A project that runs its [Latest](../pinned-versions-reference/#latest)**
   takes no pin: the request is refused with
   `409 suggested-change-project-on-latest`.
   [Add it as Latest](#add-it-as-latest) instead.
@@ -280,22 +281,22 @@ names that request. You can ask again.
   [rebuilt](#if-the-project-moves-first) first.
 - **A suggested change an [Improve run](../improve-an-agent/) made,** rather
   than a person, always waits for a reviewer, even where the project's
-  policy asks for no approval. While another reviewer could approve it,
-  someone other than whoever asked to pin it must, even where the policy's
-  `approvals` sets `"separateApprover": false`.
-- **Rolling back** puts the project back on the version it ran before, as
-  [Roll back, or unpin](../release-an-agent-version/#roll-back-or-unpin)
-  shows. The suggested change stays `pinned`.
-- **Pinning needs `promote` on the agent.** Through the API, it's
+  release gate asks for no approval. While another reviewer could approve
+  it, someone other than whoever asked to pin it must, even where the
+  release gate's `approvals` sets `"separateApprover": false`.
+- **Unpinning, or pinning another version,** moves the project off it, as
+  [Unpin](../release-an-agent-version/#unpin) shows. The suggested change
+  stays `pinned`.
+- **Pinning needs `pin` on the agent.** Through the API, it's
   `POST /v1/suggested-changes/{suggestedChangeId}/pin`, which answers `201`
   when it's pinned and `202` when it waits for a second person.
 
 ## Add it as Latest
 
-A project that runs its [Latest](../live-versions-reference/#latest) takes a
+A project that runs its [Latest](../pinned-versions-reference/#latest) takes a
 suggested change as its Latest instead: from then on, the project runs the
-suggested change's version, until its Latest moves again. There's no release gate policy here: a project on Latest takes each
-new Latest as it comes.
+suggested change's version, until its Latest moves again. There's no release
+gate here: a project on Latest takes each new Latest as it comes.
 
 ```sh
 pnpm exec kindgi suggested-changes add-as-latest <suggested-change-id> --reason="Fit first for acme."
@@ -307,7 +308,7 @@ pnpm exec kindgi suggested-changes add-as-latest <suggested-change-id> --reason=
   optional `reason`, and it answers `200`. From your app, it's
   `suggestedChanges.addAsLatest` in the TypeScript client, and
   `suggested_changes.add_as_latest` in the Python client.
-- It's allowed when the suggested change is `ready`, and needs `promote` on
+- It's allowed when the suggested change is `ready`, and needs `pin` on
   the agent. For an agent that several projects serve, it's `admin` in the
   suggested change's project.
 - Then it's `added-as-latest`, and its `addedAsLatest` says which version,

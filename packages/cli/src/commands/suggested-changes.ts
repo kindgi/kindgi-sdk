@@ -345,7 +345,7 @@ const addAsLatest: LeafCommand = {
   kind: 'leaf',
   name: 'add-as-latest',
   description:
-    "Add a suggested change's version as its project's Latest, for a project that runs its Latest: the project runs it from now on, with no release gate policy. The suggested change is `added-as-latest`. Allowed when `ready`. Needs `promote` on the agent.",
+    "Add a suggested change's version as its project's Latest, for a project that runs its Latest: the project runs it from now on, with no release gate. The suggested change is `added-as-latest`. Allowed when `ready`. Needs `pin` on the agent.",
   usage: 'kindgi suggested-changes add-as-latest <suggested-change-id> [--reason=<text>]',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on its `addedAsLatest`.' },

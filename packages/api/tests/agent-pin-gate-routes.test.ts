@@ -621,7 +621,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
 });
 
 describe('what the scope runs: its Latest, not the highest version (1.1.0)', () => {
-  const STRICT: GatePolicySpec = {
+  const STRICT: ReleaseGateSpec = {
     ...FAILING,
     approvals: { role: 'senior', separateApprover: true },
   };
@@ -631,30 +631,30 @@ describe('what the scope runs: its Latest, not the highest version (1.1.0)', () 
     const { app, calls, state } = setup();
     state.latest = LATEST;
     const res = await app.request(
-      `/v1/agents/${AGENT}/promotions`,
-      promote({ evalRunId: undefined }),
+      `/v1/agents/${AGENT}/pinned/pin`,
+      pinBody({ testRunId: undefined }),
     );
     expect(res.status).toBe(201);
-    const request = calls.find((c) => c.method === 'request')?.input as PromotionRequestInput;
+    const request = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
     expect(request.gate.servingVersion).toBe('1.0.0');
   });
 
   test('pinning the Latest is a pin in place; pinning the highest runs the gate', async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(STRICT);
+    state.releaseGate = releaseGate(STRICT);
     state.latest = LATEST;
     const here = await app.request(
-      `/v1/agents/${AGENT}/promotions`,
+      `/v1/agents/${AGENT}/pinned/pin`,
       post({ version: '1.0.0', scope: PROJECT_SCOPE }),
     );
     expect(here.status).toBe(201);
-    const requested = calls.find((c) => c.method === 'request')?.input as PromotionRequestInput;
+    const requested = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
     expect(requested.gate).toMatchObject({ servingVersion: '1.0.0', pinInPlace: true });
     expect(requested.gate.checks[0]?.message).toContain('as its Latest');
 
-    // The policy wants a comparison, and none was named.
+    // The release gate wants a test run, and none was named.
     const highest = await app.request(
-      `/v1/agents/${AGENT}/promotions`,
+      `/v1/agents/${AGENT}/pinned/pin`,
       post({ version: '1.1.0', scope: PROJECT_SCOPE }),
     );
     expect(highest.status).toBe(422);
@@ -663,7 +663,7 @@ describe('what the scope runs: its Latest, not the highest version (1.1.0)', () 
   test('nothing runs in the scope (no pin, no Latest): 409 nothing-runs-in-scope, nothing recorded', async () => {
     const { app, calls, state } = setup();
     state.latest = null;
-    const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(409);
     const { error } = (await res.json()) as { error: { code: string; message: string } };
     expect(error.code).toBe('nothing-runs-in-scope');
@@ -672,7 +672,7 @@ describe('what the scope runs: its Latest, not the highest version (1.1.0)', () 
     );
     expect(methods(calls)).not.toContain('request');
 
-    const check = await app.request(`/v1/agents/${AGENT}/promotions/check`, promote());
+    const check = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
     expect(check.status).toBe(409);
     expect(JSON.stringify(await check.json())).toContain('nothing-runs-in-scope');
   });
@@ -681,7 +681,7 @@ describe('what the scope runs: its Latest, not the highest version (1.1.0)', () 
     const { app, calls, state } = setup();
     state.latest = null;
     state.suspended = true;
-    const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(409);
     const { error } = (await res.json()) as { error: { code: string } };
     expect(error.code).toBe('project-suspended');

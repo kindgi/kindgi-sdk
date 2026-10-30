@@ -84,7 +84,7 @@ export function inMemorySuggestedChanges(): SupervisorBinding & {
           next = { ...base, pinChangeId: step.pinChangeId };
           break;
         case 'rebuilt': {
-          const { candidate: _c, evaluation: _e, promotionId: _p, ...rest } = base;
+          const { candidate: _c, evaluation: _e, pinChangeId: _p, ...rest } = base;
           next = {
             ...rest,
             builtOnVersion: step.builtOnVersion,

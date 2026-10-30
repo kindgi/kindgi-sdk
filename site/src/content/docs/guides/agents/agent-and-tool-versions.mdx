@@ -287,8 +287,8 @@ version: the deploy points the version at the new image.
 their latest at publish (a tool's
 [pinned version](#a-pin-holds-a-tool-at-a-version), where a pin covers the
 flow's project), and its agent steps that don't name a version to what a run
-in the flow's project gets then: the live version that covers it, else the
-project's [Latest](../../evals/live-versions-reference/#latest). A tool
+in the flow's project gets then: the pinned version that covers it, else the
+project's [Latest](../../improve/pinned-versions-reference/#latest). A tool
 change reaches a flow through a new agent version and a new flow version, in
 one deploy, with a line for each.
 
@@ -300,8 +300,8 @@ So a change to the agent reaches each of them. `client.agents.projects(agentId)`
 first, naming only the ones you can read. A project stays on the list after
 the versions shipped there are unregistered, because reinstating one would
 run there again. Each project says what a run there that names no version
-gets, and why: the live version that covers it, else its
-[Latest](../../evals/live-versions-reference/#latest).
+gets, and why: the pinned version that covers it, else its
+[Latest](../../improve/pinned-versions-reference/#latest).
 
 **An agent version published without pins,** such as by an older runtime,
 gets a pinned next version at the first deploy:

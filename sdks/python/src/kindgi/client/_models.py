@@ -138,7 +138,7 @@ class AgentProjectSegmentPin(BaseModel):
 
 class AgentHighestVersion(BaseModel):
     """
-    The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server has no live versions.
+    The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server doesn't pin versions.
     """
 
     model_config = ConfigDict(
@@ -4621,7 +4621,7 @@ class SuggestedChangeCheck(BaseModel):
 
 class SuggestedChangeNote(BaseModel):
     """
-    Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion. Or, on a deploy's suggested change, `not-running`: the version its project runs (`version`) isn't running to be checked against, and has no finished run on the same cases, so its check has no `now`.
+    Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or release gate changed before the approval). `pinChangeId` is that pin's change in the pin history. Or, on a deploy's suggested change, `not-running`: the version its project runs (`version`) isn't running to be checked against, and has no finished run on the same cases, so its check has no `now`.
     """
 
     model_config = ConfigDict(
@@ -4632,7 +4632,7 @@ class SuggestedChangeNote(BaseModel):
         Literal["gate-refused", "rejected", "expired", "superseded", "not-running"] | str,
         _open.OPEN,
     ]
-    promotion_id: Annotated[str | None, Field(alias="promotionId")] = None
+    pin_change_id: Annotated[str | None, Field(alias="pinChangeId")] = None
     version: str | None = None
 
 
@@ -13538,7 +13538,7 @@ class AgentProjectRuns(BaseModel):
     """
     With `follows: latest`: the deployment into the project that made it Latest, when one did.
     """
-    live_scope: Annotated[
+    pinned_scope: Annotated[
         Annotated[
             PinScopeTenant
             | PinScopeOrg
@@ -13548,14 +13548,14 @@ class AgentProjectRuns(BaseModel):
             _open.OpenUnion("kind", AgentPinScopeUnrecognized),
         ]
         | None,
-        Field(alias="liveScope"),
+        Field(alias="pinnedScope"),
     ] = None
     """
     With `follows: pin`: the pin that covers the project.
     """
-    promotion_id: Annotated[str | None, Field(alias="promotionId")] = None
+    pin_change_id: Annotated[str | None, Field(alias="pinChangeId")] = None
     """
-    With `follows: pin`: the promotion that set the pin.
+    With `follows: pin`: the pin change that set the pin, in the agent's pin history.
     """
 
 
@@ -17005,7 +17005,7 @@ class AgentProject(BaseModel):
     project_id: Annotated[UUID, Field(alias="projectId")]
     follows: Annotated[Literal["pin", "latest"] | str, _open.OPEN] | None = None
     """
-    Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server has no live versions.
+    Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server doesn't pin versions.
     """
     runs: AgentProjectRuns | None = None
     segments: list[AgentProjectSegmentPin] | None = None

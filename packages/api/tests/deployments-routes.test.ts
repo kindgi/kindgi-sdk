@@ -8174,9 +8174,9 @@ describe('POST /v1/deployments — a pinned project gets a suggested change for 
    */
   function withCards(pack: SignedDeploy, pinned: string | null, freezeThrows = false) {
     const supervisor = inMemorySuggestedChanges();
-    const releases = {
-      live: {
-        resolve: async ({ agentId, projectId }: LiveResolveInput) =>
+    const agentPins = {
+      pinned: {
+        resolve: async ({ agentId, projectId }: AgentPinResolveInput) =>
           pinned !== null && agentId === 'acme.matcher' && projectId === DEFAULT_PROJECT_ID
             ? { version: pinned as Semver, scope: { kind: 'project' as const, projectId } }
             : null,
@@ -8187,8 +8187,8 @@ describe('POST /v1/deployments — a pinned project gets a suggested change for 
         latest: async () => ({ version: '1.4.0' as Semver, since: '2026-10-11T00:00:00.000Z' }),
         byProject: async () => [],
       },
-      promotions: {},
-    } as unknown as AgentReleaseBindings;
+      changes: {},
+    } as unknown as AgentPinBindings;
     const testSetFreeze: TestSetFreezeBinding = {
       async freezeTestSet({ agentId, projectId }) {
         if (freezeThrows) throw new Error('the test set store is down');
@@ -8205,7 +8205,7 @@ describe('POST /v1/deployments — a pinned project gets a suggested change for 
       flowRegistry: makeVersionedFlowRegistry(),
       extra: {
         supervisor,
-        agentReleases: releases,
+        agentPins,
         blockRegistry: inMemoryBlocks(),
         testRunBinding: {} as TestRunBinding,
         testSetFreeze,

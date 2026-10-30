@@ -338,7 +338,7 @@ export const AgentProjectSchema: JsonSchema = {
       type: 'string',
       enum: ['pin', 'latest'],
       description:
-        "Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server has no live versions.",
+        "Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server doesn't pin versions.",
     },
     runs: { $ref: '#/components/schemas/AgentProjectRuns' },
     segments: {
@@ -374,13 +374,14 @@ export const AgentProjectRunsSchema: JsonSchema = {
       description:
         'With `follows: latest`: the deployment into the project that made it Latest, when one did.',
     },
-    liveScope: {
+    pinnedScope: {
       $ref: '#/components/schemas/AgentPinScope',
       description: 'With `follows: pin`: the pin that covers the project.',
     },
-    promotionId: {
+    pinChangeId: {
       type: 'string',
-      description: 'With `follows: pin`: the promotion that set the pin.',
+      description:
+        "With `follows: pin`: the pin change that set the pin, in the agent's pin history.",
     },
   },
 };
@@ -400,7 +401,7 @@ export const AgentHighestVersionSchema: JsonSchema = {
   additionalProperties: false,
   required: ['version'],
   description:
-    "The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server has no live versions.",
+    "The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server doesn't pin versions.",
   properties: { version: { type: 'string' } },
 };
 
@@ -6726,13 +6727,13 @@ export const SuggestedChangeNoteSchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind'],
   description:
-    "Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion. Or, on a deploy's suggested change, `not-running`: the version its project runs (`version`) isn't running to be checked against, and has no finished run on the same cases, so its check has no `now`.",
+    "Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or release gate changed before the approval). `pinChangeId` is that pin's change in the pin history. Or, on a deploy's suggested change, `not-running`: the version its project runs (`version`) isn't running to be checked against, and has no finished run on the same cases, so its check has no `now`.",
   properties: {
     kind: {
       type: 'string',
       enum: ['gate-refused', 'rejected', 'expired', 'superseded', 'not-running'],
     },
-    promotionId: { type: 'string' },
+    pinChangeId: { type: 'string' },
     version: { type: 'string' },
   },
 };

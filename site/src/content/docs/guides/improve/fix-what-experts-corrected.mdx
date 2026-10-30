@@ -68,7 +68,7 @@ fixed already. Each also says who fixes it, in `sortedTo`. A wrong answer is
 sorted to `improve`. Wrong decisions wait with the agent's owner, as
 `with-owner`, since a change to what the agent does may loosen a limit; the
 owner can re-sort one to `developer` for a change in code.
-[Where a correction goes](../judge-a-runs-output/#where-a-correction-goes)
+[Where a correction goes](../correct-a-runs-output/#where-a-correction-goes)
 has the rules.
 
 Read each one for what was wrong (`why`, `shouldSay`) and the run it's on:
@@ -152,7 +152,7 @@ pnpm exec kindgi suggested-changes create --agent=acme-store.refunds --project=<
 names a correction it fixes. It publishes the block version, makes the agent
 version that pins it, and tries both versions on the project's test cases:
 read the new version from the output's `version`.
-[Suggest a change, and test it](../propose-a-change/) says how to read its
+[Suggest a change, and test it](../suggest-a-change/) says how to read its
 check and pin it.
 
 For a **code** change, `kindgi deploy` publishes the new version with the

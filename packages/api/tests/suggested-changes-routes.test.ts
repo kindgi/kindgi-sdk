@@ -108,7 +108,7 @@ const SEGMENT: AgentPinScope = {
   path: [{ key: 'company', value: 'acme' }],
 };
 const SEGMENT_WIRE = { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] };
-const PROJECT: LiveScope = { kind: 'project', projectId };
+const PROJECT: AgentPinScope = { kind: 'project', projectId };
 /** The project's test set, as a check freezes it. */
 const FROZEN = { testSetId: agentTestSetId(AGENT as AgentId, projectId), testSetVersion: '1.0.7' };
 const projectRef: ResourceRef = { type: 'project', id: projectId as unknown as string };
@@ -360,19 +360,21 @@ function freezeFake(opts: { cases?: number; freezes?: boolean }) {
   return { binding, calls, state, wired };
 }
 
-/** Live pins and promotions, kept as a store keeps them; the gate's outcome decides a request's status. */
-function releasesFake(agents: ReturnType<typeof agentBinding>) {
-  const pins: LivePin[] = [];
-  const promotions = new Map<string, Promotion>();
+/** Pinned versions and pin changes, kept as a store keeps them; the gate's outcome decides a request's status. */
+function pinsFake(agents: ReturnType<typeof agentBinding>) {
+  const pins: AgentPinnedVersion[] = [];
+  const pinChanges = new Map<string, Pin>();
   /**
    * `latest`: Latest in every scope, `null` for none. Absent: the version
    * added as Latest last, else the highest one not made for a suggested
    * change (one made for a project serves nothing until it's pinned or
    * added).
    */
-  const state: { policy: GatePolicy | null; latest?: LatestAnswer | null } = { policy: null };
+  const state: { releaseGate: ReleaseGate | null; latest?: LatestAnswer | null } = {
+    releaseGate: null,
+  };
   const calls: { method: string; input: unknown }[] = [];
-  const key = (scope: LiveScope) => JSON.stringify(scope);
+  const key = (scope: AgentPinScope) => JSON.stringify(scope);
   const highest = async (q: { tenantId: TenantId; agentId: string }) => {
     const added = agents.marked.filter((m) => m.agentId === q.agentId).at(-1);
     if (added !== undefined) return { version: added.version, since: NOW };
@@ -386,7 +388,7 @@ function releasesFake(agents: ReturnType<typeof agentBinding>) {
     );
     return version === undefined ? null : { version: version as Semver, since: NOW };
   };
-  const pinOf = (agentId: string, scope: LiveScope) =>
+  const pinOf = (agentId: string, scope: AgentPinScope) =>
     pins.find((p) => p.agentId === agentId && key(p.scope) === key(scope));
   const setPin = (agentId: string, scope: AgentPinScope, version: string, changeId: string) => {
     const at = pins.findIndex((p) => p.agentId === agentId && key(p.scope) === key(scope));
@@ -422,9 +424,9 @@ function releasesFake(agents: ReturnType<typeof agentBinding>) {
       latest: async (q) => (state.latest === undefined ? highest(q) : state.latest),
       byProject: async () => [],
     },
-    promotions: {
-      async promote(input) {
-        calls.push({ method: 'promote', input });
+    changes: {
+      async pin(input) {
+        calls.push({ method: 'pin', input });
         const before = pinOf(input.agentId, input.scope);
         const change = row({
           agentId: input.agentId,
@@ -729,7 +731,7 @@ async function harness(
   });
   const testRuns = testRunFake(agents);
   const freeze = freezeFake(opts);
-  const releases = releasesFake(agents);
+  const pinStore = pinsFake(agents);
   const suggestedChanges = inMemorySuggestedChanges();
   const grants = opts.grants;
   // The improve route resolves the `groupWeights` default against the test set's
@@ -810,7 +812,7 @@ async function harness(
   };
   /** The audit events of `kind` recorded so far. */
   const events = (kind: string) => written.filter((e) => e.kind === kind);
-  return { call, agents, blocks, testRuns, freeze, releases, suggestedChanges, events };
+  return { call, agents, blocks, testRuns, freeze, pinStore, suggestedChanges, events };
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>;
@@ -841,7 +843,7 @@ const TAKES_CANDIDATES = {
  */
 async function made(opts: HarnessOpts & { card?: Record<string, unknown> } = {}) {
   const h = await harness(opts);
-  h.releases.pin(PROJECT, '1.0.0');
+  h.pinStore.pin(PROJECT, '1.0.0');
   const res = await h.call('POST', '/v1/suggested-changes', { ...CARD, ...opts.card });
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return {
@@ -883,7 +885,7 @@ function serviceOf(h: Harness) {
     agents: h.agents,
     blocks: h.blocks,
     testRuns: h.testRuns.binding,
-    releases: h.releases.releases,
+    agentPins: h.pinStore.bindings,
   });
 }
 
@@ -891,7 +893,7 @@ function serviceOf(h: Harness) {
  * A suggested change made for `scope` before they were for a project, as
  * the service drafted it then; `checked`: evaluated on a test set, and ready.
  */
-async function oldRow(h: Harness, scope: LiveScope, opts: { checked?: boolean } = {}) {
+async function oldRow(h: Harness, scope: AgentPinScope, opts: { checked?: boolean } = {}) {
   const service = serviceOf(h);
   const drafted = await service.draft({
     tenantId,
@@ -907,12 +909,12 @@ async function oldRow(h: Harness, scope: LiveScope, opts: { checked?: boolean } 
   if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
   const id = drafted.value.suggestedChange.id as unknown as string;
   if (opts.checked !== true) return id;
-  h.releases.pin({ kind: 'tenant' }, '1.0.0');
+  h.pinStore.pin({ kind: 'tenant' }, '1.0.0');
   const evaluated = await service.evaluate({
     tenantId,
     suggestedChange: drafted.value.suggestedChange,
     testSetId: 'acme.scoring-judged',
-    objective: 'weightedYesShare',
+    objective: 'passRate',
     actor: { kind: 'user', id: 'user-1' },
   });
   if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
@@ -920,12 +922,12 @@ async function oldRow(h: Harness, scope: LiveScope, opts: { checked?: boolean } 
   return id;
 }
 
-const ORG_SCOPE = { kind: 'org', orgId: randomUUID() } as LiveScope;
+const ORG_SCOPE = { kind: 'org', orgId: randomUUID() } as AgentPinScope;
 
 describe('POST /v1/suggested-changes', () => {
   test('a suggested change is built on what its project runs, and its check starts (201 checking)', async () => {
-    const { call, releases, freeze, suggestedChanges } = await harness();
-    releases.pin(PROJECT, '1.0.0');
+    const { call, pinStore, freeze, suggestedChanges } = await harness();
+    pinStore.pin(PROJECT, '1.0.0');
     const res = await call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body).toMatchObject({
@@ -966,7 +968,7 @@ describe('POST /v1/suggested-changes', () => {
   });
 
   test('it publishes the block version and derives an agent version, pinned nowhere', async () => {
-    const { id, blocks, agents, releases } = await made();
+    const { id, blocks, agents, pinStore } = await made();
     const block = blocks.rows.get(`${WEIGHTS}@1.0.1`);
     expect(block?.content).toMatchObject({ values: CARD.values });
     // The schema carried over from the pinned version.
@@ -985,8 +987,8 @@ describe('POST /v1/suggested-changes', () => {
       reason: 'edited',
       suggestedChangeId: id,
     });
-    expect(releases.calls).toEqual([]);
-    expect(releases.pins.map((p) => p.version)).toEqual(['1.0.0']);
+    expect(pinStore.calls).toEqual([]);
+    expect(pinStore.pins.map((p) => p.version)).toEqual(['1.0.0']);
   });
 
   test("its title is the first line of why, without the stop that ends it, then the block's change", async () => {
@@ -1005,10 +1007,10 @@ describe('POST /v1/suggested-changes', () => {
   test('in an environment order, one for the first environment is made and checked there', async () => {
     const staging1 = randomUUID() as ProjectId;
     const staging2 = randomUUID() as ProjectId;
-    const { call, releases, blocks, agents, testRuns, freeze } = await harness({
+    const { call, pinStore, blocks, agents, testRuns, freeze } = await harness({
       orders: [[staging1, staging2, projectId]],
     });
-    releases.pin({ kind: 'project', projectId: staging1 }, '1.0.0');
+    pinStore.pin({ kind: 'project', projectId: staging1 }, '1.0.0');
     const res = await call('POST', '/v1/suggested-changes', { ...CARD, projectId: staging1 });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(blocks.rows.get(`${WEIGHTS}@1.0.1`)?.projectId).toBe(staging1);
@@ -1028,10 +1030,10 @@ describe('POST /v1/suggested-changes', () => {
 
   test("one for a later environment of an order is refused (409 environment-takes-promotions): the order's first takes the change", async () => {
     const staging1 = randomUUID() as ProjectId;
-    const { call, releases, suggestedChanges, freeze } = await harness({
+    const { call, pinStore, suggestedChanges, freeze } = await harness({
       orders: [[staging1, projectId]],
     });
-    releases.pin(PROJECT, '1.0.0');
+    pinStore.pin(PROJECT, '1.0.0');
     const res = await call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error.code).toBe('environment-takes-promotions');
@@ -1065,8 +1067,8 @@ describe('POST /v1/suggested-changes', () => {
   ])(
     'refuses %s (400 validation-failed), and stores and checks nothing',
     async (_name, patch, words) => {
-      const { call, releases, suggestedChanges, testRuns } = await harness();
-      releases.pin(PROJECT, '1.0.0');
+      const { call, pinStore, suggestedChanges, testRuns } = await harness();
+      pinStore.pin(PROJECT, '1.0.0');
       const res = await call('POST', '/v1/suggested-changes', { ...CARD, ...patch });
       expect(res.status, JSON.stringify(res.body)).toBe(400);
       expect(res.body.error.code).toBe('validation-failed');
@@ -1101,8 +1103,8 @@ describe('POST /v1/suggested-changes', () => {
   });
 
   test('a project that runs nothing is refused (409 nothing-runs-in-scope)', async () => {
-    const { call, releases, suggestedChanges, freeze } = await harness();
-    releases.state.latest = null;
+    const { call, pinStore, suggestedChanges, freeze } = await harness();
+    pinStore.state.latest = null;
     const res = await call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error.code).toBe('nothing-runs-in-scope');
@@ -1119,9 +1121,9 @@ describe('POST /v1/suggested-changes', () => {
 
   test('a version the project runs that the registry lacks, or has unregistered, is 404 agent-version-not-found', async () => {
     const gone = await harness();
-    gone.releases.pin(PROJECT, '9.9.9');
+    gone.pinStore.pin(PROJECT, '9.9.9');
     const unregistered = await harness({ unregisteredVersions: ['1.0.0'] });
-    unregistered.releases.pin(PROJECT, '1.0.0');
+    unregistered.pinStore.pin(PROJECT, '1.0.0');
     for (const h of [gone, unregistered]) {
       const res = await h.call('POST', '/v1/suggested-changes', CARD);
       expect(res.status, JSON.stringify(res.body)).toBe(404);
@@ -1131,8 +1133,8 @@ describe('POST /v1/suggested-changes', () => {
   });
 
   test('a project with no corrections to check on is refused (409 suggested-change-nothing-to-check), and nothing is made', async () => {
-    const { call, releases, suggestedChanges, blocks, testRuns } = await harness({ cases: 0 });
-    releases.pin(PROJECT, '1.0.0');
+    const { call, pinStore, suggestedChanges, blocks, testRuns } = await harness({ cases: 0 });
+    pinStore.pin(PROJECT, '1.0.0');
     const res = await call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error).toMatchObject({
@@ -1147,8 +1149,8 @@ describe('POST /v1/suggested-changes', () => {
   });
 
   test("a runtime that freezes no test set can't check one (501), so it makes none", async () => {
-    const { call, releases, suggestedChanges } = await harness({ freezes: false });
-    releases.pin(PROJECT, '1.0.0');
+    const { call, pinStore, suggestedChanges } = await harness({ freezes: false });
+    pinStore.pin(PROJECT, '1.0.0');
     const res = await call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(501);
     expect(res.body.error.code).toBe('suggested-change-check-unsupported');
@@ -1163,11 +1165,11 @@ describe('POST /v1/suggested-changes', () => {
   ] as const)(
     'a read-only agent registry (%s; freezes a test set: %s) refuses it first (409 registry-read-only), with its reason, and publishes nothing',
     async (readOnly, freezes) => {
-      const { call, releases, blocks, suggestedChanges, testRuns } = await harness({
+      const { call, pinStore, blocks, suggestedChanges, testRuns } = await harness({
         readOnly,
         freezes,
       });
-      releases.pin(PROJECT, '1.0.0');
+      pinStore.pin(PROJECT, '1.0.0');
       const res = await call('POST', '/v1/suggested-changes', CARD);
       expect(res.status, JSON.stringify(res.body)).toBe(409);
       expect(res.body.error).toMatchObject({
@@ -1181,10 +1183,10 @@ describe('POST /v1/suggested-changes', () => {
   );
 
   test("model settings that aren't are refused (400), before anything is stored", async () => {
-    const { call, releases, blocks, agents, suggestedChanges, testRuns } = await harness({
+    const { call, pinStore, blocks, agents, suggestedChanges, testRuns } = await harness({
       modelSettings: true,
     });
-    releases.pin(PROJECT, '1.0.0');
+    pinStore.pin(PROJECT, '1.0.0');
     const res = await call('POST', '/v1/suggested-changes', {
       ...CARD,
       block: MODEL,
@@ -1204,11 +1206,11 @@ describe('POST /v1/suggested-changes', () => {
   });
 
   test('model settings that name the model the agent version names too are refused (400), before anything is stored', async () => {
-    const { call, releases, blocks, agents, suggestedChanges, testRuns } = await harness({
+    const { call, pinStore, blocks, agents, suggestedChanges, testRuns } = await harness({
       modelSettings: true,
       preferredModel: 'claude-sonnet-5-5',
     });
-    releases.pin(PROJECT, '1.0.0');
+    pinStore.pin(PROJECT, '1.0.0');
     const res = await call('POST', '/v1/suggested-changes', {
       ...CARD,
       block: MODEL,
@@ -1236,8 +1238,8 @@ describe('POST /v1/suggested-changes', () => {
   });
 
   test("its schemas' compiles count against the tenant's budget, first ones included: refused, nothing is stored", async () => {
-    const { call, releases, blocks, agents, suggestedChanges, testRuns } = await harness();
-    releases.pin(PROJECT, '1.0.0');
+    const { call, pinStore, blocks, agents, suggestedChanges, testRuns } = await harness();
+    pinStore.pin(PROJECT, '1.0.0');
     const create = () => call('POST', '/v1/suggested-changes', CARD);
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
     try {
@@ -1257,8 +1259,8 @@ describe('POST /v1/suggested-changes', () => {
   });
 
   test('a step recorded meanwhile is 409, not a lost write: the suggested change is made, and checked again later', async () => {
-    const { call, releases, suggestedChanges } = await harness();
-    releases.pin(PROJECT, '1.0.0');
+    const { call, pinStore, suggestedChanges } = await harness();
+    pinStore.pin(PROJECT, '1.0.0');
     suggestedChanges.before = () => {
       suggestedChanges.before = undefined;
       for (const [id, row] of suggestedChanges.rows) {
@@ -1276,8 +1278,8 @@ describe('POST /v1/suggested-changes', () => {
   });
 
   test("when what the project runs now can't start, the change's run is cancelled: made, check-failed, and checked again later", async () => {
-    const { call, releases, testRuns } = await harness();
-    releases.pin(PROJECT, '1.0.0');
+    const { call, pinStore, testRuns } = await harness();
+    pinStore.pin(PROJECT, '1.0.0');
     testRuns.fail.start = 2;
     const res = await call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(404);
@@ -1441,7 +1443,7 @@ describe('POST /v1/suggested-changes/:id/check', () => {
   );
 
   test.each([
-    ['the whole tenant', { kind: 'tenant' } as LiveScope],
+    ['the whole tenant', { kind: 'tenant' } as AgentPinScope],
     ['an org', ORG_SCOPE],
     ['a segment', SEGMENT],
   ])(
@@ -1488,14 +1490,14 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     });
   });
 
-  test('with no gate policy it pins the version for the project (201)', async () => {
-    const { call, id, releases } = await checked();
+  test('with no release gate it pins the version for the project (201)', async () => {
+    const { call, id, pinStore } = await checked();
     const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {
       reason: 'acme wants recency',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.status).toBe('pinned');
-    const request = releases.calls.find((c) => c.method === 'request')?.input as Record<
+    const request = pinStore.calls.find((c) => c.method === 'request')?.input as Record<
       string,
       unknown
     >;
@@ -1504,15 +1506,15 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
       version: '1.0.1',
       scope: PROJECT,
       reason: 'acme wants recency',
-      gate: { policy: null, passed: true, servingVersion: '1.0.0' },
+      gate: { releaseGate: null, passed: true, servingVersion: '1.0.0' },
     });
-    expect(releases.pins.map((p) => [p.scope, p.version])).toEqual([[PROJECT, '1.0.1']]);
+    expect(pinStore.pins.map((p) => [p.scope, p.version])).toEqual([[PROJECT, '1.0.1']]);
   });
 
-  test('a policy that wants an approval waits for a second person (202), then is pinned once approved', async () => {
-    const { call, id, releases, suggestedChanges } = await checked();
-    const spec: GatePolicySpec = { approvals: { role: 'standard' } };
-    releases.state.policy = {
+  test('a release gate that wants an approval waits for a second person (202), then is pinned once approved', async () => {
+    const { call, id, pinStore, suggestedChanges } = await checked();
+    const spec: ReleaseGateSpec = { approvals: { role: 'standard' } };
+    pinStore.state.releaseGate = {
       id: 'acme.prod',
       version: '1.0.0',
       tenantId,
@@ -1528,7 +1530,7 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
       (await call('POST', `/v1/suggested-changes/${id}/withdraw`, { reason: 'x' })).status,
     ).toBe(409);
 
-    releases.decide(suggestedChanges.rows.get(id)?.promotionId as string, 'promoted');
+    pinStore.decide(suggestedChanges.rows.get(id)?.pinChangeId as string, 'pinned');
     expect((await call('GET', `/v1/suggested-changes/${id}`)).body).toMatchObject({
       status: 'pinned',
       pinned: { version: '1.0.1' },
@@ -1536,14 +1538,14 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
   });
 
   test("a gate refusal is 422 gate-failed with the suggested change's id; it stays ready, noted, and can be checked again", async () => {
-    const { call, id, releases } = await checked();
-    releases.state.policy = {
+    const { call, id, pinStore } = await checked();
+    pinStore.state.releaseGate = {
       id: 'acme.prod',
       version: '1.0.0',
       tenantId,
       agentId: AGENT,
       scope: PROJECT,
-      spec: { metrics: [{ name: 'weightedYesShare', minCandidate: 0.99 }] },
+      spec: { metrics: [{ name: 'passRate', minCandidate: 0.99 }] },
       createdAt: NOW,
     };
     const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
@@ -1564,7 +1566,7 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
   });
 
   test('a project on Latest takes no pin (409 suggested-change-project-on-latest), and nothing is requested', async () => {
-    const { call, testRuns, releases } = await harness();
+    const { call, testRuns, pinStore } = await harness();
     const res = await call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     await testRuns.finish(res.body.check.with.testRunId, { delta: 0.1 });
@@ -1575,7 +1577,7 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
       code: 'suggested-change-project-on-latest',
       details: { suggestedChangeId: res.body.id },
     });
-    expect(releases.calls).toEqual([]);
+    expect(pinStore.calls).toEqual([]);
   });
 
   test('one made for the whole tenant before suggested changes were for a project is not pinned (409 suggested-change-not-for-a-project)', async () => {
@@ -1585,7 +1587,7 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     const res = await h.call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error.code).toBe('suggested-change-not-for-a-project');
-    expect(h.releases.calls).toEqual([]);
+    expect(h.pinStore.calls).toEqual([]);
   });
 });
 
@@ -1618,7 +1620,7 @@ describe('POST /v1/suggested-changes/:id/add-as-latest', () => {
     expect(h.agents.marked).toEqual([
       { tenantId, agentId: AGENT, version: h.version, by: { kind: 'user', id: 'user-1' } },
     ]);
-    expect(h.releases.calls).toEqual([]);
+    expect(h.pinStore.calls).toEqual([]);
     const got = await h.call('GET', `/v1/suggested-changes/${h.id}`);
     expect(got.body.status).toBe('added-as-latest');
     // Done: it's neither added again, pinned, nor withdrawn.
@@ -1685,11 +1687,11 @@ describe('POST /v1/suggested-changes/:id/add-as-latest', () => {
     expect(h.agents.marked).toEqual([]);
   });
 
-  test('adding as Latest needs promote, as pinning does', async () => {
+  test('adding as Latest needs pin, as pinning does', async () => {
     const h = await readyOnLatest({ grants: [`read agent:${AGENT}`, `publish agent:${AGENT}`] });
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
     expect(res.status).toBe(403);
-    expect(res.body.error.message).toContain('promote');
+    expect(res.body.error.message).toContain('pin');
     expect(h.agents.marked).toEqual([]);
   });
 });
@@ -1735,7 +1737,7 @@ describe('if the project moves first: a suggested change is rebuilt on what it r
     opts: { onLatest?: boolean } = {},
   ) {
     const h = await harness();
-    if (opts.onLatest !== true) h.releases.pin(PROJECT, '1.0.0');
+    if (opts.onLatest !== true) h.pinStore.pin(PROJECT, '1.0.0');
     const ready = async (values: Record<string, number>) => {
       const res = await h.call('POST', '/v1/suggested-changes', { ...CARD, values });
       expect(res.status, JSON.stringify(res.body)).toBe(201);
@@ -1771,7 +1773,7 @@ describe('if the project moves first: a suggested change is rebuilt on what it r
 
   test('a pin that waits for a second person rebuilds nothing yet', async () => {
     const h = await twoReady({ recency: 0.5, fit: 0.7 }, { recency: 0.3, fit: 0.9 });
-    h.releases.state.policy = {
+    h.pinStore.state.releaseGate = {
       id: 'acme.prod',
       version: '1.0.0',
       tenantId,
@@ -1803,7 +1805,7 @@ describe('if the project moves first: a suggested change is rebuilt on what it r
 
   test('one whose project moved by another route is rebuilt instead of pinned (409 suggested-change-out-of-date), then pins once checked', async () => {
     const h = await twoReady({ recency: 0.5, fit: 0.7 }, { recency: 0.3, fit: 0.9 });
-    h.releases.pin(PROJECT, h.a.version);
+    h.pinStore.pin(PROJECT, h.a.version);
     const res = await h.call('POST', `/v1/suggested-changes/${h.b.id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error).toMatchObject({
@@ -1821,7 +1823,7 @@ describe('if the project moves first: a suggested change is rebuilt on what it r
 
   test('checking one again after its project moved rebuilds it on what runs (202)', async () => {
     const h = await twoReady({ recency: 0.5, fit: 0.7 }, { recency: 0.3, fit: 0.9 });
-    h.releases.pin(PROJECT, h.a.version);
+    h.pinStore.pin(PROJECT, h.a.version);
     const res = await h.call('POST', `/v1/suggested-changes/${h.b.id}/check`);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body).toMatchObject({
@@ -1880,7 +1882,7 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
           : h.agents,
       blocks: h.blocks,
       testRuns: h.testRuns.binding,
-      releases: h.releases.releases,
+      agentPins: h.pinStore.bindings,
       ...(opts.freezes !== false && { testSets: h.freeze.binding }),
     });
   }
@@ -1913,7 +1915,7 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
   /** A pinned project, a deploy of 1.1.0, and its card's check finished: ready. */
   async function readyCard(opts: { ranBefore?: boolean } = {}) {
     const h = await harness();
-    h.releases.pin(PROJECT, '1.0.0');
+    h.pinStore.pin(PROJECT, '1.0.0');
     const now = opts.ranBefore === true ? await ranBefore(h) : undefined;
     await registered(h, '1.1.0');
     const out = await deploy(h);
@@ -1925,7 +1927,7 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
 
   test("a pinned project gets a card for the deploy's version, checked as that version; with no run of what it runs, it says that version isn't running", async () => {
     const h = await harness();
-    h.releases.pin(PROJECT, '1.0.0');
+    h.pinStore.pin(PROJECT, '1.0.0');
     // A run of what it runs on other cases isn't the same check.
     await ranBefore(h, '1.0.6');
     await registered(h, '1.1.0');
@@ -1982,14 +1984,14 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
   test('a project pinned to the version already gets none', async () => {
     const h = await harness();
     await registered(h, '1.1.0');
-    h.releases.pin(PROJECT, '1.1.0');
+    h.pinStore.pin(PROJECT, '1.1.0');
     expect(await deploy(h)).toEqual({ made: [], failed: [] });
     expect(h.suggestedChanges.rows.size).toBe(0);
   });
 
   test('the same deploy again is the same card, and checks nothing more', async () => {
     const h = await harness();
-    h.releases.pin(PROJECT, '1.0.0');
+    h.pinStore.pin(PROJECT, '1.0.0');
     await registered(h, '1.1.0');
     const first = await deploy(h);
     const again = await deploy(h);
@@ -2000,7 +2002,7 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
 
   test("with no cases in the project's test set yet, the card is made unchecked, and checking it waits for cases", async () => {
     const h = await harness({ cases: 0 });
-    h.releases.pin(PROJECT, '1.0.0');
+    h.pinStore.pin(PROJECT, '1.0.0');
     await registered(h, '1.1.0');
     const out = await deploy(h);
     expect(out.made).toHaveLength(1);
@@ -2015,7 +2017,7 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
 
   test("a version the deploy didn't leave active is named in failed, and the deploy's other cards are still made", async () => {
     const h = await harness({ unregisteredVersions: ['1.1.0'] });
-    h.releases.pin(PROJECT, '1.0.0');
+    h.pinStore.pin(PROJECT, '1.0.0');
     await registered(h, '1.1.0');
     await registered(h, '1.2.0');
     const out = await cardsOf(h).fromDeploy({
@@ -2038,7 +2040,7 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
 
   test("none where cards can't be made or checked: a read-only registry, or a runtime that freezes no test set", async () => {
     const h = await harness();
-    h.releases.pin(PROJECT, '1.0.0');
+    h.pinStore.pin(PROJECT, '1.0.0');
     await registered(h, '1.1.0');
     expect(await deploy(h, '1.1.0', cardsOf(h, { readOnly: true }))).toEqual({
       made: [],
@@ -2056,13 +2058,13 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body).toMatchObject({ status: 'pinned', pinned: { version: '1.1.0' } });
-    expect(h.releases.pins.find((p) => p.agentId === AGENT)?.version).toBe('1.1.0');
+    expect(h.pinStore.pins.find((p) => p.agentId === AGENT)?.version).toBe('1.1.0');
   });
 
   test("a deploy's card is never rebuilt: once its project moves, pinning it is refused, with no rebuild", async () => {
     const h = await readyCard();
     await registered(h, '1.0.5');
-    h.releases.pin(PROJECT, '1.0.5');
+    h.pinStore.pin(PROJECT, '1.0.5');
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error).toMatchObject({
@@ -2103,7 +2105,7 @@ describe('audit events: making one, pinning it, adding it as Latest and withdraw
     expect(h.events('suggested-change-created')).toHaveLength(1);
   });
 
-  test('pinning one names its promotion, pinned or waiting for a second person; a pin the gate refuses is not recorded', async () => {
+  test('pinning one names its pin change, pinned or waiting for a second person; a pin the gate refuses is not recorded', async () => {
     const pinned = await checked();
     expect((await pinned.call('POST', `/v1/suggested-changes/${pinned.id}/pin`, {})).status).toBe(
       201,
@@ -2113,12 +2115,12 @@ describe('audit events: making one, pinning it, adding it as Latest and withdraw
     expect(now?.projectId).toBe(projectId);
     expect((now?.payload as { doc: unknown }).doc).toEqual({
       ...named(pinned.id),
-      promotionId: pinned.suggestedChanges.rows.get(pinned.id)?.promotionId,
+      pinChangeId: pinned.suggestedChanges.rows.get(pinned.id)?.pinChangeId,
       status: 'pinned',
     });
 
     const waits = await checked();
-    waits.releases.state.policy = {
+    waits.pinStore.state.releaseGate = {
       id: 'acme.prod',
       version: '1.0.0',
       tenantId,
@@ -2135,13 +2137,13 @@ describe('audit events: making one, pinning it, adding it as Latest and withdraw
     ]);
 
     const refused = await checked();
-    refused.releases.state.policy = {
+    refused.pinStore.state.releaseGate = {
       id: 'acme.prod',
       version: '1.0.0',
       tenantId,
       agentId: AGENT,
       scope: PROJECT,
-      spec: { metrics: [{ name: 'weightedYesShare', minCandidate: 0.99 }] },
+      spec: { metrics: [{ name: 'passRate', minCandidate: 0.99 }] },
       createdAt: NOW,
     };
     expect((await refused.call('POST', `/v1/suggested-changes/${refused.id}/pin`, {})).status).toBe(
@@ -2202,7 +2204,7 @@ describe('an agent an environment order carries: a tenant- or org-wide change sp
     ],
   };
 
-  const spans = (scope: LiveScope) => async () => {
+  const spans = (scope: AgentPinScope) => async () => {
     const h = await harness(wide);
     const id = await oldRow(h, scope);
     const res = await h.call('POST', `/v1/suggested-changes/${id}/pin`, {});
@@ -2215,13 +2217,13 @@ describe('an agent an environment order carries: a tenant- or org-wide change sp
 
   test('one for the first environment is not a width refusal', async () => {
     const h = await harness(wide);
-    h.releases.pin(PROJECT, '1.0.0');
+    h.pinStore.pin(PROJECT, '1.0.0');
     const made = await h.call('POST', '/v1/suggested-changes', CARD);
     expect(made.status, JSON.stringify(made.body)).toBe(201);
     // One project stays within one environment: past the width check, on to
     // the service (where it's still checking).
     const res = await h.call('POST', `/v1/suggested-changes/${made.body.id}/pin`, {});
-    expect(res.body.error?.code).not.toBe('live-scope-spans-environments');
+    expect(res.body.error?.code).not.toBe('pin-scope-spans-environments');
   });
 
   // M1: the refusal is keyed on order membership, not project count. One
@@ -2340,9 +2342,9 @@ describe('authorization on the agent', () => {
     expect((await call('GET', '/v1/suggested-changes')).body.data).toEqual([]);
   });
 
-  test('making one needs publish; pinning needs promote', async () => {
+  test('making one needs publish; pinning needs pin', async () => {
     const reader = await harness({ grants: [`read agent:${AGENT}`] });
-    reader.releases.pin(PROJECT, '1.0.0');
+    reader.pinStore.pin(PROJECT, '1.0.0');
     const res = await reader.call('POST', '/v1/suggested-changes', CARD);
     expect(res.status).toBe(403);
     expect(res.body.error.message).toContain('publish');
@@ -2351,7 +2353,7 @@ describe('authorization on the agent', () => {
     const h = await checked(0.1, { grants: [`read agent:${AGENT}`, `publish agent:${AGENT}`] });
     const pin = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(pin.status).toBe(403);
-    expect(pin.body.error.message).toContain('promote');
+    expect(pin.body.error.message).toContain('pin');
   });
 
   test('checking needs publish, as making does', async () => {
@@ -2531,7 +2533,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     reviewers: Pick<ReviewerRegistryBinding, 'list'>,
     actor: { kind: 'user' | 'service'; id: string },
     authz?: AuthzCheckBinding,
-    scope: LiveScope = PROJECT,
+    scope: AgentPinScope = PROJECT,
   ): Promise<{ role: string; count: number; separateApprover: boolean } | undefined> {
     const h = await harness();
     h.pinStore.pin({ kind: 'tenant' }, '1.0.0');
@@ -2673,7 +2675,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
   test("a drafter's suggested change asks its own project, not the test run's", async () => {
     // u-bob may read the test run's project but not the suggested change's.
     // Resolving the count to the run's project (the bug) would admit u-bob;
-    // resolving to the promotion's own project does not.
+    // resolving to the pin's own project does not.
     const other = randomUUID() as ProjectId;
     const otherRef: ResourceRef = { type: 'project', id: other as unknown as string };
     const authz = authzReads({ 'u-alice': [otherRef], 'u-bob': [projectRef] });
@@ -3150,10 +3152,10 @@ describe("what a suggested change names must be in its agent's project's reach",
   });
 
   test('one editing a block out of reach is refused, before the block is read', async () => {
-    const { call, releases, suggestedChanges } = await harness({
+    const { call, pinStore, suggestedChanges } = await harness({
       referenceScope: reach(new Set([WEIGHTS])),
     });
-    releases.pin(PROJECT, '1.0.0');
+    pinStore.pin(PROJECT, '1.0.0');
     const res = await call('POST', '/v1/suggested-changes', CARD);
     expect(refused(res)).toEqual([`/change/blockId block ${WEIGHTS}`]);
     expect(suggestedChanges.rows.size).toBe(0);
@@ -3161,7 +3163,7 @@ describe("what a suggested change names must be in its agent's project's reach",
 
   test("pinning asks it too: a project that no longer reaches the agent isn't pinned", async () => {
     const out = new Set<string>();
-    const { call, id, releases } = await checked(0.1, { referenceScope: reach(out) });
+    const { call, id, pinStore } = await checked(0.1, { referenceScope: reach(out) });
     out.add(AGENT);
     const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(refused(res)).toEqual([`/scope agent ${AGENT}`]);
@@ -3206,7 +3208,7 @@ describe('Improve runs', () => {
   test('no version runs in the scope (no pin, no Latest): 404, saying so, and nothing starts', async () => {
     const improveRuns = inMemoryImproveRuns();
     const h = await harness({ tunable: true, improveRuns: improveRuns.binding });
-    h.releases.state.latest = null;
+    h.pinStore.state.latest = null;
     const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
     expect([res.status, res.body.error.code]).toEqual([404, 'agent-version-not-found']);
     expect(res.body.error.message).toContain('runs in this scope');
@@ -3897,7 +3899,7 @@ describe('POST /v1/improve-runs/check', () => {
       madeFor: 'project',
       enqueueTuples: () => [],
     });
-    h.releases.state.latest = { version: '1.0.0' as Semver, deploymentId: 'dep-1' };
+    h.pinStore.state.latest = { version: '1.0.0' as Semver, deploymentId: 'dep-1' };
     const res = await h.call('POST', '/v1/improve-runs/check', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(seen[0]?.fromVersion).toBe('1.0.0');
@@ -4140,7 +4142,7 @@ describe('an agent an order carries from its project to prod', () => {
       orders,
       items: items(),
     });
-    prodOnly.releases.pin(PROJECT, '1.0.0');
+    prodOnly.pinStore.pin(PROJECT, '1.0.0');
     const res = await prodOnly.call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(403);
     expect(res.body.error.message).toContain(
@@ -4237,7 +4239,7 @@ describe('an agent an order carries from its project to prod', () => {
   test('an agent with one project: publish and pin on the agent, as before', async () => {
     const one: ItemRow[] = [{ kind: 'agent', id: AGENT, projects: [projectId] }];
     const h = await harness({ grants: [...maker, `read agent:${AGENT}`], orders, items: one });
-    h.releases.pin(PROJECT, '1.0.0');
+    h.pinStore.pin(PROJECT, '1.0.0');
     const res = await h.call('POST', '/v1/suggested-changes', CARD);
     expect(res.status).toBe(403);
     expect(res.body.error.message).toContain(`publish on agent "${AGENT}"`);
@@ -4293,7 +4295,7 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
 
   test("a suggested change is refused with the registry's reason, not the scope's (409 registry-read-only), and none is kept", async () => {
     const h = await harness({ readOnly: 'takes-candidates', freezes: false });
-    h.releases.pin(PROJECT, '1.0.0');
+    h.pinStore.pin(PROJECT, '1.0.0');
     const res = await h.call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error).toMatchObject({

@@ -407,7 +407,7 @@ export function agentsRouter(
   // pins and Latest wired, each says what runs there (`whatRunsByProject`),
   // and the answer gives the highest version, which numbers the next one.
   // A version the caller can't see is left out (`seenVersions`), as
-  // `GET …/live` leaves it out.
+  // `GET …/pinned` leaves it out.
   r.get('/:agentId/projects', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
@@ -501,8 +501,8 @@ export function agentsRouter(
       follows: 'pin',
       runs: {
         version: runs.version,
-        liveScope: agentPinScopeToWire(runs.pinnedScope),
-        ...(pin !== undefined && { since: pin.setAt, promotionId: pin.changeId }),
+        pinnedScope: agentPinScopeToWire(runs.pinnedScope),
+        ...(pin !== undefined && { since: pin.setAt, pinChangeId: pin.changeId }),
         ...(change !== null && { by: change.requestedBy }),
       },
       ...bySegment,

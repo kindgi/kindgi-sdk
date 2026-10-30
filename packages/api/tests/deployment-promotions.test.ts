@@ -50,6 +50,7 @@ import type {
   DeploymentContents,
   DeploymentEndpoint,
   Pin,
+  PinRequestInput,
   PinVersionInput,
   PinnedVersionBinding,
   PromotedToolSecretScopes,
@@ -496,8 +497,8 @@ function harness(
       : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
   const cards =
-    opts.cards !== undefined && live !== undefined
-      ? cardBindings(opts.cards.pinned, live)
+    opts.cards !== undefined && agentPins !== undefined
+      ? cardBindings(opts.cards.pinned, agentPins)
       : undefined;
   const flowPins = flowPinBinding(opts.flowPins);
   const app = createApp({
@@ -603,11 +604,11 @@ function harness(
 
 /**
  * Suggested changes wired, for the cards a promotion makes in its target:
- * the carried agent runs `pinned` in S2 until a make-live pins another
- * (`live`'s pins). S2's test set has no cases yet, so a card is made
+ * the carried agent runs `pinned` in S2 until a promotion pins another
+ * (`agentPinBinding`'s pins). S2's test set has no cases yet, so a card is made
  * unchecked.
  */
-function cardBindings(pinned: string, live: ReturnType<typeof livePins>) {
+function cardBindings(pinned: string, agentPins: ReturnType<typeof agentPinBinding>) {
   const supervisor = inMemorySuggestedChanges();
   const testSetFreeze: TestSetFreezeBinding = {
     freezeTestSet: async ({ agentId, projectId }) => ({
@@ -616,13 +617,13 @@ function cardBindings(pinned: string, live: ReturnType<typeof livePins>) {
       cases: [],
     }),
   };
-  const releases: AgentReleaseBindings = {
-    ...live.releases,
-    live: {
+  const releases: AgentPinBindings = {
+    ...agentPins.releases,
+    pinned: {
       resolve: async ({ projectId }) =>
         projectId === S2
           ? {
-              version: (live.pinned.at(-1)?.version ?? pinned) as Semver,
+              version: (agentPins.pinned.at(-1)?.version ?? pinned) as Semver,
               scope: { kind: 'project', projectId: S2 },
             }
           : null,
@@ -636,7 +637,7 @@ function cardBindings(pinned: string, live: ReturnType<typeof livePins>) {
       blockRegistry: inMemoryBlocks(),
       testRunBinding: {} as TestRunBinding,
       testSetFreeze,
-      agentReleases: releases,
+      agentPins: releases,
     },
   };
 }
@@ -1353,21 +1354,21 @@ describe('pinning the carried agents in the target (pin)', () => {
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]).toMatchObject({ agentId: AGENT });
   });
-  test("a first promotion carrying only a version made for a project: nothing runs in the target yet, so it isn't made live (409), and the move stays", async () => {
+  test("a first promotion carrying only a version made for a project: nothing runs in the target yet, so it isn't pinned (409), and the move stays", async () => {
     // The carried version isn't Latest by being carried, and the target has
     // no pin and no other Latest: the gate has nothing to measure it against.
     const h = harness({
-      live: true,
+      agentPins: true,
       gate: true,
-      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error.code).toBe('nothing-runs-in-scope');
-    expect(res.body.error.message).toContain(`agent "${AGENT}" 1.0.0 wasn't made live`);
+    expect(res.body.error.message).toContain(`agent "${AGENT}" 1.0.0 wasn't pinned`);
     expect(res.body.error.message).toContain(
-      'Promote a build that ships a version of it, then make it live. If this version came from a suggested change',
+      'Promote a build that ships a version of it, then pin it. If this version came from a suggested change',
     );
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);
@@ -1506,9 +1507,9 @@ describe('the cards a promotion makes in the target', () => {
     expect(res.body.deployment.deploymentId).not.toBe('dep-s1');
   });
 
-  test('made live in the same promotion, the target runs it: no card', async () => {
+  test('pinned in the same promotion, the target runs it: no card', async () => {
     const h = harness({ cards: { pinned: '0.9.0' }, secrets: [`project:${S2}:ACME_TOKEN`] });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(h.cardsNow()).toHaveLength(0);
   });

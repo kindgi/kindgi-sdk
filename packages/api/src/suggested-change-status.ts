@@ -50,13 +50,13 @@ export const SUGGESTED_CHANGE_STATUSES: readonly SuggestedChangeStatus[] = [
 /**
  * Why a `ready` suggested change was asked to be pinned and wasn't: the
  * release gate refused it, a second person rejected it, the approval
- * expired, or the project's version or policy changed before it was
+ * expired, or the project's version or release gate changed before it was
  * approved.
  */
 export type SuggestedChangeNote =
   | {
       readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
-      readonly promotionId: string;
+      readonly pinChangeId: string;
     }
   /**
    * A deploy's suggested change: what its project runs (`version`) isn't
@@ -352,7 +352,7 @@ export function suggestedChangeNote(pin: Pin | null | undefined): SuggestedChang
   const status = pin?.status;
   if (pin === undefined || pin === null || status === undefined) return undefined;
   if (status === 'pending-approval' || status === 'pinned') return undefined;
-  return { kind: PIN_NOTE[status], promotionId: pin.id };
+  return { kind: PIN_NOTE[status], pinChangeId: pin.id };
 }
 
 /** A finished check's status: with a reference, `ready` once that's finished too. */

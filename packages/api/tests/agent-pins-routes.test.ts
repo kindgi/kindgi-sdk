@@ -244,7 +244,7 @@ describe('GET /v1/agents/:agentId/pinned', () => {
 
   test("nothing pinned → the project's Latest, not the highest version", async () => {
     const { app } = makeApp(['1.0.0', '1.1.0'], undefined, deployedOlder);
-    const res = await app.request(`/v1/agents/${AGENT}/live?projectId=${PROJECT}`, {
+    const res = await app.request(`/v1/agents/${AGENT}/pinned?projectId=${PROJECT}`, {
       headers: auth,
     });
     expect(res.status).toBe(200);
@@ -253,7 +253,7 @@ describe('GET /v1/agents/:agentId/pinned', () => {
 
   test('nothing pinned and no Latest in the project → 404, saying no version runs there', async () => {
     const { app } = makeApp(['1.0.0', '1.1.0'], undefined, deployedOlder);
-    const res = await app.request(`/v1/agents/${AGENT}/live?projectId=${randomUUID()}`, {
+    const res = await app.request(`/v1/agents/${AGENT}/pinned?projectId=${randomUUID()}`, {
       headers: auth,
     });
     expect(res.status).toBe(404);

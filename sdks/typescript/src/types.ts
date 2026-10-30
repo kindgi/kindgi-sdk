@@ -528,7 +528,8 @@ export interface SuggestedChange {
   readonly note?:
     | {
         readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
-        readonly promotionId: string;
+        /** That pin's change in the agent's pin history. */
+        readonly pinChangeId: string;
       }
     | { readonly kind: 'not-running'; readonly version: string };
   readonly pinned?: {
