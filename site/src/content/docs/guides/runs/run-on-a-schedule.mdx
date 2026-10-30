@@ -500,7 +500,7 @@ It prints the schedule, with the defaults applied to its input:
       "correctors": 2,
       "corrections": 5
     },
-    "classWeights": "restricted-only",
+    "groupWeights": "experts-only",
     "monthlyCapUsd": 20
   },
   …
@@ -511,8 +511,8 @@ At each fire, it counts the corrections that marked the agent's runs wrong
 ("no") in its scope since the agent's last Improve run there, the way the
 Improve run will count them:
 everyone's until the tenant, the project, or the agent being improved has a
-[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-correct-as-a-class),
-then only the ones recorded under one. With `classWeights` in the schedule's
+[expert group](../../evals/judge-a-runs-output/#restrict-who-may-correct-as-a-class),
+then only the ones recorded under one. With `groupWeights` in the schedule's
 input, it counts the way that value says. The last Improve run is one that
 didn't fail or get cancelled, whoever started it. With enough of them, across
 enough runs, from enough correctors, it starts an Improve run on fresh test cases
@@ -541,7 +541,7 @@ FIRED                     FOR      OUTCOME          STARTED                     
 2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new experts' corrections so far: 1 of 2 experts (enough: 10 answers experts marked wrong, 10 runs).
 ```
 
-This project has a restricted judge class, so the Improve run counts
+This project has an expert group, so the Improve run counts
 experts' corrections, and the skip note says "answers experts marked wrong"
 and "experts". Without one, it would count every answer marked wrong, and the
 note would say "answers marked wrong" and "people who corrected".
@@ -581,7 +581,7 @@ take, with the same defaults:
   with a **Drafting model** and how many **Drafts of the instructions**;
 - **Better means a higher:** share marked right, or weighted precision@k;
 - **Learn from experts' corrections only (recommended)**, ticked to start
-  with, for `classWeights` `restricted-only`; unticked, it's `as-recorded`;
+  with, for `groupWeights` `experts-only`; unticked, it's `as-recorded`;
 - its scope: the project, or a segment of it;
 - **When (cron)** and **Time zone**, an IANA name, UTC to start with. Under
   them it puts the cron in words, and it holds back one that fires more than

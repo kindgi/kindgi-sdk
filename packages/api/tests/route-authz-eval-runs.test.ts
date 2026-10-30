@@ -3,10 +3,10 @@
 
 /**
  * Eval runs and authorization (T243 A). Starting one needs `execute` on
- * the suite, `write` on the project it lands in and `execute` on what it
+ * the test set, `write` on the project it lands in and `execute` on what it
  * evaluates (the agent or the flow), asked in that order by the start
- * route itself (the eval-suites router's admin check skips it). An eval run is read through its suite:
- * `read` on the suite to list, get or follow it, `write` to cancel it. A
+ * route itself (the test-sets router's admin check skips it). An eval run is read through its test set:
+ * `read` on the test set to list, get or follow it, `write` to cancel it. A
  * run that isn't there is still the handler's 404, with nothing asked.
  */
 
@@ -27,12 +27,12 @@ const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
 const PROJECT = randomUUID();
 
-const evalRun = (runId: string, suiteId: string) => ({
+const evalRun = (runId: string, testSetId: string) => ({
   runId,
   tenantId,
-  suiteId,
-  suiteVersion: '1.0.0',
-  kind: 'judged',
+  testSetId,
+  testSetVersion: '1.0.0',
+  kind: 'corrections',
   agentRef: { agentId: 'acme.agent' },
   status: 'completed',
   dryRun: false,
@@ -50,7 +50,10 @@ function harness(grants: readonly string[]) {
       evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
     };
   };
-  const runs = [evalRun('e-mine', 'acme.suite-mine'), evalRun('e-theirs', 'acme.suite-theirs')];
+  const runs = [
+    evalRun('e-mine', 'acme.test-set-mine'),
+    evalRun('e-theirs', 'acme.test-set-theirs'),
+  ];
   const evalRuns = {
     start: async () => ({ kind: 'ok', runId: 'e-new' }),
     list: async () => ({ data: runs }),
@@ -80,28 +83,28 @@ function harness(grants: readonly string[]) {
   return { call, asked };
 }
 
-const EXECUTE_SUITE = 'execute eval_suite:acme.suite-mine';
+const EXECUTE_TEST_SET = 'execute test_set:acme.test-set-mine';
 const WRITE_PROJECT = `write project:${PROJECT}`;
-const START = '/v1/eval-suites/acme.suite-mine/runs';
+const START = '/v1/test-sets/acme.test-set-mine/runs';
 
 describe('starting an eval run', () => {
-  test('needs `execute` on the suite, `write` on its project and `execute` on the agent it evaluates', async () => {
-    const both = harness([EXECUTE_SUITE, WRITE_PROJECT, 'execute agent:acme.agent']);
+  test('needs `execute` on the test set, `write` on its project and `execute` on the agent it evaluates', async () => {
+    const both = harness([EXECUTE_TEST_SET, WRITE_PROJECT, 'execute agent:acme.agent']);
     const res = await both.call('POST', START, {
       projectId: PROJECT,
       agentRef: { agentId: 'acme.agent' },
     });
     expect(res.status).toBe(201);
 
-    const noExecute = harness([EXECUTE_SUITE, WRITE_PROJECT]);
+    const noExecute = harness([EXECUTE_TEST_SET, WRITE_PROJECT]);
     const refused = await noExecute.call('POST', START, {
       projectId: PROJECT,
       agentRef: { agentId: 'acme.agent' },
     });
     expect(refused.status).toBe(403);
-    expect(noExecute.asked).toEqual([EXECUTE_SUITE, WRITE_PROJECT, 'execute agent:acme.agent']);
+    expect(noExecute.asked).toEqual([EXECUTE_TEST_SET, WRITE_PROJECT, 'execute agent:acme.agent']);
 
-    const noWrite = harness([EXECUTE_SUITE, 'execute agent:acme.agent']);
+    const noWrite = harness([EXECUTE_TEST_SET, 'execute agent:acme.agent']);
     expect(
       (
         await noWrite.call('POST', START, {
@@ -110,45 +113,45 @@ describe('starting an eval run', () => {
         })
       ).status,
     ).toBe(403);
-    expect(noWrite.asked).toEqual([EXECUTE_SUITE, WRITE_PROJECT]);
+    expect(noWrite.asked).toEqual([EXECUTE_TEST_SET, WRITE_PROJECT]);
 
-    const noSuite = harness([WRITE_PROJECT, 'execute agent:acme.agent']);
+    const noTestSet = harness([WRITE_PROJECT, 'execute agent:acme.agent']);
     expect(
       (
-        await noSuite.call('POST', START, {
+        await noTestSet.call('POST', START, {
           projectId: PROJECT,
           agentRef: { agentId: 'acme.agent' },
         })
       ).status,
     ).toBe(403);
-    expect(noSuite.asked).toEqual([EXECUTE_SUITE]);
+    expect(noTestSet.asked).toEqual([EXECUTE_TEST_SET]);
   });
 
   test('a flow candidate needs `execute` on the flow', async () => {
-    const { call, asked } = harness([EXECUTE_SUITE, WRITE_PROJECT]);
+    const { call, asked } = harness([EXECUTE_TEST_SET, WRITE_PROJECT]);
     const res = await call('POST', START, { projectId: PROJECT, flowRef: { flowId: 'acme.flow' } });
     expect(res.status).toBe(403);
-    expect(asked).toEqual([EXECUTE_SUITE, WRITE_PROJECT, 'execute flow:acme.flow']);
+    expect(asked).toEqual([EXECUTE_TEST_SET, WRITE_PROJECT, 'execute flow:acme.flow']);
   });
 });
 
-describe('an eval run is read through its suite', () => {
-  test('the list holds only runs of suites the caller may read', async () => {
-    const { call } = harness(['read eval_suite:acme.suite-mine']);
+describe('an eval run is read through its test set', () => {
+  test('the list holds only runs of test sets the caller may read', async () => {
+    const { call } = harness(['read test_set:acme.test-set-mine']);
     const res = await call('GET', '/v1/eval-runs');
     expect(res.status).toBe(200);
     const ids = ((await res.json()) as { data: { runId: string }[] }).data.map((r) => r.runId);
     expect(ids).toEqual(['e-mine']);
   });
 
-  test('get and events need `read` on the suite; cancel needs `write`', async () => {
-    const { call } = harness(['read eval_suite:acme.suite-mine']);
+  test('get and events need `read` on the test set; cancel needs `write`', async () => {
+    const { call } = harness(['read test_set:acme.test-set-mine']);
     expect((await call('GET', '/v1/eval-runs/e-mine')).status).toBe(200);
     expect((await call('GET', '/v1/eval-runs/e-theirs')).status).toBe(403);
     expect((await call('GET', '/v1/eval-runs/e-theirs/events')).status).toBe(403);
     expect((await call('POST', '/v1/eval-runs/e-mine/cancel')).status).toBe(403);
 
-    const writer = harness(['write eval_suite:acme.suite-mine']);
+    const writer = harness(['write test_set:acme.test-set-mine']);
     expect((await writer.call('POST', '/v1/eval-runs/e-mine/cancel')).status).toBe(200);
   });
 

@@ -24,7 +24,7 @@ import type {
   FlowRef,
 } from './eval-run-binding.js';
 import { EVAL_RUN_STATUSES } from './eval-run-binding.js';
-import type { EvalKind, EvalSuite, EvalSuiteRegistryBinding } from './eval-suite-binding.js';
+import type { EvalKind, TestSet, TestSetRegistryBinding } from './test-set-binding.js';
 
 /**
  * Reference eval-run dispatcher — proves the pattern end-to-end for
@@ -142,7 +142,7 @@ export interface EvalGraderOutcome {
 export interface DispatchContext {
   readonly tenantId: TenantId;
   readonly runId: RunId;
-  readonly suite: EvalSuite;
+  readonly testSet: TestSet;
   readonly target: AgentRef | FlowRef;
   readonly dryRun: boolean;
   readonly abortSignal: AbortSignal;
@@ -164,7 +164,7 @@ export interface DispatchResult {
 export interface EvalRunDispatcher {
   readonly kind: EvalKind;
   validate?(
-    suite: EvalSuite,
+    testSet: TestSet,
     target: AgentRef | FlowRef,
     comparison?: EvalComparison,
   ): { kind: 'ok' } | { kind: 'err'; message: string };
@@ -179,7 +179,7 @@ export interface AccuracyDispatcherOptions {
 
 /**
  * Reference dispatcher for `EvalKind === 'accuracy'`. Reads
- * `spec.cases` from the registered suite; for each case, invokes the
+ * `spec.cases` from the registered test set; for each case, invokes the
  * subject with `case.input`, grades `(caseInput, actualOutput,
  * case.expected ?? case.expectedOutput)` through the injected
  * `EvalGrader`, and aggregates `{ passCount, totalCount, meanScore,
@@ -193,18 +193,18 @@ export interface AccuracyDispatcherOptions {
 export function createAccuracyDispatcher(options: AccuracyDispatcherOptions): EvalRunDispatcher {
   return {
     kind: 'accuracy',
-    validate(suite): { kind: 'ok' } | { kind: 'err'; message: string } {
-      const cases = extractCases(suite.spec);
+    validate(testSet): { kind: 'ok' } | { kind: 'err'; message: string } {
+      const cases = extractCases(testSet.spec);
       if (cases === null) {
-        return { kind: 'err', message: 'accuracy suite.spec.cases must be an array' };
+        return { kind: 'err', message: 'accuracy test set.spec.cases must be an array' };
       }
       if (cases.length === 0) {
-        return { kind: 'err', message: 'accuracy suite.spec.cases must not be empty' };
+        return { kind: 'err', message: 'accuracy test set.spec.cases must not be empty' };
       }
       return { kind: 'ok' };
     },
     async dispatch(ctx): Promise<DispatchResult> {
-      const cases = extractCases(ctx.suite.spec) ?? [];
+      const cases = extractCases(ctx.testSet.spec) ?? [];
       if (ctx.dryRun) {
         return {
           result: {
@@ -312,7 +312,7 @@ function extractExpected(c: EvalCase): unknown {
 // ---------- in-process EvalRunBinding ----------
 
 export interface InProcessEvalRunBindingOptions {
-  readonly suiteRegistry: EvalSuiteRegistryBinding;
+  readonly testSetRegistry: TestSetRegistryBinding;
   readonly subject: EvalSubjectInvoker;
   readonly dispatchers: Partial<Record<EvalKind, EvalRunDispatcher>>;
   /**
@@ -348,20 +348,23 @@ export function createInProcessEvalRunBinding(
 
   return {
     async start(input: EvalRunStartInput): Promise<EvalRunStartOutcome> {
-      const suite =
-        input.suiteVersion === undefined
-          ? await options.suiteRegistry.get({ tenantId: input.tenantId, suiteId: input.suiteId })
-          : await options.suiteRegistry.getVersion({
+      const testSet =
+        input.testSetVersion === undefined
+          ? await options.testSetRegistry.get({
               tenantId: input.tenantId,
-              suiteId: input.suiteId,
-              version: input.suiteVersion,
+              testSetId: input.testSetId,
+            })
+          : await options.testSetRegistry.getVersion({
+              tenantId: input.tenantId,
+              testSetId: input.testSetId,
+              version: input.testSetVersion,
             });
-      if (suite === null) {
-        return { kind: 'suite-not-found', suiteId: input.suiteId };
+      if (testSet === null) {
+        return { kind: 'test-set-not-found', testSetId: input.testSetId };
       }
-      const dispatcher = options.dispatchers[suite.kind];
+      const dispatcher = options.dispatchers[testSet.kind];
       if (dispatcher === undefined) {
-        return { kind: 'dispatcher-not-registered', evalKind: suite.kind };
+        return { kind: 'dispatcher-not-registered', evalKind: testSet.kind };
       }
       const target: AgentRef | FlowRef | undefined = input.agentRef ?? input.flowRef;
       if (target === undefined) {
@@ -371,13 +374,13 @@ export function createInProcessEvalRunBinding(
         };
       }
       if (dispatcher.validate !== undefined) {
-        const v = dispatcher.validate(suite, target, input.comparison);
+        const v = dispatcher.validate(testSet, target, input.comparison);
         if (v.kind === 'err') {
           return { kind: 'dispatcher-input-invalid', message: v.message };
         }
       }
       const runId = randomUUID() as unknown as RunId;
-      const record = newRunRecord(input, suite, runId, now());
+      const record = newRunRecord(input, testSet, runId, now());
       setRun(record);
       const controller = new AbortController();
       controllers.set(runId as unknown as string, controller);
@@ -391,7 +394,7 @@ export function createInProcessEvalRunBinding(
           outcome = await dispatcher.dispatch({
             tenantId: input.tenantId,
             runId,
-            suite,
+            testSet,
             target,
             dryRun: input.dryRun === true,
             abortSignal: controller.signal,
@@ -474,7 +477,7 @@ export function createInProcessEvalRunBinding(
       const all: EvalRun[] = [];
       for (const r of runs.values()) {
         if ((r.tenantId as unknown as string) !== (input.tenantId as unknown as string)) continue;
-        if (filter.suiteId !== undefined && r.suiteId !== filter.suiteId) continue;
+        if (filter.testSetId !== undefined && r.testSetId !== filter.testSetId) continue;
         if (filter.status !== undefined && r.status !== filter.status) continue;
         if (filter.agentId !== undefined) {
           if (r.agentRef === undefined) continue;
@@ -541,13 +544,13 @@ export function createInProcessEvalRunBinding(
 }
 
 /** A started run's row: `running`, with what it runs and how. */
-function newRunRecord(input: EvalRunStartInput, suite: EvalSuite, runId: RunId, at: Date): EvalRun {
+function newRunRecord(input: EvalRunStartInput, testSet: TestSet, runId: RunId, at: Date): EvalRun {
   return {
     runId,
     tenantId: input.tenantId,
-    suiteId: suite.id,
-    suiteVersion: suite.version,
-    kind: suite.kind,
+    testSetId: testSet.id,
+    testSetVersion: testSet.version,
+    kind: testSet.kind,
     ...(input.agentRef !== undefined && { agentRef: input.agentRef }),
     ...(input.flowRef !== undefined && { flowRef: input.flowRef }),
     status: 'running',

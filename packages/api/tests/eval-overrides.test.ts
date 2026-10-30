@@ -23,10 +23,10 @@ import type {
   CorrectedEvalCase,
   EvalRun,
   EvalRunBinding,
-  EvalSuite,
-  EvalSuiteRegistryBinding,
   GatePolicySpec,
   RunHandlerBinding,
+  TestSet,
+  TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
 import {
@@ -49,11 +49,11 @@ const runHandler = {
   resumeRun: unused,
 } as unknown as RunHandlerBinding;
 const CASES = Array.from({ length: 40 }, (_, i) => `case-${i}`);
-const suite: EvalSuite = {
+const testSet: TestSet = {
   id: 'acme.set',
   tenantId,
   version: '1.0.0',
-  kind: 'judged',
+  kind: 'corrections',
   spec: { source: 'corrections', caseCount: CASES.length },
 };
 
@@ -134,8 +134,8 @@ async function setup() {
   const cases = inMemoryCaseStore();
   await cases.putCases({
     tenantId,
-    suiteId: suite.id,
-    version: suite.version,
+    testSetId: testSet.id,
+    version: testSet.version,
     cases: CASES.map((caseId) => ({
       caseId,
       subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
@@ -221,10 +221,11 @@ async function setup() {
   } as unknown as AgentRegistryBinding;
   const invoked: string[] = [];
   const registry = {
-    get: async ({ suiteId }: { suiteId: string }) => (suiteId === suite.id ? suite : null),
-  } as unknown as EvalSuiteRegistryBinding;
+    get: async ({ testSetId }: { testSetId: string }) =>
+      testSetId === testSet.id ? testSet : null,
+  } as unknown as TestSetRegistryBinding;
   const binding = createInProcessEvalRunBinding({
-    suiteRegistry: registry,
+    testSetRegistry: registry,
     subject: {
       invoke: async (input) => {
         invoked.push(input.replay?.of as unknown as string);
@@ -234,19 +235,19 @@ async function setup() {
         };
       },
     },
-    dispatchers: { judged: createCorrectedDispatcher({ cases, agents }) },
+    dispatchers: { corrections: createCorrectedDispatcher({ cases, agents }) },
   });
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
-    evalSuiteRegistry: registry,
+    testSetRegistry: registry,
     evalRunBinding: binding,
     agentRegistry: agents,
     blockRegistry: blocks,
   });
   const start = async (body: Record<string, unknown>) => {
-    const res = await app.request(`/v1/eval-suites/${suite.id}/runs`, {
+    const res = await app.request(`/v1/test-sets/${testSet.id}/runs`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -397,7 +398,7 @@ describe('the gate', () => {
     evalRunId: 'er',
     status: 'completed',
     completedAt: new Date().toISOString(),
-    suite: { id: suite.id, version: '1.0.0' },
+    testSet: { id: testSet.id, version: '1.0.0' },
     candidate: { kind: 'agent', agentId: 'acme.agent', version: '2.0.0', pinsDigest: 'sha-2' },
     baseline: {
       kind: 'recorded',

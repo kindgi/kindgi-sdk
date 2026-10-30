@@ -97,7 +97,7 @@ export function parseGatePolicySpec(
   const issues: SpecIssue[] = [];
   unknownKeys(
     raw,
-    ['comparison', 'evidence', 'metrics', 'replay', 'approvals', 'onlyRestrictedClasses'],
+    ['comparison', 'evidence', 'metrics', 'replay', 'approvals', 'onlyExpertGroups'],
     '/spec',
     issues,
   );
@@ -108,24 +108,24 @@ export function parseGatePolicySpec(
   const comparison = block(raw, 'comparison', issues);
   if (comparison !== undefined) {
     const at = '/spec/comparison';
-    unknownKeys(comparison, ['maxAgeHours', 'suite'], at, issues);
+    unknownKeys(comparison, ['maxAgeHours', 'testSet'], at, issues);
     const maxAgeHours = num(comparison, 'maxAgeHours', at, issues, { min: 0, positive: true });
-    let suite: { id: string; version?: string } | undefined;
-    if (comparison.suite !== undefined) {
-      const s = comparison.suite;
+    let testSet: { id: string; version?: string } | undefined;
+    if (comparison.testSet !== undefined) {
+      const s = comparison.testSet;
       if (!isObject(s) || typeof s.id !== 'string' || s.id === '') {
-        issues.push({ path: `${at}/suite`, message: '`suite` must be `{ id, version? }`' });
+        issues.push({ path: `${at}/testSet`, message: '`testSet` must be `{ id, version? }`' });
       } else {
-        unknownKeys(s, ['id', 'version'], `${at}/suite`, issues);
+        unknownKeys(s, ['id', 'version'], `${at}/testSet`, issues);
         if (s.version !== undefined && (typeof s.version !== 'string' || s.version === '')) {
-          issues.push({ path: `${at}/suite/version`, message: '`version` must be a version' });
+          issues.push({ path: `${at}/testSet/version`, message: '`version` must be a version' });
         }
-        suite = { id: s.id, ...(typeof s.version === 'string' && { version: s.version }) };
+        testSet = { id: s.id, ...(typeof s.version === 'string' && { version: s.version }) };
       }
     }
     spec.comparison = {
       ...(maxAgeHours !== undefined && { maxAgeHours }),
-      ...(suite !== undefined && { suite }),
+      ...(testSet !== undefined && { testSet }),
     };
   }
 
@@ -222,8 +222,8 @@ export function parseGatePolicySpec(
     };
   }
 
-  const onlyRestricted = bool(raw, 'onlyRestrictedClasses', '/spec', issues);
-  if (onlyRestricted !== undefined) spec.onlyRestrictedClasses = onlyRestricted;
+  const onlyRestricted = bool(raw, 'onlyExpertGroups', '/spec', issues);
+  if (onlyRestricted !== undefined) spec.onlyExpertGroups = onlyRestricted;
 
   return issues.length > 0 ? { kind: 'err', issues } : { kind: 'ok', spec };
 }

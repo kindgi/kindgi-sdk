@@ -20,6 +20,10 @@ import {
 } from './resources/connections.js';
 import { type ConversationsClient, makeConversationsClient } from './resources/conversations.js';
 import { type CorrectionsClient, makeCorrectionsClient } from './resources/corrections.js';
+import {
+  type CorrectorGroupsClient,
+  makeCorrectorGroupsClient,
+} from './resources/corrector-groups.js';
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
 import { type EnvClient, makeEnvClient } from './resources/env.js';
@@ -29,7 +33,6 @@ import {
 } from './resources/environment-orders.js';
 import { type EnvironmentsClient, makeEnvironmentsClient } from './resources/environments.js';
 import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.js';
-import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-suites.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
 import {
   type ExportSigningKeysClient,
@@ -43,7 +46,6 @@ import {
   type ImprovementPassesClient,
   makeImprovementPassesClient,
 } from './resources/improvement-passes.js';
-import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
 import { type LicenseClient, makeLicenseClient } from './resources/license.js';
 import { type MailTriggersClient, makeMailTriggersClient } from './resources/mail-triggers.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
@@ -66,6 +68,10 @@ import {
   makeServiceAccountsClient,
 } from './resources/service-accounts.js';
 import { type SigningKeysClient, makeSigningKeysClient } from './resources/signing-keys.js';
+import {
+  type SuggestedChangesClient,
+  makeSuggestedChangesClient,
+} from './resources/suggested-changes.js';
 import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
 import {
   type SystemDeploymentsClient,
@@ -75,6 +81,7 @@ import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-
 import { type SystemTenantsClient, makeSystemTenantsClient } from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
+import { type TestSetsClient, makeTestSetsClient } from './resources/test-sets.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
 import { type ToolsClient, makeToolsClient } from './resources/tools.js';
 import {
@@ -114,7 +121,9 @@ export interface KindgiClient {
   readonly provenance: ProvenanceClient;
   // Governance & oversight
   readonly supervisor: SupervisorClient;
-  /** Improvement proposals: new content for a data block, evaluated, then promoted for a scope. */
+  /** Suggested changes: new content for a data block, evaluated, then pinned for a scope. */
+  readonly suggestedChanges: SuggestedChangesClient;
+  /** Improve runs, started with `proposals.improve` (for now). */
   readonly proposals: ProposalsClient;
   /** Improvement passes, started with `proposals.improve`. */
   readonly improvementPasses: ImprovementPassesClient;
@@ -142,12 +151,12 @@ export interface KindgiClient {
   readonly deployments: DeploymentsClient;
   readonly compliance: ComplianceClient;
   readonly audit: AuditResourceClient;
-  readonly evalSuites: EvalSuitesClient;
+  readonly testSets: TestSetsClient;
   /** Data blocks: versioned prompts and settings an agent version pins. */
   readonly blocks: BlocksClient;
   readonly evalRuns: EvalRunsClient;
   readonly corrections: CorrectionsClient;
-  readonly judgeClasses: JudgeClassesClient;
+  readonly correctorGroups: CorrectorGroupsClient;
   // Identity
   readonly users: UsersClient;
   readonly identity: IdentityClient;
@@ -218,6 +227,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     memory: makeMemoryClient(transport),
     provenance: makeProvenanceClient(transport),
     supervisor: makeSupervisorClient(transport),
+    suggestedChanges: makeSuggestedChangesClient(transport),
     proposals: makeProposalsClient(transport),
     improvementPasses: makeImprovementPassesClient(transport),
     observations: makeObservationsClient(transport),
@@ -239,11 +249,11 @@ export function createClient(options: ClientOptions): KindgiClient {
     deployments: makeDeploymentsClient(transport),
     compliance: makeComplianceClient(transport),
     audit: makeAuditClient(transport),
-    evalSuites: makeEvalSuitesClient(transport),
+    testSets: makeTestSetsClient(transport),
     blocks: makeBlocksClient(transport),
     evalRuns: makeEvalRunsClient(transport),
     corrections: makeCorrectionsClient(transport),
-    judgeClasses: makeJudgeClassesClient(transport),
+    correctorGroups: makeCorrectorGroupsClient(transport),
     users: makeUsersClient(transport),
     identity: makeIdentityClient(transport),
     auth: makeAuthClient(transport),

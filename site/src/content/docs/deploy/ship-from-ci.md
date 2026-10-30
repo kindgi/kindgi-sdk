@@ -86,7 +86,7 @@ A person does these, with a key of their own:
 - **Create the triggers:** schedules, webhooks and mail triggers.
 
 Registering a provider again under its id, publishing a release gate
-policy's version again, or making a suite of test cases again under its id
+policy's version again, or making a test set of test cases again under its id
 and version is refused, as already registered. A trigger has no name to
 match, so a second `create` of a schedule or a mail trigger, or a second
 `register` of a webhook, makes a second trigger. A script that sets these up
@@ -307,7 +307,7 @@ jobs:
     timeout-minutes: 120 # longer than the steps' own waits
     env:
       AGENT: acme.order-desk
-      SUITE: acme.order-checks # the test cases, in prod's project
+      TEST_SET: acme.order-checks # the test cases, in prod's project
       PROD_PROJECT: <prod-project-id>
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -328,7 +328,7 @@ jobs:
           KINDGI_API_TOKEN: ${{ secrets.KINDGI_PROMOTE_KEY }}
           VERSION: ${{ steps.promoted.outputs.version }}
         run: |
-          pnpm exec kindgi eval-runs start "$SUITE" --project="$PROD_PROJECT" --agent="$AGENT" --agent-version="$VERSION" --wait > run.json
+          pnpm exec kindgi eval-runs start "$TEST_SET" --project="$PROD_PROJECT" --agent="$AGENT" --agent-version="$VERSION" --wait > run.json
           echo "run=$(jq -r .runId run.json)" >> "$GITHUB_OUTPUT"
       - if: steps.promoted.outputs.version != ''
         env:
@@ -394,7 +394,7 @@ has what a release gate policy checks, and how a reviewer approves.
 
 ## Changes made on the runtime
 
-Improve, proposals and edits in the console change the runtime, not git, so
+Improve, suggested changes and edits in the console change the runtime, not git, so
 the next deploy from git doesn't have them. Bring each one back as a pull
 request: copy the change into the pack's files, and open the pull request.
 [Improve an agent](../../guides/evals/improve-an-agent/) has what Improve

@@ -9,10 +9,9 @@ import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
-import type { CorrectionRegistryBinding, JudgeClassScope } from '../correction-binding.js';
+import type { CorrectionRegistryBinding, CorrectorGroupScope } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { EvalClassWeights } from '../eval-run-binding.js';
-import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
+import type { EvalGroupWeights } from '../eval-run-binding.js';
 import {
   IMPROVE_SCHEDULE_DEFAULTS,
   type ImproveScheduleInput,
@@ -33,7 +32,8 @@ import {
   referencesOutOfScope,
 } from '../reference-scope.js';
 import { refusesCandidates, refusesScope } from '../registry-read-only.js';
-import type { ProposalObjective } from '../supervisor-binding.js';
+import type { SuggestedChangeObjective } from '../supervisor-binding.js';
+import type { TestSetRegistryBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, coordinatesOf } from './agent-releases.js';
 import { deniedBy } from './denied.js';
@@ -54,65 +54,65 @@ export interface ImproveDeps {
   /** Whether a project is suspended: no pass starts in one. Absent: no check. */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /**
-   * The tenant's judge classes. The `classWeights` default counts everyone
-   * (`as-recorded`) until a restricted judge class (one with `assertableBy`) is named
+   * The tenant's corrector groups. The `groupWeights` default counts everyone
+   * (`as-recorded`) until an expert group (one with `assertableBy`) is named
    * in the tenant, the project the pass reads its corrections from, or on the
-   * agent improved, then it's `restricted-only`. Absent: the default stays
-   * `restricted-only`. Only `listClasses` is used.
+   * agent improved, then it's `experts-only`. Absent: the default stays
+   * `experts-only`. Only `listGroups` is used.
    */
-  readonly judgeClasses?: Pick<CorrectionRegistryBinding, 'listClasses'>;
+  readonly correctorGroups?: Pick<CorrectionRegistryBinding, 'listGroups'>;
   /**
-   * Eval suites, to resolve the project a pass reads its corrections from: a
-   * judged suite's own `spec.projectId`, else the suite's recorded project.
-   * That's the project the `classWeights` default keys off, not where the
-   * agent is made — the two differ when the suite is an earlier environment's.
-   * Absent, or the suite records no project: the default keys off the agent
+   * Test sets, to resolve the project a pass reads its corrections from: a
+   * corrections test set's own `spec.projectId`, else the test set's recorded project.
+   * That's the project the `groupWeights` default keys off, not where the
+   * agent is made — the two differ when the test set is an earlier environment's.
+   * Absent, or the test set records no project: the default keys off the agent
    * version's project. Only `get` is used.
    */
-  readonly suites?: Pick<EvalSuiteRegistryBinding, 'get'>;
+  readonly testSets?: Pick<TestSetRegistryBinding, 'get'>;
 }
 
 /**
- * The pass default for `classWeights` when the caller doesn't set one.
- * Until a restricted judge class (one with `assertableBy`) is named — in the
+ * The pass default for `groupWeights` when the caller doesn't set one.
+ * Until an expert group (one with `assertableBy`) is named — in the
  * tenant, the project the pass reads its corrections from (`projectId`), or on
  * the agent being improved — Improve counts *everyone's* corrections
  * (`as-recorded`); once one is, the default is trusted corrections only
- * (`restricted-only`). An explicit `classWeights` always wins. With no
- * judge-class binding wired, the default stays `restricted-only` (the prior
+ * (`experts-only`). An explicit `groupWeights` always wins. With no
+ * corrector-group binding wired, the default stays `experts-only` (the prior
  * behavior).
  */
-async function resolveClassWeights(
+async function resolveGroupWeights(
   deps: ImproveDeps,
   tenantId: TenantId,
   projectId: ProjectId | undefined,
   agentId: string | undefined,
-  explicit: EvalClassWeights | undefined,
-): Promise<EvalClassWeights> {
+  explicit: EvalGroupWeights | undefined,
+): Promise<EvalGroupWeights> {
   if (explicit !== undefined) return explicit;
-  if (deps.judgeClasses === undefined) return 'restricted-only';
-  return (await projectHasExpertClass(deps.judgeClasses, tenantId, projectId, agentId))
-    ? 'restricted-only'
+  if (deps.correctorGroups === undefined) return 'experts-only';
+  return (await projectHasExpertClass(deps.correctorGroups, tenantId, projectId, agentId))
+    ? 'experts-only'
     : 'as-recorded';
 }
 
 /**
- * Whether a restricted judge class — one restricted to named asserters
+ * Whether an expert group — one restricted to named asserters
  * (`assertableBy` set) — applies to this pass: one in tenant scope, in the
  * pass's project, or on the agent being improved (that agent, in that
- * project). A tenant-wide restricted judge class names experts for every project;
- * another agent's class, or another project's, doesn't count.
+ * project). A tenant-wide expert group names experts for every project;
+ * another agent's group, or another project's, doesn't count.
  *
  * Exported so a caller that resolves the default outside the improve route
  * — a pass started from a schedule — decides it exactly the same way.
  */
 export async function projectHasExpertClass(
-  registry: Pick<CorrectionRegistryBinding, 'listClasses'>,
+  registry: Pick<CorrectionRegistryBinding, 'listGroups'>,
   tenantId: TenantId,
   projectId: ProjectId | undefined,
   agentId?: string,
 ): Promise<boolean> {
-  const scopes: JudgeClassScope[] = [
+  const scopes: CorrectorGroupScope[] = [
     ...(projectId !== undefined ? [{ kind: 'project', projectId } as const] : []),
     ...(projectId !== undefined && agentId !== undefined
       ? [{ kind: 'agent', projectId, agentId } as const]
@@ -122,7 +122,7 @@ export async function projectHasExpertClass(
   for (const scope of scopes) {
     let cursor: Cursor | undefined;
     do {
-      const page = await registry.listClasses({
+      const page = await registry.listGroups({
         tenantId,
         scope,
         limit: 100,
@@ -136,36 +136,41 @@ export async function projectHasExpertClass(
 }
 
 /**
- * The project a pass reads its corrections from, which the `classWeights`
- * default keys off: a judged suite's own `spec.projectId`, else the suite's
- * recorded project. Undefined when no suite binding is wired or the suite
+ * The project a pass reads its corrections from, which the `groupWeights`
+ * default keys off: a corrections test set's own `spec.projectId`, else the test set's
+ * recorded project. Undefined when no test set binding is wired or the test set
  * records no project — the caller then falls back to the agent version's
- * project. (The two differ when the suite is an earlier environment's.)
+ * project. (The two differ when the test set is an earlier environment's.)
  */
-async function suiteProjectId(
+async function testSetProjectId(
   deps: ImproveDeps,
   tenantId: TenantId,
-  suiteId: string,
+  testSetId: string,
 ): Promise<ProjectId | undefined> {
-  if (deps.suites === undefined) return undefined;
-  const suite = await deps.suites.get({ tenantId, suiteId });
-  if (suite === null) return undefined;
+  if (deps.testSets === undefined) return undefined;
+  const testSet = await deps.testSets.get({ tenantId, testSetId });
+  if (testSet === null) return undefined;
   const specProject =
-    suite.kind === 'judged' ? (suite.spec as { projectId?: ProjectId }).projectId : undefined;
-  return specProject ?? suite.projectId;
+    testSet.kind === 'corrections'
+      ? (testSet.spec as { projectId?: ProjectId }).projectId
+      : undefined;
+  return specProject ?? testSet.projectId;
 }
 
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
 const MAX_COST_USD = 100;
 const MAX_CANDIDATES = 200;
-const OBJECTIVES: readonly ProposalObjective[] = ['weightedYesShare', 'weightedPrecisionAtK'];
+const OBJECTIVES: readonly SuggestedChangeObjective[] = [
+  'weightedYesShare',
+  'weightedPrecisionAtK',
+];
 
 /**
- * `POST /improve` (under `/v1/proposals`): start an improvement pass for
+ * `POST /improve` (under `/v1/suggested-changes`): start an improvement pass for
  * an agent version and a live scope. It answers 202 with the pass; the
  * pass carries on in the background (`GET /v1/improvement-passes/:id`).
  *
- * Checked first, as evaluating its proposal would be: the version must be
+ * Checked first, as evaluating its suggested change would be: the version must be
  * active and pinned, it must pin a settings block with tunable keys, the
  * agent registry must take writes, and the agent must have a live version
  * for the whole tenant. Needs `publish` on the agent; for an agent more
@@ -177,8 +182,8 @@ const OBJECTIVES: readonly ProposalObjective[] = ['weightedYesShare', 'weightedP
  * `projectId` named, else the scope's project, else the agent version's.
  * A project or segment scope must be in it, the version must reach it,
  * and a project other than the version's needs `write` there, as the
- * pass's eval runs do. Its proposal's version is made where the agent's
- * versions are, as any proposal's.
+ * pass's eval runs do. Its suggested change's version is made where the agent's
+ * versions are, as any suggested change's.
  */
 export function mountImproveRoute(
   r: Hono<AppEnv>,
@@ -230,20 +235,20 @@ export function mountImproveRoute(
       });
     }
     if ((await deps.releases.live.resolve({ tenantId, agentId: parsed.agentId })) === null) {
-      return fail(c, 'proposal-needs-pin', {
-        code: 'proposal-needs-pin',
-        message: `${parsed.agentId} has no live version for the whole tenant, so the version a pass proposes would serve every scope nothing is pinned for. Promote its current version for the tenant first (scope { "kind": "tenant" }), then start the pass.`,
+      return fail(c, 'suggested-change-needs-pin', {
+        code: 'suggested-change-needs-pin',
+        message: `${parsed.agentId} has no live version for the whole tenant, so the version a pass suggests would serve every scope nothing is pinned for. Promote its current version for the tenant first (scope { "kind": "tenant" }), then start the pass.`,
       });
     }
-    // The `classWeights` default keys off the project the pass READS its
-    // corrections from — its suite's project — not where the agent is made;
-    // the two differ when the suite is an earlier environment's. Only the
-    // default needs it, so skip the suite read when `classWeights` is
-    // explicit, or when no judge-class registry is wired (the default is
-    // fixed at `restricted-only` either way).
+    // The `groupWeights` default keys off the project the pass READS its
+    // corrections from — its test set's project — not where the agent is made;
+    // the two differ when the test set is an earlier environment's. Only the
+    // default needs it, so skip the test set read when `groupWeights` is
+    // explicit, or when no corrector-group registry is wired (the default is
+    // fixed at `experts-only` either way).
     const readProjectId =
-      parsed.classWeights === undefined && deps.judgeClasses !== undefined
-        ? ((await suiteProjectId(deps, tenantId, parsed.suiteId)) ?? from.projectId)
+      parsed.groupWeights === undefined && deps.correctorGroups !== undefined
+        ? ((await testSetProjectId(deps, tenantId, parsed.testSetId)) ?? from.projectId)
         : from.projectId;
     const pass = await deps.passes.start({
       tenantId,
@@ -251,15 +256,15 @@ export function mountImproveRoute(
       agentId: parsed.agentId,
       fromVersion: from.version as unknown as string,
       scope: parsed.scope,
-      suiteId: parsed.suiteId,
+      testSetId: parsed.testSetId,
       tiers: parsed.tiers,
       objective: parsed.objective,
-      classWeights: await resolveClassWeights(
+      groupWeights: await resolveGroupWeights(
         deps,
         tenantId,
         readProjectId,
         parsed.agentId,
-        parsed.classWeights,
+        parsed.groupWeights,
       ),
       ...(parsed.model !== undefined && { model: parsed.model }),
       ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
@@ -290,7 +295,7 @@ export function mountImproveRoute(
       agentId: parsed.agentId,
       fromVersion: resolved.from.version as string,
       scope: parsed.scope,
-      suiteId: parsed.suiteId,
+      testSetId: parsed.testSetId,
       tiers: parsed.tiers,
       ...(parsed.model !== undefined && { model: parsed.model }),
       ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
@@ -315,7 +320,7 @@ export function mountImproveRoute(
  *
  *   GET  /               newest first; `?agentId=` narrows
  *   GET  /:passId        one
- *   POST /:passId/cancel stop a running pass (it writes no proposal)
+ *   POST /:passId/cancel stop a running pass (it writes no suggested change)
  *
  * Authorized on the pass's agent: `read`, and `publish` to cancel. A pass
  * the caller can't read answers 404. For an agent more than one project
@@ -459,7 +464,7 @@ async function resolveImproveTarget(
  * The project a pass works in, as an improve schedule's (`schedules.ts`):
  * the one named, else the scope's, else the version's. A project or
  * segment scope must be in it; a project other than the version's needs
- * `write` there and must reach the version; it must reach the suite, and
+ * `write` there and must reach the version; it must reach the test set, and
  * the scope the agent. The project, or the refusal. Whether it's suspended
  * is `/improve`'s to ask, since the estimate starts nothing.
  */
@@ -485,7 +490,7 @@ async function passProject(
     if (refused !== undefined) return refused;
   }
   // The scope must reach the agent; then the pass's project must reach
-  // the version (when it isn't the version's own) and the suite
+  // the version (when it isn't the version's own) and the test set
   // (`reference-scope.ts`).
   const outOfScope =
     (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope)) ??
@@ -502,7 +507,7 @@ async function passProject(
                 },
               ]
             : []),
-          { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
+          { path: '/testSetId', kind: 'test-set', id: parsed.testSetId },
         ]));
   if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
   return { projectId };
@@ -579,10 +584,10 @@ export function serializePass(p: ImprovementPass): Record<string, unknown> {
     agentId: p.agentId,
     fromVersion: p.fromVersion,
     scope: liveScopeToWire(p.scope),
-    suiteId: p.suiteId,
+    testSetId: p.testSetId,
     tiers: p.tiers,
     objective: p.objective,
-    classWeights: p.classWeights,
+    groupWeights: p.groupWeights,
     ...(p.model !== undefined && { model: p.model }),
     ...(p.candidates !== undefined && { candidates: p.candidates }),
     budget: p.budget,
@@ -608,10 +613,10 @@ interface ImproveBody {
   readonly fromVersion?: string;
   readonly projectId?: string;
   readonly scope: ImprovementPass['scope'];
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
-  readonly objective: ProposalObjective;
-  readonly classWeights?: EvalClassWeights;
+  readonly objective: SuggestedChangeObjective;
+  readonly groupWeights?: EvalGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   readonly budget: ImprovementBudget;
@@ -682,10 +687,10 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
     'fromVersion',
     'projectId',
     'scope',
-    'suiteId',
+    'testSetId',
     'tiers',
     'objective',
-    'classWeights',
+    'groupWeights',
     'model',
     'candidates',
     'budget',
@@ -704,7 +709,7 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   }
   const scope = parseLiveScopeBody(b.scope);
   if (scope.kind === 'err') return scope.message;
-  if (!nonEmpty(b.suiteId)) return '`suiteId` is required: the test set to search and prove on';
+  if (!nonEmpty(b.testSetId)) return '`testSetId` is required: the test set to search and prove on';
   const options = parsePassOptions(b);
   if (typeof options === 'string') return options;
   return {
@@ -712,17 +717,17 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
     ...(typeof b.fromVersion === 'string' && { fromVersion: b.fromVersion }),
     ...(typeof b.projectId === 'string' && { projectId: b.projectId }),
     scope: scope.scope,
-    suiteId: b.suiteId,
+    testSetId: b.testSetId,
     ...options,
   };
 }
 
 type PassOptions = Pick<
   ImproveBody,
-  'tiers' | 'objective' | 'classWeights' | 'model' | 'candidates' | 'budget'
+  'tiers' | 'objective' | 'groupWeights' | 'model' | 'candidates' | 'budget'
 >;
 
-/** A pass's options (`tiers`, `objective`, `classWeights`, `model`, `candidates`, `budget`), defaults applied. */
+/** A pass's options (`tiers`, `objective`, `groupWeights`, `model`, `candidates`, `budget`), defaults applied. */
 function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   const tiers = b.tiers ?? ['settings'];
   if (
@@ -733,16 +738,16 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
     return "`tiers` is ['settings'] (tunable settings values) or ['prompt'] (a drafted prompt template)";
   }
   const tier = tiers[0] as ImprovementTier;
-  if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as ProposalObjective)) {
+  if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as SuggestedChangeObjective)) {
     return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
   }
-  const classWeights = b.classWeights;
+  const groupWeights = b.groupWeights;
   if (
-    classWeights !== undefined &&
-    classWeights !== 'restricted-only' &&
-    classWeights !== 'as-recorded'
+    groupWeights !== undefined &&
+    groupWeights !== 'experts-only' &&
+    groupWeights !== 'as-recorded'
   ) {
-    return "`classWeights` is 'restricted-only' (trusted corrections) or 'as-recorded' (everyone); omit it for the project's default";
+    return "`groupWeights` is 'experts-only' (trusted corrections) or 'as-recorded' (everyone); omit it for the project's default";
   }
   const prompt = parsePromptOptions(b, tier);
   if (typeof prompt === 'string') return prompt;
@@ -750,8 +755,8 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   if (typeof budget === 'string') return budget;
   return {
     tiers: [tier],
-    objective: (b.objective as ProposalObjective | undefined) ?? 'weightedYesShare',
-    ...(classWeights !== undefined && { classWeights }),
+    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'weightedYesShare',
+    ...(groupWeights !== undefined && { groupWeights }),
     ...prompt,
     budget,
   };
@@ -778,7 +783,7 @@ export function parseImproveScheduleInput(
   const known = [
     'tiers',
     'objective',
-    'classWeights',
+    'groupWeights',
     'model',
     'candidates',
     'budget',

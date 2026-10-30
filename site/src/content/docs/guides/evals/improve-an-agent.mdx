@@ -24,7 +24,7 @@ lists:
 - **an agent whose instructions or settings are data blocks;**
 - **test cases built from corrections;**
 - **a live version of the agent for the whole tenant.** Without one, the
-  Improve run is refused with `proposal-needs-pin`;
+  Improve run is refused with `suggested-change-needs-pin`;
 - **a runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
   Under `kindgi dev`, making a suggested change live writes it into the pack's
   files,
@@ -264,16 +264,16 @@ wrote none. The cost is 0 on `dev-echo`, which costs nothing:
 ### Whose corrections it learns from
 
 By default, once your test cases' project, its tenant, or the agent you're
-improving there has a [restricted judge class](../judge-a-runs-output/#restrict-who-may-correct-as-a-class),
+improving there has a [expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group),
 an Improve run counts only the corrections recorded under one
-(`classWeights: "restricted-only"`), so who may steer Improve is a choice
+(`groupWeights: "experts-only"`), so who may steer Improve is a choice
 you make. That's the test cases' project, which can differ from the one the
-agent is made in. Until then it counts every correction, each by its class's
-weight (`classWeights: "as-recorded"`), since counting only restricted
-classes would count nothing. A class restricted for a different agent,
-or in a different project, doesn't count. Set it with the `--class-weights`
-flag, or `classWeights` in the API or the clients, to choose either,
-whatever classes exist.
+agent is made in. Until then it counts every correction, each by its group's
+weight (`groupWeights: "as-recorded"`), since counting only expert
+groups would count nothing. A group restricted for a different agent,
+or in a different project, doesn't count. Set it with the `--group-weights`
+flag, or `groupWeights` in the API or the clients, to choose either,
+whatever groups exist.
 
 The suggested change an Improve run writes names the corrections on the cases
 it learned from, never on the rest: the ones its runs on the test
@@ -315,7 +315,7 @@ In the API and the clients, they're `tiers: ["prompt"]`, `model` and
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
   -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
-  -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"suiteId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
+  -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"testSetId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
 ```
 
 - `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API token.
@@ -428,7 +428,7 @@ shows.
 An agent's own page shows the loop for that agent after its **Recent runs**,
 each section with its newest five: **Corrected runs**, the runs people
 corrected, with **To correct** for its answers waiting in the
-[Quality section](../judging-reference/#to-correct); **Test cases**, gathered
+[Quality section](../expert-queue-reference/#to-correct); **Test cases**, gathered
 from them, with **All test cases**; **Improve runs**; and **Suggested
 changes**, with **All suggested changes and Improve runs**, which opens the
 page above.

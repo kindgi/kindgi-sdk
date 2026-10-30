@@ -10,7 +10,7 @@ import type { Transport } from '../transport.js';
 /**
  * Improvement passes (`/v1/improvement-passes`): started with
  * `client.proposals.improve`, read back here. A finished pass's `outcome`
- * names the proposal it wrote, or says it found nothing better.
+ * names the suggested change it wrote, or says it found nothing better.
  */
 export interface ImprovementPassesClient {
   /**
@@ -24,7 +24,7 @@ export interface ImprovementPassesClient {
   get(passId: string): Promise<ImprovementPass>;
 
   /**
-   * Stop a running pass: it ends `cancelled`, writing no proposal.
+   * Stop a running pass: it ends `cancelled`, writing no suggested change.
    *
    * @wire `POST /v1/improvement-passes/{passId}/cancel`
    */

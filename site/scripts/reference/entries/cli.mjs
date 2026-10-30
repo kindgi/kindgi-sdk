@@ -452,7 +452,7 @@ export const CLI_DEFAULTS = {
   'memory erasures export': {
     out: 'standard output',
   },
-  'proposals list': {
+  'suggested-changes list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -462,21 +462,21 @@ export const CLI_DEFAULTS = {
     status: 'none',
     tier: 'none',
   },
-  'proposals draft': {
+  'suggested-changes draft': {
     agent: 'required',
     block: 'required',
+    correction: 'none',
     'from-version': 'required',
     hypothesis: 'required',
     'idempotency-key': 'none',
-    judgment: 'none',
     org: 'none',
     project: 'none',
     segment: 'none',
     template: 'none',
     values: 'none',
   },
-  'proposals evaluate': {
-    'class-weights': '`as-recorded`',
+  'suggested-changes evaluate': {
+    'group-weights': '`as-recorded`',
     'idempotency-key': 'none',
     k: '`10`',
     objective: '`weightedYesShare`',
@@ -484,22 +484,18 @@ export const CLI_DEFAULTS = {
     repetitions: '`1`',
     'test-set': 'required',
   },
-  'proposals request': {
+  'suggested-changes request': {
     'idempotency-key': 'none',
     reason: 'none',
   },
-  'proposals rollback': {
-    'idempotency-key': 'none',
-    reason: 'none',
-  },
-  'proposals withdraw': {
+  'suggested-changes withdraw': {
     'idempotency-key': 'none',
     reason: 'required',
   },
   'proposals improve': {
     agent: 'required',
-    'class-weights':
-      "none (counts everyone until the test cases' project, its tenant, or the agent improved there has a restricted judge class, then only those)",
+    'group-weights':
+      "none (counts everyone until the test cases' project, its tenant, or the agent improved there has an expert group, then only those)",
     drafts: '`3` (`1` to `5`; with `--tier=prompt` only)',
     'from-version': 'the version serving the scope',
     'idempotency-key': 'none',
@@ -798,7 +794,7 @@ export const CLI_DEFAULTS = {
     spec: 'required',
   },
   'corrections add': {
-    class: 'none (the correction is unclassified)',
+    group: 'none (the correction is ungrouped)',
     correction: 'none (an ordinary correction, without what the agent should have done)',
     item: 'required',
     no: 'off (exactly one of `--yes` or `--no` is required)',
@@ -812,7 +808,7 @@ export const CLI_DEFAULTS = {
   'corrections list': {
     agent: 'none',
     'agent-version': 'none',
-    class: 'none',
+    group: 'none',
     cursor: 'none',
     flow: 'none',
     limit: '`25` (at most `100`)',
@@ -821,14 +817,14 @@ export const CLI_DEFAULTS = {
     run: 'none',
     verdict: 'none',
   },
-  'judge-classes list': {
+  'corrector-groups list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
     project: 'none',
     tenant: 'off (with no scope flag, no scope filter is sent)',
   },
-  'judge-classes add': {
+  'corrector-groups add': {
     agent: 'none',
     description: 'none',
     'min-reviewer-role': 'none (anyone who may correct the run may assert)',
@@ -839,14 +835,14 @@ export const CLI_DEFAULTS = {
     tenant: 'off (a scope is required: `--tenant`, `--project`, or `--agent` with `--project`)',
     weight: 'required',
   },
-  'judge-classes set': {
+  'corrector-groups set': {
     description: 'unchanged',
     'min-reviewer-role': 'unchanged',
     'principal-id': 'unchanged',
     'principal-kind': 'unchanged',
     weight: 'unchanged',
   },
-  'judging-rules create': {
+  'queue-rules create': {
     project: "the tenant's Default project",
     name: 'required',
     agent: 'none (runs of any agent)',
@@ -855,20 +851,20 @@ export const CLI_DEFAULTS = {
     status: '`completed` (only completed runs match)',
     sample: '`1` (every matching run)',
     'max-open': 'none (no cap)',
-    class: 'none (any correction closes an item)',
+    group: 'none (any correction closes an item)',
     'queue-last':
       'none (nothing is queued on create unless `--queue-last` or `--queue-since` is given)',
     'queue-since': 'none',
   },
-  'judging-rules list': {
+  'queue-rules list': {
     project: "the tenant's Default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
-  'judging-rules show': {
+  'queue-rules show': {
     project: "the tenant's Default project",
   },
-  'judging-rules update': {
+  'queue-rules update': {
     project: "the tenant's Default project",
     name: 'unchanged',
     agent: 'unchanged (any match flag replaces `when` whole)',
@@ -877,21 +873,21 @@ export const CLI_DEFAULTS = {
     status: 'unchanged (any match flag replaces `when` whole)',
     sample: 'unchanged',
     'max-open': 'unchanged',
-    class: 'unchanged',
+    group: 'unchanged',
   },
-  'judging-rules remove': {
+  'queue-rules remove': {
     project: "the tenant's Default project",
   },
-  'judging-rules versions': {
+  'queue-rules versions': {
     project: "the tenant's Default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
-  'judging-rules results': {
+  'queue-rules results': {
     project: "the tenant's Default project",
     since: 'none (every result)',
   },
-  'judging-rules preview': {
+  'queue-rules preview': {
     project: "the tenant's Default project",
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
@@ -901,27 +897,27 @@ export const CLI_DEFAULTS = {
     last: '`100` (1 to 500)',
     rule: 'none (preview the given flags, not an existing rule)',
   },
-  'judging-rules queue-recent': {
+  'queue-rules queue-recent': {
     project: "the tenant's Default project",
     last: 'none (give `--last` and/or `--since`)',
     since: 'none (give `--last` and/or `--since`)',
   },
-  'judging-queue list': {
+  'expert-queue list': {
     project: "the tenant's Default project",
     state: 'none (every state)',
     agent: 'none',
     rule: 'none',
-    class: 'none',
+    group: 'none',
     'added-after': 'none',
     'closed-after': 'none',
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
-  'judging-queue dismiss': {
+  'expert-queue dismiss': {
     project: "the tenant's Default project",
     reason: 'none',
   },
-  'judging-queue reopen': {
+  'expert-queue reopen': {
     project: "the tenant's Default project",
   },
   'eval-runs start': {
@@ -937,44 +933,44 @@ export const CLI_DEFAULTS = {
     reads: '`recorded`',
     repetitions: '`1`',
     k: '`10`',
-    'class-weights': '`as-recorded`',
+    'group-weights': '`as-recorded`',
   },
   'eval-runs list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
     status: 'none',
-    suite: 'none',
+    'test-set': 'none',
   },
   'eval-runs rescore': {
     project: 'none',
   },
-  'eval-suites list': {
+  'test-sets list': {
     cursor: 'none',
     kind: 'none',
     limit: '`25` (at most `100`)',
     project: 'none',
   },
-  'eval-suites show': {
-    'suite-version': 'the latest version',
+  'test-sets show': {
+    'test-set-version': 'the latest version',
   },
-  'eval-suites from-corrections': {
+  'test-sets from-corrections': {
     agent: 'required: one of `--agent`, `--flow`',
     'agent-version': 'none',
-    class: 'none',
+    group: 'none',
     description: 'none',
     flow: 'required: one of `--agent`, `--flow`',
     'min-corrections': '`1`',
     project: 'required',
     segment: 'none',
     since: 'none',
-    'suite-version': 'required',
+    'test-set-version': 'required',
     until: 'none',
   },
-  'eval-suites cases': {
+  'test-sets cases': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    'suite-version': 'required',
+    'test-set-version': 'required',
   },
   'blocks list': {
     cursor: 'none',
@@ -1959,133 +1955,133 @@ export const CLI_EXAMPLES = {
       line: 'kindgi reviewers unregister <reviewer-id>',
     },
   ],
-  'judge-classes list': [
+  'corrector-groups list': [
     {
-      purpose: 'List the judge classes of the whole tenant.',
-      line: 'kindgi judge-classes list --tenant',
+      purpose: 'List the corrector groups of the whole tenant.',
+      line: 'kindgi corrector-groups list --tenant',
     },
     {
-      purpose: 'List the classes of one agent in a project.',
-      line: 'kindgi judge-classes list --agent=acme-ops.reply-drafter --project=<project-id>',
+      purpose: 'List the groups of one agent in a project.',
+      line: 'kindgi corrector-groups list --agent=acme-ops.reply-drafter --project=<project-id>',
     },
   ],
-  'judge-classes set': [
+  'corrector-groups set': [
     {
-      purpose: "Change a class's weight.",
-      line: 'kindgi judge-classes set <judge-class-id> --weight=5',
+      purpose: "Change a group's weight.",
+      line: 'kindgi corrector-groups set <corrector-group-id> --weight=5',
     },
     {
-      purpose: 'Limit who may assert the class to senior reviewers.',
-      line: 'kindgi judge-classes set <judge-class-id> --min-reviewer-role=senior',
+      purpose: 'Limit who may assert the group to senior reviewers.',
+      line: 'kindgi corrector-groups set <corrector-group-id> --min-reviewer-role=senior',
     },
     {
       purpose: 'Lift the restriction.',
-      line: 'kindgi judge-classes set <judge-class-id> --unrestricted',
+      line: 'kindgi corrector-groups set <corrector-group-id> --unrestricted',
     },
   ],
-  'judge-classes remove': [
+  'corrector-groups remove': [
     {
-      purpose: 'Retire a judge class.',
-      line: 'kindgi judge-classes remove <judge-class-id>',
+      purpose: 'Retire a corrector group.',
+      line: 'kindgi corrector-groups remove <corrector-group-id>',
     },
   ],
-  'judging-rules create': [
+  'queue-rules create': [
     {
       purpose: "Queue a quarter of an agent's completed runs for correction.",
-      line: 'kindgi judging-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
+      line: 'kindgi queue-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
     },
     {
       purpose: 'Create a rule and catch it up at once on the last 500 finished runs.',
-      line: 'kindgi judging-rules create --name="all refunds" --agent=acme.refunds --queue-last=500',
+      line: 'kindgi queue-rules create --name="all refunds" --agent=acme.refunds --queue-last=500',
     },
   ],
-  'judging-rules list': [
+  'queue-rules list': [
     {
-      purpose: "List a project's judging rules.",
-      line: 'kindgi judging-rules list --project=<project-id>',
+      purpose: "List a project's queue rules.",
+      line: 'kindgi queue-rules list --project=<project-id>',
     },
   ],
-  'judging-rules show': [
+  'queue-rules show': [
     {
       purpose: "Show a rule's latest version.",
-      line: 'kindgi judging-rules show <rule-id>',
+      line: 'kindgi queue-rules show <rule-id>',
     },
   ],
-  'judging-rules update': [
+  'queue-rules update': [
     {
       purpose: "Raise a rule's open-items cap and enable it.",
-      line: 'kindgi judging-rules update <rule-id> --max-open=50 --enable',
+      line: 'kindgi queue-rules update <rule-id> --max-open=50 --enable',
     },
     {
       purpose: 'Replace what the rule matches and drop its cap.',
-      line: 'kindgi judging-rules update <rule-id> --agent=acme.refunds --clear-max-open',
+      line: 'kindgi queue-rules update <rule-id> --agent=acme.refunds --clear-max-open',
     },
   ],
-  'judging-rules remove': [
+  'queue-rules remove': [
     {
       purpose: 'Unregister a rule so it queues nothing more; its queued items stay.',
-      line: 'kindgi judging-rules remove <rule-id>',
+      line: 'kindgi queue-rules remove <rule-id>',
     },
   ],
-  'judging-rules versions': [
+  'queue-rules versions': [
     {
       purpose: 'List every version of a rule, newest first.',
-      line: 'kindgi judging-rules versions <rule-id>',
+      line: 'kindgi queue-rules versions <rule-id>',
     },
   ],
-  'judging-rules results': [
+  'queue-rules results': [
     {
       purpose:
         "Show a rule's results for runs queued since a date, by the rule's version and the agent's.",
-      line: 'kindgi judging-rules results <rule-id> --since=2026-10-01',
+      line: 'kindgi queue-rules results <rule-id> --since=2026-10-01',
     },
   ],
-  'judging-rules preview': [
+  'queue-rules preview': [
     {
       purpose: 'See how many of the last 200 runs a rule would queue, changing nothing.',
-      line: 'kindgi judging-rules preview --agent=acme.refunds --last=200',
+      line: 'kindgi queue-rules preview --agent=acme.refunds --last=200',
     },
     {
       purpose: 'Preview exactly what an existing rule would take.',
-      line: 'kindgi judging-rules preview --rule=<rule-id>',
+      line: 'kindgi queue-rules preview --rule=<rule-id>',
     },
   ],
-  'judging-rules queue-recent': [
+  'queue-rules queue-recent': [
     {
       purpose: 'Catch a rule up on the last 1,000 finished runs.',
-      line: 'kindgi judging-rules queue-recent <rule-id> --last=1000',
+      line: 'kindgi queue-rules queue-recent <rule-id> --last=1000',
     },
     {
       purpose: 'Queue its matches among runs finished on or after a date.',
-      line: 'kindgi judging-rules queue-recent <rule-id> --since=2026-10-01',
+      line: 'kindgi queue-rules queue-recent <rule-id> --since=2026-10-01',
     },
   ],
-  'judging-queue list': [
+  'expert-queue list': [
     {
       purpose: 'List the runs waiting for a correction, as a table.',
-      line: 'kindgi judging-queue list --state=open --table',
+      line: 'kindgi expert-queue list --state=open --table',
     },
     {
       purpose: 'List the open items one of your corrections would close.',
-      line: 'kindgi judging-queue list --state=open --for-me',
+      line: 'kindgi expert-queue list --state=open --for-me',
     },
   ],
-  'judging-queue dismiss': [
+  'expert-queue dismiss': [
     {
       purpose: 'Dismiss a queued run that needs no correction.',
-      line: 'kindgi judging-queue dismiss <run-id> --reason="not a refund"',
+      line: 'kindgi expert-queue dismiss <run-id> --reason="not a refund"',
     },
   ],
-  'judging-queue reopen': [
+  'expert-queue reopen': [
     {
       purpose: 'Reopen a dismissed item so it waits for a correction again.',
-      line: 'kindgi judging-queue reopen <run-id>',
+      line: 'kindgi expert-queue reopen <run-id>',
     },
   ],
   'eval-runs list': [
     {
-      purpose: 'List the newest eval runs of one suite.',
-      line: 'kindgi eval-runs list --suite=acme.article-picks',
+      purpose: 'List the newest eval runs of one test set.',
+      line: 'kindgi eval-runs list --test-set=acme.article-picks',
     },
     {
       purpose: 'List failed runs of an agent, ten at a time.',
@@ -2108,34 +2104,34 @@ export const CLI_EXAMPLES = {
       line: 'kindgi eval-runs rescore <run-id> --project=<project-id>',
     },
   ],
-  'eval-suites list': [
+  'test-sets list': [
     {
-      purpose: 'List the judged suites of a project.',
-      line: 'kindgi eval-suites list --project=<project-id> --kind=judged',
+      purpose: 'List the corrections test sets of a project.',
+      line: 'kindgi test-sets list --project=<project-id> --kind=corrections',
     },
     {
-      purpose: 'List suites including retired ones.',
-      line: 'kindgi eval-suites list --include-retired',
-    },
-  ],
-  'eval-suites show': [
-    {
-      purpose: "Show a suite's latest version.",
-      line: 'kindgi eval-suites show acme.article-picks',
-    },
-    {
-      purpose: 'Show one version of a suite.',
-      line: 'kindgi eval-suites show acme.article-picks --suite-version=1.0.0',
+      purpose: 'List test sets including retired ones.',
+      line: 'kindgi test-sets list --include-retired',
     },
   ],
-  'eval-suites cases': [
+  'test-sets show': [
+    {
+      purpose: "Show a test set's latest version.",
+      line: 'kindgi test-sets show acme.article-picks',
+    },
+    {
+      purpose: 'Show one version of a test set.',
+      line: 'kindgi test-sets show acme.article-picks --test-set-version=1.0.0',
+    },
+  ],
+  'test-sets cases': [
     {
       purpose: 'List the first page of the test cases.',
-      line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0',
+      line: 'kindgi test-sets cases acme.article-picks --test-set-version=1.0.0',
     },
     {
       purpose: 'Fetch the next page of cases.',
-      line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0 --limit=50 --cursor=<cursor>',
+      line: 'kindgi test-sets cases acme.article-picks --test-set-version=1.0.0 --limit=50 --cursor=<cursor>',
     },
   ],
   'blocks list': [
@@ -2545,6 +2541,6 @@ export const CLI_GROUP_SEE_ALSO = {
   health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
   usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
-  'judging-rules': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
-  'judging-queue': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
+  'queue-rules': ['guides/evals/judge-a-runs-output', 'guides/evals/expert-queue-reference'],
+  'expert-queue': ['guides/evals/judge-a-runs-output', 'guides/evals/expert-queue-reference'],
 };

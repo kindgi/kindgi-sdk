@@ -211,7 +211,7 @@ export interface ItemRights {
 const ITEM_TYPE: Readonly<Record<OrderItemKind, ResourceRef['type'] | undefined>> = {
   agent: 'agent',
   flow: 'flow',
-  eval_suite: 'eval_suite',
+  test_set: 'test_set',
   tool: 'tool',
   guardrail: 'guardrail',
   block: undefined,
@@ -221,7 +221,7 @@ const ITEM_TYPE: Readonly<Record<OrderItemKind, ResourceRef['type'] | undefined>
 const KIND_NAME: Readonly<Record<OrderItemKind, string>> = {
   agent: 'agent',
   flow: 'flow',
-  eval_suite: 'eval suite',
+  test_set: 'test set',
   tool: 'tool',
   guardrail: 'guardrail',
   block: 'block',
@@ -707,8 +707,8 @@ export async function filterOwned<T>(
 }
 
 /**
- * Running an agent, flow or eval suite in one of the projects that serve
- * it: that project's `call` (agents) or `execute` (flows and suites)
+ * Running an agent, flow or test set in one of the projects that serve
+ * it: that project's `call` (agents) or `execute` (flows and test sets)
  * alone, the item's own `execute` not asked. `undefined` when allowed;
  * else the 403, naming the right it needs there. `what`: what the caller
  * does, when not running the item (opening a conversation with it).
@@ -716,7 +716,7 @@ export async function filterOwned<T>(
 export async function runIn(
   c: Ctx,
   rights: ItemRights,
-  item: { readonly kind: 'agent' | 'flow' | 'eval_suite'; readonly id: string },
+  item: { readonly kind: 'agent' | 'flow' | 'test_set'; readonly id: string },
   projectId: string,
   what?: string,
 ): Promise<Response | undefined> {
@@ -733,7 +733,7 @@ export async function runIn(
 
 /**
  * A change that makes a new version of an item more than one project
- * serves (an improvement pass, a proposal): `write` where its new
+ * serves (an improvement pass, a suggested change): `write` where its new
  * versions are made (`madeIn`), the item's own right not asked.
  * `undefined` when allowed; else the 403, naming that project.
  */
@@ -931,7 +931,7 @@ function spansEnvironments(
  * or several. The 409 to answer, else `undefined`. For an agent in no order,
  * with a project scope, or with no rights to ask, `undefined` — today's
  * checks hold. It reads no body and answers nothing but the refusal. The
- * proposals' request and rollback call it after their own `deny`, as the
+ * suggested changes' request and rollback call it after their own `deny`, as the
  * live routes and a deployment's make-live call it through
  * `liveChangeRefusal`.
  */

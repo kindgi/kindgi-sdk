@@ -13,7 +13,7 @@
  *
  * Which resources carry `Scope` (vs `projectId`)?
  * - **Content-scoped** (agents, flows, tools, guardrails, memory
- *   facts, artifacts, runs, cost records, eval suites, eval runs,
+ *   facts, artifacts, runs, cost records, test sets, eval runs,
  *   approvals, evidence, provenance, observations): a required
  *   `projectId`. Rows are the *contents* of a project.
  * - **Policy/config-scoped** (MCP endpoints, secrets, env values,

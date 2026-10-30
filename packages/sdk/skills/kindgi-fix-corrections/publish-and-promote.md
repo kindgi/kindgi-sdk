@@ -69,8 +69,8 @@ kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
 - Experts record corrections in the console, or with
   `kindgi corrections add --run=<run-id> --item=<key> --no --reason=<text>`.
 - The guide for a person:
-  <https://docs.kindgi.com/v0.2/guides/evals/fix-what-experts-corrected/>
+  <https://docs.kindgi.com/v0.3/guides/evals/fix-what-experts-corrected/>
 - Letting Improve try wordings:
-  <https://docs.kindgi.com/v0.2/guides/evals/improve-an-agent/>
+  <https://docs.kindgi.com/v0.3/guides/evals/improve-an-agent/>
 - Changing a setting or a prompt by hand:
-  <https://docs.kindgi.com/v0.2/guides/evals/change-a-prompt-or-setting/>
+  <https://docs.kindgi.com/v0.3/guides/evals/change-a-prompt-or-setting/>

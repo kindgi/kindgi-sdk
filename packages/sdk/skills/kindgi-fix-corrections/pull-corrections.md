@@ -21,7 +21,7 @@ kindgi corrections list --agent=acme-store.refunds --agent-version=1.0.3 --verdi
   you get every version's.
 - `--verdict=no` keeps only the corrections. (Leave it off to see what the
   experts confirmed as right, too.)
-- `--class=<judge-class-id>` keeps only one judge class — use it to take
+- `--group=<corrector-group-id>` keeps only one corrector group — use it to take
   only the experts' corrections once the project names its experts.
 
 Kindgi doesn't hand out corrections: two people's coding agents can pull the

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The comparison eval run of a `judged` suite (a test set): each case is a
+ * The comparison eval run of a `corrections` test set (a test set): each case is a
  * past run people corrected; the candidate agent version re-runs it as a
  * replay (`EvalRunSubjectInvokeInput.replay`, so it does nothing the past
  * run didn't), `repetitions` times, and its output's items are scored
@@ -30,7 +30,7 @@ import {
   scoreItems,
   withFresh,
 } from './corrected-items.js';
-import { classWeightReader, summarizeByItem } from './corrected-summary.js';
+import { groupWeightReader, summarizeByItem } from './corrected-summary.js';
 import type { Correction, CorrectionRegistryBinding } from './correction-binding.js';
 import type {
   CorrectedEvalCase,
@@ -39,8 +39,8 @@ import type {
 } from './eval-case-binding.js';
 import type {
   AgentRef,
-  EvalClassWeights,
   EvalComparison,
+  EvalGroupWeights,
   EvalRunBinding,
   EvalSample,
   FlowRef,
@@ -141,7 +141,7 @@ export interface CorrectedComparisonSummary {
   readonly evalRunId: string;
   readonly status: 'completed' | 'partial' | 'failed';
   readonly completedAt: string;
-  readonly suite: { readonly id: string; readonly version: string };
+  readonly testSet: { readonly id: string; readonly version: string };
   readonly candidate: ComparisonCandidate;
   readonly baseline: ComparisonBaselineSummary;
   /** Where the test set's corrections came from. */
@@ -178,11 +178,11 @@ export interface CorrectedComparisonSummary {
   readonly notRescored?: number;
   readonly reads: EvalComparison['reads'];
   /**
-   * Which corrections counted: `restricted-only` weighs a correction not
-   * recorded under a restricted class 0 (a gate can require it). Absent
+   * Which corrections counted: `experts-only` weighs a correction not
+   * recorded under an expert group 0 (a gate can require it). Absent
    * from a summary recorded before T200: `as-recorded`.
    */
-  readonly classWeights?: EvalClassWeights;
+  readonly groupWeights?: EvalGroupWeights;
   /** The part of the test set it ran (absent: every case). */
   readonly sample?: EvalSample;
   /** The models that answered the candidate's replays, and how many replays each. */
@@ -303,7 +303,7 @@ export interface CorrectedDispatcherOptions {
    */
   readonly evalRuns?: Pick<EvalRunBinding, 'get'>;
   readonly runs?: ReplayRunReader;
-  readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'getClass'>;
+  readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'getGroup'>;
 }
 
 export const RESCORE_UNSUPPORTED =
@@ -319,7 +319,7 @@ export const VERSIONS_NEED_A_FLOW =
   '`versions` runs a flow with some of its agents or tools at other versions: it needs `flowRef`.';
 
 function validateComparison(
-  suite: { readonly spec: Readonly<Record<string, unknown>> },
+  testSet: { readonly spec: Readonly<Record<string, unknown>> },
   target: AgentRef | FlowRef,
   comparison: EvalComparison | undefined,
 ): { kind: 'ok' } | { kind: 'err'; message: string } {
@@ -332,7 +332,7 @@ function validateComparison(
           : '`flowRef.version` is required: the candidate is one version of the flow.',
     };
   }
-  if (suite.spec.caseCount === 0) {
+  if (testSet.spec.caseCount === 0) {
     return { kind: 'err', message: 'The test set has no cases.' };
   }
   const c = comparison ?? DEFAULT_COMPARISON;
@@ -350,9 +350,9 @@ function validateComparison(
 
 export function createCorrectedDispatcher(options: CorrectedDispatcherOptions): EvalRunDispatcher {
   return {
-    kind: 'judged',
-    validate(suite, target, comparison) {
-      const checked = validateComparison(suite, target, comparison);
+    kind: 'corrections',
+    validate(testSet, target, comparison) {
+      const checked = validateComparison(testSet, target, comparison);
       if (checked.kind === 'err' || comparison?.rescoreOf === undefined) return checked;
       return options.evalRuns !== undefined &&
         options.runs !== undefined &&
@@ -369,8 +369,7 @@ export function createCorrectedDispatcher(options: CorrectedDispatcherOptions): 
       const erased = listed.length - replayable.length;
       const stored =
         comparison.sample === undefined ? replayable : sampleCases(replayable, comparison.sample);
-      const all =
-        comparison.classWeights === 'restricted-only' ? stored.map(restrictedOnly) : stored;
+      const all = comparison.groupWeights === 'experts-only' ? stored.map(expertsOnly) : stored;
       if (ctx.dryRun) {
         return {
           result: { dryRun: true, cases: all.length, ...(erased > 0 && { erased }), comparison },
@@ -434,8 +433,8 @@ async function allCases(
   for (;;) {
     const page = await store.listCases({
       tenantId: ctx.tenantId,
-      suiteId: ctx.suite.id,
-      version: ctx.suite.version,
+      testSetId: ctx.testSet.id,
+      version: ctx.testSet.version,
       limit: CASE_PAGE,
       ...(cursor !== undefined && { cursor }),
     });
@@ -661,10 +660,10 @@ async function rescore(
       error: `Eval run "${of}" can't be rescored: it isn't a finished comparison here.`,
     };
   }
-  if (prior.suiteId !== ctx.suite.id || prior.suiteVersion !== ctx.suite.version) {
+  if (prior.testSetId !== ctx.testSet.id || prior.testSetVersion !== ctx.testSet.version) {
     return {
       result: {},
-      error: `Eval run "${of}" ran ${prior.suiteId}@${prior.suiteVersion}: a rescore runs that test set version.`,
+      error: `Eval run "${of}" ran ${prior.testSetId}@${prior.testSetVersion}: a rescore runs that test set version.`,
     };
   }
   const fresh = freshReader(options.corrections, ctx.tenantId, comparison);
@@ -739,7 +738,7 @@ function freshReader(
   comparison: EvalComparison,
 ): (runId: string) => Promise<readonly ItemCorrections[]> {
   if (corrections === undefined) return async () => [];
-  const weightOf = classWeightReader(corrections, tenantId);
+  const weightOf = groupWeightReader(corrections, tenantId);
   return async (runId) => {
     const all: Correction[] = [];
     let cursor: Cursor | undefined;
@@ -755,7 +754,7 @@ function freshReader(
       cursor = page.nextCursor;
     }
     const items = await summarizeByItem(all, weightOf);
-    return comparison.classWeights === 'restricted-only' ? restrictedItems(items) : items;
+    return comparison.groupWeights === 'experts-only' ? expertItems(items) : items;
   };
 }
 
@@ -766,7 +765,7 @@ function priorCases(run: {
   readonly result?: Readonly<Record<string, unknown>>;
 }): Map<string, CorrectedCaseResult> | undefined {
   const perCase = run.result?.perCase;
-  if (run.kind !== 'judged' || run.status !== 'completed' || !Array.isArray(perCase)) {
+  if (run.kind !== 'corrections' || run.status !== 'completed' || !Array.isArray(perCase)) {
     return undefined;
   }
   return new Map((perCase as CorrectedCaseResult[]).map((r) => [r.caseId, r]));
@@ -934,7 +933,7 @@ function summarize(
     kept.cases += 1;
     versions.set(key, kept);
   }
-  const specProject = ctx.suite.spec.projectId;
+  const specProject = ctx.testSet.spec.projectId;
   const projectId =
     typeof specProject === 'string'
       ? specProject
@@ -951,7 +950,7 @@ function summarize(
           ? 'partial'
           : 'failed',
     completedAt: new Date().toISOString(),
-    suite: { id: ctx.suite.id, version: ctx.suite.version },
+    testSet: { id: ctx.testSet.id, version: ctx.testSet.version },
     candidate: candidateOf(ctx.target, ctx.comparison, pinsDigest),
     baseline: {
       kind: 'recorded',
@@ -969,7 +968,7 @@ function summarize(
     errors,
     stopped,
     reads: comparison.reads,
-    classWeights: comparison.classWeights ?? 'as-recorded',
+    groupWeights: comparison.groupWeights ?? 'as-recorded',
     ...(comparison.sample !== undefined && { sample: comparison.sample }),
     sampling: { models },
     repetitions: comparison.repetitions,
@@ -1027,31 +1026,31 @@ function costOf(
 }
 
 /**
- * A case as a `restricted-only` comparison counts it: each item at its
- * restricted corrections' weights; an item with none is left out, so it
+ * A case as an `experts-only` comparison counts it: each item at its
+ * expert-group corrections' weights; an item with none is left out, so it
  * counts as uncorrected. Corrections filter the same way — only the ones
- * recorded under a restricted class are kept, so a correction from someone
+ * recorded under an expert group are kept, so a correction from someone
  * outside the restriction isn't graded.
  */
-function restrictedOnly(c: CorrectedEvalCase): CorrectedEvalCase {
+function expertsOnly(c: CorrectedEvalCase): CorrectedEvalCase {
   const { corrections, ...rest } = c;
-  const kept = corrections?.filter((x) => x.restricted === true);
+  const kept = corrections?.filter((x) => x.expert === true);
   return {
     ...rest,
-    items: restrictedItems(rest.items),
+    items: expertItems(rest.items),
     ...(kept !== undefined && kept.length > 0 && { corrections: kept }),
   };
 }
 
-/** Only what the people a class was restricted to said: an item without it counts as uncorrected. */
-function restrictedItems<T extends CorrectedEvalCase['items'][number]>(items: readonly T[]): T[] {
+/** Only what the people a group was restricted to said: an item without it counts as uncorrected. */
+function expertItems<T extends CorrectedEvalCase['items'][number]>(items: readonly T[]): T[] {
   return items.flatMap((item) =>
-    item.restricted !== undefined && item.restricted.totalWeight > 0
+    item.expert !== undefined && item.expert.totalWeight > 0
       ? [
           {
             ...item,
-            yesWeight: item.restricted.yesWeight,
-            totalWeight: item.restricted.totalWeight,
+            yesWeight: item.expert.yesWeight,
+            totalWeight: item.expert.totalWeight,
           },
         ]
       : [],

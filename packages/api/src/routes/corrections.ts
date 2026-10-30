@@ -26,12 +26,12 @@ import {
   type CorrectionAssertedBy,
   type CorrectionRegistryBinding,
   type CorrectionWithCopies,
-  type JudgeClass,
-  type JudgeClassAssertableBy,
-  type JudgeClassScope,
+  type CorrectorGroup,
+  type CorrectorGroupAssertableBy,
+  type CorrectorGroupScope,
   VERDICTS,
   type Verdict,
-  judgeClassApplies,
+  correctorGroupApplies,
   whyNotAssertable,
 } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -49,11 +49,11 @@ import { parseListScope } from './scope-params.js';
 
 /**
  * Corrections: yes or no, with an optional reason, about one item of a
- * run's output, recorded under a judge class.
+ * run's output, recorded under a corrector group.
  *
  * - `POST /v1/corrections`: correct an item of a finished run.
  * - `GET /v1/corrections`: live corrections, filtered by run, agent version,
- *   flow, verdict, class, participant or project scope.
+ *   flow, verdict, group, participant or project scope.
  * - `GET /v1/corrections/:id`: one correction with the stored copies.
  * - `POST /v1/corrections/:id/remove`: remove a correction (soft).
  *
@@ -68,7 +68,7 @@ export function correctionsRouter(
   authorizer?: Authorizer,
   conversations?: ConversationBinding,
   flows?: FlowRegistryBinding,
-  /** Whose reviewer role a restricted judge class checks (T200). */
+  /** Whose reviewer role an expert group checks (T200). */
   reviewers?: ReviewerBinding,
   /** Resolves a corrected agent version's tools, so a correction can only name tools it has. */
   agents?: AgentRegistryBinding,
@@ -97,7 +97,7 @@ export function correctionsRouter(
       reviewers,
     });
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message, prepared.details);
-    const { run, subject, projectId, itemValue, conversationId, restricted, replayOf } = prepared;
+    const { run, subject, projectId, itemValue, conversationId, expert, replayOf } = prepared;
     const unknownTool = await unknownCorrectionTool(tenantId, subject, body.correction, agents);
     if (unknownTool !== undefined) {
       return fail('bad-input', `The corrected version has no tool "${unknownTool}".`);
@@ -137,8 +137,8 @@ export function correctionsRouter(
       verdict: body.verdict,
       ...(body.reason !== undefined && { reason: body.reason }),
       ...(body.correction !== undefined && { correction: body.correction }),
-      ...(body.judgeClassId !== undefined && { judgeClassId: body.judgeClassId }),
-      ...(restricted === true && { restricted }),
+      ...(body.correctorGroupId !== undefined && { correctorGroupId: body.correctorGroupId }),
+      ...(expert === true && { expert }),
       assertedBy: asserted,
       ...(body.participantId !== undefined && { participantId: body.participantId }),
     });
@@ -177,7 +177,7 @@ export function correctionsRouter(
       ...optional('agentVersion', q('agentVersion')),
       ...optional('flowId', q('flowId')),
       ...(verdict !== undefined && { verdict: verdict as Verdict }),
-      ...optional('judgeClassId', q('judgeClassId')),
+      ...optional('correctorGroupId', q('correctorGroupId')),
       ...optional('participantId', q('participantId')),
       ...(q('cursor') !== undefined && { cursor: q('cursor') as Cursor }),
     });
@@ -252,21 +252,21 @@ export function correctionsRouter(
 }
 
 /**
- * Judge classes: the deployment's named classes of judges ("expert",
+ * Corrector groups: the deployment's named groups of judges ("expert",
  * "user", …), each with a weight, scoped to the tenant, a project, or an
  * agent in a project.
  *
- * Managing a tenant-scoped class needs `admin` on the tenant; a project-
- * or agent-scoped class needs `admin` on its project. Listing returns the
- * classes the caller may read.
+ * Managing a tenant-scoped group needs `admin` on the tenant; a project-
+ * or agent-scoped group needs `admin` on its project. Listing returns the
+ * groups the caller may read.
  */
-export function judgeClassesRouter(
+export function correctorGroupsRouter(
   binding: CorrectionRegistryBinding,
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
-  const scopeRef = (tenantId: TenantId, scope: JudgeClassScope) =>
+  const scopeRef = (tenantId: TenantId, scope: CorrectorGroupScope) =>
     scope.kind === 'tenant' ? ref('tenant', tenantId) : ref('project', scope.projectId);
 
   r.post('/', async (c) => {
@@ -276,16 +276,16 @@ export function judgeClassesRouter(
       c.status(statusFor(code) as never);
       return c.json(toWireError({ code, message }, requestId));
     };
-    const parsed = parseClassBody(await c.req.json().catch(() => null));
+    const parsed = parseGroupBody(await c.req.json().catch(() => null));
     if (parsed.kind === 'err') return fail('bad-input', parsed.message);
     const { scope, name, weight, description, assertableBy } = parsed.body;
     if (
       authorizer !== undefined &&
       !(await authorizer.can(c, 'admin', scopeRef(tenantId, scope)))
     ) {
-      return fail('permission-denied', 'Not allowed to manage judge classes in this scope.');
+      return fail('permission-denied', 'Not allowed to manage corrector groups in this scope.');
     }
-    const outcome = await binding.createClass({
+    const outcome = await binding.createGroup({
       tenantId,
       scope,
       name,
@@ -294,23 +294,26 @@ export function judgeClassesRouter(
       ...(assertableBy !== undefined && { assertableBy }),
     });
     if (outcome.kind === 'name-taken') {
-      return fail('judge-class-name-taken', `A judge class named "${name}" already exists here.`);
+      return fail(
+        'corrector-group-name-taken',
+        `A corrector group named "${name}" already exists here.`,
+      );
     }
     c.status(201);
     // Its creator is an admin on its scope: they see whom it names.
-    return c.json(serializeJudgeClass(outcome.judgeClass, true));
+    return c.json(serializeCorrectorGroup(outcome.correctorGroup, true));
   });
 
   r.get('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const scope = parseClassScopeQuery(c.req.query());
+    const scope = parseGroupScopeQuery(c.req.query());
     if (scope.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: scope.message }, requestId));
     }
     const cursor = c.req.query('cursor');
-    const page = await binding.listClasses({
+    const page = await binding.listGroups({
       tenantId,
       limit: clampLimit(c.req.query('limit')),
       ...(scope.scope !== undefined && { scope: scope.scope }),
@@ -320,7 +323,7 @@ export function judgeClassesRouter(
       authorizer === undefined
         ? page.data
         : await authorizer.filterByCan(c, 'read', page.data, (k) => scopeRef(tenantId, k.scope));
-    // Whom a class names (`principalIds`) is for its scope's admins only.
+    // Whom a group names (`principalIds`) is for its scope's admins only.
     const naming = visible.filter((k) => k.assertableBy?.principalIds !== undefined);
     const seenBy =
       authorizer === undefined || naming.length === 0
@@ -331,22 +334,24 @@ export function judgeClassesRouter(
             ).map((k) => k.id),
           );
     return c.json({
-      data: visible.map((k) => serializeJudgeClass(k, seenBy === undefined || seenBy.has(k.id))),
+      data: visible.map((k) =>
+        serializeCorrectorGroup(k, seenBy === undefined || seenBy.has(k.id)),
+      ),
       hasMore: page.hasMore,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
 
-  const loadClass = async (
+  const loadGroup = async (
     c: Context<AppEnv>,
     action: 'read' | 'admin',
-  ): Promise<JudgeClass | Response> => {
+  ): Promise<CorrectorGroup | Response> => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const judgeClassId = c.req.param('judgeClassId') ?? '';
-    const found = await binding.getClass({
+    const correctorGroupId = c.req.param('correctorGroupId') ?? '';
+    const found = await binding.getGroup({
       tenantId,
-      judgeClassId,
+      correctorGroupId,
       includeUnregistered: action === 'read',
     });
     if (found !== null && authorizer !== undefined) {
@@ -361,19 +366,19 @@ export function judgeClassesRouter(
           toWireError(
             {
               code: 'permission-denied',
-              message: 'Not allowed to manage judge classes in this scope.',
+              message: 'Not allowed to manage corrector groups in this scope.',
             },
             requestId,
           ),
         );
       }
-      if (!allowed) return classNotFound(c, judgeClassId);
+      if (!allowed) return groupNotFound(c, correctorGroupId);
     }
-    return found ?? classNotFound(c, judgeClassId);
+    return found ?? groupNotFound(c, correctorGroupId);
   };
 
-  r.get('/:judgeClassId', async (c) => {
-    const found = await loadClass(c, 'read');
+  r.get('/:correctorGroupId', async (c) => {
+    const found = await loadGroup(c, 'read');
     if (found instanceof Response) return found;
     const tenantId = c.get('tenantId') as TenantId;
     // Whom it names (`principalIds`) is for its scope's admins only.
@@ -381,10 +386,10 @@ export function judgeClassesRouter(
       authorizer === undefined ||
       found.assertableBy?.principalIds === undefined ||
       (await authorizer.can(c, 'admin', scopeRef(tenantId, found.scope)));
-    return c.json(serializeJudgeClass(found, seesPrincipals));
+    return c.json(serializeCorrectorGroup(found, seesPrincipals));
   });
 
-  r.patch('/:judgeClassId', async (c) => {
+  r.patch('/:correctorGroupId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const raw = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -408,35 +413,35 @@ export function judgeClassesRouter(
             message:
               typeof assertableBy === 'string'
                 ? assertableBy
-                : 'Send weight (a number ≥ 0), description (a string) and/or assertableBy (who may assert the class, or null for anyone).',
+                : 'Send weight (a number ≥ 0), description (a string) and/or assertableBy (who may assert the group, or null for anyone).',
           },
           requestId,
         ),
       );
     }
-    const found = await loadClass(c, 'admin');
+    const found = await loadGroup(c, 'admin');
     if (found instanceof Response) return found;
-    if (found.unregisteredAt !== undefined) return classNotFound(c, found.id);
-    const updated = await binding.updateClass({
+    if (found.unregisteredAt !== undefined) return groupNotFound(c, found.id);
+    const updated = await binding.updateGroup({
       tenantId,
-      judgeClassId: found.id,
+      correctorGroupId: found.id,
       ...(weight !== undefined && { weight: weight as number }),
       ...(description !== undefined && { description: description as string }),
       ...(assertableBy !== undefined && { assertableBy }),
     });
     // Loaded as an admin: they see whom it names.
     return updated === null
-      ? classNotFound(c, found.id)
-      : c.json(serializeJudgeClass(updated, true));
+      ? groupNotFound(c, found.id)
+      : c.json(serializeCorrectorGroup(updated, true));
   });
 
-  r.post('/:judgeClassId/unregister', async (c) => {
+  r.post('/:correctorGroupId/unregister', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
-    const found = await loadClass(c, 'admin');
+    const found = await loadGroup(c, 'admin');
     if (found instanceof Response) return found;
-    const outcome = await binding.unregisterClass({ tenantId, judgeClassId: found.id });
-    if (!outcome.unregistered) return classNotFound(c, found.id);
-    return c.json({ judgeClassId: found.id, unregistered: true });
+    const outcome = await binding.unregisterGroup({ tenantId, correctorGroupId: found.id });
+    if (!outcome.unregistered) return groupNotFound(c, found.id);
+    return c.json({ correctorGroupId: found.id, unregistered: true });
   });
 
   return r;
@@ -454,8 +459,8 @@ type Prepared =
       readonly projectId: ProjectId;
       readonly itemValue?: unknown;
       readonly conversationId?: string;
-      /** The class was restricted and the caller met it. */
-      readonly restricted?: true;
+      /** The group was restricted and the caller met it. */
+      readonly expert?: true;
       /** The run a comparison's replay re-ran, when the corrected run is one. */
       readonly replayOf?: string;
     }
@@ -469,7 +474,7 @@ type Prepared =
 /**
  * Everything a correction needs from its run, or why it can't be recorded:
  * the run exists, the caller may correct it, it has finished with an output,
- * the class (if any) applies to it, and the pointer (if any) resolves.
+ * the group (if any) applies to it, and the pointer (if any) resolves.
  */
 async function prepareCorrection(
   c: Context<AppEnv>,
@@ -506,21 +511,21 @@ async function prepareCorrection(
   }
   const subject = subjectOf(run);
   const projectId = run.projectId as unknown as ProjectId;
-  let restricted = false;
-  if (body.judgeClassId !== undefined) {
-    const judgeClass = await applicableClass(binding, tenantId, body.judgeClassId, {
+  let expert = false;
+  if (body.correctorGroupId !== undefined) {
+    const correctorGroup = await applicableGroup(binding, tenantId, body.correctorGroupId, {
       projectId,
       subject,
     });
-    if (judgeClass === null) {
+    if (correctorGroup === null) {
       return err(
-        'judge-class-not-applicable',
-        `Judge class "${body.judgeClassId}" doesn't exist or doesn't apply to this run's project or agent.`,
+        'corrector-group-not-applicable',
+        `Corrector group "${body.correctorGroupId}" doesn't exist or doesn't apply to this run's project or agent.`,
       );
     }
-    if (judgeClass.assertableBy !== undefined) {
+    if (correctorGroup.assertableBy !== undefined) {
       const reviewerRole = await callerReviewerRole(c, who.reviewers);
-      const why = whyNotAssertable(judgeClass.assertableBy, {
+      const why = whyNotAssertable(correctorGroup.assertableBy, {
         ...who.asserted,
         ...(reviewerRole !== undefined && { reviewerRole }),
       });
@@ -530,21 +535,21 @@ async function prepareCorrection(
         const refusal: Refusal = {
           action: 'write',
           resource: ref('project', run.projectId as unknown as string),
-          message: `You can't correct as "${judgeClass.name}": ${why}.`,
+          message: `You can't correct as "${correctorGroup.name}": ${why}.`,
           failing: 'actor',
-          code: 'judge-class-not-allowed',
+          code: 'corrector-group-not-allowed',
         };
         recordRefusal(c, authorizer, refusal);
         const { code, message, ...details } = refusalError(refusal);
         return { kind: 'err', code, message, details };
       }
-      restricted = true;
+      expert = true;
     }
   }
   const copy = { input: run.input, output: run.output, segments: run.segments ?? [] };
   const extra = {
     ...(run.agent !== undefined && { conversationId: run.agent.conversationId as string }),
-    ...(restricted && { restricted: true as const }),
+    ...(expert && { expert: true as const }),
     ...(run.replayOf != null && { replayOf: run.replayOf as unknown as string }),
   };
   if (body.item.pointer === undefined)
@@ -602,15 +607,17 @@ async function isFirstCorrection(
   return page.data.length === 0;
 }
 
-/** The live class, when it exists and its scope covers the run; else `null`. */
-async function applicableClass(
+/** The live group, when it exists and its scope covers the run; else `null`. */
+async function applicableGroup(
   binding: CorrectionRegistryBinding,
   tenantId: TenantId,
-  judgeClassId: string,
+  correctorGroupId: string,
   run: { readonly projectId: ProjectId; readonly subject: CorrectedSubject },
-): Promise<JudgeClass | null> {
-  const judgeClass = await binding.getClass({ tenantId, judgeClassId });
-  return judgeClass !== null && judgeClassApplies(judgeClass.scope, run) ? judgeClass : null;
+): Promise<CorrectorGroup | null> {
+  const correctorGroup = await binding.getGroup({ tenantId, correctorGroupId });
+  return correctorGroup !== null && correctorGroupApplies(correctorGroup.scope, run)
+    ? correctorGroup
+    : null;
 }
 
 // ---------- request parsing ----------
@@ -621,7 +628,7 @@ interface CorrectionBody {
   readonly verdict: Verdict;
   readonly reason?: string;
   readonly correction?: ExpectedDecisions;
-  readonly judgeClassId?: string;
+  readonly correctorGroupId?: string;
   readonly participantId?: string;
 }
 
@@ -652,7 +659,7 @@ function parseCorrectionBody(raw: unknown): Parsed<CorrectionBody> {
       item,
       verdict: b.verdict,
       ...(correction !== undefined && { correction }),
-      ...(typeof b.judgeClassId === 'string' && { judgeClassId: b.judgeClassId }),
+      ...(typeof b.correctorGroupId === 'string' && { correctorGroupId: b.correctorGroupId }),
       ...(typeof b.reason === 'string' && b.reason.length > 0 && { reason: b.reason }),
       ...(typeof b.participantId === 'string' && { participantId: b.participantId }),
     },
@@ -732,10 +739,10 @@ function parseExpectedDecisions(raw: unknown): ExpectedDecisions | string {
   return { calls: parsedCalls, notCalled: notCalled as string[] };
 }
 
-/** What's wrong with the optional fields (class, reason, participant), if anything. */
+/** What's wrong with the optional fields (group, reason, participant), if anything. */
 function optionalFieldError(b: Record<string, unknown>): string | undefined {
-  if (b.judgeClassId !== undefined && !nonEmpty(b.judgeClassId)) {
-    return 'judgeClassId must be a judge class id, or left out for an unclassified correction.';
+  if (b.correctorGroupId !== undefined && !nonEmpty(b.correctorGroupId)) {
+    return 'correctorGroupId must be a corrector group id, or left out for an unclassified correction.';
   }
   if (b.reason !== undefined && (typeof b.reason !== 'string' || b.reason.length > MAX_REASON)) {
     return `reason must be a string of at most ${MAX_REASON} characters.`;
@@ -801,19 +808,19 @@ function parseExpectedDecisionsField(
   return reservedItemError(item, correction !== undefined) ?? correction;
 }
 
-interface ClassBody {
-  readonly scope: JudgeClassScope;
+interface GroupBody {
+  readonly scope: CorrectorGroupScope;
   readonly name: string;
   readonly weight: number;
   readonly description?: string;
-  readonly assertableBy?: JudgeClassAssertableBy;
+  readonly assertableBy?: CorrectorGroupAssertableBy;
 }
 
 const ASSERTABLE_BY_USAGE =
-  'assertableBy says who may assert the class: { minReviewerRole?: "standard" | "senior" | "admin", principalKinds?: ["user" | "service", …], principalIds?: [id, …] }, with at least one of them.';
+  'assertableBy says who may assert the group: { minReviewerRole?: "standard" | "senior" | "admin", principalKinds?: ["user" | "service", …], principalIds?: [id, …] }, with at least one of them.';
 
 /** `assertableBy`: a restriction, `null` (on an update: lift it), or what's wrong. */
-function parseAssertableBy(raw: unknown): JudgeClassAssertableBy | null | string {
+function parseAssertableBy(raw: unknown): CorrectorGroupAssertableBy | null | string {
   if (raw === null) return null;
   if (typeof raw !== 'object' || Array.isArray(raw)) return ASSERTABLE_BY_USAGE;
   const b = raw as Record<string, unknown>;
@@ -849,8 +856,8 @@ function parseAssertableBy(raw: unknown): JudgeClassAssertableBy | null | string
   };
 }
 
-function parseClassBody(raw: unknown): Parsed<ClassBody> {
-  const err = (message: string): Parsed<ClassBody> => ({ kind: 'err', message });
+function parseGroupBody(raw: unknown): Parsed<GroupBody> {
+  const err = (message: string): Parsed<GroupBody> => ({ kind: 'err', message });
   if (raw === null || typeof raw !== 'object') return err('Send a JSON object.');
   const b = raw as Record<string, unknown>;
   if (!nonEmpty(b.name) || b.name.length > 100)
@@ -859,7 +866,7 @@ function parseClassBody(raw: unknown): Parsed<ClassBody> {
   if (b.description !== undefined && typeof b.description !== 'string') {
     return err('description must be a string.');
   }
-  const scope = parseClassScope(b.scope);
+  const scope = parseGroupScope(b.scope);
   if (typeof scope === 'string') return err(scope);
   const assertableBy = b.assertableBy === undefined ? undefined : parseAssertableBy(b.assertableBy);
   if (typeof assertableBy === 'string') return err(assertableBy);
@@ -875,7 +882,7 @@ function parseClassBody(raw: unknown): Parsed<ClassBody> {
   };
 }
 
-function parseClassScope(raw: unknown): JudgeClassScope | string {
+function parseGroupScope(raw: unknown): CorrectorGroupScope | string {
   const usage =
     'scope is required: { kind: "tenant" }, { kind: "project", projectId }, or { kind: "agent", projectId, agentId }.';
   if (raw === null || typeof raw !== 'object') return usage;
@@ -889,15 +896,15 @@ function parseClassScope(raw: unknown): JudgeClassScope | string {
   return usage;
 }
 
-/** `?scopeKind=tenant|project|agent&projectId=&agentId=` on the class list. */
-function parseClassScopeQuery(
+/** `?scopeKind=tenant|project|agent&projectId=&agentId=` on the group list. */
+function parseGroupScopeQuery(
   query: Record<string, string>,
 ):
-  | { readonly kind: 'ok'; readonly scope?: JudgeClassScope }
+  | { readonly kind: 'ok'; readonly scope?: CorrectorGroupScope }
   | { readonly kind: 'err'; readonly message: string } {
   const kind = query.scopeKind;
   if (kind === undefined || kind.length === 0) return { kind: 'ok' };
-  const scope = parseClassScope({ kind, projectId: query.projectId, agentId: query.agentId });
+  const scope = parseGroupScope({ kind, projectId: query.projectId, agentId: query.agentId });
   return typeof scope === 'string' ? { kind: 'err', message: scope } : { kind: 'ok', scope };
 }
 
@@ -919,11 +926,11 @@ function optional<K extends string>(key: K, value: string | undefined): { [P in 
   return (value === undefined ? {} : { [key]: value }) as { [P in K]?: string };
 }
 
-function classNotFound(c: Context<AppEnv>, id: string): Response {
-  c.status(statusFor('judge-class-not-found') as never);
+function groupNotFound(c: Context<AppEnv>, id: string): Response {
+  c.status(statusFor('corrector-group-not-found') as never);
   return c.json(
     toWireError(
-      { code: 'judge-class-not-found', message: `No judge class "${id}".` },
+      { code: 'corrector-group-not-found', message: `No corrector group "${id}".` },
       c.get('requestId'),
     ),
   );
@@ -1017,8 +1024,8 @@ function serializeCorrection(j: Correction): Record<string, unknown> {
     verdict: j.verdict,
     ...(j.reason !== undefined && { reason: j.reason }),
     ...(j.correction !== undefined && { correction: j.correction }),
-    ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
-    ...(j.restricted === true && { restricted: true }),
+    ...(j.correctorGroupId !== undefined && { correctorGroupId: j.correctorGroupId }),
+    ...(j.expert === true && { expert: true }),
     assertedBy: j.assertedBy,
     ...(j.participantId !== undefined && { participantId: j.participantId }),
     createdAt: j.createdAt,
@@ -1036,11 +1043,14 @@ function serializeCorrectionWithCopies(j: CorrectionWithCopies): Record<string, 
 }
 
 /**
- * A judge class as the caller sees it. `assertableBy.principalIds` names
- * people and tokens: only an admin on the class's scope gets it
+ * A corrector group as the caller sees it. `assertableBy.principalIds` names
+ * people and tokens: only an admin on the group's scope gets it
  * (`seesPrincipals`); every reader gets `principalCount`.
  */
-function serializeJudgeClass(k: JudgeClass, seesPrincipals: boolean): Record<string, unknown> {
+function serializeCorrectorGroup(
+  k: CorrectorGroup,
+  seesPrincipals: boolean,
+): Record<string, unknown> {
   const restriction = k.assertableBy;
   const assertableBy =
     restriction === undefined

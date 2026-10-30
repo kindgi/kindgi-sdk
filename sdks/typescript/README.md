@@ -101,8 +101,8 @@ The transport makes one attempt per call and does not retry. Mutating calls acce
 | `conversations` | `/v1/conversations` | — |
 | `memory` | `/v1/memory` | `logs.append`, `logs.list`, `logs.verify` |
 | `provenance` | `/v1/provenance` | `verify` |
-| `proposals` | `/v1/proposals` | — |
-| `supervisor` | — | `define`, `get`, `list`, `versions`, `delete`, and every `proposals.*` method (removed in 0.1.5: use `client.proposals`) |
+| `suggested-changes` | `/v1/suggested-changes` | — |
+| `supervisor` | — | `define`, `get`, `list`, `versions`, `delete` |
 | `observations` | `/v1/observations` | `recordRun`, `patterns` |
 | `approvals` | `/v1/approvals` | `batch`, `assign`, `reviewers.updateRole`, `audit.get`, `audit.list`, `audit.verify` |
 | `tenant` | `/v1/tenant` | — |
@@ -117,8 +117,8 @@ The transport makes one attempt per call and does not retry. Mutating calls acce
 | `deployments` | `/v1/deployments` | — |
 | `compliance` | `/v1/compliance` | — |
 | `audit` | `/v1/audit` | — |
-| `evalSuites` | `/v1/eval-suites` | — |
-| `evalRuns` | `/v1/eval-runs`, `/v1/eval-suites/{suiteId}/runs` | — |
+| `testSets` | `/v1/test-sets` | — |
+| `evalRuns` | `/v1/eval-runs`, `/v1/test-sets/{testSetId}/runs` | — |
 | `users` | `/v1/identity/users` | `create`, `update`, `deactivate`, `sessions.revoke` |
 | `identity` | `/v1/identity` | — |
 | `auth` | `/v1/auth` | — |

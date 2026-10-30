@@ -15,7 +15,7 @@ import type {
   EvalComparison,
   EvalRunSubjectInvokeInput,
   EvalRunSubjectInvokeOutcome,
-  EvalSuite,
+  TestSet,
 } from '../src/index.js';
 import {
   DEFAULT_COMPARISON,
@@ -104,23 +104,23 @@ async function compare(options: {
   const cases = inMemoryCaseStore();
   await cases.putCases({
     tenantId,
-    suiteId: 'acme.set',
+    testSetId: 'acme.set',
     version: '1.0.0',
     cases: options.cases ?? [caseA, caseB],
   });
   const invoked: EvalRunSubjectInvokeInput[] = [];
   const progress: unknown[] = [];
-  const suite: EvalSuite = {
+  const testSet: TestSet = {
     id: 'acme.set',
     tenantId,
     version: '1.0.0',
-    kind: 'judged',
+    kind: 'corrections',
     spec: { source: 'corrections', projectId: 'p-judged', caseCount: 2 },
   };
   const ctx: DispatchContext = {
     tenantId,
     runId: 'eval-1' as RunId,
-    suite,
+    testSet,
     target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
     dryRun: options.dryRun === true,
     abortSignal: new AbortController().signal,
@@ -189,7 +189,7 @@ describe('a comparison eval run', () => {
     expect(summary).toMatchObject({
       evalRunId: 'eval-1',
       status: 'completed',
-      suite: { id: 'acme.set', version: '1.0.0' },
+      testSet: { id: 'acme.set', version: '1.0.0' },
       candidate: { agentId: 'acme.agent', version: '2.0.0' },
       baseline: {
         kind: 'recorded',
@@ -453,34 +453,34 @@ describe('a case its project or tenant takes no new runs for (halt)', () => {
   });
 });
 
-describe('classWeights (T200)', () => {
-  /** Case A corrected by a restricted class on its answer and m2 only; case B by none. */
-  const restricted = (yesWeight: number, totalWeight: number) => ({
-    restricted: { yesWeight, totalWeight },
+describe('groupWeights (T200)', () => {
+  /** Case A corrected by an expert group on its answer and m2 only; case B by none. */
+  const expertSums = (yesWeight: number, totalWeight: number) => ({
+    expert: { yesWeight, totalWeight },
   });
   const caseARestricted: CorrectedEvalCase = {
     ...caseA,
     items: [
-      item('answer', 1, 1, { pointer: '/appended/3/content', ...restricted(1, 1) }),
-      item('m1', 2, 2, { pointer: '/output/matches/0', rank: 0, ...restricted(0, 0) }),
-      item('m2', 0, 1, { pointer: '/output/matches/1', rank: 1, ...restricted(0, 1) }),
+      item('answer', 1, 1, { pointer: '/appended/3/content', ...expertSums(1, 1) }),
+      item('m1', 2, 2, { pointer: '/output/matches/0', rank: 0, ...expertSums(0, 0) }),
+      item('m2', 0, 1, { pointer: '/output/matches/1', rank: 1, ...expertSums(0, 1) }),
     ],
   };
 
   test('as recorded by default, and the summary says so', async () => {
     const { summary } = await compare({ cases: [caseARestricted, caseB] });
-    expect(summary.classWeights).toBe('as-recorded');
+    expect(summary.groupWeights).toBe('as-recorded');
     expect(summary.metrics.weightedYesShare).toMatchObject({ baseline: 0.6, baselineWeight: 5 });
   });
 
-  test('restricted-only counts only what restricted classes corrected', async () => {
+  test('experts-only counts only what expert groups corrected', async () => {
     const result = await compare({
-      comparison: { ...DEFAULT_COMPARISON, classWeights: 'restricted-only' },
+      comparison: { ...DEFAULT_COMPARISON, groupWeights: 'experts-only' },
       cases: [caseARestricted, caseB],
     });
     expect(wireErrors(result)).toEqual([]);
     const { summary } = result;
-    expect(summary.classWeights).toBe('restricted-only');
+    expect(summary.groupWeights).toBe('experts-only');
     // Baseline: A's answer (1 of 1) and m2 (0 of 1); m1 and all of B uncorrected.
     expect(summary.metrics.weightedYesShare).toMatchObject({
       baseline: 0.5,
@@ -494,21 +494,21 @@ describe('classWeights (T200)', () => {
 
 describe('what a comparison takes', () => {
   const dispatcher = createCorrectedDispatcher({ cases: inMemoryCaseStore() });
-  const suite = { spec: { caseCount: 3 } } as unknown as EvalSuite;
+  const testSet = { spec: { caseCount: 3 } } as unknown as TestSet;
   const agent = { agentId: 'acme.agent' as never, version: '2.0.0' as never };
 
   test.each([
     [
       'a flow without a version',
-      suite,
+      testSet,
       { flowId: 'acme.flow' },
       undefined,
       '`flowRef.version` is required',
     ],
-    ['no version', suite, { agentId: 'acme.agent' }, undefined, '`agentRef.version` is required'],
+    ['no version', testSet, { agentId: 'acme.agent' }, undefined, '`agentRef.version` is required'],
     [
       'a version baseline',
-      suite,
+      testSet,
       agent,
       { ...DEFAULT_COMPARISON, baseline: { agentId: 'acme.agent', version: '1.0.0' } },
       "Only `baseline: 'recorded'` runs today",
@@ -516,7 +516,7 @@ describe('what a comparison takes', () => {
     ['an empty set', { spec: { caseCount: 0 } }, agent, undefined, 'no cases'],
     [
       'versions for an agent',
-      suite,
+      testSet,
       agent,
       { ...DEFAULT_COMPARISON, versions: { agents: { 'acme.helper': '1.0.0' } } },
       'it needs `flowRef`',
@@ -528,7 +528,7 @@ describe('what a comparison takes', () => {
   });
 
   test('a version of an agent, against the recording, is fine', () => {
-    expect(dispatcher.validate?.(suite, agent)).toEqual({ kind: 'ok' });
+    expect(dispatcher.validate?.(testSet, agent)).toEqual({ kind: 'ok' });
   });
 });
 
@@ -567,7 +567,7 @@ describe('a comparison of a flow version', () => {
     const cases = inMemoryCaseStore();
     await cases.putCases({
       tenantId,
-      suiteId: 'acme.flows',
+      testSetId: 'acme.flows',
       version: '1.0.0',
       cases: [
         flowCase('run-f1', [{ id: 'm1' }, { id: 'm2' }]),
@@ -578,11 +578,11 @@ describe('a comparison of a flow version', () => {
     const out = await createCorrectedDispatcher({ cases }).dispatch({
       tenantId,
       runId: 'eval-f' as RunId,
-      suite: {
+      testSet: {
         id: 'acme.flows',
         tenantId,
         version: '1.0.0',
-        kind: 'judged',
+        kind: 'corrections',
         spec: { caseCount: 2 },
       },
       target: { flowId: 'acme.intake' as never, version: '1.1.0' as never },
@@ -699,11 +699,11 @@ describe('a rescore: the replays scored again, with what people corrected on the
    */
   async function rescoreAfter(
     correct: (j: ReturnType<typeof inMemoryCorrections>) => Promise<void>,
-    options: { classWeights?: 'restricted-only'; gone?: readonly string[] } = {},
+    options: { groupWeights?: 'experts-only'; gone?: readonly string[] } = {},
   ) {
     const comparison: EvalComparison = {
       ...DEFAULT_COMPARISON,
-      ...(options.classWeights !== undefined && { classWeights: options.classWeights }),
+      ...(options.groupWeights !== undefined && { groupWeights: options.groupWeights }),
     };
     const first = await compare({ comparison });
     const corrections = inMemoryCorrections();
@@ -711,7 +711,7 @@ describe('a rescore: the replays scored again, with what people corrected on the
     const cases = inMemoryCaseStore();
     await cases.putCases({
       tenantId,
-      suiteId: 'acme.set',
+      testSetId: 'acme.set',
       version: '1.0.0',
       cases: [caseA, caseB],
     });
@@ -723,11 +723,11 @@ describe('a rescore: the replays scored again, with what people corrected on the
     const ctx: DispatchContext = {
       tenantId,
       runId: 'eval-2' as RunId,
-      suite: {
+      testSet: {
         id: 'acme.set',
         tenantId,
         version: '1.0.0',
-        kind: 'judged',
+        kind: 'corrections',
         spec: { source: 'corrections', projectId: 'p-judged', caseCount: 2 },
       },
       target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
@@ -750,9 +750,9 @@ describe('a rescore: the replays scored again, with what people corrected on the
         get: async () => ({
           runId: 'eval-1' as RunId,
           tenantId,
-          suiteId: 'acme.set',
-          suiteVersion: '1.0.0',
-          kind: 'judged',
+          testSetId: 'acme.set',
+          testSetVersion: '1.0.0',
+          kind: 'corrections',
           status: 'completed',
           dryRun: false,
           startedAt: '2026-10-09T00:00:00.000Z' as never,
@@ -829,15 +829,15 @@ describe('a rescore: the replays scored again, with what people corrected on the
     expect(r.perCase.map((c) => c.candidate)).toEqual(r.first.perCase.map((c) => c.candidate));
   });
 
-  test('restricted-only: a fresh correction counts only if its class was restricted', async () => {
+  test('experts-only: a fresh correction counts only if its group was restricted', async () => {
     const unrestricted = await rescoreAfter(correctAnswer('yes'), {
-      classWeights: 'restricted-only',
+      groupWeights: 'experts-only',
     });
     expect(
       unrestricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh,
     ).toBeUndefined();
-    const restricted = await rescoreAfter(correctAnswer('yes', { restricted: true }), {
-      classWeights: 'restricted-only',
+    const restricted = await rescoreAfter(correctAnswer('yes', { expert: true }), {
+      groupWeights: 'experts-only',
     });
     expect(restricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh).toEqual({
       yesWeight: 1,
@@ -857,15 +857,15 @@ describe('a rescore: the replays scored again, with what people corrected on the
 
   test("a runtime that can't read replays and their corrections again refuses a rescore", () => {
     const plain = createCorrectedDispatcher({ cases: inMemoryCaseStore() });
-    const suite = { spec: { caseCount: 1 } } as unknown as EvalSuite;
+    const testSet = { spec: { caseCount: 1 } } as unknown as TestSet;
     const target = { agentId: 'acme.agent', version: '2.0.0' } as never;
-    expect(plain.validate?.(suite, target, { ...DEFAULT_COMPARISON, rescoreOf: 'eval-1' })).toEqual(
-      {
-        kind: 'err',
-        message: RESCORE_UNSUPPORTED,
-      },
-    );
-    expect(plain.validate?.(suite, target, DEFAULT_COMPARISON)).toEqual({ kind: 'ok' });
+    expect(
+      plain.validate?.(testSet, target, { ...DEFAULT_COMPARISON, rescoreOf: 'eval-1' }),
+    ).toEqual({
+      kind: 'err',
+      message: RESCORE_UNSUPPORTED,
+    });
+    expect(plain.validate?.(testSet, target, DEFAULT_COMPARISON)).toEqual({ kind: 'ok' });
   });
 });
 
@@ -1013,14 +1013,14 @@ describe('corrections graded on the replay', () => {
     });
   });
 
-  test('restricted-only grades only the corrections recorded under a restricted class', async () => {
+  test('experts-only grades only the corrections recorded under an expert group', async () => {
     const corrected: CorrectedEvalCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
         {
           correctionId: 'j-restricted',
-          restricted: true,
+          expert: true,
           calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
           notCalled: [],
         },
@@ -1032,7 +1032,7 @@ describe('corrections graded on the replay', () => {
       ],
     };
     const { perCase, summary } = await compare({
-      comparison: { ...DEFAULT_COMPARISON, repetitions: 1, classWeights: 'restricted-only' },
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 1, groupWeights: 'experts-only' },
       cases: [corrected],
       answer: () => outcomeWith('case-c', [toolCall('acme.refund', { amount: 25 })]),
     });

@@ -31,7 +31,7 @@ const ID_RE = /^[a-z0-9][a-z0-9._-]{0,127}$/;
  *
  * Writes need `admin` on the tenant: whoever may promote mustn't be able
  * to loosen the gate on their own promotion. Reads need `read` on the
- * policy's scope (a segment's: its project), as judge classes do: one the
+ * policy's scope (a segment's: its project), as corrector groups do: one the
  * caller can't read answers 404, as if it weren't there, and the list
  * shows only those they can.
  */

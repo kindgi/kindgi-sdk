@@ -299,26 +299,26 @@ export type {
   ServiceAccountRef,
 } from './service-account-binding.js';
 export type {
-  JudgingClassResult,
-  JudgingError,
-  JudgingErrorCode,
-  JudgingItemRule,
-  JudgingQueueBinding,
-  JudgingQueueItem,
-  JudgingQueueListInput,
-  JudgingQueuePage,
-  JudgingQueueState,
-  JudgingRecentQueued,
-  JudgingRule,
-  JudgingRulePage,
-  JudgingRulePatch,
-  JudgingResultGroup,
-  JudgingRulePreview,
-  JudgingRuleResults,
-  JudgingRuleSpec,
-  JudgingRuleWhen,
-  JudgingRunStatus,
-} from './judging-queue-binding.js';
+  QueueRuleGroupResult,
+  ExpertQueueError,
+  ExpertQueueErrorCode,
+  ExpertQueueItemRule,
+  ExpertQueueBinding,
+  ExpertQueueItem,
+  ExpertQueueListInput,
+  ExpertQueuePage,
+  ExpertQueueState,
+  ExpertQueueRecentQueued,
+  QueueRule,
+  QueueRulePage,
+  QueueRulePatch,
+  QueueRuleResultGroup,
+  QueueRulePreview,
+  QueueRuleResults,
+  QueueRuleSpec,
+  QueueRuleWhen,
+  ExpertQueueRunStatus,
+} from './expert-queue-binding.js';
 export type {
   PersonGrant,
   PersonGrantChange,
@@ -668,10 +668,10 @@ export type {
   PolicyVersionRow,
 } from '@kindgi/policy-contract';
 export {
-  JUDGE_CLASS_SCOPE_KINDS,
+  CORRECTOR_GROUP_SCOPE_KINDS,
   VERDICTS,
   isReplayCopy,
-  judgeClassApplies,
+  correctorGroupApplies,
   whyNotAssertable,
 } from './correction-binding.js';
 export type {
@@ -684,26 +684,26 @@ export type {
   CorrectedItemSummary,
   CorrectedReason,
 } from './eval-case-binding.js';
-export { MAX_CORRECTED_CASES, buildCorrectedSuite } from './routes/corrected-suites.js';
+export { MAX_CORRECTED_CASES, buildCorrectedTestSet } from './routes/corrected-test-sets.js';
 export type {
-  BuildCorrectedSuiteInput,
-  BuildCorrectedSuiteOutcome,
-  CorrectedSuiteQuery,
-} from './routes/corrected-suites.js';
+  BuildCorrectedTestSetInput,
+  BuildCorrectedTestSetOutcome,
+  CorrectedTestSetQuery,
+} from './routes/corrected-test-sets.js';
 export { segmentsStartWith } from './routes/segments.js';
 export { MAX_CORRECTED_HISTORY } from './routes/correction-context.js';
 export type {
-  JudgeClass,
-  JudgeClassAssertableBy,
-  JudgeClassAsserter,
-  JudgeClassCreateInput,
-  JudgeClassCreateOutcome,
-  JudgeClassGetInput,
-  JudgeClassListInput,
-  JudgeClassPage,
-  JudgeClassScope,
-  JudgeClassScopeKind,
-  JudgeClassUpdateInput,
+  CorrectorGroup,
+  CorrectorGroupAssertableBy,
+  CorrectorGroupAsserter,
+  CorrectorGroupCreateInput,
+  CorrectorGroupCreateOutcome,
+  CorrectorGroupGetInput,
+  CorrectorGroupListInput,
+  CorrectorGroupPage,
+  CorrectorGroupScope,
+  CorrectorGroupScopeKind,
+  CorrectorGroupUpdateInput,
   CorrectedItem,
   CorrectedFlowContext,
   CorrectedFlowStep,
@@ -796,29 +796,29 @@ export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
 export { coordinatesOf as liveScopeCoordinates } from './routes/agent-releases.js';
 export type { GuardrailConfigCheck } from './routes/guardrails.js';
-export { EVAL_KINDS } from './eval-suite-binding.js';
+export { EVAL_KINDS } from './test-set-binding.js';
 export type {
   EvalKind,
-  EvalSuite,
-  EvalSuiteGetInput,
-  EvalSuiteGetVersionInput,
-  EvalSuiteListInput,
-  EvalSuiteListVersionsInput,
-  EvalSuitePage,
-  EvalSuitePublishInput,
-  EvalSuitePublishOutcome,
-  EvalSuiteRecord,
-  EvalSuiteRegistryBinding,
-  EvalSuiteReinstateVersionInput,
-  EvalSuiteReinstateVersionOutcome,
-  EvalSuiteUnregisterInput,
-  EvalSuiteUnregisterOutcome,
-} from './eval-suite-binding.js';
+  TestSet,
+  TestSetGetInput,
+  TestSetGetVersionInput,
+  TestSetListInput,
+  TestSetListVersionsInput,
+  TestSetPage,
+  TestSetPublishInput,
+  TestSetPublishOutcome,
+  TestSetRecord,
+  TestSetRegistryBinding,
+  TestSetReinstateVersionInput,
+  TestSetReinstateVersionOutcome,
+  TestSetUnregisterInput,
+  TestSetUnregisterOutcome,
+} from './test-set-binding.js';
 export { EVAL_RUN_STATUSES } from './eval-run-binding.js';
 export type {
   AgentRef,
   EvalBaseline,
-  EvalClassWeights,
+  EvalGroupWeights,
   EvalComparison,
   EvalReads,
   EvalRun,
@@ -1007,27 +1007,27 @@ export type {
   ReplayMemoryErasuresResult,
 } from './memory-erasure-binding.js';
 export type {
-  CreateProposalInput,
-  CreateProposalOutcome,
-  GetProposalInput,
-  ListProposalsInput,
+  CreateSuggestedChangeInput,
+  CreateSuggestedChangeOutcome,
+  GetSuggestedChangeInput,
+  ListSuggestedChangesInput,
   Observation,
   ObservationPosition,
   ObservationStatus,
   ObservedViolation,
-  ProposalCandidate,
-  ProposalDrafter,
-  ProposalEvaluationRef,
-  ProposalEvidence,
-  ProposalObjective,
-  ProposalRule,
-  ProposalStep,
-  ProposalTier,
+  SuggestedChangeCandidate,
+  SuggestedChangeDrafter,
+  SuggestedChangeEvaluationRef,
+  SuggestedChangeEvidence,
+  SuggestedChangeObjective,
+  SuggestedChangeRule,
+  SuggestedChangeStep,
+  SuggestedChangeTier,
   ProposedChange,
-  RecordProposalInput,
-  RecordProposalOutcome,
-  StoredProposal,
-  StoredProposalPage,
+  RecordSuggestedChangeInput,
+  RecordSuggestedChangeOutcome,
+  StoredSuggestedChange,
+  StoredSuggestedChangePage,
   SupervisorBinding,
   SupervisorObservationPage,
   SupervisorQueryObservationsInput,
@@ -1059,34 +1059,34 @@ export {
 export { sampleCases } from './eval-sample.js';
 export type { EvalOverrides, EvalSample } from './eval-run-binding.js';
 export {
-  DRAFTED_PROPOSAL_APPROVAL,
-  createProposalService,
-  proposalNotFound,
-} from './proposal-service.js';
+  DRAFTED_SUGGESTED_CHANGE_APPROVAL,
+  createSuggestedChangeService,
+  suggestedChangeNotFound,
+} from './suggested-change-service.js';
 export type {
-  DraftProposalInput,
-  EvaluateProposalInput,
-  RescoreProposalInput,
-  ProposalFacts,
-  ProposalOutcome,
-  ProposalService,
-  ProposalServiceDeps,
-  ProposalServiceError,
-} from './proposal-service.js';
+  DraftSuggestedChangeInput,
+  EvaluateSuggestedChangeInput,
+  RescoreSuggestedChangeInput,
+  SuggestedChangeFacts,
+  SuggestedChangeOutcome,
+  SuggestedChangeService,
+  SuggestedChangeServiceDeps,
+  SuggestedChangeServiceError,
+} from './suggested-change-service.js';
 export {
-  FIX_PROPOSAL_STATUSES,
-  PROPOSAL_ACTIONS,
+  SUGGESTED_CHANGE_STATUSES,
+  SUGGESTED_CHANGE_ACTIONS,
   evaluationOutcome,
-  proposalActionAllowed,
-  proposalStatus,
-} from './proposal-status.js';
+  suggestedChangeActionAllowed,
+  suggestedChangeStatus,
+} from './suggested-change-status.js';
 export type {
-  FixProposalStatus,
-  ProposalAction,
-  ProposalDecisions,
-  ProposalEvaluationOutcome,
-  ProposalNotKept,
-} from './proposal-status.js';
+  SuggestedChangeStatus,
+  SuggestedChangeAction,
+  SuggestedChangeDecisions,
+  SuggestedChangeEvaluationOutcome,
+  SuggestedChangeNotKept,
+} from './suggested-change-status.js';
 export {
   PACK_SERVICE_NAME_PREFIX,
   hostNamesPackService,

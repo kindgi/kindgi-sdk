@@ -156,25 +156,25 @@ describe('an improve schedule', () => {
         monthlyCapUsd: 20,
       },
     });
-    // classWeights is not defaulted onto the schedule: it's resolved against
-    // the project each time the schedule fires, so naming a restricted judge class
+    // groupWeights is not defaulted onto the schedule: it's resolved against
+    // the project each time the schedule fires, so naming an expert group
     // later flips the default without editing the schedule.
-    expect(body.input).not.toHaveProperty('classWeights');
+    expect(body.input).not.toHaveProperty('groupWeights');
     expect(body).not.toHaveProperty('agentId');
     expect(body).not.toHaveProperty('flowId');
   });
 
-  test('a schedule keeps an explicit classWeights instead of resolving it later', async () => {
+  test('a schedule keeps an explicit groupWeights instead of resolving it later', async () => {
     const res = await app().built.request(
       '/v1/schedules',
       send('POST', {
         ...hourly,
-        config: { cronExpression: '0 * * * *', input: { classWeights: 'as-recorded' } },
+        config: { cronExpression: '0 * * * *', input: { groupWeights: 'as-recorded' } },
       }),
     );
     expect(res.status).toBe(201);
     expect(((await res.json()) as { input: unknown }).input).toMatchObject({
-      classWeights: 'as-recorded',
+      groupWeights: 'as-recorded',
     });
   });
 
@@ -233,8 +233,8 @@ describe('an improve schedule', () => {
       '`monthlyCapUsd`',
     ],
     [
-      { ...hourly, config: { cronExpression: '0 * * * *', input: { suiteId: 'x' } } },
-      "`suiteId` isn't an option",
+      { ...hourly, config: { cronExpression: '0 * * * *', input: { testSetId: 'x' } } },
+      "`testSetId` isn't an option",
     ],
   ])('a bad improve body is a 400: %j', async (body, message) => {
     const res = await app().built.request('/v1/schedules', send('POST', body));

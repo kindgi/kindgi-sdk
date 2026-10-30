@@ -7,9 +7,9 @@ import type { CorrectedItem, CorrectedRunContext, CorrectedSubject } from './cor
 import type { ExpectedDecisions } from './expected-decisions.js';
 
 /**
- * Caller-plugged storage for the cases of an eval-suite version, kept
+ * Caller-plugged storage for the cases of an test-set version, kept
  * apart from the version's `spec` because a set can hold hundreds of
- * cases. A `judged` suite version's cases are built from corrections: each
+ * cases. A `corrections` test set version's cases are built from corrections: each
  * is a copy of one corrected run (its input, what it read, the output that
  * was corrected) with the corrections of its items summed up. Copies, so a
  * test set stays the same when corrections are removed or runs purged.
@@ -33,12 +33,12 @@ export interface CorrectedItemSummary extends CorrectedItem {
   /** The weight behind all corrections of the item. */
   readonly totalWeight: number;
   /**
-   * The same two, counting only corrections recorded while their class was
-   * restricted (`Correction.restricted`), for a comparison weighted
-   * `restricted-only`. Absent from a test set built before restrictions:
-   * no restricted evidence.
+   * The same two, counting only corrections recorded while their group was
+   * restricted (`Correction.expert`), for a comparison weighted
+   * `experts-only`. Absent from a test set built before restrictions:
+   * no expert evidence.
    */
-  readonly restricted?: {
+  readonly expert?: {
     readonly yesWeight: number;
     readonly totalWeight: number;
     /** The corrections behind these two. Absent from a test set built before correction ids. */
@@ -57,23 +57,23 @@ export interface CorrectedItemSummary extends CorrectedItem {
 export interface CorrectedReason {
   readonly verdict: 'yes' | 'no';
   readonly reason: string;
-  /** The correction's class, when it had one. */
-  readonly judgeClassId?: string;
-  /** Set when the correction was recorded while its class was restricted (`Correction.restricted`). */
-  readonly restricted?: true;
+  /** The correction's group, when it had one. */
+  readonly correctorGroupId?: string;
+  /** Set when the correction was recorded while its group was restricted (`Correction.expert`). */
+  readonly expert?: true;
 }
 
 /** What the agent should have done, carried onto a case from one of its corrections. */
 export interface TestCaseExpectedDecisions extends ExpectedDecisions {
   /** The correction it was recorded on. */
   readonly correctionId: string;
-  /** The correction's class, when it had one. */
-  readonly judgeClassId?: string;
-  /** Set when the correction was recorded while its class was restricted (`Correction.restricted`). */
-  readonly restricted?: true;
+  /** The correction's group, when it had one. */
+  readonly correctorGroupId?: string;
+  /** Set when the correction was recorded while its group was restricted (`Correction.expert`). */
+  readonly expert?: true;
 }
 
-/** One case of a `judged` suite: a copy of a corrected run and what people said about it. */
+/** One case of a `corrections` test set: a copy of a corrected run and what people said about it. */
 export interface CorrectedEvalCase {
   /** The corrected run's id. */
   readonly caseId: string;
@@ -87,7 +87,7 @@ export interface CorrectedEvalCase {
   readonly items: readonly CorrectedItemSummary[];
   /**
    * Experts' expected decisions carried onto this case, each graded on the
-   * replay. Absent when none; `restricted-only` keeps only the entries
+   * replay. Absent when none; `experts-only` keeps only the entries
    * whose correction was restricted.
    */
   readonly corrections?: readonly TestCaseExpectedDecisions[];
@@ -101,14 +101,14 @@ export interface CorrectedEvalCase {
 
 export interface EvalCasePutInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly version: string;
   readonly cases: readonly CorrectedEvalCase[];
 }
 
 export interface EvalCaseListInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly version: string;
   readonly cursor?: Cursor;
   readonly limit: number;

@@ -12,7 +12,7 @@ const PASS = {
   agentId: 'acme.scorer',
   fromVersion: '1.0.0',
   scope: { kind: 'tenant' },
-  suiteId: 'acme.scoring-judged',
+  testSetId: 'acme.scoring-judged',
   tiers: ['settings'],
   objective: 'weightedYesShare',
   budget: { maxCostUsd: 5, maxCandidates: 30 },
@@ -32,7 +32,7 @@ describe('improvement passes', () => {
     const pass = await clientWith(stub).proposals.improve({
       agentId: 'acme.scorer',
       scope: { kind: 'tenant' },
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       budget: { maxCandidates: 10 },
       idempotencyKey: 'idem-2',
     });
@@ -43,7 +43,7 @@ describe('improvement passes', () => {
     expect(JSON.parse(req.body!)).toEqual({
       agentId: 'acme.scorer',
       scope: { kind: 'tenant' },
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       budget: { maxCandidates: 10 },
     });
   });

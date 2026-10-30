@@ -328,7 +328,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                   },
                 },
               },
-              suiteId: {
+              testSetId: {
                 kind: 'string',
               },
               tiers: {
@@ -381,9 +381,9 @@ export const WEBHOOK_EVENT_SHAPES = {
               },
             },
             optional: {
-              classWeights: {
+              groupWeights: {
                 kind: 'string',
-                enum: ['as-recorded', 'restricted-only'],
+                enum: ['as-recorded', 'experts-only'],
               },
               model: {
                 kind: 'object',
@@ -410,7 +410,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                   },
                 },
                 optional: {
-                  proposalId: {
+                  suggestedChangeId: {
                     kind: 'string',
                     format: 'uuid',
                   },

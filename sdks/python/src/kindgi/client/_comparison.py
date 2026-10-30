@@ -13,11 +13,11 @@ __all__ = ["comparison_of"]
 def comparison_of(run: EvalRun) -> CorrectedComparisonResult | None:
     """A comparison's result, typed: its `summary` and each case (`per_case`).
 
-    `run` is a `judged` eval run (a test set compared with a version). `None`
+    `run` is a `corrections` eval run (a test set compared with a version). `None`
     for another kind of eval run, a dry run, or one that hasn't finished.
     The same reading as `comparisonOf` in the TypeScript client.
     """
     result = run.result
-    if run.kind != "judged" or not isinstance(result, dict) or "summary" not in result:
+    if run.kind != "corrections" or not isinstance(result, dict) or "summary" not in result:
         return None
     return CorrectedComparisonResult.model_validate(result)

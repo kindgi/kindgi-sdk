@@ -17,7 +17,7 @@
 export const ERROR_ENTRIES = {
   'validation-failed': {
     description:
-      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or eval suite definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/proposals/improve`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
+      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/proposals/improve`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
     details: [
       {
         key: 'issues',
@@ -32,7 +32,7 @@ export const ERROR_ENTRIES = {
   },
   'reference-out-of-scope': {
     description:
-      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant, or a version of an agent, flow or eval suite that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
+      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or test set that isn't registered in the project, its org or the tenant, or a version of an agent, flow or test set that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
     details: [
       {
         key: 'issues',
@@ -600,16 +600,16 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['GET /v1/policies/{policyId}'],
   },
-  'eval-suite-gone': {
+  'test-set-gone': {
     description:
-      'The eval suite has no active versions left; it exists but every version is unregistered. Reinstate a version or publish a new one.',
+      'The test set has no active versions left; it exists but every version is unregistered. Reinstate a version or publish a new one.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
     ],
-    seeAlso: ['GET /v1/eval-suites/{suiteId}'],
+    seeAlso: ['GET /v1/test-sets/{testSetId}'],
   },
   'tool-gone': {
     description:
@@ -1486,23 +1486,23 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/observability/export-signed-evidence'],
   },
-  'proposal-not-found': {
+  'suggested-change-not-found': {
     description:
       "The suggested change doesn't exist in the tenant, or your key can't see its agent.",
     details: [
       {
-        key: 'proposalId',
+        key: 'suggestedChangeId',
         meaning: 'the suggested change id that was looked up',
       },
     ],
     seeAlso: ['guides/evals/propose-a-change'],
   },
-  'proposal-invalid-state-transition': {
+  'suggested-change-invalid-state-transition': {
     description:
       "The suggested change's status doesn't allow this action, or it changed while the request ran. Read the suggested change again and retry if it still applies.",
     details: [
       {
-        key: 'proposalId',
+        key: 'suggestedChangeId',
         meaning: 'the suggested change id',
       },
       {
@@ -1512,7 +1512,7 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'proposal-needs-pin': {
+  'suggested-change-needs-pin': {
     description:
       'The agent has no live version for the whole tenant, so a new version would serve every scope nothing is pinned for. Make its current version live tenant-wide, then retry.',
     details: [],
@@ -1832,23 +1832,23 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'eval-suite-not-found': {
-    description: 'No eval suite is registered with that id.',
+  'test-set-not-found': {
+    description: 'No test set is registered with that id.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id that was looked up',
+        key: 'testSetId',
+        meaning: 'the test set id that was looked up',
       },
     ],
-    seeAlso: ['GET /v1/eval-suites/{suiteId}'],
+    seeAlso: ['GET /v1/test-sets/{testSetId}'],
   },
-  'eval-suite-already-registered': {
+  'test-set-already-registered': {
     description:
-      'That eval suite id and version are already registered; versions never change, so publish a new version.',
+      'That test set id and version are already registered; versions never change, so publish a new version.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
       {
         key: 'version',
@@ -1856,13 +1856,13 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'eval-suite-project-mismatch': {
+  'test-set-project-mismatch': {
     description:
-      'The eval suite belongs to another project and suites never move. Publish or build its versions in the project that owns it.',
+      'The test set belongs to another project and test sets never move. Publish or build its versions in the project that owns it.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
     ],
   },
@@ -1892,35 +1892,36 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/evals/judge-a-runs-output'],
   },
-  'judge-class-not-found': {
-    description: 'No live judge class exists with that id.',
+  'corrector-group-not-found': {
+    description: 'No live corrector group exists with that id.',
     details: [],
   },
-  'judging-rule-not-found': {
-    description: 'The project has no judging rule with that id.',
+  'queue-rule-not-found': {
+    description: 'The project has no queue rule with that id.',
     details: [],
   },
-  'judging-item-not-found': {
+  'expert-queue-item-not-found': {
     description: "The run isn't in the project's To correct list.",
     details: [],
   },
-  'judging-item-not-open': {
+  'expert-queue-item-not-open': {
     description:
       "The queue item isn't in the state this action needs: dismiss needs it open, and reopen needs it dismissed.",
     details: [],
   },
-  'judge-class-name-taken': {
-    description: 'A judge class with that name already exists in this scope. Pick another name.',
+  'corrector-group-name-taken': {
+    description:
+      'A corrector group with that name already exists in this scope. Pick another name.',
     details: [],
   },
-  'judge-class-not-applicable': {
+  'corrector-group-not-applicable': {
     description:
-      "The judge class you named doesn't exist, or doesn't apply to this run's project or agent.",
+      "The corrector group you named doesn't exist, or doesn't apply to this run's project or agent.",
     details: [],
   },
-  'judge-class-not-allowed': {
+  'corrector-group-not-allowed': {
     description:
-      "The judge class limits who may assert it, and your key or role isn't one of them, so you can't record a correction as that class.",
+      "The corrector group limits who may assert it, and your key or role isn't one of them, so you can't record a correction as that class.",
     details: [
       {
         key: 'action',
@@ -1973,7 +1974,7 @@ export const ERROR_ENTRIES = {
         meaning: 'every check the release gate policy ran, with whether each passed',
       },
       {
-        key: 'proposalId',
+        key: 'suggestedChangeId',
         meaning: 'the suggested change, when the request came through a suggested change',
       },
     ],
@@ -2622,18 +2623,18 @@ export const ERROR_ENTRIES = {
   },
   'dispatcher-not-registered': {
     description:
-      "The runtime has no eval-run dispatcher for the suite's kind, so it can't start a run of that suite.",
+      "The runtime has no eval-run dispatcher for the test set's kind, so it can't start a run of that test set.",
     details: [
       {
         key: 'evalKind',
-        meaning: 'the suite kind with no dispatcher',
+        meaning: 'the test set kind with no dispatcher',
       },
     ],
     seeAlso: ['guides/evals/compare-an-agent-version'],
   },
   'dispatcher-input-invalid': {
     description:
-      "The eval run's input doesn't fit the suite's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison.",
+      "The eval run's input doesn't fit the test set's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison.",
     details: [],
   },
   'mcp-endpoint-not-found': {
@@ -3042,7 +3043,7 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: [
       'POST /v1/deployments',
-      'POST /v1/eval-suites/{suiteId}/runs',
+      'POST /v1/test-sets/{testSetId}/runs',
       'POST /v1/proposals/improve',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
       'POST /v1/deployments/{deploymentId}/promotions',

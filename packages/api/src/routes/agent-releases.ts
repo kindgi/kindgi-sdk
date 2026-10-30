@@ -449,7 +449,7 @@ export async function requestPromotion(
   } = {},
 ): Promise<PromotionRequestOutcome> {
   // Every way a promotion is asked for comes through here (the route, a
-  // proposal's request): a project or segment scope must reach the agent.
+  // suggested change's request): a project or segment scope must reach the agent.
   const outOfScope = await liveScopeOutOfScope(
     deps.referenceScope,
     input.tenantId,
@@ -677,7 +677,7 @@ export function coordinatesOf(scope: LiveScope): Omit<LiveResolveInput, 'tenantI
 /** A finished comparison's summary, or `null` for any other eval run. */
 function summaryOf(run: EvalRun): CorrectedComparisonSummary | null {
   const summary = run.result?.summary;
-  return run.kind === 'judged' && summary !== null && typeof summary === 'object'
+  return run.kind === 'corrections' && summary !== null && typeof summary === 'object'
     ? (summary as CorrectedComparisonSummary)
     : null;
 }

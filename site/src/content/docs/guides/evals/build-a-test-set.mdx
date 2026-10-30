@@ -89,7 +89,7 @@ Each prints its correction, as
 In the console, a finished run's **Correct this run** opens its Corrections
 tab. It lists the answer, and each element of a list in the output, each with
 **Yes** and **No**. [Correct a run's output](../judge-a-runs-output/) has the
-rest: reasons, your users' corrections, and judge classes.
+rest: reasons, your users' corrections, and corrector groups.
 
 ## Build the test cases
 
@@ -100,34 +100,34 @@ corrected runs in a project:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi eval-suites from-corrections acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+pnpm exec kindgi test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi eval-suites from-corrections acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+uv run kindgi test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw eval-suites from-corrections acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+./kindgiw test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw eval-suites from-corrections acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+./kindgiw test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
 ```
 
 </TabItem>
 </Tabs>
 
-- `acme.article-picks` is the test cases' id, and `--suite-version` their
+- `acme.article-picks` is the test cases' id, and `--test-set-version` their
   version.
 - `--project=<project-id>` is the project the runs are in, where
   `<project-id>` is its id.
@@ -137,9 +137,9 @@ It prints the test cases:
 
 ```json
 {
-  "suiteId": "acme.article-picks",
+  "testSetId": "acme.article-picks",
   "version": "1.0.0",
-  "kind": "judged",
+  "kind": "corrections",
   "caseCount": 3,
   "truncated": false
 }
@@ -164,14 +164,14 @@ const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the runni
 const projectId = process.argv[2];
 
 // Version 1.0.0 of the test set: copies of the agent's corrected runs.
-const built = await kindgi.evalSuites.buildFromCorrections('acme.article-picks', {
+const built = await kindgi.testSets.buildFromCorrections('acme.article-picks', {
   version: '1.0.0',
   projectId,
   agentId: 'acme-ops.article-picker',
 });
 console.log(`${built.caseCount} cases`);
 
-const cases = await kindgi.evalSuites.listCases('acme.article-picks', '1.0.0');
+const cases = await kindgi.testSets.listCases('acme.article-picks', '1.0.0');
 for (const c of cases.data) {
   console.log(c.input, c.items.map((item) => `${item.key} ${item.yes} yes, ${item.no} no`));
 }
@@ -197,7 +197,7 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 project_id = sys.argv[1]
 
 # Version 1.0.0 of the test set: copies of the agent's corrected runs.
-built = kindgi.eval_suites.build_from_corrections(
+built = kindgi.test_sets.build_from_corrections(
     "acme.article-picks",
     version="1.0.0",
     project_id=project_id,
@@ -205,7 +205,7 @@ built = kindgi.eval_suites.build_from_corrections(
 )
 print(f"{built.case_count} cases")
 
-cases = kindgi.eval_suites.list_cases("acme.article-picks", "1.0.0")
+cases = kindgi.test_sets.list_cases("acme.article-picks", "1.0.0")
 for case in cases.data:
     print(case.input, [f"{item.key} {item.yes} yes, {item.no} no" for item in case.items])
 ```
@@ -231,14 +231,14 @@ counts.
   correction. These narrow it:
   - `--agent-version`: one version's runs;
   - `--since` and `--until`: when the run was first corrected;
-  - `--class`: count only corrections of these
-    [judge classes](../judge-a-runs-output/#weight-corrections-by-judge-class);
+  - `--group`: count only corrections of these
+    [corrector groups](../judge-a-runs-output/#weight-corrections-by-corrector-group);
   - `--min-corrections`: leave out runs with fewer corrections.
 - **Up to 1000 cases.** `truncated: true` says there were more: narrow the
   runs, or build several sets of test cases.
 - **Versions never change.** When more runs are corrected, build the next
-  version: the same id and a new `--suite-version`. A taken version is
-  refused: `Eval suite "acme.article-picks" version "1.0.0" is already registered.`
+  version: the same id and a new `--test-set-version`. A taken version is
+  refused: `Test set "acme.article-picks" version "1.0.0" is already registered.`
 - **Building test cases takes `admin` on the project.**
 
 ### Narrow it to a segment
@@ -250,7 +250,7 @@ Repeat it for a path, coarse to fine. In the clients, it's `segments`:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi eval-suites from-corrections acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+pnpm exec kindgi test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
   --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
 ```
 
@@ -258,7 +258,7 @@ pnpm exec kindgi eval-suites from-corrections acme.rank-acme-segment --suite-ver
 <TabItem label="Python">
 
 ```sh
-uv run kindgi eval-suites from-corrections acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+uv run kindgi test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
   --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
 ```
 
@@ -266,7 +266,7 @@ uv run kindgi eval-suites from-corrections acme.rank-acme-segment --suite-versio
 <TabItem label="Java">
 
 ```sh
-./kindgiw eval-suites from-corrections acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+./kindgiw test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
   --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
 ```
 
@@ -274,7 +274,7 @@ uv run kindgi eval-suites from-corrections acme.rank-acme-segment --suite-versio
 <TabItem label="Scala">
 
 ```sh
-./kindgiw eval-suites from-corrections acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+./kindgiw test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
   --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
 ```
 
@@ -285,9 +285,9 @@ uv run kindgi eval-suites from-corrections acme.rank-acme-segment --suite-versio
 
 ```json
 {
-  "suiteId": "acme.rank-acme-segment",
+  "testSetId": "acme.rank-acme-segment",
   "version": "1.0.0",
-  "kind": "judged",
+  "kind": "corrections",
   "caseCount": 20,
   "truncated": false
 }
@@ -305,28 +305,28 @@ To see what each case holds, list the cases:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi eval-suites cases acme.article-picks --suite-version=1.0.0
+pnpm exec kindgi test-sets cases acme.article-picks --test-set-version=1.0.0
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi eval-suites cases acme.article-picks --suite-version=1.0.0
+uv run kindgi test-sets cases acme.article-picks --test-set-version=1.0.0
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw eval-suites cases acme.article-picks --suite-version=1.0.0
+./kindgiw test-sets cases acme.article-picks --test-set-version=1.0.0
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw eval-suites cases acme.article-picks --suite-version=1.0.0
+./kindgiw test-sets cases acme.article-picks --test-set-version=1.0.0
 ```
 
 </TabItem>
@@ -348,7 +348,7 @@ One of them:
       "no": 0,
       "yesWeight": 1,
       "totalWeight": 1,
-      "restricted": { "yesWeight": 0, "totalWeight": 0, "correctionIds": [] },
+      "expert": { "yesWeight": 0, "totalWeight": 0, "correctionIds": [] },
       "correctionIds": ["8f2c4e1a-6b0d-4c3e-9a57-2d1f0b7e4c93"],
       "reasons": [{ "verdict": "yes", "reason": "Resets the password" }]
     },
@@ -361,19 +361,19 @@ One of them:
 
 - **`caseId`** is the id of the corrected run.
 - **`items`** has each corrected item: its yes and no counts, the same weighted
-  by judge class, and the reasons people gave. The weighted counts are
-  `yesWeight` of `totalWeight`, and a correction with no class weighs 1.
-  `restricted` has the weights of the
-  [restricted](../judge-a-runs-output/#restrict-who-may-correct-as-a-class)
+  by corrector group, and the reasons people gave. The weighted counts are
+  `yesWeight` of `totalWeight`, and a correction with no group weighs 1.
+  `expert` has the weights of the
+  [expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group)
   corrections alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
   `correctionIds` (runtime 0.2.0 or later) names every correction counted in
-  the item, and `restricted.correctionIds` the restricted ones. Test cases
+  the item, and `expert.correctionIds` the expert-group ones. Test cases
   built before these ids have neither.
 - **`corrections`** (runtime 0.2.0 or later) has the run's corrections
   that say [what it should have done](../judge-a-runs-output/#say-what-it-should-have-done),
   whatever their verdict: each one's `calls` and `notCalled`, its
-  `correctionId`, its `judgeClassId` when it had a class, and
-  `restricted: true` when that class was restricted. A case without them
+  `correctionId`, its `correctorGroupId` when it had a group, and
+  `expert: true` when that group was restricted. A case without them
   has no `corrections`.
 - **`output`** is the run's output, as it was when people corrected it.
 - **`context`**, for an agent turn, is what the turn had before it answered:
@@ -396,4 +396,4 @@ original run.
 
 - [Try a version on the test cases](../compare-an-agent-version/)
 - [Correct a run's output](../judge-a-runs-output/)
-- [Corrections reference](../judging-reference/)
+- [Corrections reference](../expert-queue-reference/)

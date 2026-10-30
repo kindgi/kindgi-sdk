@@ -6,12 +6,11 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
-from typing import Any, Literal, NoReturn, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from . import _models
 from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
-from ._errors import InvalidRequestError
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
 
@@ -440,29 +439,48 @@ OPERATIONS: dict[str, Operation] = {
     "memory.getErasure": Operation(
         "memory.getErasure", "GET", "/v1/memory/erasures/{erasureId}", "json", False
     ),
-    "proposals.list": Operation("proposals.list", "GET", "/v1/proposals", "json", False),
-    "proposals.create": Operation("proposals.create", "POST", "/v1/proposals", "json", True),
+    "suggestedChanges.list": Operation(
+        "suggestedChanges.list", "GET", "/v1/suggested-changes", "json", False
+    ),
+    "suggestedChanges.create": Operation(
+        "suggestedChanges.create", "POST", "/v1/suggested-changes", "json", True
+    ),
     "proposals.improve": Operation(
         "proposals.improve", "POST", "/v1/proposals/improve", "json", True
     ),
     "proposals.improveEstimate": Operation(
         "proposals.improveEstimate", "POST", "/v1/proposals/improve/estimate", "json", False
     ),
-    "proposals.get": Operation("proposals.get", "GET", "/v1/proposals/{proposalId}", "json", False),
-    "proposals.evaluate": Operation(
-        "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
+    "suggestedChanges.get": Operation(
+        "suggestedChanges.get", "GET", "/v1/suggested-changes/{suggestedChangeId}", "json", False
     ),
-    "proposals.rescore": Operation(
-        "proposals.rescore", "POST", "/v1/proposals/{proposalId}/rescore", "json", True
+    "suggestedChanges.evaluate": Operation(
+        "suggestedChanges.evaluate",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/evaluate",
+        "json",
+        True,
     ),
-    "proposals.request": Operation(
-        "proposals.request", "POST", "/v1/proposals/{proposalId}/request", "json", True
+    "suggestedChanges.rescore": Operation(
+        "suggestedChanges.rescore",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/rescore",
+        "json",
+        True,
     ),
-    "proposals.rollback": Operation(
-        "proposals.rollback", "POST", "/v1/proposals/{proposalId}/rollback", "json", True
+    "suggestedChanges.pin": Operation(
+        "suggestedChanges.pin",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/pin",
+        "json",
+        True,
     ),
-    "proposals.withdraw": Operation(
-        "proposals.withdraw", "POST", "/v1/proposals/{proposalId}/withdraw", "json", True
+    "suggestedChanges.withdraw": Operation(
+        "suggestedChanges.withdraw",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/withdraw",
+        "json",
+        True,
     ),
     "improvementPasses.list": Operation(
         "improvementPasses.list", "GET", "/v1/improvement-passes", "json", False
@@ -517,20 +535,22 @@ OPERATIONS: dict[str, Operation] = {
     "corrections.remove": Operation(
         "corrections.remove", "POST", "/v1/corrections/{correctionId}/remove", "json", True
     ),
-    "judgeClasses.list": Operation("judgeClasses.list", "GET", "/v1/judge-classes", "json", False),
-    "judgeClasses.create": Operation(
-        "judgeClasses.create", "POST", "/v1/judge-classes", "json", True
+    "correctorGroups.list": Operation(
+        "correctorGroups.list", "GET", "/v1/corrector-groups", "json", False
     ),
-    "judgeClasses.get": Operation(
-        "judgeClasses.get", "GET", "/v1/judge-classes/{judgeClassId}", "json", False
+    "correctorGroups.create": Operation(
+        "correctorGroups.create", "POST", "/v1/corrector-groups", "json", True
     ),
-    "judgeClasses.update": Operation(
-        "judgeClasses.update", "PATCH", "/v1/judge-classes/{judgeClassId}", "json", True
+    "correctorGroups.get": Operation(
+        "correctorGroups.get", "GET", "/v1/corrector-groups/{correctorGroupId}", "json", False
     ),
-    "judgeClasses.unregister": Operation(
-        "judgeClasses.unregister",
+    "correctorGroups.update": Operation(
+        "correctorGroups.update", "PATCH", "/v1/corrector-groups/{correctorGroupId}", "json", True
+    ),
+    "correctorGroups.unregister": Operation(
+        "correctorGroups.unregister",
         "POST",
-        "/v1/judge-classes/{judgeClassId}/unregister",
+        "/v1/corrector-groups/{correctorGroupId}/unregister",
         "json",
         True,
     ),
@@ -617,46 +637,44 @@ OPERATIONS: dict[str, Operation] = {
     "retention.sweepDomain": Operation(
         "retention.sweepDomain", "POST", "/v1/retention/sweep/{domain}", "json", False
     ),
-    "evalSuites.list": Operation("evalSuites.list", "GET", "/v1/eval-suites", "json", False),
-    "evalSuites.publish": Operation("evalSuites.publish", "POST", "/v1/eval-suites", "json", True),
-    "evalSuites.get": Operation(
-        "evalSuites.get", "GET", "/v1/eval-suites/{suiteId}", "json", False
+    "testSets.list": Operation("testSets.list", "GET", "/v1/test-sets", "json", False),
+    "testSets.publish": Operation("testSets.publish", "POST", "/v1/test-sets", "json", True),
+    "testSets.get": Operation("testSets.get", "GET", "/v1/test-sets/{testSetId}", "json", False),
+    "testSets.versions.list": Operation(
+        "testSets.versions.list", "GET", "/v1/test-sets/{testSetId}/versions", "json", False
     ),
-    "evalSuites.versions.list": Operation(
-        "evalSuites.versions.list", "GET", "/v1/eval-suites/{suiteId}/versions", "json", False
-    ),
-    "evalSuites.versions.get": Operation(
-        "evalSuites.versions.get",
+    "testSets.versions.get": Operation(
+        "testSets.versions.get",
         "GET",
-        "/v1/eval-suites/{suiteId}/versions/{version}",
+        "/v1/test-sets/{testSetId}/versions/{version}",
         "json",
         False,
     ),
-    "evalSuites.buildFromCorrections": Operation(
-        "evalSuites.buildFromCorrections",
+    "testSets.buildFromCorrections": Operation(
+        "testSets.buildFromCorrections",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/from-corrections",
+        "/v1/test-sets/{testSetId}/versions/from-corrections",
         "json",
         True,
     ),
-    "evalSuites.listCases": Operation(
-        "evalSuites.listCases",
+    "testSets.listCases": Operation(
+        "testSets.listCases",
         "GET",
-        "/v1/eval-suites/{suiteId}/versions/{version}/cases",
+        "/v1/test-sets/{testSetId}/versions/{version}/cases",
         "json",
         False,
     ),
-    "evalSuites.versions.unregister": Operation(
-        "evalSuites.versions.unregister",
+    "testSets.versions.unregister": Operation(
+        "testSets.versions.unregister",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/{version}/unregister",
+        "/v1/test-sets/{testSetId}/versions/{version}/unregister",
         "json",
         True,
     ),
-    "evalSuites.reinstateVersion": Operation(
-        "evalSuites.reinstateVersion",
+    "testSets.reinstateVersion": Operation(
+        "testSets.reinstateVersion",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/{version}/reinstate",
+        "/v1/test-sets/{testSetId}/versions/{version}/reinstate",
         "json",
         True,
     ),
@@ -684,7 +702,7 @@ OPERATIONS: dict[str, Operation] = {
         True,
     ),
     "evalRuns.start": Operation(
-        "evalRuns.start", "POST", "/v1/eval-suites/{suiteId}/runs", "json", True
+        "evalRuns.start", "POST", "/v1/test-sets/{testSetId}/runs", "json", True
     ),
     "evalRuns.list": Operation("evalRuns.list", "GET", "/v1/eval-runs", "json", False),
     "evalRuns.get": Operation("evalRuns.get", "GET", "/v1/eval-runs/{runId}", "json", False),
@@ -891,79 +909,75 @@ OPERATIONS: dict[str, Operation] = {
     "projects.delete": Operation(
         "projects.delete", "DELETE", "/v1/projects/{projectId}", "empty", True
     ),
-    "projects.judgingRules.list": Operation(
-        "projects.judgingRules.list", "GET", "/v1/projects/{projectId}/judging-rules", "json", False
+    "projects.queueRules.list": Operation(
+        "projects.queueRules.list", "GET", "/v1/projects/{projectId}/queue-rules", "json", False
     ),
-    "projects.judgingRules.create": Operation(
-        "projects.judgingRules.create",
-        "POST",
-        "/v1/projects/{projectId}/judging-rules",
-        "json",
-        True,
+    "projects.queueRules.create": Operation(
+        "projects.queueRules.create", "POST", "/v1/projects/{projectId}/queue-rules", "json", True
     ),
-    "projects.judgingRules.preview": Operation(
-        "projects.judgingRules.preview",
+    "projects.queueRules.preview": Operation(
+        "projects.queueRules.preview",
         "GET",
-        "/v1/projects/{projectId}/judging-rules/preview",
+        "/v1/projects/{projectId}/queue-rules/preview",
         "json",
         False,
     ),
-    "projects.judgingRules.get": Operation(
-        "projects.judgingRules.get",
+    "projects.queueRules.get": Operation(
+        "projects.queueRules.get",
         "GET",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}",
         "json",
         False,
     ),
-    "projects.judgingRules.update": Operation(
-        "projects.judgingRules.update",
+    "projects.queueRules.update": Operation(
+        "projects.queueRules.update",
         "PATCH",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}",
         "json",
         False,
     ),
-    "projects.judgingRules.unregister": Operation(
-        "projects.judgingRules.unregister",
+    "projects.queueRules.unregister": Operation(
+        "projects.queueRules.unregister",
         "POST",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}/unregister",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}/unregister",
         "json",
         False,
     ),
-    "projects.judgingRules.versions": Operation(
-        "projects.judgingRules.versions",
+    "projects.queueRules.versions": Operation(
+        "projects.queueRules.versions",
         "GET",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}/versions",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}/versions",
         "json",
         False,
     ),
-    "projects.judgingRules.results": Operation(
-        "projects.judgingRules.results",
+    "projects.queueRules.results": Operation(
+        "projects.queueRules.results",
         "GET",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}/results",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}/results",
         "json",
         False,
     ),
-    "projects.judgingRules.queueRecent": Operation(
-        "projects.judgingRules.queueRecent",
+    "projects.queueRules.queueRecent": Operation(
+        "projects.queueRules.queueRecent",
         "POST",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}/queue-recent",
         "json",
         False,
     ),
-    "projects.judgingQueue.list": Operation(
-        "projects.judgingQueue.list", "GET", "/v1/projects/{projectId}/judging-queue", "json", False
+    "projects.expertQueue.list": Operation(
+        "projects.expertQueue.list", "GET", "/v1/projects/{projectId}/expert-queue", "json", False
     ),
-    "projects.judgingQueue.dismiss": Operation(
-        "projects.judgingQueue.dismiss",
+    "projects.expertQueue.dismiss": Operation(
+        "projects.expertQueue.dismiss",
         "POST",
-        "/v1/projects/{projectId}/judging-queue/{runId}/dismiss",
+        "/v1/projects/{projectId}/expert-queue/{runId}/dismiss",
         "json",
         False,
     ),
-    "projects.judgingQueue.reopen": Operation(
-        "projects.judgingQueue.reopen",
+    "projects.expertQueue.reopen": Operation(
+        "projects.expertQueue.reopen",
         "POST",
-        "/v1/projects/{projectId}/judging-queue/{runId}/reopen",
+        "/v1/projects/{projectId}/expert-queue/{runId}/reopen",
         "json",
         False,
     ),
@@ -1312,10 +1326,10 @@ OPERATIONS: dict[str, Operation] = {
         "auth.sites.enroll", "POST", "/v1/auth/sites/enroll", "json", False
     ),
     "auth.siteSignIn": Operation("auth.siteSignIn", "POST", "/v1/auth/site-sign-in", "json", False),
-    "evalSuites.unregister": Operation(
-        "evalSuites.unregister",
+    "testSets.unregister": Operation(
+        "testSets.unregister",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/{version}/unregister",
+        "/v1/test-sets/{testSetId}/versions/{version}/unregister",
         "json",
         True,
     ),
@@ -4584,8 +4598,8 @@ class MemoryResource:
         )
 
 
-class ProposalsResource:
-    """`client.proposals` — the `proposals` operations."""
+class SuggestedChangesResource:
+    """`client.suggested_changes` — the `suggestedChanges` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -4603,7 +4617,7 @@ class ProposalsResource:
             "not-better",
             "evaluation-failed",
             "in-review",
-            "promoted",
+            "pinned",
             "refused",
             "rejected",
             "expired",
@@ -4618,13 +4632,13 @@ class ProposalsResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.FixProposalCollectionPage:
-        """List improvement proposals. `GET /v1/proposals`
+    ) -> _models.SuggestedChangeCollectionPage:
+        """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
         """
         return self._client._request(
-            _OPERATIONS["proposals.list"],
+            _OPERATIONS["suggestedChanges.list"],
             path={},
             query={
                 "limit": limit,
@@ -4637,32 +4651,148 @@ class ProposalsResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.FixProposalCollectionPage,
+            response=_models.SuggestedChangeCollectionPage,
             timeout=timeout,
         )
 
     def create(
         self,
-        body: _models.CreateProposalBody | Mapping[str, Any] | None = None,
+        body: _models.CreateSuggestedChangeBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Propose new content for a data block. `POST /v1/proposals`
+    ) -> _models.SuggestedChange:
+        """Suggest new content for a data block. `POST /v1/suggested-changes`
 
-        A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.
+        A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["proposals.create"],
+            _OPERATIONS["suggestedChanges.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateProposalBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.CreateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
+
+    def get(
+        self, suggested_change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SuggestedChange:
+        """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
+
+        Needs `read` on its agent.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.get"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def evaluate(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.EvaluateSuggestedChangeBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
+
+        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.evaluate"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EvaluateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def rescore(
+        self,
+        suggested_change_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SuggestedChange:
+        """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
+
+        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.rescore"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def pin(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Pin a suggested change's version for its scope. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
+
+        A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def withdraw(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.WithdrawSuggestedChangeBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
+
+        Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.withdraw"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.WithdrawSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+
+class ProposalsResource:
+    """`client.proposals` — the `proposals` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
 
     def improve(
         self,
@@ -4675,7 +4805,7 @@ class ProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -4707,163 +4837,6 @@ class ProposalsResource:
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPassEstimate,
             timeout=timeout,
-        )
-
-    def get(
-        self, proposal_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.FixProposal:
-        """Fetch an improvement proposal. `GET /v1/proposals/{proposalId}`
-
-        Needs `read` on its agent.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.get"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def evaluate(
-        self,
-        proposal_id: str | UUID,
-        body: _models.EvaluateProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Compare a proposal on a test set. `POST /v1/proposals/{proposalId}/evaluate`
-
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.evaluate"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def rescore(
-        self,
-        proposal_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.FixProposal:
-        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
-
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.rescore"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def request(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
-
-        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.request"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def rollback(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Roll back a promoted proposal. `POST /v1/proposals/{proposalId}/rollback`
-
-        The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.rollback"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def withdraw(
-        self,
-        proposal_id: str | UUID,
-        body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Withdraw a proposal. `POST /v1/proposals/{proposalId}/withdraw`
-
-        Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.withdraw"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.WithdrawProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def draft(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.create`."""
-        raise InvalidRequestError(
-            "proposals.draft was removed in 0.1.5: use client.proposals.create", issues=[]
-        )
-
-    def dry_run(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.evaluate`."""
-        raise InvalidRequestError(
-            "proposals.dry_run was removed in 0.1.5: use client.proposals.evaluate", issues=[]
-        )
-
-    def submit_review(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.submit_review was removed in 0.1.5: use client.proposals.request", issues=[]
-        )
-
-    def apply(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
         )
 
 
@@ -4921,7 +4894,7 @@ class ImprovementPassesResource:
     ) -> _models.ImprovementPass:
         """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
 
-        A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.
+        A running pass stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
         """
         return self._client._request(
             _OPERATIONS["improvementPasses.cancel"],
@@ -5423,7 +5396,7 @@ class CorrectionsResource:
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
         verdict: Literal["yes", "no"] | None = None,
-        judge_class_id: str | UUID | None = None,
+        corrector_group_id: str | UUID | None = None,
         participant_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
@@ -5431,7 +5404,7 @@ class CorrectionsResource:
     ) -> _models.CorrectionCollectionPage:
         """List corrections. `GET /v1/corrections`
 
-        Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project.
         """
         return self._client._request(
             _OPERATIONS["corrections.list"],
@@ -5444,7 +5417,7 @@ class CorrectionsResource:
                 "agentVersion": agent_version,
                 "flowId": flow_id,
                 "verdict": verdict,
-                "judgeClassId": judge_class_id,
+                "correctorGroupId": corrector_group_id,
                 "participantId": participant_id,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
@@ -5465,7 +5438,7 @@ class CorrectionsResource:
     ) -> _models.Correction:
         """Correct an item of a run's output. `POST /v1/corrections`
 
-        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.
         """
         return self._client._request(
             _OPERATIONS["corrections.create"],
@@ -5515,8 +5488,8 @@ class CorrectionsResource:
         )
 
 
-class JudgeClassesResource:
-    """`client.judge_classes` — the `judgeClasses` operations."""
+class CorrectorGroupsResource:
+    """`client.corrector_groups` — the `correctorGroups` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -5531,13 +5504,13 @@ class JudgeClassesResource:
         project_id: str | UUID | None = None,
         agent_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgeClassCollectionPage:
-        """List judge classes. `GET /v1/judge-classes`
+    ) -> _models.CorrectorGroupCollectionPage:
+        """List corrector groups. `GET /v1/corrector-groups`
 
-        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        Live groups, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
         """
         return self._client._request(
-            _OPERATIONS["judgeClasses.list"],
+            _OPERATIONS["correctorGroups.list"],
             path={},
             query={
                 "limit": limit,
@@ -5547,88 +5520,88 @@ class JudgeClassesResource:
                 "agentId": agent_id,
             },
             headers={},
-            response=_models.JudgeClassCollectionPage,
+            response=_models.CorrectorGroupCollectionPage,
             timeout=timeout,
         )
 
     def create(
         self,
-        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        body: _models.CreateCorrectorGroupBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgeClass:
-        """Create a judge class. `POST /v1/judge-classes`
+    ) -> _models.CorrectorGroup:
+        """Create a corrector group. `POST /v1/corrector-groups`
 
-        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        A named kind of person who corrects with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the tenant (tenant scope) or the project.
         """
         return self._client._request(
-            _OPERATIONS["judgeClasses.create"],
+            _OPERATIONS["correctorGroups.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateJudgeClassBody, body, fields),
-            response=_models.JudgeClass,
+            body=_body(_models.CreateCorrectorGroupBody, body, fields),
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     def get(
-        self, judge_class_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgeClass:
-        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+        self, corrector_group_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.CorrectorGroup:
+        """Fetch a corrector group. `GET /v1/corrector-groups/{correctorGroupId}`
 
-        Also returns a retired class (`unregisteredAt` set): corrections keep naming theirs.
+        Also returns a retired group (`unregisteredAt` set): corrections keep naming theirs.
         """
         return self._client._request(
-            _OPERATIONS["judgeClasses.get"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.get"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={},
-            response=_models.JudgeClass,
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     def update(
         self,
-        judge_class_id: str | UUID,
-        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        corrector_group_id: str | UUID,
+        body: _models.UpdateCorrectorGroupBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgeClass:
-        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+    ) -> _models.CorrectorGroup:
+        """Change a corrector group's weight or description. `PATCH /v1/corrector-groups/{correctorGroupId}`"""
         return self._client._request(
-            _OPERATIONS["judgeClasses.update"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.update"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.UpdateJudgeClassBody, body, fields),
-            response=_models.JudgeClass,
+            body=_body(_models.UpdateCorrectorGroupBody, body, fields),
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     def unregister(
         self,
-        judge_class_id: str | UUID,
+        corrector_group_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterJudgeClassResult:
-        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+    ) -> _models.UnregisterCorrectorGroupResult:
+        """Retire a corrector group. `POST /v1/corrector-groups/{correctorGroupId}/unregister`
 
         No new corrections may name it; existing corrections keep it.
         """
         return self._client._request(
-            _OPERATIONS["judgeClasses.unregister"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.unregister"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterJudgeClassResult,
+            response=_models.UnregisterCorrectorGroupResult,
             timeout=timeout,
         )
 
@@ -6238,7 +6211,7 @@ class RetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6247,7 +6220,7 @@ class RetentionResource:
             "artifact",
             "policy",
             "correction",
-            "judge_class",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -6308,7 +6281,7 @@ class RetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6317,7 +6290,7 @@ class RetentionResource:
             "artifact",
             "policy",
             "correction",
-            "judge_class",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -6346,74 +6319,74 @@ class RetentionResource:
         )
 
 
-class EvalSuitesVersionsResource:
-    """`client.eval_suites.versions` — the `evalSuites.versions` operations."""
+class TestSetsVersionsResource:
+    """`client.test_sets.versions` — the `testSets.versions` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
 
     def list(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         include_tombstoned: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
+    ) -> _models.TestSetCollectionPage:
+        """List versions of an test set. `GET /v1/test-sets/{testSetId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.versions.list"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.versions.list"],
+            path={"testSetId": test_set_id},
             query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     def get(
-        self, suite_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.EvalSuite:
-        """Fetch a specific eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}`"""
+        self, test_set_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.TestSet:
+        """Fetch a specific test set version. `GET /v1/test-sets/{testSetId}/versions/{version}`"""
         return self._client._request(
-            _OPERATIONS["evalSuites.versions.get"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.get"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return self._client._request(
-            _OPERATIONS["evalSuites.versions.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
 
-class EvalSuitesResource:
-    """`client.eval_suites` — the `evalSuites` operations."""
+class TestSetsResource:
+    """`client.test_sets` — the `testSets` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
-        self.versions = EvalSuitesVersionsResource(client)
+        self.versions = TestSetsVersionsResource(client)
 
     def list(
         self,
@@ -6422,7 +6395,13 @@ class EvalSuitesResource:
         limit: int | None = None,
         cursor: str | None = None,
         kind: Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | None = None,
         name: str | None = None,
@@ -6431,13 +6410,13 @@ class EvalSuitesResource:
         inherit: bool | None = None,
         include_retired: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List tenant eval suites. `GET /v1/eval-suites`
+    ) -> _models.TestSetCollectionPage:
+        """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.list"],
+            _OPERATIONS["testSets.list"],
             path={},
             query={
                 "limit": limit,
@@ -6450,81 +6429,81 @@ class EvalSuitesResource:
                 "includeRetired": include_retired,
             },
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     def publish(
         self,
-        body: _models.PublishEvalSuiteBody | Mapping[str, Any] | None = None,
+        body: _models.PublishTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.PublishEvalSuiteResult:
-        """Publish an eval suite. `POST /v1/eval-suites`
+    ) -> _models.PublishTestSetResult:
+        """Publish an test set. `POST /v1/test-sets`
 
-        Body is a full `EvalSuite` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(suiteId, version)` returns `409 eval-suite-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.publish"],
+            _OPERATIONS["testSets.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishEvalSuiteBody, body, fields),
-            response=_models.PublishEvalSuiteResult,
+            body=_body(_models.PublishTestSetBody, body, fields),
+            response=_models.PublishTestSetResult,
             timeout=timeout,
         )
 
     def get(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+    ) -> _models.TestSet:
+        """Fetch an test set (latest version). `GET /v1/test-sets/{testSetId}`
 
         An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.get"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.get"],
+            path={"testSetId": test_set_id},
             query={"projectId": project_id},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     def build_from_corrections(
         self,
-        suite_id: str | UUID,
-        body: _models.BuildCorrectedSuiteBody | Mapping[str, Any] | None = None,
+        test_set_id: str | UUID,
+        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.BuildCorrectedSuiteResult:
-        """Build a test set from corrections. `POST /v1/eval-suites/{suiteId}/versions/from-corrections`
+    ) -> _models.BuildCorrectedTestSetResult:
+        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
 
-        Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `judgeClassIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
+        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.buildFromCorrections"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.buildFromCorrections"],
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedSuiteBody, body, fields),
-            response=_models.BuildCorrectedSuiteResult,
+            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
+            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 
     def list_cases(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
@@ -6532,13 +6511,13 @@ class EvalSuitesResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.CorrectedEvalCaseCollectionPage:
-        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+        """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
         Cursor-paginated, in the order the cases were stored (newest corrected run first).
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.listCases"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.listCases"],
+            path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.CorrectedEvalCaseCollectionPage,
@@ -6547,42 +6526,42 @@ class EvalSuitesResource:
 
     def reinstate_version(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ReinstateEvalSuiteVersionResult:
-        """Reinstate a specific tombstoned eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/reinstate`
+    ) -> _models.ReinstateTestSetVersionResult:
+        """Reinstate a specific tombstoned test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `suiteKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `testSetKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.reinstateVersion"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.reinstateVersion"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ReinstateEvalSuiteVersionResult,
+            response=_models.ReinstateTestSetVersionResult,
             timeout=timeout,
         )
 
     def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return self._client._request(
-            _OPERATIONS["evalSuites.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
@@ -6769,7 +6748,7 @@ class EvalRunsResource:
 
     def start(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -6777,13 +6756,13 @@ class EvalRunsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.StartEvalRunResult:
-        """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
+        """Start an eval run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.start"],
-            path={"suiteId": suite_id},
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.StartEvalRunBody, body, fields),
@@ -6797,7 +6776,7 @@ class EvalRunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        suite_id: str | UUID | None = None,
+        test_set_id: str | UUID | None = None,
         status: Literal["pending", "running", "completed", "failed", "cancelled"] | None = None,
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
@@ -6810,7 +6789,7 @@ class EvalRunsResource:
     ) -> _models.EvalRunCollectionPage:
         """List eval runs. `GET /v1/eval-runs`
 
-        Cursor-paginated. Filters: `?suiteId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
+        Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.list"],
@@ -6818,7 +6797,7 @@ class EvalRunsResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
-                "suiteId": suite_id,
+                "testSetId": test_set_id,
                 "status": status,
                 "agentId": agent_id,
                 "flowId": flow_id,
@@ -6869,7 +6848,7 @@ class EvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.rescore"],
@@ -8315,8 +8294,8 @@ class TeamsResource:
         )
 
 
-class ProjectsJudgingRulesResource:
-    """`client.projects.judging_rules` — the `projects.judgingRules` operations."""
+class ProjectsQueueRulesResource:
+    """`client.projects.queue_rules` — the `projects.queueRules` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -8329,41 +8308,41 @@ class ProjectsJudgingRulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePage:
-        """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
+    ) -> _models.QueueRulePage:
+        """List a project's queue rules. `GET /v1/projects/{projectId}/queue-rules`
 
         The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's correction when they end. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.list"],
+            _OPERATIONS["projects.queueRules.list"],
             path={"projectId": project_id},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgingRulePage,
+            response=_models.QueueRulePage,
             timeout=timeout,
         )
 
     def create(
         self,
         project_id: str | UUID,
-        body: _models.JudgingRuleSpec | Mapping[str, Any] | None = None,
+        body: _models.QueueRuleSpec | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRule:
-        """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
+    ) -> _models.QueueRule:
+        """Create a queue rule. `POST /v1/projects/{projectId}/queue-rules`
 
         Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's correction; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.create"],
+            _OPERATIONS["projects.queueRules.create"],
             path={"projectId": project_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.JudgingRuleSpec, body, fields),
-            response=_models.JudgingRule,
+            body=_body(_models.QueueRuleSpec, body, fields),
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
@@ -8381,13 +8360,13 @@ class ProjectsJudgingRulesResource:
         last: int | None = None,
         rule_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePreview:
-        """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
+    ) -> _models.QueueRulePreview:
+        """What a rule would have queued. `GET /v1/projects/{projectId}/queue-rules/preview`
 
         Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.preview"],
+            _OPERATIONS["projects.queueRules.preview"],
             path={"projectId": project_id},
             query={
                 "agentIds": agent_ids,
@@ -8400,23 +8379,23 @@ class ProjectsJudgingRulesResource:
                 "ruleId": rule_id,
             },
             headers={},
-            response=_models.JudgingRulePreview,
+            response=_models.QueueRulePreview,
             timeout=timeout,
         )
 
     def get(
         self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingRule:
-        """Fetch a judging rule. `GET /v1/projects/{projectId}/judging-rules/{ruleId}`
+    ) -> _models.QueueRule:
+        """Fetch a queue rule. `GET /v1/projects/{projectId}/queue-rules/{ruleId}`
 
         Its latest version. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.get"],
+            _OPERATIONS["projects.queueRules.get"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            response=_models.JudgingRule,
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
@@ -8424,39 +8403,39 @@ class ProjectsJudgingRulesResource:
         self,
         project_id: str | UUID,
         rule_id: str | UUID,
-        body: _models.JudgingRulePatch | Mapping[str, Any] | None = None,
+        body: _models.QueueRulePatch | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRule:
-        """Change a judging rule. `PATCH /v1/projects/{projectId}/judging-rules/{ruleId}`
+    ) -> _models.QueueRule:
+        """Change a queue rule. `PATCH /v1/projects/{projectId}/queue-rules/{ruleId}`
 
         A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.update"],
+            _OPERATIONS["projects.queueRules.update"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            body=_body(_models.JudgingRulePatch, body, fields),
-            response=_models.JudgingRule,
+            body=_body(_models.QueueRulePatch, body, fields),
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
     def unregister(
         self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingRuleUnregisterResult:
-        """Stop a judging rule. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/unregister`
+    ) -> _models.QueueRuleUnregisterResult:
+        """Stop a queue rule. `POST /v1/projects/{projectId}/queue-rules/{ruleId}/unregister`
 
         It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.unregister"],
+            _OPERATIONS["projects.queueRules.unregister"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            response=_models.JudgingRuleUnregisterResult,
+            response=_models.QueueRuleUnregisterResult,
             timeout=timeout,
         )
 
@@ -8469,17 +8448,17 @@ class ProjectsJudgingRulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePage:
-        """A judging rule's versions. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/versions`
+    ) -> _models.QueueRulePage:
+        """A queue rule's versions. `GET /v1/projects/{projectId}/queue-rules/{ruleId}/versions`
 
         Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.versions"],
+            _OPERATIONS["projects.queueRules.versions"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgingRulePage,
+            response=_models.QueueRulePage,
             timeout=timeout,
         )
 
@@ -8491,17 +8470,17 @@ class ProjectsJudgingRulesResource:
         *,
         since: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRuleResults:
-        """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
+    ) -> _models.QueueRuleResults:
+        """A queue rule's results. `GET /v1/projects/{projectId}/queue-rules/{ruleId}/results`
 
-        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        By the rule's version and the agent's: the runs it queued (open, corrected, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their group-weighted `yes` share and a count by group. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.results"],
+            _OPERATIONS["projects.queueRules.results"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={"since": since},
             headers={},
-            response=_models.JudgingRuleResults,
+            response=_models.QueueRuleResults,
             timeout=timeout,
         )
 
@@ -8509,29 +8488,29 @@ class ProjectsJudgingRulesResource:
         self,
         project_id: str | UUID,
         rule_id: str | UUID,
-        body: _models.JudgingQueueRecentInput | Mapping[str, Any] | None = None,
+        body: _models.ExpertQueueRecentInput | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRecentQueued:
-        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
+    ) -> _models.ExpertQueueRecentQueued:
+        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/queue-rules/{ruleId}/queue-recent`
 
         Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already corrected or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.queueRecent"],
+            _OPERATIONS["projects.queueRules.queueRecent"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            body=_body(_models.JudgingQueueRecentInput, body, fields),
-            response=_models.JudgingRecentQueued,
+            body=_body(_models.ExpertQueueRecentInput, body, fields),
+            response=_models.ExpertQueueRecentQueued,
             timeout=timeout,
         )
 
 
-class ProjectsJudgingQueueResource:
-    """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
+class ProjectsExpertQueueResource:
+    """`client.projects.expert_queue` — the `projects.expertQueue` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -8541,29 +8520,29 @@ class ProjectsJudgingQueueResource:
         project_id: str | UUID,
         /,
         *,
-        state: Literal["open", "judged", "dismissed", "erased"] | None = None,
+        state: Literal["open", "corrected", "dismissed", "erased"] | None = None,
         agent_id: str | UUID | None = None,
         rule_id: str | UUID | None = None,
-        judge_class_id: str | UUID | None = None,
+        corrector_group_id: str | UUID | None = None,
         for_me: bool | None = None,
         added_after: str | None = None,
         closed_after: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingQueuePage:
-        """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
+    ) -> _models.ExpertQueuePage:
+        """The project's expert queue. `GET /v1/projects/{projectId}/expert-queue`
 
-        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `corrections` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingQueue.list"],
+            _OPERATIONS["projects.expertQueue.list"],
             path={"projectId": project_id},
             query={
                 "state": state,
                 "agentId": agent_id,
                 "ruleId": rule_id,
-                "judgeClassId": judge_class_id,
+                "correctorGroupId": corrector_group_id,
                 "forMe": for_me,
                 "addedAfter": added_after,
                 "closedAfter": closed_after,
@@ -8571,7 +8550,7 @@ class ProjectsJudgingQueueResource:
                 "cursor": cursor,
             },
             headers={},
-            response=_models.JudgingQueuePage,
+            response=_models.ExpertQueuePage,
             timeout=timeout,
         )
 
@@ -8579,39 +8558,39 @@ class ProjectsJudgingQueueResource:
         self,
         project_id: str | UUID,
         run_id: str | UUID,
-        body: _models.JudgingDismissBody | Mapping[str, Any] | None = None,
+        body: _models.ExpertQueueDismissBody | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingQueueItem:
-        """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
+    ) -> _models.ExpertQueueItem:
+        """Dismiss a queued run. `POST /v1/projects/{projectId}/expert-queue/{runId}/dismiss`
 
         Not worth correcting: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as correcting the run does.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingQueue.dismiss"],
+            _OPERATIONS["projects.expertQueue.dismiss"],
             path={"projectId": project_id, "runId": run_id},
             query={},
             headers={},
-            body=_body(_models.JudgingDismissBody, body, fields),
-            response=_models.JudgingQueueItem,
+            body=_body(_models.ExpertQueueDismissBody, body, fields),
+            response=_models.ExpertQueueItem,
             timeout=timeout,
         )
 
     def reopen(
         self, project_id: str | UUID, run_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingQueueItem:
-        """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
+    ) -> _models.ExpertQueueItem:
+        """Reopen a dismissed run. `POST /v1/projects/{projectId}/expert-queue/{runId}/reopen`
 
-        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its corrections. Needs `write` on the project.
+        Back in the open queue. Only a dismissed item reopens: a corrected one was closed by its corrections. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingQueue.reopen"],
+            _OPERATIONS["projects.expertQueue.reopen"],
             path={"projectId": project_id, "runId": run_id},
             query={},
             headers={},
-            response=_models.JudgingQueueItem,
+            response=_models.ExpertQueueItem,
             timeout=timeout,
         )
 
@@ -9123,8 +9102,8 @@ class ProjectsResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
-        self.judging_rules = ProjectsJudgingRulesResource(client)
-        self.judging_queue = ProjectsJudgingQueueResource(client)
+        self.queue_rules = ProjectsQueueRulesResource(client)
+        self.expert_queue = ProjectsExpertQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
         self.access = ProjectsAccessResource(client)
         self.pinned_versions = ProjectsPinnedVersionsResource(client)
@@ -14335,8 +14314,8 @@ class AsyncMemoryResource:
         )
 
 
-class AsyncProposalsResource:
-    """`client.proposals` — the `proposals` operations."""
+class AsyncSuggestedChangesResource:
+    """`client.suggested_changes` — the `suggestedChanges` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -14354,7 +14333,7 @@ class AsyncProposalsResource:
             "not-better",
             "evaluation-failed",
             "in-review",
-            "promoted",
+            "pinned",
             "refused",
             "rejected",
             "expired",
@@ -14369,13 +14348,13 @@ class AsyncProposalsResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.FixProposalCollectionPage:
-        """List improvement proposals. `GET /v1/proposals`
+    ) -> _models.SuggestedChangeCollectionPage:
+        """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
         """
         return await self._client._request(
-            _OPERATIONS["proposals.list"],
+            _OPERATIONS["suggestedChanges.list"],
             path={},
             query={
                 "limit": limit,
@@ -14388,32 +14367,148 @@ class AsyncProposalsResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.FixProposalCollectionPage,
+            response=_models.SuggestedChangeCollectionPage,
             timeout=timeout,
         )
 
     async def create(
         self,
-        body: _models.CreateProposalBody | Mapping[str, Any] | None = None,
+        body: _models.CreateSuggestedChangeBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Propose new content for a data block. `POST /v1/proposals`
+    ) -> _models.SuggestedChange:
+        """Suggest new content for a data block. `POST /v1/suggested-changes`
 
-        A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.
+        A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.create"],
+            _OPERATIONS["suggestedChanges.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateProposalBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.CreateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
+
+    async def get(
+        self, suggested_change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SuggestedChange:
+        """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
+
+        Needs `read` on its agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.get"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def evaluate(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.EvaluateSuggestedChangeBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
+
+        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.evaluate"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EvaluateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def rescore(
+        self,
+        suggested_change_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SuggestedChange:
+        """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
+
+        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.rescore"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def pin(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Pin a suggested change's version for its scope. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
+
+        A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def withdraw(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.WithdrawSuggestedChangeBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
+
+        Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.withdraw"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.WithdrawSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+
+class AsyncProposalsResource:
+    """`client.proposals` — the `proposals` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
 
     async def improve(
         self,
@@ -14426,7 +14521,7 @@ class AsyncProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -14458,163 +14553,6 @@ class AsyncProposalsResource:
             body=_body(_models.ImproveBody, body, fields),
             response=_models.ImprovementPassEstimate,
             timeout=timeout,
-        )
-
-    async def get(
-        self, proposal_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.FixProposal:
-        """Fetch an improvement proposal. `GET /v1/proposals/{proposalId}`
-
-        Needs `read` on its agent.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.get"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def evaluate(
-        self,
-        proposal_id: str | UUID,
-        body: _models.EvaluateProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Compare a proposal on a test set. `POST /v1/proposals/{proposalId}/evaluate`
-
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.evaluate"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def rescore(
-        self,
-        proposal_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.FixProposal:
-        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
-
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.rescore"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def request(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
-
-        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.request"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def rollback(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Roll back a promoted proposal. `POST /v1/proposals/{proposalId}/rollback`
-
-        The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.rollback"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def withdraw(
-        self,
-        proposal_id: str | UUID,
-        body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Withdraw a proposal. `POST /v1/proposals/{proposalId}/withdraw`
-
-        Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.withdraw"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.WithdrawProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def draft(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.create`."""
-        raise InvalidRequestError(
-            "proposals.draft was removed in 0.1.5: use client.proposals.create", issues=[]
-        )
-
-    async def dry_run(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.evaluate`."""
-        raise InvalidRequestError(
-            "proposals.dry_run was removed in 0.1.5: use client.proposals.evaluate", issues=[]
-        )
-
-    async def submit_review(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.submit_review was removed in 0.1.5: use client.proposals.request", issues=[]
-        )
-
-    async def apply(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
         )
 
 
@@ -14672,7 +14610,7 @@ class AsyncImprovementPassesResource:
     ) -> _models.ImprovementPass:
         """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
 
-        A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.
+        A running pass stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
         """
         return await self._client._request(
             _OPERATIONS["improvementPasses.cancel"],
@@ -15174,7 +15112,7 @@ class AsyncCorrectionsResource:
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
         verdict: Literal["yes", "no"] | None = None,
-        judge_class_id: str | UUID | None = None,
+        corrector_group_id: str | UUID | None = None,
         participant_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
@@ -15182,7 +15120,7 @@ class AsyncCorrectionsResource:
     ) -> _models.CorrectionCollectionPage:
         """List corrections. `GET /v1/corrections`
 
-        Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project.
         """
         return await self._client._request(
             _OPERATIONS["corrections.list"],
@@ -15195,7 +15133,7 @@ class AsyncCorrectionsResource:
                 "agentVersion": agent_version,
                 "flowId": flow_id,
                 "verdict": verdict,
-                "judgeClassId": judge_class_id,
+                "correctorGroupId": corrector_group_id,
                 "participantId": participant_id,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
@@ -15216,7 +15154,7 @@ class AsyncCorrectionsResource:
     ) -> _models.Correction:
         """Correct an item of a run's output. `POST /v1/corrections`
 
-        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.
         """
         return await self._client._request(
             _OPERATIONS["corrections.create"],
@@ -15266,8 +15204,8 @@ class AsyncCorrectionsResource:
         )
 
 
-class AsyncJudgeClassesResource:
-    """`client.judge_classes` — the `judgeClasses` operations."""
+class AsyncCorrectorGroupsResource:
+    """`client.corrector_groups` — the `correctorGroups` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -15282,13 +15220,13 @@ class AsyncJudgeClassesResource:
         project_id: str | UUID | None = None,
         agent_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgeClassCollectionPage:
-        """List judge classes. `GET /v1/judge-classes`
+    ) -> _models.CorrectorGroupCollectionPage:
+        """List corrector groups. `GET /v1/corrector-groups`
 
-        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        Live groups, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
         """
         return await self._client._request(
-            _OPERATIONS["judgeClasses.list"],
+            _OPERATIONS["correctorGroups.list"],
             path={},
             query={
                 "limit": limit,
@@ -15298,88 +15236,88 @@ class AsyncJudgeClassesResource:
                 "agentId": agent_id,
             },
             headers={},
-            response=_models.JudgeClassCollectionPage,
+            response=_models.CorrectorGroupCollectionPage,
             timeout=timeout,
         )
 
     async def create(
         self,
-        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        body: _models.CreateCorrectorGroupBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgeClass:
-        """Create a judge class. `POST /v1/judge-classes`
+    ) -> _models.CorrectorGroup:
+        """Create a corrector group. `POST /v1/corrector-groups`
 
-        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        A named kind of person who corrects with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the tenant (tenant scope) or the project.
         """
         return await self._client._request(
-            _OPERATIONS["judgeClasses.create"],
+            _OPERATIONS["correctorGroups.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateJudgeClassBody, body, fields),
-            response=_models.JudgeClass,
+            body=_body(_models.CreateCorrectorGroupBody, body, fields),
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     async def get(
-        self, judge_class_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgeClass:
-        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+        self, corrector_group_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.CorrectorGroup:
+        """Fetch a corrector group. `GET /v1/corrector-groups/{correctorGroupId}`
 
-        Also returns a retired class (`unregisteredAt` set): corrections keep naming theirs.
+        Also returns a retired group (`unregisteredAt` set): corrections keep naming theirs.
         """
         return await self._client._request(
-            _OPERATIONS["judgeClasses.get"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.get"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={},
-            response=_models.JudgeClass,
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     async def update(
         self,
-        judge_class_id: str | UUID,
-        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        corrector_group_id: str | UUID,
+        body: _models.UpdateCorrectorGroupBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgeClass:
-        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+    ) -> _models.CorrectorGroup:
+        """Change a corrector group's weight or description. `PATCH /v1/corrector-groups/{correctorGroupId}`"""
         return await self._client._request(
-            _OPERATIONS["judgeClasses.update"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.update"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.UpdateJudgeClassBody, body, fields),
-            response=_models.JudgeClass,
+            body=_body(_models.UpdateCorrectorGroupBody, body, fields),
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     async def unregister(
         self,
-        judge_class_id: str | UUID,
+        corrector_group_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterJudgeClassResult:
-        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+    ) -> _models.UnregisterCorrectorGroupResult:
+        """Retire a corrector group. `POST /v1/corrector-groups/{correctorGroupId}/unregister`
 
         No new corrections may name it; existing corrections keep it.
         """
         return await self._client._request(
-            _OPERATIONS["judgeClasses.unregister"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.unregister"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterJudgeClassResult,
+            response=_models.UnregisterCorrectorGroupResult,
             timeout=timeout,
         )
 
@@ -15993,7 +15931,7 @@ class AsyncRetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -16002,7 +15940,7 @@ class AsyncRetentionResource:
             "artifact",
             "policy",
             "correction",
-            "judge_class",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -16063,7 +16001,7 @@ class AsyncRetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -16072,7 +16010,7 @@ class AsyncRetentionResource:
             "artifact",
             "policy",
             "correction",
-            "judge_class",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -16101,74 +16039,74 @@ class AsyncRetentionResource:
         )
 
 
-class AsyncEvalSuitesVersionsResource:
-    """`client.eval_suites.versions` — the `evalSuites.versions` operations."""
+class AsyncTestSetsVersionsResource:
+    """`client.test_sets.versions` — the `testSets.versions` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
 
     async def list(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         include_tombstoned: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
+    ) -> _models.TestSetCollectionPage:
+        """List versions of an test set. `GET /v1/test-sets/{testSetId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.versions.list"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.versions.list"],
+            path={"testSetId": test_set_id},
             query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     async def get(
-        self, suite_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.EvalSuite:
-        """Fetch a specific eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}`"""
+        self, test_set_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.TestSet:
+        """Fetch a specific test set version. `GET /v1/test-sets/{testSetId}/versions/{version}`"""
         return await self._client._request(
-            _OPERATIONS["evalSuites.versions.get"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.get"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     async def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return await self._client._request(
-            _OPERATIONS["evalSuites.versions.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
 
-class AsyncEvalSuitesResource:
-    """`client.eval_suites` — the `evalSuites` operations."""
+class AsyncTestSetsResource:
+    """`client.test_sets` — the `testSets` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
-        self.versions = AsyncEvalSuitesVersionsResource(client)
+        self.versions = AsyncTestSetsVersionsResource(client)
 
     async def list(
         self,
@@ -16177,7 +16115,13 @@ class AsyncEvalSuitesResource:
         limit: int | None = None,
         cursor: str | None = None,
         kind: Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | None = None,
         name: str | None = None,
@@ -16186,13 +16130,13 @@ class AsyncEvalSuitesResource:
         inherit: bool | None = None,
         include_retired: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List tenant eval suites. `GET /v1/eval-suites`
+    ) -> _models.TestSetCollectionPage:
+        """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.list"],
+            _OPERATIONS["testSets.list"],
             path={},
             query={
                 "limit": limit,
@@ -16205,81 +16149,81 @@ class AsyncEvalSuitesResource:
                 "includeRetired": include_retired,
             },
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     async def publish(
         self,
-        body: _models.PublishEvalSuiteBody | Mapping[str, Any] | None = None,
+        body: _models.PublishTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.PublishEvalSuiteResult:
-        """Publish an eval suite. `POST /v1/eval-suites`
+    ) -> _models.PublishTestSetResult:
+        """Publish an test set. `POST /v1/test-sets`
 
-        Body is a full `EvalSuite` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(suiteId, version)` returns `409 eval-suite-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.publish"],
+            _OPERATIONS["testSets.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishEvalSuiteBody, body, fields),
-            response=_models.PublishEvalSuiteResult,
+            body=_body(_models.PublishTestSetBody, body, fields),
+            response=_models.PublishTestSetResult,
             timeout=timeout,
         )
 
     async def get(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+    ) -> _models.TestSet:
+        """Fetch an test set (latest version). `GET /v1/test-sets/{testSetId}`
 
         An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.get"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.get"],
+            path={"testSetId": test_set_id},
             query={"projectId": project_id},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     async def build_from_corrections(
         self,
-        suite_id: str | UUID,
-        body: _models.BuildCorrectedSuiteBody | Mapping[str, Any] | None = None,
+        test_set_id: str | UUID,
+        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.BuildCorrectedSuiteResult:
-        """Build a test set from corrections. `POST /v1/eval-suites/{suiteId}/versions/from-corrections`
+    ) -> _models.BuildCorrectedTestSetResult:
+        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
 
-        Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `judgeClassIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
+        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.buildFromCorrections"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.buildFromCorrections"],
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedSuiteBody, body, fields),
-            response=_models.BuildCorrectedSuiteResult,
+            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
+            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 
     async def list_cases(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
@@ -16287,13 +16231,13 @@ class AsyncEvalSuitesResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.CorrectedEvalCaseCollectionPage:
-        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+        """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
         Cursor-paginated, in the order the cases were stored (newest corrected run first).
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.listCases"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.listCases"],
+            path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.CorrectedEvalCaseCollectionPage,
@@ -16302,42 +16246,42 @@ class AsyncEvalSuitesResource:
 
     async def reinstate_version(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ReinstateEvalSuiteVersionResult:
-        """Reinstate a specific tombstoned eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/reinstate`
+    ) -> _models.ReinstateTestSetVersionResult:
+        """Reinstate a specific tombstoned test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `suiteKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `testSetKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.reinstateVersion"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.reinstateVersion"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ReinstateEvalSuiteVersionResult,
+            response=_models.ReinstateTestSetVersionResult,
             timeout=timeout,
         )
 
     async def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return await self._client._request(
-            _OPERATIONS["evalSuites.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
@@ -16524,7 +16468,7 @@ class AsyncEvalRunsResource:
 
     async def start(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -16532,13 +16476,13 @@ class AsyncEvalRunsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.StartEvalRunResult:
-        """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
+        """Start an eval run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.start"],
-            path={"suiteId": suite_id},
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.StartEvalRunBody, body, fields),
@@ -16552,7 +16496,7 @@ class AsyncEvalRunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        suite_id: str | UUID | None = None,
+        test_set_id: str | UUID | None = None,
         status: Literal["pending", "running", "completed", "failed", "cancelled"] | None = None,
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
@@ -16565,7 +16509,7 @@ class AsyncEvalRunsResource:
     ) -> _models.EvalRunCollectionPage:
         """List eval runs. `GET /v1/eval-runs`
 
-        Cursor-paginated. Filters: `?suiteId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
+        Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.list"],
@@ -16573,7 +16517,7 @@ class AsyncEvalRunsResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
-                "suiteId": suite_id,
+                "testSetId": test_set_id,
                 "status": status,
                 "agentId": agent_id,
                 "flowId": flow_id,
@@ -16626,7 +16570,7 @@ class AsyncEvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.rescore"],
@@ -18076,8 +18020,8 @@ class AsyncTeamsResource:
         )
 
 
-class AsyncProjectsJudgingRulesResource:
-    """`client.projects.judging_rules` — the `projects.judgingRules` operations."""
+class AsyncProjectsQueueRulesResource:
+    """`client.projects.queue_rules` — the `projects.queueRules` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -18090,41 +18034,41 @@ class AsyncProjectsJudgingRulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePage:
-        """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
+    ) -> _models.QueueRulePage:
+        """List a project's queue rules. `GET /v1/projects/{projectId}/queue-rules`
 
         The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's correction when they end. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.list"],
+            _OPERATIONS["projects.queueRules.list"],
             path={"projectId": project_id},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgingRulePage,
+            response=_models.QueueRulePage,
             timeout=timeout,
         )
 
     async def create(
         self,
         project_id: str | UUID,
-        body: _models.JudgingRuleSpec | Mapping[str, Any] | None = None,
+        body: _models.QueueRuleSpec | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRule:
-        """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
+    ) -> _models.QueueRule:
+        """Create a queue rule. `POST /v1/projects/{projectId}/queue-rules`
 
         Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's correction; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.create"],
+            _OPERATIONS["projects.queueRules.create"],
             path={"projectId": project_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.JudgingRuleSpec, body, fields),
-            response=_models.JudgingRule,
+            body=_body(_models.QueueRuleSpec, body, fields),
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
@@ -18142,13 +18086,13 @@ class AsyncProjectsJudgingRulesResource:
         last: int | None = None,
         rule_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePreview:
-        """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
+    ) -> _models.QueueRulePreview:
+        """What a rule would have queued. `GET /v1/projects/{projectId}/queue-rules/preview`
 
         Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.preview"],
+            _OPERATIONS["projects.queueRules.preview"],
             path={"projectId": project_id},
             query={
                 "agentIds": agent_ids,
@@ -18161,23 +18105,23 @@ class AsyncProjectsJudgingRulesResource:
                 "ruleId": rule_id,
             },
             headers={},
-            response=_models.JudgingRulePreview,
+            response=_models.QueueRulePreview,
             timeout=timeout,
         )
 
     async def get(
         self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingRule:
-        """Fetch a judging rule. `GET /v1/projects/{projectId}/judging-rules/{ruleId}`
+    ) -> _models.QueueRule:
+        """Fetch a queue rule. `GET /v1/projects/{projectId}/queue-rules/{ruleId}`
 
         Its latest version. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.get"],
+            _OPERATIONS["projects.queueRules.get"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            response=_models.JudgingRule,
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
@@ -18185,39 +18129,39 @@ class AsyncProjectsJudgingRulesResource:
         self,
         project_id: str | UUID,
         rule_id: str | UUID,
-        body: _models.JudgingRulePatch | Mapping[str, Any] | None = None,
+        body: _models.QueueRulePatch | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRule:
-        """Change a judging rule. `PATCH /v1/projects/{projectId}/judging-rules/{ruleId}`
+    ) -> _models.QueueRule:
+        """Change a queue rule. `PATCH /v1/projects/{projectId}/queue-rules/{ruleId}`
 
         A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.update"],
+            _OPERATIONS["projects.queueRules.update"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            body=_body(_models.JudgingRulePatch, body, fields),
-            response=_models.JudgingRule,
+            body=_body(_models.QueueRulePatch, body, fields),
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
     async def unregister(
         self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingRuleUnregisterResult:
-        """Stop a judging rule. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/unregister`
+    ) -> _models.QueueRuleUnregisterResult:
+        """Stop a queue rule. `POST /v1/projects/{projectId}/queue-rules/{ruleId}/unregister`
 
         It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.unregister"],
+            _OPERATIONS["projects.queueRules.unregister"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            response=_models.JudgingRuleUnregisterResult,
+            response=_models.QueueRuleUnregisterResult,
             timeout=timeout,
         )
 
@@ -18230,17 +18174,17 @@ class AsyncProjectsJudgingRulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePage:
-        """A judging rule's versions. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/versions`
+    ) -> _models.QueueRulePage:
+        """A queue rule's versions. `GET /v1/projects/{projectId}/queue-rules/{ruleId}/versions`
 
         Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.versions"],
+            _OPERATIONS["projects.queueRules.versions"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgingRulePage,
+            response=_models.QueueRulePage,
             timeout=timeout,
         )
 
@@ -18252,17 +18196,17 @@ class AsyncProjectsJudgingRulesResource:
         *,
         since: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRuleResults:
-        """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
+    ) -> _models.QueueRuleResults:
+        """A queue rule's results. `GET /v1/projects/{projectId}/queue-rules/{ruleId}/results`
 
-        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        By the rule's version and the agent's: the runs it queued (open, corrected, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their group-weighted `yes` share and a count by group. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.results"],
+            _OPERATIONS["projects.queueRules.results"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={"since": since},
             headers={},
-            response=_models.JudgingRuleResults,
+            response=_models.QueueRuleResults,
             timeout=timeout,
         )
 
@@ -18270,29 +18214,29 @@ class AsyncProjectsJudgingRulesResource:
         self,
         project_id: str | UUID,
         rule_id: str | UUID,
-        body: _models.JudgingQueueRecentInput | Mapping[str, Any] | None = None,
+        body: _models.ExpertQueueRecentInput | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRecentQueued:
-        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
+    ) -> _models.ExpertQueueRecentQueued:
+        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/queue-rules/{ruleId}/queue-recent`
 
         Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already corrected or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.queueRecent"],
+            _OPERATIONS["projects.queueRules.queueRecent"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            body=_body(_models.JudgingQueueRecentInput, body, fields),
-            response=_models.JudgingRecentQueued,
+            body=_body(_models.ExpertQueueRecentInput, body, fields),
+            response=_models.ExpertQueueRecentQueued,
             timeout=timeout,
         )
 
 
-class AsyncProjectsJudgingQueueResource:
-    """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
+class AsyncProjectsExpertQueueResource:
+    """`client.projects.expert_queue` — the `projects.expertQueue` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -18302,29 +18246,29 @@ class AsyncProjectsJudgingQueueResource:
         project_id: str | UUID,
         /,
         *,
-        state: Literal["open", "judged", "dismissed", "erased"] | None = None,
+        state: Literal["open", "corrected", "dismissed", "erased"] | None = None,
         agent_id: str | UUID | None = None,
         rule_id: str | UUID | None = None,
-        judge_class_id: str | UUID | None = None,
+        corrector_group_id: str | UUID | None = None,
         for_me: bool | None = None,
         added_after: str | None = None,
         closed_after: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingQueuePage:
-        """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
+    ) -> _models.ExpertQueuePage:
+        """The project's expert queue. `GET /v1/projects/{projectId}/expert-queue`
 
-        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `corrections` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingQueue.list"],
+            _OPERATIONS["projects.expertQueue.list"],
             path={"projectId": project_id},
             query={
                 "state": state,
                 "agentId": agent_id,
                 "ruleId": rule_id,
-                "judgeClassId": judge_class_id,
+                "correctorGroupId": corrector_group_id,
                 "forMe": for_me,
                 "addedAfter": added_after,
                 "closedAfter": closed_after,
@@ -18332,7 +18276,7 @@ class AsyncProjectsJudgingQueueResource:
                 "cursor": cursor,
             },
             headers={},
-            response=_models.JudgingQueuePage,
+            response=_models.ExpertQueuePage,
             timeout=timeout,
         )
 
@@ -18340,39 +18284,39 @@ class AsyncProjectsJudgingQueueResource:
         self,
         project_id: str | UUID,
         run_id: str | UUID,
-        body: _models.JudgingDismissBody | Mapping[str, Any] | None = None,
+        body: _models.ExpertQueueDismissBody | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingQueueItem:
-        """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
+    ) -> _models.ExpertQueueItem:
+        """Dismiss a queued run. `POST /v1/projects/{projectId}/expert-queue/{runId}/dismiss`
 
         Not worth correcting: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as correcting the run does.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingQueue.dismiss"],
+            _OPERATIONS["projects.expertQueue.dismiss"],
             path={"projectId": project_id, "runId": run_id},
             query={},
             headers={},
-            body=_body(_models.JudgingDismissBody, body, fields),
-            response=_models.JudgingQueueItem,
+            body=_body(_models.ExpertQueueDismissBody, body, fields),
+            response=_models.ExpertQueueItem,
             timeout=timeout,
         )
 
     async def reopen(
         self, project_id: str | UUID, run_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingQueueItem:
-        """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
+    ) -> _models.ExpertQueueItem:
+        """Reopen a dismissed run. `POST /v1/projects/{projectId}/expert-queue/{runId}/reopen`
 
-        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its corrections. Needs `write` on the project.
+        Back in the open queue. Only a dismissed item reopens: a corrected one was closed by its corrections. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingQueue.reopen"],
+            _OPERATIONS["projects.expertQueue.reopen"],
             path={"projectId": project_id, "runId": run_id},
             query={},
             headers={},
-            response=_models.JudgingQueueItem,
+            response=_models.ExpertQueueItem,
             timeout=timeout,
         )
 
@@ -18884,8 +18828,8 @@ class AsyncProjectsResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
-        self.judging_rules = AsyncProjectsJudgingRulesResource(client)
-        self.judging_queue = AsyncProjectsJudgingQueueResource(client)
+        self.queue_rules = AsyncProjectsQueueRulesResource(client)
+        self.expert_queue = AsyncProjectsExpertQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
         self.access = AsyncProjectsAccessResource(client)
         self.pinned_versions = AsyncProjectsPinnedVersionsResource(client)
@@ -20854,6 +20798,7 @@ class Resources:
     guardrails: GuardrailsResource
     conversations: ConversationsResource
     memory: MemoryResource
+    suggested_changes: SuggestedChangesResource
     proposals: ProposalsResource
     improvement_passes: ImprovementPassesResource
     provenance: ProvenanceResource
@@ -20865,13 +20810,13 @@ class Resources:
     capabilities: CapabilitiesResource
     providers: ProvidersResource
     corrections: CorrectionsResource
-    judge_classes: JudgeClassesResource
+    corrector_groups: CorrectorGroupsResource
     mcp: McpResource
     cost: CostResource
     adapters: AdaptersResource
     policies: PoliciesResource
     retention: RetentionResource
-    eval_suites: EvalSuitesResource
+    test_sets: TestSetsResource
     blocks: BlocksResource
     eval_runs: EvalRunsResource
     auth: AuthResource
@@ -20915,6 +20860,7 @@ class Resources:
         self.guardrails = GuardrailsResource(client)
         self.conversations = ConversationsResource(client)
         self.memory = MemoryResource(client)
+        self.suggested_changes = SuggestedChangesResource(client)
         self.proposals = ProposalsResource(client)
         self.improvement_passes = ImprovementPassesResource(client)
         self.provenance = ProvenanceResource(client)
@@ -20926,13 +20872,13 @@ class Resources:
         self.capabilities = CapabilitiesResource(client)
         self.providers = ProvidersResource(client)
         self.corrections = CorrectionsResource(client)
-        self.judge_classes = JudgeClassesResource(client)
+        self.corrector_groups = CorrectorGroupsResource(client)
         self.mcp = McpResource(client)
         self.cost = CostResource(client)
         self.adapters = AdaptersResource(client)
         self.policies = PoliciesResource(client)
         self.retention = RetentionResource(client)
-        self.eval_suites = EvalSuitesResource(client)
+        self.test_sets = TestSetsResource(client)
         self.blocks = BlocksResource(client)
         self.eval_runs = EvalRunsResource(client)
         self.auth = AuthResource(client)
@@ -20978,6 +20924,7 @@ class AsyncResources:
     guardrails: AsyncGuardrailsResource
     conversations: AsyncConversationsResource
     memory: AsyncMemoryResource
+    suggested_changes: AsyncSuggestedChangesResource
     proposals: AsyncProposalsResource
     improvement_passes: AsyncImprovementPassesResource
     provenance: AsyncProvenanceResource
@@ -20989,13 +20936,13 @@ class AsyncResources:
     capabilities: AsyncCapabilitiesResource
     providers: AsyncProvidersResource
     corrections: AsyncCorrectionsResource
-    judge_classes: AsyncJudgeClassesResource
+    corrector_groups: AsyncCorrectorGroupsResource
     mcp: AsyncMcpResource
     cost: AsyncCostResource
     adapters: AsyncAdaptersResource
     policies: AsyncPoliciesResource
     retention: AsyncRetentionResource
-    eval_suites: AsyncEvalSuitesResource
+    test_sets: AsyncTestSetsResource
     blocks: AsyncBlocksResource
     eval_runs: AsyncEvalRunsResource
     auth: AsyncAuthResource
@@ -21039,6 +20986,7 @@ class AsyncResources:
         self.guardrails = AsyncGuardrailsResource(client)
         self.conversations = AsyncConversationsResource(client)
         self.memory = AsyncMemoryResource(client)
+        self.suggested_changes = AsyncSuggestedChangesResource(client)
         self.proposals = AsyncProposalsResource(client)
         self.improvement_passes = AsyncImprovementPassesResource(client)
         self.provenance = AsyncProvenanceResource(client)
@@ -21050,13 +20998,13 @@ class AsyncResources:
         self.capabilities = AsyncCapabilitiesResource(client)
         self.providers = AsyncProvidersResource(client)
         self.corrections = AsyncCorrectionsResource(client)
-        self.judge_classes = AsyncJudgeClassesResource(client)
+        self.corrector_groups = AsyncCorrectorGroupsResource(client)
         self.mcp = AsyncMcpResource(client)
         self.cost = AsyncCostResource(client)
         self.adapters = AsyncAdaptersResource(client)
         self.policies = AsyncPoliciesResource(client)
         self.retention = AsyncRetentionResource(client)
-        self.eval_suites = AsyncEvalSuitesResource(client)
+        self.test_sets = AsyncTestSetsResource(client)
         self.blocks = AsyncBlocksResource(client)
         self.eval_runs = AsyncEvalRunsResource(client)
         self.auth = AsyncAuthResource(client)

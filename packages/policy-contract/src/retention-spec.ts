@@ -26,7 +26,7 @@
 /**
  * Closed vocabulary of tombstoning domains. Uses the object type names
  * of the authorization model in `@kindgi/authz` wherever one exists
- * (`policy`, `correction`, `judge_class`, `provider` and `api_key` have
+ * (`policy`, `correction`, `corrector_group`, `provider` and `api_key` have
  * none), so a retention policy on `domain: 'tool'` names the same
  * resource kind that authorization checks refer to. `api_key`'s
  * tombstones are revoked and expired keys; `service_account`'s are
@@ -47,7 +47,7 @@ export const RETENTION_DOMAINS = [
   'agent',
   'flow',
   'tool',
-  'eval_suite',
+  'test_set',
   'guardrail',
   'mcp_endpoint',
   'env',
@@ -58,7 +58,7 @@ export const RETENTION_DOMAINS = [
   'artifact',
   'policy',
   'correction',
-  'judge_class',
+  'corrector_group',
   'provider',
   'memory',
   'conversation',

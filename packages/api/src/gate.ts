@@ -72,7 +72,7 @@ function needsComparison(spec: GatePolicySpec): boolean {
     spec.evidence !== undefined ||
     (spec.metrics?.length ?? 0) > 0 ||
     spec.replay !== undefined ||
-    spec.onlyRestrictedClasses === true
+    spec.onlyExpertGroups === true
   );
 }
 
@@ -114,22 +114,23 @@ export function evaluateGate(input: GateInput): GateResult {
   if (spec.comparison?.maxAgeHours !== undefined) {
     checks.push(freshnessCheck(spec.comparison.maxAgeHours, summary, input.now));
   }
-  if (spec.comparison?.suite !== undefined) checks.push(suiteCheck(spec.comparison.suite, summary));
+  if (spec.comparison?.testSet !== undefined)
+    checks.push(testSetCheck(spec.comparison.testSet, summary));
   if (summary.sample !== undefined) checks.push(sampleCheck(summary.sample));
   checks.push(sameContentsCheck(input));
   checks.push(baselineCheck(summary, input));
   checks.push(scopeCheck(summary, input));
-  if (spec.onlyRestrictedClasses === true) {
-    const counted = summary.classWeights ?? 'as-recorded';
+  if (spec.onlyExpertGroups === true) {
+    const counted = summary.groupWeights ?? 'as-recorded';
     checks.push({
-      name: 'classWeights.restrictedOnly',
-      passed: counted === 'restricted-only',
+      name: 'groupWeights.expertsOnly',
+      passed: counted === 'experts-only',
       message:
-        counted === 'restricted-only'
+        counted === 'experts-only'
           ? "The test run counted only experts' corrections."
-          : "The policy counts only experts' corrections; the test run counted everyone's. Re-run it with `classWeights: 'restricted-only'`.",
+          : "The policy counts only experts' corrections; the test run counted everyone's. Re-run it with `groupWeights: 'experts-only'`.",
       value: counted,
-      threshold: 'restricted-only',
+      threshold: 'experts-only',
     });
   }
   if (spec.replay !== undefined) checks.push(...replayChecks(spec.replay, summary));
@@ -186,17 +187,17 @@ function freshnessCheck(
   };
 }
 
-function suiteCheck(
-  suite: { readonly id: string; readonly version?: string },
+function testSetCheck(
+  testSet: { readonly id: string; readonly version?: string },
   summary: CorrectedComparisonSummary,
 ): GateCheck {
-  const ran = `${summary.suite.id} ${summary.suite.version}`;
-  const wanted = suite.version === undefined ? suite.id : `${suite.id} ${suite.version}`;
+  const ran = `${summary.testSet.id} ${summary.testSet.version}`;
+  const wanted = testSet.version === undefined ? testSet.id : `${testSet.id} ${testSet.version}`;
   const passed =
-    summary.suite.id === suite.id &&
-    (suite.version === undefined || summary.suite.version === suite.version);
+    summary.testSet.id === testSet.id &&
+    (testSet.version === undefined || summary.testSet.version === testSet.version);
   return {
-    name: 'comparison.suite',
+    name: 'comparison.testSet',
     passed,
     message: passed
       ? `The test run used test cases ${ran}.`

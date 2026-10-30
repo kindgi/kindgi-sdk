@@ -101,7 +101,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-erased': 410,
   'flow-gone': 410,
   'policy-gone': 410,
-  'eval-suite-gone': 410,
+  'test-set-gone': 410,
   'tool-gone': 410,
   'tool-already-registered': 409,
   'tool-project-mismatch': 409,
@@ -209,11 +209,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'signing-key-revoked': 409,
   'signing-key-algorithm-unsupported': 400,
   'signing-key-store-error': 500,
-  // Improvement proposals.
-  'proposal-not-found': 404,
-  'proposal-invalid-state-transition': 409,
+  // suggested changes.
+  'suggested-change-not-found': 404,
+  'suggested-change-invalid-state-transition': 409,
   // Evaluating would make a version that serves every unpinned scope.
-  'proposal-needs-pin': 409,
+  'suggested-change-needs-pin': 409,
   // Improvement passes.
   'improve-unsupported': 501,
   'improvement-pass-not-found': 404,
@@ -242,29 +242,29 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'policy-scope-changed': 409,
   /** A retention policy that keeps its domain's rows longer than the server's limit allows (`retentionLimits`), or holds them. */
   'retention-over-limit': 400,
-  // Admin plane — eval suites.
+  // Admin plane — test sets.
   'block-not-found': 404,
   'block-already-registered': 409,
   'block-project-mismatch': 409,
-  'eval-suite-not-found': 404,
-  'eval-suite-already-registered': 409,
-  'eval-suite-project-mismatch': 409,
+  'test-set-not-found': 404,
+  'test-set-already-registered': 409,
+  'test-set-project-mismatch': 409,
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
   'eval-run-not-rescorable': 409,
-  // Corrections (yes/no on a run's output items) and judge classes.
+  // Corrections (yes/no on a run's output items) and corrector groups.
   'correction-not-found': 404,
-  'judge-class-not-found': 404,
-  /** A judging rule that isn't in the project (`/v1/projects/:projectId/judging-rules/:ruleId`). */
-  'judging-rule-not-found': 404,
-  /** A run that isn't in the project's judging queue. */
-  'judging-item-not-found': 404,
+  'corrector-group-not-found': 404,
+  /** A queue rule that isn't in the project (`/v1/projects/:projectId/queue-rules/:ruleId`). */
+  'queue-rule-not-found': 404,
+  /** A run that isn't in the project's expert queue. */
+  'expert-queue-item-not-found': 404,
   /** Dismissing a queued run that isn't open, or reopening one that wasn't dismissed. */
-  'judging-item-not-open': 409,
-  'judge-class-name-taken': 409,
-  'judge-class-not-applicable': 400,
-  // The judge class is restricted (`assertableBy`), and the caller isn't one who may assert it.
-  'judge-class-not-allowed': 403,
+  'expert-queue-item-not-open': 409,
+  'corrector-group-name-taken': 409,
+  'corrector-group-not-applicable': 400,
+  // The corrector group is restricted (`assertableBy`), and the caller isn't one who may assert it.
+  'corrector-group-not-allowed': 403,
   // Live versions of agents and their promotions.
   'agent-version-not-found': 404,
   'promotion-not-found': 404,

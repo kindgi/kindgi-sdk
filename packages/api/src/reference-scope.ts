@@ -27,13 +27,20 @@ import { blockRefs } from './block-pins.js';
 import { statusFor, toWireError } from './errors.js';
 
 /** The kinds of item a flow, agent, trigger or run can reference. */
-export type ReferenceKind = 'tool' | 'agent' | 'flow' | 'guardrail' | 'block' | 'check' | 'suite';
+export type ReferenceKind =
+  | 'tool'
+  | 'agent'
+  | 'flow'
+  | 'guardrail'
+  | 'block'
+  | 'check'
+  | 'test-set';
 
 export interface ItemReference {
   readonly kind: ReferenceKind;
   readonly id: string;
   /**
-   * One version of an agent, flow or eval suite, when the reference is to
+   * One version of an agent, flow or test set, when the reference is to
    * that version: reached when a run in the project may run that version
    * (where it was made, or what reached the project with a build). Absent:
    * the item itself, by its id.
@@ -69,7 +76,7 @@ const NOUN: Readonly<Record<ReferenceKind, string>> = {
   guardrail: 'guardrail',
   block: 'data block',
   check: 'check',
-  suite: 'eval suite',
+  'test-set': 'test set',
 };
 
 /**

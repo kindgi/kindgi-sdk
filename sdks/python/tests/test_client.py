@@ -147,8 +147,8 @@ def test_a_field_named_for_a_keyword_takes_a_trailing_underscore() -> None:
 
 
 def test_a_field_set_to_none_is_sent_as_null() -> None:
-    # `assertable_by=None` lifts a judge class's restriction; a field left out stays out.
-    judge_class = {
+    # `assertable_by=None` lifts a corrector group's restriction; a field left out stays out.
+    corrector_group = {
         "id": "jc-1",
         "tenantId": "t-1",
         "scope": {"kind": "tenant"},
@@ -157,9 +157,9 @@ def test_a_field_set_to_none_is_sent_as_null() -> None:
         "createdAt": "2026-10-06T00:00:00.000Z",
         "updatedAt": "2026-10-06T00:00:00.000Z",
     }
-    api, seen = client(lambda r: httpx.Response(200, json=judge_class))
-    api.judge_classes.update("jc-1", assertable_by=None)
-    api.judge_classes.update("jc-1", weight=2)
+    api, seen = client(lambda r: httpx.Response(200, json=corrector_group))
+    api.corrector_groups.update("jc-1", assertable_by=None)
+    api.corrector_groups.update("jc-1", weight=2)
     assert [json.loads(r.content) for r in seen] == [{"assertableBy": None}, {"weight": 2}]
 
 
@@ -193,15 +193,15 @@ def test_path_and_query_parameters() -> None:
     assert dict(seen[1].url.params) == {"limit": "5", "topLevel": "true"}
 
 
-def test_eval_suites_unregister_names_the_call_as_the_other_resources_do() -> None:
-    # `eval_suites.unregister`, as `agents.unregister`: the same call as
-    # `eval_suites.versions.unregister`.
-    answer = {"suiteId": "acme.set", "version": "1.0.0", "unregistered": True}
+def test_test_sets_unregister_names_the_call_as_the_other_resources_do() -> None:
+    # `test_sets.unregister`, as `agents.unregister`: the same call as
+    # `test_sets.versions.unregister`.
+    answer = {"testSetId": "acme.set", "version": "1.0.0", "unregistered": True}
     api, seen = client(lambda r: httpx.Response(200, json=answer))
-    api.eval_suites.unregister("acme.set", "1.0.0")
-    api.eval_suites.versions.unregister("acme.set", "1.0.0")
+    api.test_sets.unregister("acme.set", "1.0.0")
+    api.test_sets.versions.unregister("acme.set", "1.0.0")
     assert [(r.method, r.url.path) for r in seen] == [
-        ("POST", "/v1/eval-suites/acme.set/versions/1.0.0/unregister"),
+        ("POST", "/v1/test-sets/acme.set/versions/1.0.0/unregister"),
     ] * 2
 
 
@@ -1010,7 +1010,7 @@ def test_my_permissions() -> None:
                     "flow",
                     "tool",
                     "guardrail",
-                    "eval_suite",
+                    "test_set",
                     "trigger",
                     "conversation",
                     "secret",
@@ -1081,9 +1081,9 @@ def test_a_model_is_its_schemas_and_its_old_names_stay_gone() -> None:
         "HttpRequestBodySpec1",
         "HttpRequestBodySpec2",
         "HttpRequestBodySpec3",
-        "JudgeClassScope1",
-        "JudgeClassScope2",
-        "JudgeClassScope3",
+        "CorrectorGroupScope1",
+        "CorrectorGroupScope2",
+        "CorrectorGroupScope3",
         "RecordedSecretScope1",
         "RecordedSecretScope2",
         "RecordedSecretScope3",
@@ -1277,8 +1277,8 @@ def test_retention_scheduled_and_sweep() -> None:
     assert (seen[1].method, seen[1].url.path) == ("POST", "/v1/retention/sweep")
     assert json.loads(seen[1].content) == {"maxPerDomain": 100}
 
-    api.retention.sweep_domain("judge_class")
-    assert seen[2].url.path == "/v1/retention/sweep/judge_class"
+    api.retention.sweep_domain("corrector_group")
+    assert seen[2].url.path == "/v1/retention/sweep/corrector_group"
 
 
 def test_retention_scheduled_pages_with_a_cursor() -> None:
@@ -1413,7 +1413,7 @@ def test_secrets_rotate_async_client_reads_the_202() -> None:
     asyncio.run(scenario())
 
 
-def test_a_judging_rule_takes_its_when_in_python_or_wire_case() -> None:
+def test_a_queue_rule_takes_its_when_in_python_or_wire_case() -> None:
     # The guide's example passes `when` with snake_case keys; wire case works too.
     project = "d4910d76-7355-4022-8f3c-514361cfa986"
     rule = {
@@ -1428,14 +1428,14 @@ def test_a_judging_rule_takes_its_when_in_python_or_wire_case() -> None:
         "createdAt": "2026-10-10T09:00:00.000Z",
     }
     api, seen = client(lambda r: httpx.Response(201, json=rule))
-    made = api.projects.judging_rules.create(
+    made = api.projects.queue_rules.create(
         project,
         name="Live refund runs",
         when={"agent_ids": ["acme.refunds"], "versions": ["live"]},
         sample=0.05,
         max_open=20,
     )
-    api.projects.judging_rules.create(
+    api.projects.queue_rules.create(
         project,
         {
             "name": "Live refund runs",
@@ -1447,10 +1447,10 @@ def test_a_judging_rule_takes_its_when_in_python_or_wire_case() -> None:
     assert made.rule_id == rule["ruleId"] and made.when.agent_ids == ["acme.refunds"]
     sent = [json.loads(r.content) for r in seen]
     assert sent[0] == sent[1] == {k: rule[k] for k in ("name", "when", "sample", "maxOpen")}
-    assert seen[0].url == f"http://kindgi.test/v1/projects/{project}/judging-rules"
+    assert seen[0].url == f"http://kindgi.test/v1/projects/{project}/queue-rules"
 
 
-def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
+def test_a_queue_rule_change_sends_null_to_remove_the_cap() -> None:
     project, rule_id = (
         "d4910d76-7355-4022-8f3c-514361cfa986",
         "6f1d9a0e-2b8c-4f4e-9d61-0c2a7e5b3f10",
@@ -1466,7 +1466,7 @@ def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
         "createdAt": "2026-10-10T09:00:00.000Z",
     }
     api, seen = client(lambda r: httpx.Response(200, json=rule))
-    api.projects.judging_rules.update(project, rule_id, max_open=None, sample=0.05)
+    api.projects.queue_rules.update(project, rule_id, max_open=None, sample=0.05)
     assert json.loads(seen[0].content) == {"maxOpen": None, "sample": 0.05}
 
 

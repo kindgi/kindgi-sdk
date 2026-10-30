@@ -289,7 +289,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'conversation-not-found':
     case 'approval-not-found':
     case 'reviewer-not-found':
-    case 'proposal-not-found':
+    case 'suggested-change-not-found':
     case 'provenance-not-found':
     case 'observation-not-found':
     case 'blob-not-found':
@@ -320,7 +320,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'flow-already-registered':
     case 'conversation-closed':
     case 'provider-already-registered':
-    case 'proposal-invalid-state-transition':
+    case 'suggested-change-invalid-state-transition':
     case 'approval-not-decided':
     case 'slug-conflict':
     case 'project-default-already-exists':
@@ -330,14 +330,14 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'nothing-to-roll-back':
     case 'not-pinned':
     case 'agent-version-live':
-    case 'eval-suite-already-registered':
+    case 'test-set-already-registered':
     case 'policy-already-registered':
     case 'mcp-endpoint-already-registered':
     case 'identity-provider-already-registered':
     case 'version-already-exists':
     case 'eval-run-already-terminal':
     case 'approval-already-decided':
-    case 'judge-class-name-taken':
+    case 'corrector-group-name-taken':
     case 'promotion-superseded':
     case 'gate-policy-already-registered':
     case 'gate-policy-scope-taken':

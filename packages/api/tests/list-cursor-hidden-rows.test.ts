@@ -112,7 +112,7 @@ interface Entry {
   readonly byTime?: true;
 }
 
-/** The bindings the supervisor's lists need to mount (improvement passes, proposals). */
+/** The bindings the supervisor's lists need to mount (improvement passes, suggested changes). */
 const supervised = () => ({
   agentRegistry: absent(),
   blockRegistry: absent(),
@@ -198,16 +198,16 @@ const ENTRIES: readonly Entry[] = [
     name: 'eval runs',
     path: '/v1/eval-runs',
     bindings: () => {
-      const l = page('list', () => ({ suiteId: 'hid-suite' }));
+      const l = page('list', () => ({ testSetId: 'hid-testSet' }));
       return { bindings: { evalRunBinding: l.binding }, received: l.received };
     },
   },
   {
-    name: 'eval suites',
-    path: '/v1/eval-suites',
+    name: 'test sets',
+    path: '/v1/test-sets',
     bindings: () => {
       const l = page('list', (id) => ({ id }));
-      return { bindings: { evalSuiteRegistry: l.binding }, received: l.received };
+      return { bindings: { testSetRegistry: l.binding }, received: l.received };
     },
   },
   {
@@ -272,11 +272,11 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'judge classes',
-    path: '/v1/judge-classes',
+    name: 'corrector groups',
+    path: '/v1/corrector-groups',
     bindings: () => {
       const l = lister(
-        'listClasses',
+        'listGroups',
         {
           data: two(() => ({ scope: { kind: 'project', projectId: 'hid-project' } })),
           hasMore: true,
@@ -346,10 +346,10 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'proposals',
-    path: '/v1/proposals',
+    name: 'suggested-changes',
+    path: '/v1/suggested-changes',
     bindings: () => {
-      const l = page('listProposals', () => ({ agentId: 'hid-agent' }));
+      const l = page('listSuggestedChanges', () => ({ agentId: 'hid-agent' }));
       return { bindings: { ...supervised(), supervisor: l.binding }, received: l.received };
     },
   },

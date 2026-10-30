@@ -280,7 +280,7 @@ version (`candidate`), the `delta`, and `n`, the cases it's based on.
 
 - **`weightedYesShare`,** "Share marked right" in the console: of the items in
   the answer that people corrected, the share they marked right, weighted by
-  judge class. 0.1.0's answers had 3 marked right of 9 corrected articles.
+  corrector group. 0.1.0's answers had 3 marked right of 9 corrected articles.
   0.2.0's had 3 of 3: it kept only the right article each time.
 - **`judgedCoverage`,** "Corrected items": the share of the answer's items
   that people corrected. Items no one corrected bring it down. Here, each
@@ -296,17 +296,17 @@ reworded answer is a new item, with no corrections yet.
 
 ### Count only experts' corrections
 
-`--class-weights=restricted-only` counts only the corrections made under a
-[restricted class](../judge-a-runs-output/#restrict-who-may-correct-as-a-class).
+`--group-weights=experts-only` counts only the corrections made under a
+[expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group).
 An item none of them corrected counts as not corrected. In TypeScript, it's
-`classWeights: 'restricted-only'`, and in Python
-`class_weights="restricted-only"`. The summary says which it used, in
-`classWeights`, `as-recorded` by default.
+`groupWeights: 'experts-only'`, and in Python
+`group_weights="experts-only"`. The summary says which it used, in
+`groupWeights`, `as-recorded` by default.
 
-On three test cases, one of them corrected only under a class restricted
+On three test cases, one of them corrected only under a group restricted
 afterwards:
 
-| | `as-recorded` | `restricted-only` |
+| | `as-recorded` | `experts-only` |
 | --- | --- | --- |
 | `weightedYesShare` | 0.556 (5 of 9) | 0.5 (3 of 6) |
 | `judgedCoverage` | 1 | 0.667 |
@@ -373,8 +373,8 @@ CAPTURE: one perCase entry with "corrections": [{ "correctionId": …, "pass": f
 CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's summary
 ```
 
-With `--class-weights=restricted-only`, only the ones made under a
-restricted judge class are checked. No release gate policy checks them: read them
+With `--group-weights=experts-only`, only the ones made under a
+expert group are checked. No release gate policy checks them: read them
 before you [make the version live](../release-an-agent-version/#check-before-you-make-it-live).
 
 ## What a replay does
@@ -449,7 +449,7 @@ Start it again.
 ## Try a flow version on the test cases
 
 Test cases built from a flow's corrected runs, with
-`kindgi eval-suites from-corrections … --flow=<flow-id>`, try a flow
+`kindgi test-sets from-corrections … --flow=<flow-id>`, try a flow
 version. Each case runs the past run's input through that version, as a
 replay. The flow's whole output is rated: the output itself, the `output`
 item, and each element of a list in it.
@@ -559,9 +559,9 @@ on the test cases** list links each one to its page, which has:
   the 3 of 3 cases with answers people corrected. In 1 case it read something
   the recording didn't have.";
 - the metrics, for the recorded runs and the version, with the change. A run
-  that counted only restricted classes says so: "Only experts'
+  that counted only expert groups says so: "Only experts'
   corrections counted; the others weighed 0.", and lists mark
-  it "restricted classes only";
+  it "expert groups only";
 - **Case by case:** the recorded answer beside the version's, the corrected
   items it kept and the ones no longer there, the new ones, and each tool call;
 - **The whole result**, as JSON.

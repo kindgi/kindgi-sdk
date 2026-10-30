@@ -6,7 +6,7 @@
  * candidate and settings that replays nothing. It scores the run's replays
  * again, with what people corrected on them since (`comparison.rescoreOf`).
  * The run rescored stays as it was. `POST /v1/eval-runs/{runId}/rescore`
- * and `POST /v1/proposals/{proposalId}/rescore` both start one.
+ * and `POST /v1/suggested-changes/{suggestedChangeId}/rescore` both start one.
  */
 
 import type { ProjectId } from '@kindgi/types';
@@ -16,7 +16,7 @@ import type { EvalRun, EvalRunStartInput } from './eval-run-binding.js';
 
 /** Why `run` can't be rescored, or `undefined` when it can: a completed comparison of a test set. */
 export function rescoreRefusal(run: EvalRun): string | undefined {
-  if (run.kind === 'judged' && run.status === 'completed') return undefined;
+  if (run.kind === 'corrections' && run.status === 'completed') return undefined;
   return `Eval run ${run.runId as unknown as string} can't be rescored: only a completed comparison of a test set can (this one is a ${run.kind} run, ${run.status}).`;
 }
 
@@ -29,8 +29,8 @@ export function rescoreStart(
   return {
     tenantId: run.tenantId,
     projectId,
-    suiteId: run.suiteId,
-    suiteVersion: run.suiteVersion,
+    testSetId: run.testSetId,
+    testSetVersion: run.testSetVersion,
     ...(run.agentRef !== undefined && { agentRef: run.agentRef }),
     ...(run.flowRef !== undefined && { flowRef: run.flowRef }),
     ...(correlationId !== undefined && { correlationId }),

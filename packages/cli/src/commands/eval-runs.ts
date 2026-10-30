@@ -23,7 +23,7 @@ const STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'] as c
 type Status = (typeof STATUSES)[number];
 
 export const READS = ['recorded', 'live'] as const;
-export const CLASS_WEIGHTS = ['as-recorded', 'restricted-only'] as const;
+export const GROUP_WEIGHTS = ['as-recorded', 'experts-only'] as const;
 
 /** A flag that takes one of `values`; `undefined` when absent. */
 export function oneOfFlag<T extends string>(
@@ -223,9 +223,9 @@ const start: LeafCommand = {
   kind: 'leaf',
   name: 'start',
   description:
-    "Start an eval run. On test cases (a `judged` suite), the run tries a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) against the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
+    "Start an eval run. On test cases (a `corrections` test set), the run tries a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) against the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
   usage:
-    'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>:<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--dry-run] [--wait]',
+    'kindgi eval-runs start <test-set-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>:<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--dry-run] [--wait]',
   optionSpec: {
     project: { type: 'string', description: 'The project the run belongs to. Required.' },
     agent: { type: 'string', description: 'Run this agent.' },
@@ -273,10 +273,10 @@ const start: LeafCommand = {
       type: 'string',
       description: 'How many ranked items weighted precision@k looks at (1 to 100, default 10).',
     },
-    'class-weights': {
+    'group-weights': {
       type: 'string',
       description:
-        "Which corrections count: `as-recorded` (the default: each at its judge class's weight) or `restricted-only` (only corrections of classes restricted to experts; a release gate policy with `onlyRestrictedClasses` needs it).",
+        "Which corrections count: `as-recorded` (the default: each at its corrector group's weight) or `experts-only` (only corrections of groups restricted to experts; a release gate policy with `onlyExpertGroups` needs it).",
     },
     'dry-run': { type: 'boolean', description: 'Check the request without running anything.' },
     wait: {
@@ -287,12 +287,12 @@ const start: LeafCommand = {
   },
   run: (ctx) =>
     runSdkRendered(ctx, 'eval-runs start', async () => {
-      const suiteId = requiredPositional(ctx, 0, 'suite-id');
+      const testSetId = requiredPositional(ctx, 0, 'test-set-id');
       const projectId = stringFlag(ctx, 'project');
       if (projectId === undefined) throw new UsageError('--project=<id> is required');
       const target = targetFrom(ctx);
       const reads = oneOfFlag(ctx, 'reads', READS);
-      const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
+      const groupWeights = oneOfFlag(ctx, 'group-weights', GROUP_WEIGHTS);
       const baseline = baselineFrom(ctx);
       const repetitions = integerFlag(ctx, 'repetitions');
       const k = integerFlag(ctx, 'k');
@@ -304,11 +304,11 @@ const start: LeafCommand = {
         ...(reads !== undefined && { reads }),
         ...(repetitions !== undefined && { repetitions }),
         ...(k !== undefined && { k }),
-        ...(classWeights !== undefined && { classWeights }),
+        ...(groupWeights !== undefined && { groupWeights }),
         ...(ctx.options['dry-run'] === true && { dryRun: true }),
       };
       const evalRuns = ctx.client().evalRuns;
-      const started = await evalRuns.start(suiteId, input, { projectId });
+      const started = await evalRuns.start(testSetId, input, { projectId });
       if (ctx.options.wait !== true) return renderJson(started, ctx.globals.format);
 
       const run = await followEvalRun(started.runId, { get: (id) => evalRuns.get(id) });
@@ -333,9 +333,9 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List eval runs, newest first.',
-  usage: `kindgi eval-runs list [--suite=<id>] [--status=${STATUSES.join('|')}] [--agent=<id>] [--limit=<n>] [--cursor=<c>]`,
+  usage: `kindgi eval-runs list [--test-set=<id>] [--status=${STATUSES.join('|')}] [--agent=<id>] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: {
-    suite: { type: 'string', description: 'Only runs of this suite.' },
+    'test-set': { type: 'string', description: 'Only runs of this test set.' },
     status: { type: 'string', description: `Only this status: ${STATUSES.join(', ')}.` },
     agent: { type: 'string', description: 'Only runs of this agent.' },
     ...PAGE_FLAGS,
@@ -346,12 +346,12 @@ const list: LeafCommand = {
       if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) {
         throw new UsageError(`--status must be one of ${STATUSES.join(', ')}, got "${status}"`);
       }
-      const suiteId = stringFlag(ctx, 'suite');
+      const testSetId = stringFlag(ctx, 'test-set');
       const agentId = stringFlag(ctx, 'agent');
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
       return await ctx.client().evalRuns.list({
-        ...(suiteId !== undefined && { suiteId }),
+        ...(testSetId !== undefined && { testSetId }),
         ...(status !== undefined && { status: status as Status }),
         ...(agentId !== undefined && { agentId }),
         ...(limit !== undefined && { limit }),
@@ -409,6 +409,6 @@ export const evalRunsCommand: Command = {
   kind: 'group',
   name: 'eval-runs',
   description:
-    'Eval runs: run an eval suite, or try an agent version on the test cases (start / show / list / cancel / rescore).',
+    'Eval runs: run a test set, or try an agent version on the test cases (start / show / list / cancel / rescore).',
   subcommands: [start, show, list, cancel, rescore],
 };
