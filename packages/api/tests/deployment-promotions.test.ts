@@ -312,6 +312,8 @@ function livePins(
     readonly gated?: readonly string[] | undefined;
     /** Carried agents whose pin write fails (the error only the write can give). */
     readonly errorOn?: readonly string[] | undefined;
+    /** Record gated promotions (`promotions.request`), so each pin goes through the gate. */
+    readonly gate?: boolean | undefined;
   } = {},
 ): {
   readonly releases: AgentReleaseBindings;
@@ -343,6 +345,25 @@ function livePins(
         } satisfies Promotion,
       };
     },
+    ...(opts.gate === true && {
+      request: async (input: PromoteInput) => {
+        pinned.push(input);
+        return {
+          kind: 'ok' as const,
+          value: {
+            id: `pin-${pinned.length}`,
+            agentId: input.agentId,
+            scope: input.scope,
+            action: 'promote',
+            fromVersion: null,
+            toVersion: input.version,
+            requestedBy: input.requestedBy,
+            createdAt: '2026-10-01T10:00:00.000Z' as Timestamp,
+            status: 'promoted',
+          } satisfies Promotion,
+        };
+      },
+    }),
     rollback: notUsed,
     unpin: notUsed,
     list: async () => ({ data: [] }),
@@ -401,6 +422,8 @@ function harness(
     readonly gated?: readonly string[];
     /** Carried agents whose pin write fails (the error only the write can give). */
     readonly errorOn?: readonly string[];
+    /** Each pin goes through the gate (`livePins`' `gate`). */
+    readonly gate?: boolean;
     /** Items an order carries, so an agent spans more than one project. */
     readonly itemRows?: readonly ItemRow[];
     /** Wire a flow pin binding (`flowPinBinding`), so `makeLive` pins the carried flows; the flows named fail their write. */
@@ -462,7 +485,9 @@ function harness(
   };
   const grants = opts.grants;
   const live =
-    opts.live === true ? livePins({ gated: opts.gated, errorOn: opts.errorOn }) : undefined;
+    opts.live === true
+      ? livePins({ gated: opts.gated, errorOn: opts.errorOn, gate: opts.gate })
+      : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
   const flowPins = flowPinBinding(opts.flowPins);
   const app = createApp({
@@ -493,7 +518,9 @@ function harness(
           : null,
     } as never,
     agentRegistry: {
-      getVersion: async () => null,
+      // The gate reads the carried version; without it, nothing does.
+      getVersion: async ({ agentId, version }: { agentId: string; version: string }) =>
+        opts.gate === true ? { id: agentId, version } : null,
       listVersions: async () => ({ data: versions.rows }),
     } as never,
     secretsBinding: secretsBinding as never,
@@ -1269,6 +1296,25 @@ describe('making the carried agents live in the target (makeLive)', () => {
     expect(res.body.error.details?.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]).toMatchObject({ agentId: AGENT });
+  });
+  test("a first promotion carrying only a version made for a project: nothing runs in the target yet, so it isn't made live (409), and the move stays", async () => {
+    // The carried version isn't Latest by being carried, and the target has
+    // no pin and no other Latest: the gate has nothing to measure it against.
+    const h = harness({
+      live: true,
+      gate: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('nothing-runs-in-scope');
+    expect(res.body.error.message).toContain(`agent "${AGENT}" 1.0.0 wasn't made live`);
+    expect(res.body.error.message).toContain(
+      'Deploy a version of it into the target project first',
+    );
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+    expect(h.pinned).toEqual([]);
   });
 });
 
