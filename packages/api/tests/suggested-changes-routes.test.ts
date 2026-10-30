@@ -56,6 +56,7 @@ import type {
   ImprovementPass,
   ImprovementPassBinding,
   ImprovementPassEstimateBasis,
+  LatestAnswer,
   LivePin,
   Promotion,
   ReferenceScopeBinding,
@@ -70,6 +71,7 @@ import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
 import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
+import { highestAsLatest } from './support/latest.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -156,6 +158,7 @@ function agentBinding(
     async unregister() {
       return { unregistered: false };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -277,9 +280,11 @@ function evalRunFake(agents: AgentRegistryBinding) {
 function releasesFake(agents: AgentRegistryBinding) {
   const pins: LivePin[] = [];
   const promotions = new Map<string, Promotion>();
-  const state: { policy: GatePolicy | null } = { policy: null };
+  /** `latest`: Latest in every scope, `null` for none; absent: the highest. */
+  const state: { policy: GatePolicy | null; latest?: LatestAnswer | null } = { policy: null };
   const calls: { method: string; input: unknown }[] = [];
   const key = (scope: LiveScope) => JSON.stringify(scope);
+  const highest = highestAsLatest(agents);
   const pinOf = (agentId: string, scope: LiveScope) =>
     pins.find((p) => p.agentId === agentId && key(p.scope) === key(scope));
   const setPin = (agentId: string, scope: LiveScope, version: string, promotionId: string) => {
@@ -311,6 +316,10 @@ function releasesFake(agents: AgentRegistryBinding) {
       async list({ agentId }) {
         return pins.filter((p) => p.agentId === agentId);
       },
+    },
+    latest: {
+      latest: async (q) => (state.latest === undefined ? highest.latest(q) : state.latest),
+      byProject: async () => [],
     },
     promotions: {
       async promote(input) {
@@ -627,6 +636,7 @@ async function harness(
       pins: pinned,
       pinsDigest: pinsDigest(pinned),
     } as unknown as Agent,
+    madeFor: 'latest',
     enqueueTuples: () => [],
   });
   const evalRuns = evalRunFake(agents);
@@ -2371,6 +2381,17 @@ describe("what a suggested change names must be in its agent's project's reach",
 describe('improvement passes', () => {
   const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, testSetId: 'acme.scoring-judged' };
 
+  test('no version runs in the scope (no pin, no Latest): 404, saying so, and nothing starts', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ tunable: true, passes: passes.binding });
+    h.releases.state.latest = null;
+    const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
+    expect([res.status, res.body.error.code]).toEqual([404, 'agent-version-not-found']);
+    expect(res.body.error.message).toContain('runs in this scope');
+    expect(res.body.error.message).toContain('`fromVersion`');
+    expect(passes.started).toEqual([]);
+  });
+
   test('improve starts a pass for the version serving the scope, with the default budget (202)', async () => {
     const passes = inMemoryPasses();
     const h = await harness({ tunable: true, passes: passes.binding });
@@ -3036,6 +3057,29 @@ describe('POST /v1/proposals/improve/estimate', () => {
     };
     return { binding, seen };
   }
+
+  test("no pin covers the scope: the version is the scope's Latest, not the highest", async () => {
+    const { binding, seen } = withEstimate({ replays: 10, meanRunCostUsd: '0.2' });
+    const h = await harness({ tunable: true, passes: binding });
+    // 1.1.0 is higher, made for a project's card: never Latest by itself.
+    const base = await h.agents.getVersion({
+      tenantId,
+      agentId: AGENT as never,
+      version: '1.0.0' as Semver,
+    });
+    if (base === null) throw new Error('no 1.0.0');
+    await h.agents.publish({
+      tenantId,
+      projectId,
+      agent: { ...base, version: '1.1.0' } as unknown as Agent,
+      madeFor: 'project',
+      enqueueTuples: () => [],
+    });
+    h.releases.state.latest = { version: '1.0.0' as Semver, deploymentId: 'dep-1' };
+    const res = await h.call('POST', '/v1/proposals/improve/estimate', IMPROVE);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(seen[0]?.fromVersion).toBe('1.0.0');
+  });
 
   test('estimates min(cap, replays × the version mean) and reports the basis', async () => {
     const { binding, seen } = withEstimate({ replays: 10, meanRunCostUsd: '0.2' });

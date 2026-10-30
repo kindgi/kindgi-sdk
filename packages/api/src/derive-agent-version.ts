@@ -10,7 +10,7 @@ import {
   pinsDigest,
 } from '@kindgi/agents';
 import type { TupleEnqueueHook } from '@kindgi/authz';
-import { latestVersion, nextVersion } from '@kindgi/tools';
+import { highestVersion, nextVersion } from '@kindgi/tools';
 import type { ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
@@ -178,7 +178,7 @@ async function publishNextFree(
   const same = active.find((a) => a.pinsDigest === derived.pinsDigest && definitionKey(a) === key);
   if (same !== undefined) return { kind: 'reused', agent: same };
   const highest =
-    latestVersion(active.map((a) => a.version as unknown as string)) ??
+    highestVersion(active.map((a) => a.version as unknown as string)) ??
     (derived.version as unknown as string);
   let candidate = nextVersion(highest);
   for (let tries = 0; candidate !== undefined && tries < MAX_TRIES; tries++) {
@@ -187,6 +187,8 @@ async function publishNextFree(
       tenantId,
       projectId,
       agent,
+      // Made for the project it's derived in: Latest nowhere until someone adds it.
+      madeFor: 'project',
       enqueueTuples: input.tuplesFor(projectId),
     });
     if (outcome.kind === 'ok') {

@@ -298,8 +298,11 @@ export type {
 export { followRun, subscribeToRun } from './run-follow.js';
 export { comparisonOf } from './resources/eval-runs.js';
 export type {
+  AgentHighestVersion,
   AgentProject,
   AgentProjectList,
+  AgentProjectRuns,
+  AgentProjectSegmentPin,
   LivePin,
   LivePinList,
   LiveScope,

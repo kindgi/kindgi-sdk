@@ -175,9 +175,10 @@ pnpm exec kindgi runs start --agent=acme-desk.reply-drafter --input='{"userMessa
 Going live takes two steps, in this order.
 
 **1. Make the agent's version live.** Until an agent has a live version,
-each run gets its latest version, so every deploy changes what runs at
-once. Make the version you tried live in the project. Then later deploys
-change nothing until you make a version live again.
+each run gets its project's Latest, the version the newest deploy shipped,
+so every deploy changes what runs at once. Make the version you tried live
+in the project. Then later deploys change nothing until you make a version
+live again.
 
 Ask your coding agent: "Make the version of `acme-desk.reply-drafter` that I
 tried live in the Default project." For reference:

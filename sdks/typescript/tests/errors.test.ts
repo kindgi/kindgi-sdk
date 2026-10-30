@@ -100,6 +100,7 @@ describe('fromWire — conflicts', () => {
     'project-default-already-exists',
     'registry-read-only',
     'nothing-to-roll-back',
+    'nothing-runs-in-scope',
     'not-pinned',
     'agent-version-live',
     'promotion-superseded',

@@ -6,7 +6,16 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, LiveScope, ProjectId, Semver, TenantId } from '@kindgi/types';
 
+import type { PromotionActor } from './live-version-binding.js';
 import type { RegistryReadOnly } from './registry-read-only.js';
+
+/**
+ * What an agent version is made for. `latest`: a deploy or a person's
+ * full publish, so it can be what an unpinned project runs. `project`: a
+ * version made for one project's card, published under that project; it
+ * is Latest nowhere until someone adds it as the latest version.
+ */
+export type AgentMadeFor = 'latest' | 'project';
 
 /**
  * Caller-plugged surface for the agent catalog. Same shape as
@@ -39,8 +48,11 @@ export interface AgentRegistryBinding {
    */
   list(input: AgentListInput): Promise<AgentPage>;
   /**
-   * Latest version of the given agent id, or `null` if unknown. The
-   * route surfaces `null` as `404 agent-not-found`.
+   * The highest active version of the given agent id, or `null` if
+   * unknown. The route surfaces `null` as `404 agent-not-found`. It
+   * numbers the next version; what an unpinned project runs is Latest
+   * (`LatestBinding`), which a version made for a project's card never is
+   * by itself.
    */
   get(input: AgentGetInput): Promise<AgentVersionRecord | null>;
   /**
@@ -108,6 +120,16 @@ export interface AgentRegistryBinding {
    * published.
    */
   reinstateVersion(input: AgentReinstateVersionInput): Promise<AgentReinstateVersionOutcome>;
+  /**
+   * Make an existing version Latest, now, in the project it was made in
+   * (Add as the latest version): sets its `latestAt` and `latestBy`, so
+   * it's Latest there until a newer deployment or another add
+   * (`LatestBinding`). Marking it again moves the time. `{ kind:
+   * 'not-found' }` when the version was never published, or is
+   * unregistered. A registry whose versions come from files refuses it
+   * the same way.
+   */
+  markLatest(input: AgentMarkLatestInput): Promise<AgentMarkLatestOutcome>;
 }
 
 /**
@@ -119,6 +141,12 @@ export interface AgentRegistryBinding {
 export type AgentVersionRecord = Agent & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
+  /** What the version was made for, when the store records it. Absent on a version from before 0.4.0. */
+  readonly madeFor?: AgentMadeFor;
+  /** ISO-8601: when a person made the version Latest in its project (`AgentPublishInput.latestBy`). */
+  readonly latestAt?: string;
+  /** Who did, with `latestAt`. */
+  readonly latestBy?: PromotionActor;
   /**
    * The agent's project, when the store records it: agents never move
    * between projects, so every version reads the same one. In a tenant
@@ -212,6 +240,15 @@ export interface AgentPublishInput {
    * use); a binding stores and returns them with the rest.
    */
   readonly agent: Agent;
+  /** What the version is made for (`AgentMadeFor`). */
+  readonly madeFor: AgentMadeFor;
+  /**
+   * A person's full publish makes the version Latest in its project at
+   * once, and records who did (`AgentVersionRecord.latestAt`). Absent for
+   * a deploy, whose deployment is the record, and for a card's version,
+   * which is Latest only once someone adds it.
+   */
+  readonly latestBy?: PromotionActor;
   /**
    * REQUIRED. Called inside the binding's write transaction after the
    * head + version rows are inserted, receiving the FGA subject id
@@ -240,6 +277,14 @@ export interface AgentReinstateVersionInput {
   readonly tenantId: TenantId;
   readonly agentId: AgentId;
   readonly version: Semver;
+}
+
+export interface AgentMarkLatestInput {
+  readonly tenantId: TenantId;
+  readonly agentId: AgentId;
+  readonly version: Semver;
+  /** Who made it Latest: the request's principal. */
+  readonly by: PromotionActor;
 }
 
 export interface AgentPage {
@@ -298,6 +343,20 @@ export type AgentUnregisterOutcome = {
    */
   readonly live?: readonly LiveScope[];
 };
+
+export type AgentMarkLatestOutcome =
+  | {
+      readonly kind: 'ok';
+      readonly agentId: AgentId;
+      readonly version: Semver;
+      /** ISO-8601: the version's new `latestAt`. */
+      readonly latestAt: string;
+    }
+  | {
+      readonly kind: 'not-found';
+      readonly agentId: AgentId;
+      readonly version: Semver;
+    };
 
 export type AgentReinstateVersionOutcome =
   | {

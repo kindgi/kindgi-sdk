@@ -67,7 +67,7 @@ export { TOOL_IDEMPOTENCY_NAMESPACE, toolIdempotencyKey } from './idempotency-ke
 export type { InvokeToolOptions, ToolOutcome } from './invoke.js';
 export { createToolRegistry } from './registry.js';
 export type { ToolRegisterOptions, ToolRegistry, ToolResolution } from './registry.js';
-export { latestVersion, nextVersion, pickVersion } from './versions.js';
+export { highestVersion, nextVersion, pickVersion } from './versions.js';
 export type { VersionPick } from './versions.js';
 export { toManifest, toMcpManifest } from './manifest.js';
 export { changedToolFields, sameToolDefinition, toolDefinition } from './definition.js';

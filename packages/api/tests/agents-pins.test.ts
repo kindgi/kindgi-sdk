@@ -86,6 +86,7 @@ function agentBinding(): AgentRegistryBinding & {
     async unregister() {
       return { unregistered: false };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },

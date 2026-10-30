@@ -30,6 +30,7 @@ import {
   outOfScopeResponse,
 } from '../reference-scope.js';
 import type { AppEnv } from '../types.js';
+import { type WhatRuns, whatRuns } from '../what-runs.js';
 import { serializeGatePolicy } from './gate-policy-wire.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
@@ -69,6 +70,11 @@ export interface AgentReleaseGateDeps {
   readonly projects?: ProjectBinding;
   /** A project or segment scope must reach the agent (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
+  /**
+   * Whether a project is suspended: a promotion into one where nothing
+   * runs says so, not that nothing runs. Absent: no check.
+   */
+  readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
 }
 
 /**
@@ -136,43 +142,41 @@ export function mountAgentReleaseRoutes(
         ),
       );
     }
-    const resolved = await releases.live.resolve({
+    const runs = await whatRuns(releases, {
       tenantId,
       agentId,
       ...(projectId !== undefined && { projectId: projectId as ProjectId }),
       ...(segments.segments !== undefined && { segments: segments.segments }),
     });
-    return answerLive(c, tenantId, agentId, resolved);
+    return answerLive(c, agentId, runs);
   });
 
   /**
-   * What `GET …/live` answers: the live version `resolved` names, else
-   * (nothing pinned on the way up) the latest registered version, which is
-   * what a run gets. A version the caller can't see answers as no agent
-   * does (`item-rights.ts`).
+   * What `GET …/live` answers: the live version that covers the scope,
+   * else (nothing pinned on the way up) Latest, which is what a run gets
+   * (`whatRuns`). A version the caller can't see answers as no version
+   * running there does (`item-rights.ts`), and so does an agent no one
+   * registered.
    */
-  async function answerLive(
-    c: Ctx,
-    tenantId: TenantId,
-    agentId: string,
-    resolved: Awaited<ReturnType<typeof releases.live.resolve>>,
-  ) {
+  async function answerLive(c: Ctx, agentId: string, runs: WhatRuns | null) {
     const hidden = async (version: string) => !(await seen(c, agentId, [version])).has(version);
-    if (resolved !== null && !(await hidden(resolved.version as unknown as string))) {
+    if (runs?.follows === 'pin' && !(await hidden(runs.version as unknown as string))) {
       return c.json({
         agentId,
-        version: resolved.version as unknown as string,
+        version: runs.version as unknown as string,
         via: 'live',
-        liveScope: liveScopeToWire(resolved.scope),
+        liveScope: liveScopeToWire(runs.liveScope),
       });
     }
-    const latest =
-      resolved === null ? await registry.get({ tenantId, agentId: agentId as AgentId }) : null;
+    const latest = runs?.follows === 'latest' ? runs : null;
     if (latest === null || (await hidden(latest.version as unknown as string))) {
       c.status(statusFor('agent-not-found') as never);
       return c.json(
         toWireError(
-          { code: 'agent-not-found', message: `No agent "${agentId}" is registered` },
+          {
+            code: 'agent-not-found',
+            message: `No version of agent "${agentId}" runs in this scope: none is pinned there, and none is its Latest`,
+          },
           c.get('requestId'),
         ),
       );
@@ -738,18 +742,34 @@ async function runGate(
   if (promoted === null || promoted.unregisteredAt !== undefined) {
     return err('agent-version-not-found', `${agentId} has no active version ${req.version}`);
   }
-  const live = await releases.live.resolve({ tenantId, agentId, ...coordinatesOf(req.scope) });
-  let servingVersion = live?.version as unknown as string | undefined;
-  if (servingVersion === undefined) {
-    const latest = await registry.get({ tenantId, agentId: agentId as AgentId });
-    if (latest === null) return err('agent-not-found', `No agent "${agentId}" is registered`);
-    servingVersion = latest.version as unknown as string;
+  const coordinates = coordinatesOf(req.scope);
+  const runs = await whatRuns(releases, { tenantId, agentId, ...coordinates });
+  if (runs === null) {
+    // Nothing to measure the version against. A suspended project's
+    // deployments are retired, which is why: say that.
+    const { projectId } = coordinates;
+    if (
+      projectId !== undefined &&
+      deps.projectSuspended !== undefined &&
+      (await deps.projectSuspended(tenantId, projectId))
+    ) {
+      return err(
+        'project-suspended',
+        "The scope's project is suspended, so nothing is promoted in it until it's restored. Nothing was promoted.",
+      );
+    }
+    return err(
+      'nothing-runs-in-scope',
+      `No version of agent "${agentId}" runs in this scope yet: none is pinned there, and none is its Latest. Deploy or publish a version into the project first; into a later environment, promote a build that ships one. Nothing was promoted.`,
+    );
   }
+  const live = runs.follows === 'pin' ? runs : null;
+  const servingVersion = runs.version as unknown as string;
   if (policy === null) return { kind: 'ok', result: { checks: [], passed: true }, servingVersion };
   if (servingVersion === (req.version as unknown as string)) {
     const pins = await releases.live.list({ tenantId, agentId });
     if (!pins.some((pin) => sameScope(pin.scope, req.scope))) {
-      const from = live === null ? 'as the latest version' : 'from a pin above it';
+      const from = live === null ? 'as its Latest' : 'from a pin above it';
       return {
         kind: 'ok',
         result: {

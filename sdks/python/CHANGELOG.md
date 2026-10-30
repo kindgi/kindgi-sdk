@@ -47,6 +47,21 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `SuggestedChange*`, and the block edit a suggested change carries is
   `SuggestedChangeBlockEdit`), `proposal_id` is `suggested_change_id`, and a
   suggested change's status `promoted` is `pinned`.
+- `kindgi`: **a promotion into a scope where nothing runs yet raises
+  `ConflictError` with `server_code` `nothing-runs-in-scope`.** With no pin
+  covering the scope and no Latest there, there's nothing to measure the
+  version against: deploy or publish a version into the project first, or,
+  into a later environment, promote a build that ships one.
+- `kindgi`: **`client.agents.projects(agent_id)` says what runs in each
+  project.** Each project gains `runs` (the version a run there that names no
+  version gets, since when, and the pin or deployment behind it), `follows`
+  (`pin` or `latest`) and `segments` (the pins on segments inside it), and the
+  answer gains `highest`, the agent's highest version. A run that names no
+  version, in a scope no pin covers, now gets the agent's Latest in its
+  project: it moves only when a deployment into the project ships a version,
+  or when a person publishes a full version, and a derived version is never
+  Latest by itself. `client.agents.get(agent_id)` still answers the highest
+  version.
 
 ## 0.3.0
 
