@@ -225,7 +225,10 @@ describe('sync-docs-line', () => {
       checked.stderr,
       /links https:\/\/docs\.kindgi\.com\/v0\.1\.10\/guides\/get-started; a skill links/,
     );
-    assert.match(checked.stderr, /links https:\/\/docs\.kindgi\.com\/guides\/improve; a skill links/);
+    assert.match(
+      checked.stderr,
+      /links https:\/\/docs\.kindgi\.com\/guides\/improve; a skill links/,
+    );
   });
 
   test("skips a tracked file that's gone from the checkout", () => {
