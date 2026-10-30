@@ -5,6 +5,7 @@ import type {
   ChangeCorrectionInput,
   CorrectedAnswerItem,
   Correction,
+  CorrectionLink,
   CorrectionSortedTo,
   CorrectionStatus,
   CreateCorrectionInput,
@@ -12,12 +13,14 @@ import type {
 } from '@kindgi/client';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { renderJson } from '../output.js';
 import {
   givenFlag,
   integerFlag,
   listFlag,
   requiredPositional,
   runSdk,
+  runSdkRendered,
   stringFlag,
   timeFlag,
 } from './helpers.js';
@@ -102,7 +105,8 @@ interface Said {
   readonly mustNotCall?: readonly string[];
   readonly answer?: Verdict;
   readonly shouldSay?: string;
-  readonly why?: string;
+  /** `null`: an empty `--why=`, which clears it. */
+  readonly why?: string | null;
   readonly item?: CorrectedAnswerItem;
 }
 
@@ -174,7 +178,8 @@ function fold(live: Correction | undefined, said: Said, runId: string): CreateCo
   const mustNotCall = said.mustNotCall ?? (keepDecisions ? live?.mustNotCall : undefined);
   const answer = said.answer ?? live?.answer;
   const shouldSay = said.shouldSay ?? (answer === 'wrong' ? live?.shouldSay : undefined);
-  const why = said.why ?? live?.why;
+  // Kept when a part is said right: it says why the correction was made, whatever it says.
+  const why = said.why === null ? undefined : (said.why ?? live?.why);
   // A correction names each item once, by key, so an item said again replaces its entry.
   const items =
     said.item === undefined
@@ -191,6 +196,24 @@ function fold(live: Correction | undefined, said: Said, runId: string): CreateCo
     ...(items !== undefined && { items }),
     ...(live?.correctorGroupId !== undefined && { correctorGroupId: live.correctorGroupId }),
   };
+}
+
+/**
+ * The line that says which live correction a call replaced, when it was on
+ * its way to a fix (`being-fixed` or `with-owner`): the new one is sorted
+ * afresh and keeps none of its status or link.
+ */
+function replacedLine(live: Correction | undefined): string | undefined {
+  if (live === undefined || (live.status !== 'being-fixed' && live.status !== 'with-owner')) {
+    return undefined;
+  }
+  const link = live.link === undefined ? '' : ` (${linkText(live.link)})`;
+  return `Replaced correction ${live.id}, which was ${live.status}${link}. The new one is sorted afresh, without its status or link.\n`;
+}
+
+function linkText(link: CorrectionLink): string {
+  if (link.kind === 'pull-request') return `pull request ${link.url}`;
+  return `${link.kind === 'improve-run' ? 'improve run' : 'suggested change'} ${link.id}`;
 }
 
 const add: LeafCommand = {
@@ -228,7 +251,10 @@ const add: LeafCommand = {
       type: 'string',
       description: 'With `--answer=wrong`: what the answer should have said.',
     },
-    why: { type: 'string', description: 'Why, in your words.' },
+    why: {
+      type: 'string',
+      description: 'Why, in your words. An empty `--why=` clears it; saying a part right keeps it.',
+    },
     item: {
       type: 'string',
       description:
@@ -253,10 +279,11 @@ const add: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'corrections add', async () => {
+    runSdkRendered(ctx, 'corrections add', async () => {
       const runId = stringFlag(ctx, 'run');
       if (runId === undefined) throw new UsageError('--run=<run-id> is required');
-      const why = givenFlag(ctx, 'why');
+      // Given empty, `--why=` clears it.
+      const why = ctx.options.why === '' ? null : givenFlag(ctx, 'why');
       const item = itemOf(ctx);
       const said: Said = {
         ...decisionsOf(ctx),
@@ -283,11 +310,15 @@ const add: LeafCommand = {
       });
       const live = mine.data.find((j) => j.participantId === participantId);
       const correctorGroupId = stringFlag(ctx, 'group');
-      return await client.corrections.create({
+      const created = await client.corrections.create({
         ...fold(live, said, runId),
         ...(correctorGroupId !== undefined && { correctorGroupId }),
         ...(participantId !== undefined && { participantId }),
       });
+      // A warning, said under `--quiet` too: what was on its way to a fix starts again.
+      const replaced = replacedLine(live);
+      const rendered = renderJson(created, ctx.globals.format);
+      return replaced === undefined ? rendered : { ...rendered, stderr: replaced };
     }),
 };
 

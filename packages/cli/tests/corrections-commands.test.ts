@@ -207,6 +207,73 @@ describe('kindgi corrections', () => {
     expect(right.calls[1]?.[1]).toEqual({ runId: 'r-1', decisions: 'right', answer: 'right' });
   });
 
+  test('an empty --why= clears why; a part said right keeps it', async () => {
+    const live = {
+      id: 'c-1',
+      runId: 'r-1',
+      decisions: 'wrong',
+      mustNotCall: ['acme.refund'],
+      why: 'Final sale: store credit, never a refund',
+    };
+    const right = recorder();
+    const kept = await run(
+      ['corrections', 'add', '--run=r-1', '--decisions=right'],
+      withLive(right.rec, [live]),
+    );
+    expect(kept.exitCode, kept.stderr).toBe(0);
+    expect(right.calls[1]?.[1]).toEqual({
+      runId: 'r-1',
+      decisions: 'right',
+      why: 'Final sale: store credit, never a refund',
+    });
+    const cleared = recorder();
+    const out = await run(
+      ['corrections', 'add', '--run=r-1', '--why='],
+      withLive(cleared.rec, [live]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(cleared.calls[1]?.[1]).toEqual({
+      runId: 'r-1',
+      decisions: 'wrong',
+      mustNotCall: ['acme.refund'],
+    });
+  });
+
+  test('replacing a correction on its way to a fix says which, and where it was', async () => {
+    const live = {
+      id: 'c-1',
+      runId: 'r-1',
+      answer: 'wrong',
+      why: 'wrong refund policy',
+      status: 'being-fixed',
+      sortedTo: 'developer',
+      link: { kind: 'pull-request', url: 'https://github.com/acme/store/pull/12' },
+    };
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['corrections', 'add', '--run=r-1', '--answer=right'],
+      withLive(rec, [live]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toBe(
+      'Replaced correction c-1, which was being-fixed (pull request https://github.com/acme/store/pull/12). The new one is sorted afresh, without its status or link.\n',
+    );
+    // What it sends has no status, sorting or link: the new one is sorted afresh.
+    expect(calls[1]?.[1]).toEqual({ runId: 'r-1', answer: 'right', why: 'wrong refund policy' });
+    const quiet = await run(
+      ['corrections', 'add', '--run=r-1', '--answer=right', '--quiet'],
+      withLive(recorder().rec, [{ ...live, status: 'with-owner', link: undefined }]),
+    );
+    expect(quiet.stderr).toBe(
+      'Replaced correction c-1, which was with-owner. The new one is sorted afresh, without its status or link.\n',
+    );
+    const open = await run(
+      ['corrections', 'add', '--run=r-1', '--answer=right'],
+      withLive(recorder().rec, [{ ...live, status: 'open', link: undefined }]),
+    );
+    expect(open.stderr).toBe('');
+  });
+
   test('an item named again under a new pointer replaces its entry', async () => {
     const live = {
       id: 'c-1',

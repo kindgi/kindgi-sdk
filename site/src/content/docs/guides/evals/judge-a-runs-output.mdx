@@ -218,7 +218,9 @@ object RecordCorrection {
   earlier one stays in the history. From a client, send the whole
   correction each time. The CLI does that for you: each
   `kindgi corrections add` replaces the parts it gives and keeps the rest.
-  Saying a part was right drops what should have happened there.
+  Saying a part was right drops what should have happened there, and an
+  empty `--why=` clears the why. A correction that was being fixed or with
+  the owner starts again, sorted afresh, and the CLI says which it replaced.
 
 The run now has the correction. Only a finished run can be corrected, and
 each item's pointer must find something.
