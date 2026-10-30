@@ -6078,6 +6078,12 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
     input: {},
     context: { $ref: '#/components/schemas/CorrectedRunContext' },
     output: {},
+    segments: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ScopeSegment' },
+      description:
+        "The segment path its run was started with, coarse to fine (empty: none). Set on a frozen case of an agent's test set when its run's copy has it.",
+    },
     items: { type: 'array', items: { $ref: '#/components/schemas/CorrectedItemSummary' } },
     corrections: {
       type: 'array',
@@ -6116,7 +6122,7 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
       type: 'boolean',
       const: true,
       description:
-        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` and `expect` gone, and test runs leave it out (counted as `erased`).",
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections`, `expect` and `segments` gone, and test runs leave it out (counted as `erased`).",
     },
   },
 };

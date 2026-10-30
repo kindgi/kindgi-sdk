@@ -14889,6 +14889,10 @@ class CorrectedEvalCase(BaseModel):
     input: Any
     context: CorrectedRunContext | None = None
     output: Any
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path its run was started with, coarse to fine (empty: none). Set on a frozen case of an agent's test set when its run's copy has it.
+    """
     items: list[CorrectedItemSummary]
     corrections: list[CorrectedEvalCaseCorrection] | None = None
     """
@@ -14900,7 +14904,7 @@ class CorrectedEvalCase(BaseModel):
     """
     erased: Literal[True] | None = None
     """
-    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` and `expect` gone, and test runs leave it out (counted as `erased`).
+    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections`, `expect` and `segments` gone, and test runs leave it out (counted as `erased`).
     """
 
 

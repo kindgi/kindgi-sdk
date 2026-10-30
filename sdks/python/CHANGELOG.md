@@ -88,7 +88,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `AgentTestSet`, `TestSetCaseCounts`, `TestSetFrozenVersion`, `TestCase*`
   and `AddTestCaseBody`.
 - `kindgi`: **A frozen case says what it expects.** `CorrectedEvalCase` gains
-  `expect` (`TestCaseExpect`), set on a case of an agent's frozen test set.
+  `expect` (`TestCaseExpect`) and `segments` (its run's segment path), set on
+  a case of an agent's frozen test set.
 - `kindgi`: **Test sets built from corrections are gone.**
   `client.test_sets.build_from_corrections` is removed, with
   `BuildCorrectedTestSetBody`, `BuildCorrectedTestSetResult` and

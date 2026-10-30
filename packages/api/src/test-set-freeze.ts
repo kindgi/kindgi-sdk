@@ -276,6 +276,7 @@ function frozenCase(
     input: run.input,
     ...(run.context !== undefined && { context: run.context }),
     output: run.output,
+    ...(run.segments !== undefined && { segments: run.segments }),
     items: (expect.items ?? []).map(
       (item): CorrectedItemSummary => ({
         key: item.key,

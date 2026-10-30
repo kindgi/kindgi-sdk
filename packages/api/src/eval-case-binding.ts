@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, TenantId } from '@kindgi/types';
+import type { Cursor, ScopeSegment, TenantId } from '@kindgi/types';
 
 import type { CorrectedItem, CorrectedRunContext, CorrectedSubject } from './correction-binding.js';
 import type { ExpectedDecisions } from './expected-decisions.js';
@@ -89,6 +89,11 @@ export interface CorrectedEvalCase {
   readonly context?: CorrectedRunContext;
   /** The output that was corrected. */
   readonly output: unknown;
+  /**
+   * The segment path its run was started with (empty: none). Set on a
+   * frozen case when its run's copy has it.
+   */
+  readonly segments?: readonly ScopeSegment[];
   readonly items: readonly CorrectedItemSummary[];
   /**
    * Experts' expected decisions carried onto this case, each graded on the
@@ -106,8 +111,8 @@ export interface CorrectedEvalCase {
   /**
    * An erasure cleared this case (a person's words were erased): its
    * `input`, `output` and `context` are gone, its items empty, and its
-   * corrections and `expect` dropped. Test runs leave it out and count it
-   * (`erased`).
+   * corrections, `expect` and `segments` dropped. Test runs leave it out
+   * and count it (`erased`).
    */
   readonly erased?: true;
 }

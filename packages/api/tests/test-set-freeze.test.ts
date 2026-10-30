@@ -129,9 +129,11 @@ describe('createTestSetFreeze', () => {
         subject: { kind: 'agent', id: agentId, version: '1.1.0' },
         input: { ask: 'cancel?' },
         output: { text: 'Cancelled.' },
+        segments: [{ key: 'company', value: 'acme-east' }],
       },
       madeBy: { kind: 'user', id: randomUUID() },
-      answer: 'right',
+      answer: 'wrong',
+      why: 'Ask which order first.',
     });
     // Not this project's, or not this agent's.
     await h.corrected(WRONG_ANSWER, { project: otherProjectId });
@@ -215,8 +217,9 @@ describe('createTestSetFreeze', () => {
         subject: { kind: 'agent', id: agentId, version: '1.1.0' },
         input: { ask: 'cancel?' },
         output: { text: 'Cancelled.' },
+        segments: [{ key: 'company', value: 'acme-east' }],
         items: [],
-        expect: { answer: { verdict: 'right' } },
+        expect: { answer: { verdict: 'wrong', why: 'Ask which order first.' } },
       },
     ]);
     // Two people's corrections of one run are two cases, each kept with its run.
@@ -282,6 +285,53 @@ describe('createTestSetFreeze', () => {
         output: null,
         items: [],
         erased: true,
+      },
+    ]);
+  });
+
+  test("a hand case freezes with its run's copy and its own words; only a case whose copy is gone is erased", async () => {
+    const h = harness();
+    const gone = await h.corrected(WRONG_ANSWER);
+    const hand = await h.store.addCase({
+      tenantId,
+      projectId,
+      runId: randomUUID(),
+      run: {
+        subject: { kind: 'agent', id: agentId, version: '1.2.0' },
+        input: { ask: 'cancel?' },
+        output: { text: 'Cancelled.' },
+      },
+      madeBy: { kind: 'user', id: randomUUID() },
+      answer: 'wrong',
+      shouldSay: 'Which order?',
+    });
+    const copies = h.store.runCopies;
+    const frozen = createTestSetFreeze({
+      corrections: {
+        ...h.store,
+        runCopies: async (input) =>
+          copies({ ...input, runIds: input.runIds.filter((id) => id !== gone.runId) }),
+      },
+      testSets: h.testSets.registry,
+      cases: h.cases,
+    });
+    await frozen.freezeTestSet({ tenantId, agentId, projectId });
+    expect(await h.stored('1.0.0')).toEqual([
+      {
+        caseId: gone.id,
+        subject: { kind: 'agent', id: agentId, version: '1.2.0' },
+        input: null,
+        output: null,
+        items: [],
+        erased: true,
+      },
+      {
+        caseId: hand.id,
+        subject: { kind: 'agent', id: agentId, version: '1.2.0' },
+        input: { ask: 'cancel?' },
+        output: { text: 'Cancelled.' },
+        items: [],
+        expect: { answer: { verdict: 'wrong', shouldSay: 'Which order?' } },
       },
     ]);
   });
