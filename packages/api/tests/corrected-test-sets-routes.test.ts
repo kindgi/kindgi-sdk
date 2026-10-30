@@ -199,6 +199,18 @@ beforeEach(async () => {
 });
 
 describe('POST /v1/test-sets/:id/versions/from-corrections', () => {
+  test("an id starting `agent.` is an agent's own test set: building one is 400, and nothing is written", async () => {
+    const res = await h.call(
+      'POST',
+      '/v1/test-sets/agent.acme.matcher.p1/versions/from-corrections',
+      base,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatchObject({ code: 'bad-input' });
+    expect(res.body.error.message).toContain('Test set ids starting `agent.`');
+    expect(h.testSets.published).toEqual([]);
+  });
+
   test('builds cases with the items summed, ranked, and the run copied', async () => {
     const res = await h.call('POST', BUILD, { ...base, description: 'First set' });
     expect(res.status).toBe(201);

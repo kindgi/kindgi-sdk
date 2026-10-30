@@ -328,6 +328,18 @@ export interface TestSetFreezeBinding {
 }
 
 /**
+ * How every agent's test set id starts (`agentTestSetId`). It's reserved:
+ * only a freeze makes their versions, through the binding, and the routes
+ * refuse to publish a test set whose id starts with it.
+ */
+export const AGENT_TEST_SET_ID_PREFIX = 'agent.';
+
+/** Whether `testSetId` is reserved for an agent's test set (`AGENT_TEST_SET_ID_PREFIX`). */
+export function isAgentTestSetId(testSetId: string): boolean {
+  return testSetId.startsWith(AGENT_TEST_SET_ID_PREFIX);
+}
+
+/**
  * The id of an agent's test set in one project: `agent.<agentId>.<projectId>`.
  * A freeze publishes its versions under it, so a reader finds the newest
  * frozen version with `TestSetRegistryBinding.get` and its cases under
@@ -335,7 +347,12 @@ export interface TestSetFreezeBinding {
  * authorization object's id can't hold one.
  */
 export function agentTestSetId(agentId: AgentId, projectId: ProjectId): string {
-  return `agent.${agentId as unknown as string}.${projectId as unknown as string}`;
+  return `${AGENT_TEST_SET_ID_PREFIX}${agentId as unknown as string}.${projectId as unknown as string}`;
+}
+
+/** The answer when a caller publishes a test set under an agent's test set id. */
+export function agentTestSetIdReserved(testSetId: string): string {
+  return `Test set ids starting \`${AGENT_TEST_SET_ID_PREFIX}\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${testSetId}" under another id.`;
 }
 
 export interface FreezeTestSetInput {

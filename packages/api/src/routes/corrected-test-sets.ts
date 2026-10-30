@@ -22,7 +22,11 @@ import type {
 } from '../eval-case-binding.js';
 import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import type { TestSetRegistryBinding } from '../test-set-binding.js';
+import {
+  type TestSetRegistryBinding,
+  agentTestSetIdReserved,
+  isAgentTestSetId,
+} from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -57,6 +61,9 @@ export function correctedTestSetsRouter(
   r.post('/:testSetId/versions/from-corrections', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const testSetId = c.req.param('testSetId');
+    if (isAgentTestSetId(testSetId)) {
+      return fail(c, 'bad-input', agentTestSetIdReserved(testSetId));
+    }
     const parsed = parseBuildBody(await c.req.json().catch(() => null));
     if (parsed.kind === 'err') return fail(c, 'bad-input', parsed.message);
     const body = parsed.body;

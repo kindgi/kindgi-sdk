@@ -108,6 +108,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
     `kind` is `code`, with `deployment_id` and `image_digest`. When the
     version its project runs has no finished run on the same cases, its
     `note` is `not-running`, with that `version`, and its check has no `now`.
+  - Test set ids starting `agent.` are agents' own test sets: publishing a
+    test set, or building a version from corrections, under one raises
+    `InvalidRequestError` (`400 bad-input`). A test set with such an id
+    published before keeps reading and running, but a new version of it is
+    refused: publish it under another id.
   - New models: `SuggestedChangeChange`, `SuggestedChangeCheck`,
     `SuggestedChangeCheckSide`, `SuggestedChangeNote` and
     `SuggestedChangeBlockContent`.
