@@ -881,8 +881,12 @@ The two can go in two Google Cloud projects, or in one:
   it, `terraform plan` stops and asks for it. From a module copy that set
   only Terraform's deletion protection, the next apply also turns on
   Google's in the instance, in place, while `database_deletion_protection`
-  is on (the default). If the plan says the instance `must be replaced`,
-  stop: a replace deletes the database.
+  is on (the default). With a private-IP database
+  (`database_private_network`), that change makes the module read the
+  instance's CAs during the apply, so the plan shows the server's
+  `KINDGI_DATABASE_SERVER_CA` as `(known after apply)`: it's still the
+  instance's CAs. If the plan says the instance `must be replaced`, stop:
+  a replace deletes the database.
 - **Or upgrade with the module's `upgrade.sh`:** a deployment of the
   module on runtime 0.1.8 or later, in any `network_mode`, can run it
   instead, to 0.2.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes
