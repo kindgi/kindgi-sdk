@@ -879,6 +879,10 @@ EOT
      default). If a plan says the instance must be replaced, answer no: a
      replace deletes the database. (This script's plan check stops on a
      replace before it asks.)
+   - With a private-IP database (database_private_network) as well, that
+     change makes the module read the instance's CAs during the apply, so
+     the plan shows the server's KINDGI_DATABASE_SERVER_CA as known after
+     apply. It's still the instance's CAs.
 EOT
       ;;
   esac
@@ -914,7 +918,8 @@ print_by_hand_steps() {
 # place, as their steps to confirm by hand say (module_changes):
 # "<resource type>.<name> <attribute path>", the path without list indices,
 # an env var or a database flag by its name. The module's own changes in that
-# release (services.tf, data.tf, foundation.tf), each made in place.
+# release (services.tf, data.tf, foundation.tf), each made in place. $1 is the
+# plan (terraform show -json), for a change allowed only beside another.
 plan_allowed_changes() {
   local r
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
@@ -943,9 +948,24 @@ plan_allowed_changes() {
         ;;
       0.3.0)
         printf '%s\n' "google_sql_database_instance.kindgi settings.deletion_protection_enabled"
+        # That change makes the module read a private-IP instance's CAs during
+        # the apply, so in the same plan the server's are known only then.
+        # Never on their own.
+        if [[ $DATABASE_PRIVATE == true ]] && plan_protects_instance "$1"; then
+          printf '%s\n' "google_cloud_run_v2_service.server template.containers.env.KINDGI_DATABASE_SERVER_CA"
+        fi
         ;;
     esac
   done
+}
+
+# Whether a plan (terraform show -json) turns on Google's deletion protection
+# on the module's instance, in place: 0.3.0's change.
+plan_protects_instance() {
+  jq -e '[.resource_changes[]?
+    | select(.type == "google_sql_database_instance" and .name == "kindgi" and .change.actions == ["update"])
+    | select((.change.before.settings[0].deletion_protection_enabled // false) != true
+        and .change.after.settings[0].deletion_protection_enabled == true)] | length > 0' "$1" >/dev/null 2>&1
 }
 
 # Every change in a plan (terraform show -json) that $allowed doesn't name,
@@ -1007,7 +1027,7 @@ check_plan() {
   local plan="$1" expect_pack="$2" json="$WORK/plan.json" allowed found image ok=true
   terraform show -json "$plan" >"$json" 2>"$WORK/show.err" \
     || { warn "couldn't read the saved plan with 'terraform show -json'. $(cat "$WORK/show.err")"; return 1; }
-  allowed="$(plan_allowed_changes | jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {key: .[0], path: .[1]})')"
+  allowed="$(plan_allowed_changes "$json" | jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {key: .[0], path: .[1]})')"
   found="$(jq -r --argjson allowed "$allowed" "$PLAN_CHANGES_JQ" "$json")" \
     || { warn "couldn't read the changes in the saved plan."; return 1; }
   image="$(jq -r --arg n server "$PLAN_IMAGE_JQ" "$json")"

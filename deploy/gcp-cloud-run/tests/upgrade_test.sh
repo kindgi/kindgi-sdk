@@ -91,8 +91,9 @@ case "${1:-}" in
     # The plan file is the plan as `terraform show -json` gives it: the server
     # (and the pack, with STUB_PACK_BEFORE) at the image the var files set, a
     # later file over an earlier one and -var over both, as terraform reads
-    # them; STUB_PLAN_CHANGES adds resource changes; STUB_PLAN_KEEP_IMAGE
-    # leaves the server's image as it is.
+    # them; STUB_PLAN_CHANGES adds resource changes; STUB_SERVER_ENV
+    # ({before, after, after_unknown}) adds env entries to the server's own
+    # change; STUB_PLAN_KEEP_IMAGE leaves the server's image as it is.
     out="" prev="" img="" pack=""
     for a in "$@"; do
       case "$a" in
@@ -116,16 +117,17 @@ case "${1:-}" in
     if [[ -n $out ]]; then
       jq -n --arg old "$STUB_RUNNING_IMAGE" --arg new "${img:-$STUB_RUNNING_IMAGE}" \
         --arg pold "${STUB_PACK_BEFORE:-}" --arg pnew "${pack:-${STUB_PACK_BEFORE:-}}" \
-        --argjson extra "${STUB_PLAN_CHANGES:-[]}" '
-        def svc($n; $addr; $b; $a):
-          {address: $addr, mode: "managed", type: "google_cloud_run_v2_service", name: $n,
-           change: {actions: (if $b == $a then ["no-op"] else ["update"] end),
-             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: [{name: "KINDGI_ENV", value: "dev", value_source: []}]}]}]},
-             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: [{name: "KINDGI_ENV", value: "dev", value_source: []}]}]}]},
-             after_unknown: {template: [{containers: [{env: [{}]}]}]}}};
+        --argjson extra "${STUB_PLAN_CHANGES:-[]}" --argjson senv "${STUB_SERVER_ENV:-null}" '
+        def svc($n; $addr; $b; $a; $env):
+          {name: "KINDGI_ENV", value: "dev", value_source: []} as $base
+          | {address: $addr, mode: "managed", type: "google_cloud_run_v2_service", name: $n,
+           change: {actions: (if $b == $a and $env == null then ["no-op"] else ["update"] end),
+             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: ([$base] + ($env.before // []))}]}]},
+             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: ([$base] + ($env.after // []))}]}]},
+             after_unknown: {template: [{containers: [{env: ([{}] + ($env.after_unknown // []))}]}]}}};
         {format_version: "1.2",
-         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new)]
-           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew)] end)
+         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new; $senv)]
+           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew; null)] end)
            + $extra)}' >"$out"
     fi
     exit "${STUB_PLAN_RC:-0}" ;;
@@ -197,7 +199,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
         STUB_EXPORT_RC STUB_EXPORT_412 STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
-        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
+        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
         V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
@@ -966,6 +968,79 @@ assert_present "$STUB_MARKER_EXPORT" "backup"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 if ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan >/dev/null 2>&1; then fail "a stopped plan was kept"; else pass; fi
+
+# 49c. A private-IP database: with the instance changing, the module reads its
+# CAs during the apply, so the plan has the server's KINDGI_DATABASE_SERVER_CA
+# known only after it. 0.3.0's change allows that beside the instance's, and
+# the run goes ahead.
+SERVER_CA_AFTER_APPLY="$(jq -cn '{
+  before: [{name: "KINDGI_DATABASE_SERVER_CA", value: "CA-ONE\nCA-TWO", value_source: []}],
+  after: [{name: "KINDGI_DATABASE_SERVER_CA", value_source: []}],
+  after_unknown: [{value: true}]}')"
+private_ip() {
+  V_NET="connector"; V_CONNECTOR="projects/demo-proj/locations/northamerica-northeast2/connectors/acme"
+  V_DB_PRIVATE="projects/demo-proj/global/networks/acme"; export STUB_DB_PUBLIC=false
+}
+case_start "0.2.0 -> 0.3.0, a private-IP database: the server's CA known after the apply"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED" STUB_SERVER_ENV="$SERVER_CA_AFTER_APPLY"; private_ip
+run "yes" --to 0.3.0
+assert_rc 0 "the CA known after the apply passes"
+assert_out "on instance kindgi (private IP)"
+assert_out "the plan shows the server's KINDGI_DATABASE_SERVER_CA as known after"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 49d. The same plan with one more server env change, a name that starts with
+# the CA's: the check names it and stops, and doesn't name the CA.
+SERVER_CA_AND_PATH="$(jq -cn --argjson ca "$SERVER_CA_AFTER_APPLY" '{
+  before: $ca.before,
+  after: ($ca.after + [{name: "KINDGI_DATABASE_SERVER_CA_PATH", value_source: []}]),
+  after_unknown: ($ca.after_unknown + [{value: true}])}')"
+case_start "the same plan with another server env change"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED" STUB_SERVER_ENV="$SERVER_CA_AND_PATH"; private_ip
+run "yes" --to 0.3.0
+assert_rc 1 "another env change stops it"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA_PATH" "the other env var named"
+if grep -qx "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA" "$OUT"; then fail "the CA was named"; else pass; fi
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 49e. The CA known after the apply in a plan that doesn't change the
+# instance (database_deletion_protection = false, say): nothing explains it,
+# so the check names it and stops.
+case_start "the server's CA known after the apply, the instance unchanged"
+reset_env; export STUB_TAGS="0.2.0" STUB_SERVER_ENV="$SERVER_CA_AFTER_APPLY"; private_ip
+run "yes" --to 0.3.0
+assert_rc 1 "the CA on its own stops it"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA" "the CA named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 49f. Without a private IP, the module doesn't set the CA, and a plan that
+# changes it stops.
+case_start "the server's CA known after the apply, no private IP"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED" STUB_SERVER_ENV="$SERVER_CA_AFTER_APPLY"
+run "yes" --to 0.3.0
+assert_rc 1 "it stops"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA" "the CA named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 49g. A private-IP deployment on 0.2.0 that goes straight to the release
+# after 0.3.0, in one run: the plan makes 0.3.0's change on the way, and the
+# CA comes with it. A copy that lists 0.3.1 stands in for that release's own.
+NEXT_SCRIPT="$TMP/upgrade-next.sh"
+sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1")/' "$SCRIPT" >"$NEXT_SCRIPT"
+chmod +x "$NEXT_SCRIPT"
+if grep -qx 'readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1")' "$NEXT_SCRIPT"; then pass; else fail "the copy's KNOWN_RELEASES wasn't set"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$NEXT_SCRIPT"
+case_start "0.2.0 -> 0.3.1, a private-IP database: the server's CA known after the apply"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED" STUB_SERVER_ENV="$SERVER_CA_AFTER_APPLY"; private_ip
+run "yes" --to 0.3.1
+assert_rc 0 "0.2.0 -> 0.3.1 passes"
+assert_out "crossing: 0.3.0 0.3.1$"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+SCRIPT="$REAL_SCRIPT"
 
 # 50. A pack env left off the command: the plan drops the pack's env vars, and
 # the check names each one it drops, never a value. A var it keeps, moved in
