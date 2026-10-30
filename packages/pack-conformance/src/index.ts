@@ -582,7 +582,7 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(config({ minLength: -1 })).toBe(false);
       });
 
-      test("an llm-judge guardrail indexes its judge (judgeCapabilities) the same in every SDK", () => {
+      test('an llm-judge guardrail indexes its judge (judgeCapabilities) the same in every SDK', () => {
         // The runtime routes an llm-judge guardrail's judge model by its judgeCapabilities, and
         // refuses one without them on every turn.
         expect(index.guardrails.find((g) => g.id === 'conformance.judged')).toMatchObject({
