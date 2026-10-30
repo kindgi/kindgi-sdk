@@ -109,7 +109,7 @@ It prints the run, with its metrics:
 ```
 
 Without `--wait`, the command returns the run's id at once, and
-`kindgi test-runs show <run-id>` reads it later.
+`kindgi test-runs show <test-run-id>` reads it later.
 
 From your code, ask your coding agent: "I want a script that tries my
 new agent version on my test cases, and shows me the scores." For reference,
@@ -435,7 +435,7 @@ tool with the same arguments.
 
 **The replay runs** are ordinary runs, marked with `replayOf`, the past run,
 and `testRunId`. Lists of runs leave them out. `kindgi runs list
---test-run=<run-id>` lists those of one run on the test cases, and
+--test-run=<test-run-id>` lists those of one run on the test cases, and
 `--replays=include` or `--replays=only` adds them to any list. Conversation
 lists leave out their conversations the same way: `kindgi conversations list
 --replays=only` lists them. You can [correct](../correct-a-runs-output/) them
