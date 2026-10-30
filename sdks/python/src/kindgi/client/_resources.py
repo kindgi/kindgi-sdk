@@ -517,8 +517,14 @@ OPERATIONS: dict[str, Operation] = {
     "corrections.get": Operation(
         "corrections.get", "GET", "/v1/corrections/{correctionId}", "json", False
     ),
+    "corrections.change": Operation(
+        "corrections.change", "PATCH", "/v1/corrections/{correctionId}", "json", True
+    ),
     "corrections.remove": Operation(
         "corrections.remove", "POST", "/v1/corrections/{correctionId}/remove", "json", True
+    ),
+    "corrections.counts": Operation(
+        "corrections.counts", "GET", "/v1/corrections/counts", "json", False
     ),
     "judgeClasses.list": Operation("judgeClasses.list", "GET", "/v1/judge-classes", "json", False),
     "judgeClasses.create": Operation(
@@ -5448,7 +5454,22 @@ class CorrectionsResource:
         agent_id: str | UUID | None = None,
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
-        verdict: Literal["yes", "no"] | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
         judge_class_id: str | UUID | None = None,
         participant_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -5457,7 +5478,7 @@ class CorrectionsResource:
     ) -> _models.CorrectionCollectionPage:
         """List corrections. `GET /v1/corrections`
 
-        Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, judge class or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.
         """
         return self._client._request(
             _OPERATIONS["corrections.list"],
@@ -5469,7 +5490,12 @@ class CorrectionsResource:
                 "agentId": agent_id,
                 "agentVersion": agent_version,
                 "flowId": flow_id,
-                "verdict": verdict,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
                 "judgeClassId": judge_class_id,
                 "participantId": participant_id,
                 "scopeKind": scope_kind,
@@ -5489,9 +5515,9 @@ class CorrectionsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.Correction:
-        """Correct an item of a run's output. `POST /v1/corrections`
+        """Correct a run. `POST /v1/corrections`
 
-        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.
+        Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: "wrong"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.
         """
         return self._client._request(
             _OPERATIONS["corrections.create"],
@@ -5508,7 +5534,7 @@ class CorrectionsResource:
     ) -> _models.CorrectionWithCopies:
         """Fetch a correction with its copies. `GET /v1/corrections/{correctionId}`
 
-        Returns the correction (live or not) with the stored copy of the run's input and output and, when the correction pointed at an item, its value.
+        Returns the correction (live or not) with the stored copy of the run's input and output.
         """
         return self._client._request(
             _OPERATIONS["corrections.get"],
@@ -5516,6 +5542,30 @@ class CorrectionsResource:
             query={},
             headers={},
             response=_models.CorrectionWithCopies,
+            timeout=timeout,
+        )
+
+    def change(
+        self,
+        correction_id: str | UUID,
+        body: _models.ChangeCorrectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Correction:
+        """Re-sort a correction or change its status. `PATCH /v1/corrections/{correctionId}`
+
+        A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`, with `reason`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow).
+        """
+        return self._client._request(
+            _OPERATIONS["corrections.change"],
+            path={"correctionId": correction_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeCorrectionBody, body, fields),
+            response=_models.Correction,
             timeout=timeout,
         )
 
@@ -5529,7 +5579,7 @@ class CorrectionsResource:
     ) -> _models.RemoveCorrectionResult:
         """Remove a correction. `POST /v1/corrections/{correctionId}/remove`
 
-        Soft delete: the correction stops listing; retention policy decides when it is purged.
+        Its status becomes `removed`, and it can't come back. It lists only when `status=removed` is asked for; retention policy decides when it is purged. Needs to be its author, or `admin` on its project.
         """
         return self._client._request(
             _OPERATIONS["corrections.remove"],
@@ -5537,6 +5587,28 @@ class CorrectionsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RemoveCorrectionResult,
+            timeout=timeout,
+        )
+
+    def counts(
+        self,
+        /,
+        *,
+        agent_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.CorrectionCounts:
+        """Count corrections by status. `GET /v1/corrections/counts`
+
+        How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["corrections.counts"],
+            path={},
+            query={"agentId": agent_id, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={},
+            response=_models.CorrectionCounts,
             timeout=timeout,
         )
 
@@ -15222,7 +15294,22 @@ class AsyncCorrectionsResource:
         agent_id: str | UUID | None = None,
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
-        verdict: Literal["yes", "no"] | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
         judge_class_id: str | UUID | None = None,
         participant_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
@@ -15231,7 +15318,7 @@ class AsyncCorrectionsResource:
     ) -> _models.CorrectionCollectionPage:
         """List corrections. `GET /v1/corrections`
 
-        Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, judge class or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.
         """
         return await self._client._request(
             _OPERATIONS["corrections.list"],
@@ -15243,7 +15330,12 @@ class AsyncCorrectionsResource:
                 "agentId": agent_id,
                 "agentVersion": agent_version,
                 "flowId": flow_id,
-                "verdict": verdict,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
                 "judgeClassId": judge_class_id,
                 "participantId": participant_id,
                 "scopeKind": scope_kind,
@@ -15263,9 +15355,9 @@ class AsyncCorrectionsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.Correction:
-        """Correct an item of a run's output. `POST /v1/corrections`
+        """Correct a run. `POST /v1/corrections`
 
-        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.
+        Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: "wrong"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.
         """
         return await self._client._request(
             _OPERATIONS["corrections.create"],
@@ -15282,7 +15374,7 @@ class AsyncCorrectionsResource:
     ) -> _models.CorrectionWithCopies:
         """Fetch a correction with its copies. `GET /v1/corrections/{correctionId}`
 
-        Returns the correction (live or not) with the stored copy of the run's input and output and, when the correction pointed at an item, its value.
+        Returns the correction (live or not) with the stored copy of the run's input and output.
         """
         return await self._client._request(
             _OPERATIONS["corrections.get"],
@@ -15290,6 +15382,30 @@ class AsyncCorrectionsResource:
             query={},
             headers={},
             response=_models.CorrectionWithCopies,
+            timeout=timeout,
+        )
+
+    async def change(
+        self,
+        correction_id: str | UUID,
+        body: _models.ChangeCorrectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.Correction:
+        """Re-sort a correction or change its status. `PATCH /v1/corrections/{correctionId}`
+
+        A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`, with `reason`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow).
+        """
+        return await self._client._request(
+            _OPERATIONS["corrections.change"],
+            path={"correctionId": correction_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ChangeCorrectionBody, body, fields),
+            response=_models.Correction,
             timeout=timeout,
         )
 
@@ -15303,7 +15419,7 @@ class AsyncCorrectionsResource:
     ) -> _models.RemoveCorrectionResult:
         """Remove a correction. `POST /v1/corrections/{correctionId}/remove`
 
-        Soft delete: the correction stops listing; retention policy decides when it is purged.
+        Its status becomes `removed`, and it can't come back. It lists only when `status=removed` is asked for; retention policy decides when it is purged. Needs to be its author, or `admin` on its project.
         """
         return await self._client._request(
             _OPERATIONS["corrections.remove"],
@@ -15311,6 +15427,28 @@ class AsyncCorrectionsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RemoveCorrectionResult,
+            timeout=timeout,
+        )
+
+    async def counts(
+        self,
+        /,
+        *,
+        agent_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.CorrectionCounts:
+        """Count corrections by status. `GET /v1/corrections/counts`
+
+        How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["corrections.counts"],
+            path={},
+            query={"agentId": agent_id, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={},
+            response=_models.CorrectionCounts,
             timeout=timeout,
         )
 

@@ -384,6 +384,7 @@
           "eval-run-not-found": 404,
           "eval-run-not-rescorable": 409,
           "correction-not-found": 404,
+          "correction-status-change-not-allowed": 409,
           "judge-class-not-found": 404,
           "judging-rule-not-found": 404,
           "judging-item-not-found": 404,
@@ -6196,7 +6197,7 @@
           "key": {
             "type": "string",
             "minLength": 1,
-            "description": "The caller's stable id for the item. `kindgi:correction` is reserved: a correction on it is accepted only when it carries expected decisions (`correction`) at pointer `\"\"`."
+            "description": "The caller's stable id for the item. `kindgi:correction` is reserved for Kindgi."
           },
           "pointer": {
             "type": "string",
@@ -6258,7 +6259,7 @@
           }
         }
       },
-      "CorrectionAssertedBy": {
+      "CorrectionMadeBy": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6283,16 +6284,17 @@
       "Correction": {
         "type": "object",
         "additionalProperties": false,
+        "description": "A person's correction of one run: whether its decisions (the tool calls) and its answer were right, and what was right instead. It says at least one of `decisions`, `answer` and `items`.",
         "required": [
           "id",
           "tenantId",
           "projectId",
           "runId",
           "subject",
-          "item",
-          "verdict",
-          "assertedBy",
-          "createdAt"
+          "madeBy",
+          "status",
+          "createdAt",
+          "updatedAt"
         ],
         "properties": {
           "id": {
@@ -6310,22 +6312,49 @@
           "subject": {
             "$ref": "#/components/schemas/CorrectedSubject"
           },
-          "item": {
-            "$ref": "#/components/schemas/CorrectedItem"
-          },
-          "verdict": {
+          "decisions": {
             "type": "string",
             "enum": [
-              "yes",
-              "no"
-            ]
+              "right",
+              "wrong"
+            ],
+            "description": "Whether the run's decisions were right. Absent when it says nothing about them."
           },
-          "reason": {
+          "shouldCall": {
+            "type": "array",
+            "description": "With `decisions: \"wrong\"`: the calls the agent should have made.",
+            "items": {
+              "$ref": "#/components/schemas/ExpectedCall"
+            }
+          },
+          "mustNotCall": {
+            "type": "array",
+            "description": "With `decisions: \"wrong\"`: the tools that should not have been called.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ],
+            "description": "Whether the run's answer was right. Absent when it says nothing about it."
+          },
+          "shouldSay": {
+            "type": "string",
+            "description": "With `answer: \"wrong\"`: what it should have said."
+          },
+          "why": {
             "type": "string"
           },
-          "correction": {
-            "$ref": "#/components/schemas/ExpectedDecisions",
-            "description": "The expert's correction of the run's decisions, when they gave one."
+          "items": {
+            "type": "array",
+            "description": "For an answer that is a ranked list: each item, and whether it was right there.",
+            "items": {
+              "$ref": "#/components/schemas/CorrectedAnswerItem"
+            }
           },
           "judgeClassId": {
             "type": "string",
@@ -6338,16 +6367,56 @@
             ],
             "description": "Present (true) when the judge class was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it."
           },
-          "assertedBy": {
-            "$ref": "#/components/schemas/CorrectionAssertedBy"
+          "madeBy": {
+            "$ref": "#/components/schemas/CorrectionMadeBy"
           },
           "participantId": {
             "type": "string",
             "description": "The app's opaque id for its end user who corrected it, when an app corrected it on their behalf."
           },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "being-fixed",
+              "with-owner",
+              "fixed",
+              "wont-fix",
+              "removed"
+            ],
+            "description": "Where it is in being fixed. `with-owner` while the agent's owner decides; `fixed` only when a pin or a deploy fixed it, or it said nothing was wrong; `removed` can't come back."
+          },
+          "sortedTo": {
+            "type": "string",
+            "enum": [
+              "improve",
+              "developer",
+              "owner"
+            ],
+            "description": "Who works on it: Improve, a developer, or the agent's owner. Absent while unsorted."
+          },
+          "sorted": {
+            "$ref": "#/components/schemas/CorrectionSorted"
+          },
+          "link": {
+            "$ref": "#/components/schemas/CorrectionLink",
+            "description": "The work fixing it. Present while it is `being-fixed`."
+          },
+          "fixedIn": {
+            "$ref": "#/components/schemas/CorrectionFixedIn",
+            "description": "Present while it is `fixed`."
+          },
+          "statusNote": {
+            "$ref": "#/components/schemas/CorrectionStatusNote"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it last changed: `createdAt` until something changes it."
           },
           "unregisteredAt": {
             "type": "string",
@@ -6357,6 +6426,265 @@
           "supersededBy": {
             "type": "string",
             "description": "The correction that replaced this one."
+          }
+        }
+      },
+      "CorrectedAnswerItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "verdict"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The caller's stable id for the item."
+          },
+          "pointer": {
+            "type": "string",
+            "description": "Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`."
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The item's position in the ranked list (0 = first)."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ]
+          }
+        }
+      },
+      "CorrectionSorted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "by",
+          "at"
+        ],
+        "properties": {
+          "by": {
+            "description": "The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.",
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fix-job",
+                      "rule"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "user",
+                      "service"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CorrectionLink": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "improve-run",
+                  "suggested-change"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "url"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "pull-request"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        ]
+      },
+      "CorrectionFixedIn": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "how",
+          "at"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The version that fixed it. Absent for `recorded-right`, which nothing had to fix."
+          },
+          "how": {
+            "type": "string",
+            "enum": [
+              "pin",
+              "latest",
+              "recorded-right"
+            ],
+            "description": "`pin`: a pin fixed it. `latest`: a deploy or an add moved Latest in a project that follows it. `recorded-right`: it said nothing was wrong."
+          },
+          "by": {
+            "$ref": "#/components/schemas/CorrectionMadeBy"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CorrectionStatusNote": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "by",
+          "at"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/CorrectionMadeBy"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ChangeCorrectionBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "A re-sort, a status, or both (the re-sort first). `fixed` is set only by a pin or a deploy, and `removed` by `POST /v1/corrections/{correctionId}/remove`.",
+        "properties": {
+          "sortedTo": {
+            "type": "string",
+            "enum": [
+              "improve",
+              "developer",
+              "owner"
+            ],
+            "description": "From `open`, `being-fixed` or `with-owner`. To `owner` sets `with-owner`; away from `owner`, `open`."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "being-fixed",
+              "wont-fix"
+            ],
+            "description": "`being-fixed` from `open` or `with-owner`, with `link`. `open` from `being-fixed` or `wont-fix`. `wont-fix` from anything but `removed`, with `reason`."
+          },
+          "link": {
+            "type": "string",
+            "description": "With `status: \"being-fixed\"`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`)."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason."
+          }
+        }
+      },
+      "CorrectionCounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "open",
+          "beingFixed",
+          "withOwner",
+          "fixed",
+          "wontFix",
+          "removed"
+        ],
+        "description": "How many of a project's (or an agent's) live corrections are in each status.",
+        "properties": {
+          "open": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "beingFixed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "withOwner": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fixed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "wontFix": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "removed": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -6548,9 +6876,6 @@
             "properties": {
               "run": {
                 "$ref": "#/components/schemas/CorrectedRunCopy"
-              },
-              "itemValue": {
-                "description": "The corrected item's value, when the correction pointed at it."
               }
             }
           }
@@ -6583,28 +6908,78 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "runId",
-          "item",
-          "verdict"
+          "runId"
         ],
+        "description": "At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`.",
         "properties": {
           "runId": {
             "type": "string",
             "minLength": 1
           },
-          "item": {
-            "$ref": "#/components/schemas/CorrectedItem"
-          },
-          "verdict": {
+          "decisions": {
             "type": "string",
             "enum": [
-              "yes",
-              "no"
+              "right",
+              "wrong"
             ]
           },
-          "reason": {
+          "shouldCall": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "Only with `decisions: \"wrong\"`: the calls the agent should have made.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tool"
+              ],
+              "properties": {
+                "tool": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "args": {
+                  "type": "object",
+                  "maxProperties": 100,
+                  "description": "Only when the inputs matter: the top-level argument fields to compare, by value. Left out, only the call is checked. At most 4000 characters in canonical JSON."
+                }
+              }
+            }
+          },
+          "mustNotCall": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "Only with `decisions: \"wrong\"`: tools that shouldn't have been called. A tool can't be in both.",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ]
+          },
+          "shouldSay": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "Only with `answer: \"wrong\"`: what it should have said."
+          },
+          "why": {
             "type": "string",
             "maxLength": 4000
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "description": "For an answer that is a ranked list: each item, and whether it was right. Each key once.",
+            "items": {
+              "$ref": "#/components/schemas/CorrectedAnswerItem"
+            }
           },
           "judgeClassId": {
             "type": "string",
@@ -6615,10 +6990,6 @@
             "type": "string",
             "minLength": 1,
             "description": "An app's opaque id for its end user, when correcting on their behalf."
-          },
-          "correction": {
-            "$ref": "#/components/schemas/ExpectedDecisions",
-            "description": "Optional. The tool calls the agent should have made, graded on a replay. Expected decisions cover the run's whole output, so they are recorded under one reserved item (`item.key` `\"kindgi:correction\"`, `item.pointer` `\"\"`): expected decisions on any other item are a 400, and a second set from the same expert on the run replaces the first, so it counts once."
           }
         }
       },
@@ -46202,7 +46573,7 @@
     "/v1/corrections": {
       "post": {
         "operationId": "corrections.create",
-        "summary": "Correct an item of a run's output",
+        "summary": "Correct a run",
         "tags": [
           "corrections"
         ],
@@ -46218,7 +46589,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `judge-class-not-applicable`.",
+            "description": "Malformed body, or `item-not-found` (an item's pointer resolves to nothing in the output), or `judge-class-not-applicable`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46308,7 +46679,7 @@
             }
           }
         },
-        "description": "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+        "description": "Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -46385,7 +46756,7 @@
             }
           }
         },
-        "description": "Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.",
+        "description": "Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, judge class or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.",
         "parameters": [
           {
             "name": "limit",
@@ -46449,17 +46820,89 @@
             "description": "Only corrections of runs of this flow."
           },
           {
-            "name": "verdict",
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "not-fixed",
+                  "open",
+                  "being-fixed",
+                  "with-owner",
+                  "fixed",
+                  "wont-fix",
+                  "removed"
+                ]
+              }
+            },
+            "required": false,
+            "description": "Only corrections in these statuses: one, or several, repeated or comma-separated. `not-fixed` is short for `open`, `being-fixed` and `with-owner`. Removed corrections come back only when `removed` is asked for."
+          },
+          {
+            "name": "sortedTo",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "improve",
+                  "developer",
+                  "owner"
+                ]
+              }
+            },
+            "required": false,
+            "description": "Only corrections sorted to these (repeated or comma-separated), with `none` for unsorted ones."
+          },
+          {
+            "name": "from",
             "in": "query",
             "schema": {
               "type": "string",
               "enum": [
-                "yes",
-                "no"
+                "experts",
+                "end-users",
+                "all"
               ]
             },
             "required": false,
-            "description": "Only corrections with this verdict."
+            "description": "`experts`: corrections under a restricted judge class. `end-users`: an app's end users' (`participantId`), not experts'. `all` (the default): every one."
+          },
+          {
+            "name": "madeBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "me"
+              ]
+            },
+            "required": false,
+            "description": "`me`: only the caller's own corrections."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only corrections made at or after this time."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only corrections made before this time."
           },
           {
             "name": "judgeClassId",
@@ -46557,7 +47000,7 @@
             }
           }
         },
-        "description": "Returns the correction (live or not) with the stored copy of the run's input and output and, when the correction pointed at an item, its value.",
+        "description": "Returns the correction (live or not) with the stored copy of the run's input and output.",
         "parameters": [
           {
             "name": "correctionId",
@@ -46570,6 +47013,143 @@
             "description": "Correction id."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "corrections.change",
+        "summary": "Re-sort a correction or change its status",
+        "tags": [
+          "corrections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The changed correction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Correction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body: a link without `being-fixed`, `being-fixed` without a link, or `wont-fix` without a reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: this needs publish on the agent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No live correction with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`correction-status-change-not-allowed`: the change table does not allow it from its status (`details: { from, to }`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`, with `reason`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow).",
+        "parameters": [
+          {
+            "name": "correctionId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Correction id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeCorrectionBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -46666,7 +47246,7 @@
             }
           }
         },
-        "description": "Soft delete: the correction stops listing; retention policy decides when it is purged.",
+        "description": "Its status becomes `removed`, and it can't come back. It lists only when `status=removed` is asked for; retention policy decides when it is purged. Needs to be its author, or `admin` on its project.",
         "parameters": [
           {
             "name": "correctionId",
@@ -46687,6 +47267,94 @@
             },
             "required": false,
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/corrections/counts": {
+      "get": {
+        "operationId": "corrections.counts",
+        "summary": "Count corrections by status",
+        "tags": [
+          "corrections"
+        ],
+        "responses": {
+          "200": {
+            "description": "Counts by status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorrectionCounts"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed query parameter, or no project scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only corrections of runs of this agent."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
           }
         ],
         "security": [

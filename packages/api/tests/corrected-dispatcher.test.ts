@@ -21,6 +21,7 @@ import {
   DEFAULT_COMPARISON,
   RESCORE_UNSUPPORTED,
   createCorrectedDispatcher,
+  sortAtSave,
 } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
@@ -775,8 +776,9 @@ describe('a rescore: the replays scored again, with what people corrected on the
   }
 
   const correctAnswer =
-    (verdict: 'yes' | 'no', extra: object = {}) =>
+    (answer: 'right' | 'wrong', extra: object = {}) =>
     async (j: ReturnType<typeof inMemoryCorrections>) => {
+      const lead = { kind: 'user' as const, id: 'lead' };
       await j.record({
         tenantId,
         projectId: 'p-run' as ProjectId,
@@ -786,15 +788,16 @@ describe('a rescore: the replays scored again, with what people corrected on the
           input: 'find b',
           output: answers['case-b']?.output,
         },
-        item: { key: 'answer', pointer: '/appended/3/content' },
-        verdict,
-        assertedBy: { kind: 'user', id: 'lead' },
+        answer,
+        ...(answer === 'wrong' && { why: 'not what was asked' }),
+        madeBy: lead,
+        ...sortAtSave({ answer, expert: false }, lead, '2026-10-09T00:00:00.000Z'),
         ...extra,
       });
     };
 
   test("a changed answer, corrected on its replay, counts: no replay runs, and the evidence says it's fresh", async () => {
-    const r = await rescoreAfter(correctAnswer('yes'));
+    const r = await rescoreAfter(correctAnswer('right'));
     expect(r.invoked).toEqual([]);
     expect(r.error).toBeUndefined();
     // Before: case-b's changed answer was a new item, with no evidence.
@@ -830,13 +833,13 @@ describe('a rescore: the replays scored again, with what people corrected on the
   });
 
   test('restricted-only: a fresh correction counts only if its class was restricted', async () => {
-    const unrestricted = await rescoreAfter(correctAnswer('yes'), {
+    const unrestricted = await rescoreAfter(correctAnswer('right'), {
       classWeights: 'restricted-only',
     });
     expect(
       unrestricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh,
     ).toBeUndefined();
-    const restricted = await rescoreAfter(correctAnswer('yes', { restricted: true }), {
+    const restricted = await rescoreAfter(correctAnswer('right', { restricted: true }), {
       classWeights: 'restricted-only',
     });
     expect(restricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh).toEqual({
@@ -847,7 +850,7 @@ describe('a rescore: the replays scored again, with what people corrected on the
   });
 
   test("a case whose replay can't be read again keeps its scores, and is counted", async () => {
-    const r = await rescoreAfter(correctAnswer('yes'), { gone: ['run-b'] });
+    const r = await rescoreAfter(correctAnswer('right'), { gone: ['run-b'] });
     const b = r.perCase.find((c) => c.caseId === 'case-b');
     expect(b?.rescored).toBe(false);
     expect(b?.candidate).toEqual(r.first.perCase.find((c) => c.caseId === 'case-b')?.candidate);

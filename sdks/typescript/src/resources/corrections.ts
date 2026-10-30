@@ -7,19 +7,29 @@ import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { ScopeRef } from '../scope-wire.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
-import type { Correction, CorrectionWithCopies, CreateCorrectionInput, Verdict } from '../types.js';
+import type {
+  ChangeCorrectionInput,
+  Correction,
+  CorrectionCounts,
+  CorrectionSortedTo,
+  CorrectionStatus,
+  CorrectionWithCopies,
+  CreateCorrectionInput,
+} from '../types.js';
 
 /**
- * Corrections resource: yes or no, with an optional reason, about one item
- * of a finished run's output.
+ * Corrections resource: whether a finished run's decisions and answer were
+ * right, and what was right instead. Each one is sorted when it's saved
+ * (to Improve, to the agent's owner, or left open), and moves through its
+ * statuses until it's fixed.
  *
  * Who corrected comes from the token you call with, never from the input.
- * Correcting again as the same caller for the same run, item key and
- * `participantId` supersedes the earlier correction, which stays as history.
+ * Correcting again as the same caller for the same run and `participantId`
+ * supersedes the earlier correction, which stays as history.
  */
 export interface CorrectionsClient {
   /**
-   * Correct an item of a finished run.
+   * Correct a finished run.
    *
    * @wire `POST /v1/corrections` — see `@kindgi/api/openapi.json#/paths/~1v1~1corrections/post`.
    */
@@ -29,7 +39,7 @@ export interface CorrectionsClient {
   ): Promise<Correction>;
 
   /**
-   * Live corrections, newest first.
+   * Corrections, newest first: removed ones only when `status` asks for `removed`.
    *
    * @wire `GET /v1/corrections` — see `@kindgi/api/openapi.json#/paths/~1v1~1corrections/get`.
    */
@@ -50,6 +60,30 @@ export interface CorrectionsClient {
    *   `@kindgi/api/openapi.json#/paths/~1v1~1corrections~1{correctionId}~1remove/post`.
    */
   remove(correctionId: string, options?: { readonly idempotencyKey?: string }): Promise<void>;
+
+  /**
+   * Re-sort a correction or change its status. A change its status doesn't
+   * allow fails with `409 correction-status-change-not-allowed`.
+   *
+   * @wire `PATCH /v1/corrections/{correctionId}` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1corrections~1{correctionId}/patch`.
+   */
+  change(
+    correctionId: string,
+    input: ChangeCorrectionInput,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<Correction>;
+
+  /**
+   * How many of a project's corrections (or one agent's in it) are in each status.
+   *
+   * @wire `GET /v1/corrections/counts` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1corrections~1counts/get`.
+   */
+  counts(input: {
+    readonly projectId: string;
+    readonly agentId?: string;
+  }): Promise<CorrectionCounts>;
 }
 
 export interface CorrectionFilter {
@@ -60,7 +94,18 @@ export interface CorrectionFilter {
   /** Needs `agentId`. */
   readonly agentVersion?: string;
   readonly flowId?: string;
-  readonly verdict?: Verdict;
+  /** One or several; `not-fixed` is short for `open`, `being-fixed` and `with-owner`. */
+  readonly status?: CorrectionStatus | 'not-fixed' | readonly (CorrectionStatus | 'not-fixed')[];
+  /** One or several; `none` for unsorted ones. */
+  readonly sortedTo?: CorrectionSortedTo | 'none' | readonly (CorrectionSortedTo | 'none')[];
+  /** `experts`, `end-users` or `all` (the default). */
+  readonly from?: 'experts' | 'end-users' | 'all';
+  /** `me`: only your own corrections. */
+  readonly madeBy?: 'me';
+  /** Made at or after this time (ISO 8601). */
+  readonly since?: string;
+  /** Made before this time (ISO 8601). */
+  readonly until?: string;
   readonly judgeClassId?: string;
   readonly participantId?: string;
   /** Narrow to a project (or org). */
@@ -89,7 +134,12 @@ export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
           ...(filter?.agentId !== undefined && { agentId: filter.agentId }),
           ...(filter?.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
           ...(filter?.flowId !== undefined && { flowId: filter.flowId }),
-          ...(filter?.verdict !== undefined && { verdict: filter.verdict }),
+          ...(filter?.status !== undefined && { status: many(filter.status) }),
+          ...(filter?.sortedTo !== undefined && { sortedTo: many(filter.sortedTo) }),
+          ...(filter?.from !== undefined && { from: filter.from }),
+          ...(filter?.madeBy !== undefined && { madeBy: filter.madeBy }),
+          ...(filter?.since !== undefined && { since: filter.since }),
+          ...(filter?.until !== undefined && { until: filter.until }),
           ...(filter?.judgeClassId !== undefined && { judgeClassId: filter.judgeClassId }),
           ...(filter?.participantId !== undefined && { participantId: filter.participantId }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
@@ -114,5 +164,27 @@ export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
+
+    async change(correctionId, input, options) {
+      return transport.request<Correction>({
+        method: 'PATCH',
+        path: `/v1/corrections/${encodeURIComponent(correctionId)}`,
+        body: input,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async counts(input) {
+      return transport.request<CorrectionCounts>({
+        method: 'GET',
+        path: '/v1/corrections/counts',
+        query: {
+          ...scopeToQuery({ kind: 'project', projectId: input.projectId }),
+          ...(input.agentId !== undefined && { agentId: input.agentId }),
+        },
+      });
+    },
   };
 }
+
+const many = <T extends string>(v: T | readonly T[]): T[] => (typeof v === 'string' ? [v] : [...v]);

@@ -254,6 +254,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'eval-run-not-rescorable': 409,
   // Corrections (yes/no on a run's output items) and judge classes.
   'correction-not-found': 404,
+  'correction-status-change-not-allowed': 409,
   'judge-class-not-found': 404,
   /** A judging rule that isn't in the project (`/v1/projects/:projectId/judging-rules/:ruleId`). */
   'judging-rule-not-found': 404,

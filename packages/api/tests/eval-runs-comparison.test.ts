@@ -518,9 +518,14 @@ describe('rescoring a comparison over the API: correct the new answers, then res
         input: 'hello',
         output: changed,
       },
-      item: { key: 'answer', pointer: '/appended/0/content' },
-      verdict: 'yes',
-      assertedBy: { kind: 'user', id: 'lead' },
+      answer: 'right',
+      madeBy: { kind: 'user', id: 'lead' },
+      status: 'fixed',
+      fixedIn: {
+        how: 'recorded-right',
+        by: { kind: 'user', id: 'lead' },
+        at: '2026-10-01T00:00:00.000Z',
+      },
     });
     const res = await h.post(`/v1/eval-runs/${h.first.runId}/rescore`);
     expect(res.status).toBe(201);

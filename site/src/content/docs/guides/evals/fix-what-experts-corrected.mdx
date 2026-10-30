@@ -27,7 +27,7 @@ its `kindgi-fix-corrections` skill, which walks it through these same steps.
 
 ## The loop
 
-1. **Pull the corrections** — the agent's "no" corrections, with the reason and the run.
+1. **Pull the corrections** — the agent's corrections that aren't fixed yet, with what was wrong and the run.
 2. **Sort each** to a rule in code, a setting, an approval rule, or the instructions.
 3. **Change that layer, with a test per correction** so the mistake can't come back.
 4. **Publish a new version and ask to make it live,** naming the corrections it fixes.
@@ -54,14 +54,24 @@ an earlier version already fixed:
 pnpm exec kindgi agents live acme-store.refunds --project=<project-id>
 ```
 
-Then list that version's "no" corrections — and newer versions' as you go
+Then list that version's corrections — and newer versions' as you go
 (`agents live-versions` lists everywhere a version is live):
 
 ```sh
-pnpm exec kindgi corrections list --agent=acme-store.refunds --agent-version=1.0.3 --verdict=no
+pnpm exec kindgi corrections list --agent=acme-store.refunds --agent-version=1.0.3
 ```
 
-Read each one for the reason and the run it's on:
+Each correction has a `status`. Work on the ones that are `open`,
+`being-fixed` or `with-owner`; in the clients, `corrections.list` takes
+`status: 'not-fixed'` for those. A `fixed` one found nothing wrong, or is
+fixed already. Each also says who fixes it, in `sortedTo`. A wrong answer is
+sorted to `improve`. Wrong decisions wait with the agent's owner, as
+`with-owner`, since a change to what the agent does may loosen a limit; the
+owner can re-sort one to `developer` for a change in code.
+[Where a correction goes](../judge-a-runs-output/#where-a-correction-goes)
+has the rules.
+
+Read each one for what was wrong (`why`, `shouldSay`) and the run it's on:
 
 ```sh
 pnpm exec kindgi corrections show <correction-id>
@@ -71,17 +81,21 @@ pnpm exec kindgi runs journal <run-id>
 
 `runs get` is the run's snapshot; `runs journal` is its durable record, step
 by step, where the agent's tool calls and their arguments are. Between the
-reason and the run you have what the agent did and what it should have done.
+correction and the run you have what the agent did and what it should have
+done.
 
 An expert can also have said exactly what the run should have done (runtime
-0.2.0 or later): the correction then has a
-[`correction`](../judge-a-runs-output/#say-what-it-should-have-done) field,
-with the calls it should have made and the tools it shouldn't have called. Take
+0.2.0 or later): the correction then says `decisions: "wrong"`, with
+[`shouldCall` and `mustNotCall`](../judge-a-runs-output/#say-what-it-should-have-done),
+the calls it should have made and the tools it shouldn't have called. Take
 those as what the test checks. Leave it on the run: test cases built from
 these runs check each new version against it.
 
 Kindgi doesn't hand out corrections: two people's coding agents can pull the
-same "no" corrections, so agree who takes which before you start.
+same corrections, so agree who takes which before you start. Marking one
+`being-fixed`, with a link to the work, shows the others it's taken:
+`corrections.change(id, { status: 'being-fixed', link })` in the clients,
+which takes `publish` on the agent.
 
 The runs hold real customer conversations. Keep them out of your repository,
 and write every test with invented data — made-up order ids, amounts and

@@ -14,10 +14,14 @@ const CORRECTION = {
   projectId: 'proj-1',
   runId: 'run-1',
   subject: { kind: 'agent', id: 'acme.matcher', version: '2.0.0' },
-  item: { key: 'c1', pointer: '/matches/0' },
-  verdict: 'yes',
-  assertedBy: { kind: 'user', id: 'user-1' },
+  answer: 'wrong',
+  why: 'The match is the wrong company.',
+  status: 'open',
+  sortedTo: 'improve',
+  sorted: { by: { kind: 'rule' }, at: '2026-10-01T00:00:00.000Z' },
+  madeBy: { kind: 'user', id: 'user-1' },
   createdAt: '2026-10-01T00:00:00.000Z',
+  updatedAt: '2026-10-01T00:00:00.000Z',
 };
 
 function clientFor(stub: { fetch: typeof fetch }) {
@@ -30,47 +34,46 @@ describe('corrections.create', () => {
     const result = await clientFor(stub).corrections.create(
       {
         runId: 'run-1',
-        item: { key: 'c1', pointer: '/matches/0' },
-        verdict: 'yes',
-        reason: 'Right company.',
+        decisions: 'wrong',
+        shouldCall: [{ tool: 'acme.lookup', args: { name: 'Acme' } }, { tool: 'acme.rank' }],
+        mustNotCall: ['acme.refund'],
+        answer: 'wrong',
+        why: 'Wrong company.',
+        items: [{ key: 'c1', pointer: '/matches/0', rank: 0, verdict: 'wrong' }],
         judgeClassId: 'jc-1',
         participantId: 'end-user-1',
       },
       { idempotencyKey: 'idem-j' },
     );
     expect(result.id).toBe('j-1');
+    expect(result.status).toBe('open');
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
     expect(req.url).toBe('https://api.example.com/v1/corrections');
     expect(req.headers['idempotency-key']).toBe('idem-j');
     expect(JSON.parse(req.body!)).toEqual({
       runId: 'run-1',
-      item: { key: 'c1', pointer: '/matches/0' },
-      verdict: 'yes',
-      reason: 'Right company.',
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.lookup', args: { name: 'Acme' } }, { tool: 'acme.rank' }],
+      mustNotCall: ['acme.refund'],
+      answer: 'wrong',
+      why: 'Wrong company.',
+      items: [{ key: 'c1', pointer: '/matches/0', rank: 0, verdict: 'wrong' }],
       judgeClassId: 'jc-1',
       participantId: 'end-user-1',
     });
   });
 
-  it('works without a judge class', async () => {
+  it('sends only what is given', async () => {
     const stub = jsonFetch(CORRECTION, { status: 201 });
-    await clientFor(stub).corrections.create({
-      runId: 'run-1',
-      item: { key: 'c1' },
-      verdict: 'no',
-    });
-    expect(JSON.parse(stub.calls[0]!.body!)).toEqual({
-      runId: 'run-1',
-      item: { key: 'c1' },
-      verdict: 'no',
-    });
+    await clientFor(stub).corrections.create({ runId: 'run-1', answer: 'right' });
+    expect(JSON.parse(stub.calls[0]!.body!)).toEqual({ runId: 'run-1', answer: 'right' });
   });
 
   it('surfaces run-not-finished', async () => {
     const stub = errorFetch(409, { code: 'run-not-finished', message: 'Run has no output yet.' });
     await expect(
-      clientFor(stub).corrections.create({ runId: 'run-1', item: { key: 'c1' }, verdict: 'yes' }),
+      clientFor(stub).corrections.create({ runId: 'run-1', answer: 'right' }),
     ).rejects.toMatchObject({
       error: { code: 'conflict', reason: 'run-not-finished', serverCode: 'run-not-finished' },
     });
@@ -86,7 +89,11 @@ describe('corrections.list', () => {
       agentId: 'acme.matcher',
       agentVersion: '2.0.0',
       flowId: 'acme.flow',
-      verdict: 'yes',
+      status: ['not-fixed', 'wont-fix'],
+      sortedTo: 'none',
+      from: 'experts',
+      since: '2026-10-01T00:00:00.000Z',
+      until: '2026-10-02T00:00:00.000Z',
       judgeClassId: 'jc-1',
       participantId: 'end-user-1',
       scope: { kind: 'project', projectId: 'proj-1' },
@@ -95,17 +102,73 @@ describe('corrections.list', () => {
     expect(page.nextCursor).toBe('c2');
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/corrections');
+    expect(url.searchParams.getAll('status')).toEqual(['not-fixed', 'wont-fix']);
     expect(Object.fromEntries(url.searchParams)).toEqual({
       limit: '10',
       runId: 'run-1',
       agentId: 'acme.matcher',
       agentVersion: '2.0.0',
       flowId: 'acme.flow',
-      verdict: 'yes',
+      status: 'wont-fix',
+      sortedTo: 'none',
+      from: 'experts',
+      since: '2026-10-01T00:00:00.000Z',
+      until: '2026-10-02T00:00:00.000Z',
       judgeClassId: 'jc-1',
       participantId: 'end-user-1',
       scopeKind: 'project',
       scopeId: 'proj-1',
+    });
+  });
+});
+
+describe('corrections.change', () => {
+  it('PATCHes /v1/corrections/{id} with the change and Idempotency-Key', async () => {
+    const stub = jsonFetch({ ...CORRECTION, status: 'being-fixed' });
+    const got = await clientFor(stub).corrections.change(
+      'j-1',
+      { sortedTo: 'developer', status: 'being-fixed', link: 'https://github.com/acme/app/pull/7' },
+      { idempotencyKey: 'k' },
+    );
+    expect(got.status).toBe('being-fixed');
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('PATCH');
+    expect(req.url).toBe('https://api.example.com/v1/corrections/j-1');
+    expect(req.headers['idempotency-key']).toBe('k');
+    expect(JSON.parse(req.body!)).toEqual({
+      sortedTo: 'developer',
+      status: 'being-fixed',
+      link: 'https://github.com/acme/app/pull/7',
+    });
+  });
+
+  it('surfaces a change the status does not allow', async () => {
+    const stub = errorFetch(409, {
+      code: 'correction-status-change-not-allowed',
+      message: 'Not from fixed.',
+      details: { from: 'fixed', to: 'being-fixed' },
+    });
+    await expect(
+      clientFor(stub).corrections.change('j-1', { status: 'open' }),
+    ).rejects.toMatchObject({
+      error: { code: 'conflict', serverCode: 'correction-status-change-not-allowed' },
+    });
+  });
+});
+
+describe('corrections.counts', () => {
+  it("GETs /v1/corrections/counts for a project, and an agent's in it", async () => {
+    const counts = { open: 3, beingFixed: 1, withOwner: 2, fixed: 5, wontFix: 0, removed: 1 };
+    const stub = jsonFetch(counts);
+    expect(
+      await clientFor(stub).corrections.counts({ projectId: 'proj-1', agentId: 'acme.matcher' }),
+    ).toEqual(counts);
+    const url = new URL(stub.calls[0]?.url);
+    expect(url.pathname).toBe('/v1/corrections/counts');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      scopeKind: 'project',
+      scopeId: 'proj-1',
+      agentId: 'acme.matcher',
     });
   });
 });
@@ -121,10 +184,9 @@ describe('corrections.get', () => {
         output: { matches: [] },
         capturedAt: '2026-10-01T00:00:00.000Z',
       },
-      itemValue: { id: 'c1' },
     });
     const got = await clientFor(stub).corrections.get('j/1');
-    expect(got.itemValue).toEqual({ id: 'c1' });
+    expect(got.run.output).toEqual({ matches: [] });
     expect(new URL(stub.calls[0]?.url).pathname).toBe('/v1/corrections/j%2F1');
   });
 });

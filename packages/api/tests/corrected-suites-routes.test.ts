@@ -14,8 +14,9 @@ import { CORRECTION_ITEM, type ProjectId, type TenantId, type UserId } from '@ki
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp } from '../src/index.js';
+import { createApp, sortAtSave } from '../src/index.js';
 import type {
+  CorrectionRecordInput,
   CorrectionRegistryBinding,
   EvalSuite,
   EvalSuiteRegistryBinding,
@@ -75,6 +76,18 @@ interface Harness {
 
 const subject = (version = '2.0.0') => ({ kind: 'agent' as const, id: 'acme.matcher', version });
 
+type Says = Pick<
+  CorrectionRecordInput,
+  'decisions' | 'shouldCall' | 'mustNotCall' | 'answer' | 'shouldSay' | 'why' | 'items'
+>;
+
+/** What a correction says, by whom, sorted at save as the route sorts it. */
+const says = (by: string, fields: Says, expert = false) => ({
+  ...fields,
+  madeBy: { kind: 'user' as const, id: by },
+  ...sortAtSave({ ...fields, expert }, { kind: 'user', id: by }, '2026-10-01T00:00:00.000Z'),
+});
+
 async function seed(corrections: CorrectionRegistryBinding): Promise<string> {
   const created = await corrections.createClass({
     tenantId,
@@ -87,10 +100,9 @@ async function seed(corrections: CorrectionRegistryBinding): Promise<string> {
   const record = (
     runId: string,
     run: { version?: string; input: unknown; output: unknown; context?: object },
-    item: { key: string; rank?: number },
-    verdict: 'yes' | 'no',
     by: string,
-    extra: { judgeClassId?: string; reason?: string } = {},
+    fields: Says,
+    extra: { judgeClassId?: string } = {},
   ) =>
     corrections.record({
       tenantId,
@@ -102,39 +114,42 @@ async function seed(corrections: CorrectionRegistryBinding): Promise<string> {
         output: run.output,
         ...(run.context !== undefined && { context: run.context }),
       },
-      item,
-      verdict,
-      assertedBy: { kind: 'user', id: by },
+      ...says(by, fields),
       ...extra,
     });
 
   // run-1 (oldest): c2 is corrected before c1, but c1 is rank 0.
   const one = {
     input: { query: 'acme' },
-    output: { matches: [{ id: 'c1' }, { id: 'c2' }] },
+    output: {
+      appended: [{ role: 'agent', content: 'Acme Corp' }],
+      matches: [{ id: 'c1' }, { id: 'c2' }],
+    },
     context: { history: [{ sequence: 0 }], retrieved: ['Acme Corp'] },
   };
-  await record('run-1', one, { key: 'c2', rank: 1 }, 'no', 'u1');
-  await record('run-1', one, { key: 'c1', rank: 0 }, 'yes', 'u1', {
-    judgeClassId: expertId,
-    reason: 'right',
-  });
-  await record('run-1', one, { key: 'c1', rank: 0 }, 'no', 'u2', { reason: 'wrong city' });
-  // run-2: one unclassified correction.
+  await record('run-1', one, 'u4', { items: [{ key: 'c2', rank: 1, verdict: 'wrong' }] });
   await record(
-    'run-2',
-    { input: { query: 'beta' }, output: { matches: [] } },
-    { key: 'x' },
-    'yes',
+    'run-1',
+    one,
     'u1',
+    { answer: 'right', why: 'right', items: [{ key: 'c1', rank: 0, verdict: 'right' }] },
+    { judgeClassId: expertId },
   );
+  await record('run-1', one, 'u2', {
+    answer: 'wrong',
+    why: 'wrong city',
+    items: [{ key: 'c1', rank: 0, verdict: 'wrong' }],
+  });
+  // run-2: one unclassified correction.
+  await record('run-2', { input: { query: 'beta' }, output: { matches: [] } }, 'u1', {
+    items: [{ key: 'x', verdict: 'right' }],
+  });
   // run-3 (newest): another agent version.
   await record(
     'run-3',
     { version: '3.0.0', input: { query: 'gamma' }, output: { matches: [] } },
-    { key: 'y' },
-    'no',
     'u3',
+    { items: [{ key: 'y', verdict: 'wrong' }] },
     { judgeClassId: expertId },
   );
   return expertId;
@@ -215,10 +230,13 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
       caseId: 'run-1',
       subject: subject(),
       input: { query: 'acme' },
-      output: { matches: [{ id: 'c1' }, { id: 'c2' }] },
+      output: {
+        appended: [{ role: 'agent', content: 'Acme Corp' }],
+        matches: [{ id: 'c1' }, { id: 'c2' }],
+      },
       context: { history: [{ sequence: 0 }], retrieved: ['Acme Corp'] },
     });
-    // Sorted by rank, though c2 was corrected first.
+    // Sorted by rank, though c2 was corrected first; the answer has no rank, so it's last.
     expect(one.items).toEqual([
       {
         key: 'c1',
@@ -230,11 +248,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
         // Every correction summed into the item, newest first: u2's no, then the expert's yes.
         correctionIds: ['j-3', 'j-2'],
-        // Newest first; a classified correction's reason names its class.
-        reasons: [
-          { verdict: 'no', reason: 'wrong city' },
-          { verdict: 'yes', reason: 'right', judgeClassId: h.expertId },
-        ],
+        reasons: [],
       },
       {
         key: 'c2',
@@ -247,6 +261,22 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         // A correction without a reason is named too.
         correctionIds: ['j-1'],
         reasons: [],
+      },
+      {
+        // The answer sits at the turn's last agent message.
+        key: 'answer',
+        pointer: '/appended/0/content',
+        yes: 1,
+        no: 1,
+        yesWeight: 3,
+        totalWeight: 4,
+        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+        correctionIds: ['j-3', 'j-2'],
+        // Newest first; a classified correction's reason names its class.
+        reasons: [
+          { verdict: 'no', reason: 'wrong city' },
+          { verdict: 'yes', reason: 'right', judgeClassId: h.expertId },
+        ],
       },
     ]);
     // An unclassified correction counts 1; a run without context has none.
@@ -271,15 +301,17 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
       projectId: project,
       runId: 'run-corr',
       run: { subject: subject(), input: { query: 'delta' }, output: { matches: [{ id: 'd1' }] } },
-      item: { key: CORRECTION_ITEM.key },
-      verdict: 'no',
-      assertedBy: { kind: 'user', id: 'u5' },
+      ...says(
+        'u5',
+        {
+          decisions: 'wrong',
+          shouldCall: [{ tool: 'acme.refund', args: { amount: 25 } }],
+          mustNotCall: ['acme.email'],
+        },
+        true,
+      ),
       judgeClassId: h.expertId,
       restricted: true,
-      correction: {
-        calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
-        notCalled: ['acme.email'],
-      },
     });
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
 
@@ -306,11 +338,11 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         projectId: project,
         runId: 'run-once',
         run: { subject: subject(), input: { query: 'omega' }, output: { matches: [{ id: 'o1' }] } },
-        item: { key: CORRECTION_ITEM.key },
-        verdict: 'no',
-        assertedBy: { kind: 'user', id: 'u6' },
+        ...says('u6', {
+          decisions: 'wrong',
+          shouldCall: [{ tool: 'acme.refund', args: { amount } }],
+        }),
         judgeClassId: h.expertId,
-        correction: { calls: [{ tool: 'acme.refund', args: { amount } }], notCalled: [] },
       });
     await recordAt(25);
     await recordAt(40);
@@ -326,47 +358,34 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     });
   });
 
-  test("a correction and an ordinary verdict on a caller's own 'decision' item stay apart", async () => {
-    // The reserved key is Kindgi's own, so a caller's item named 'decision'
-    // never shares it: the correction rides on `corrections`, and the caller's
-    // verdict rides on `items` — neither drops the other. The same expert makes
-    // both, so this pins the original same-expert collision, not supersession.
-    const common = {
+  test("a correction's decisions and its own 'decision' item stay apart", async () => {
+    // Decisions go on the reserved key, which is Kindgi's own, so a caller's
+    // item named 'decision' never shares it: the expected calls ride on
+    // `corrections`, and both verdicts ride on `items`, apart.
+    await h.corrections.record({
       tenantId,
       projectId: project,
       runId: 'run-apart',
       run: { subject: subject(), input: { query: 'sigma' }, output: { decision: 'refund' } },
-    };
-    await h.corrections.record({
-      ...common,
-      item: { key: CORRECTION_ITEM.key },
-      verdict: 'no',
-      assertedBy: { kind: 'user', id: 'u7' },
-      judgeClassId: h.expertId,
-      correction: { calls: [{ tool: 'acme.refund', args: { amount: 25 } }], notCalled: [] },
-    });
-    await h.corrections.record({
-      ...common,
-      item: { key: 'decision', pointer: '/decision' },
-      verdict: 'yes',
-      assertedBy: { kind: 'user', id: 'u7' },
+      ...says('u7', {
+        decisions: 'wrong',
+        shouldCall: [{ tool: 'acme.refund', args: { amount: 25 } }],
+        items: [{ key: 'decision', pointer: '/decision', verdict: 'right' }],
+      }),
       judgeClassId: h.expertId,
     });
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
 
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
     const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-apart');
-    // The correction survives (before the reserved key, a 'decision' correction
-    // sharing its key would have merged and dropped it), and the caller's own
-    // 'decision' item stays a separate item from the reserved whole-output one.
     expect(built.corrections).toHaveLength(1);
     expect(built.corrections[0]).toMatchObject({
       calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
     });
-    const keys = built.items.map((i: { key: string }) => i.key);
-    expect(keys).toContain('decision');
-    expect(keys).toContain(CORRECTION_ITEM.key);
-    expect(new Set(keys).size).toBe(keys.length);
+    expect(built.items).toEqual([
+      expect.objectContaining({ key: CORRECTION_ITEM.key, pointer: '', yes: 0, no: 1 }),
+      expect.objectContaining({ key: 'decision', pointer: '/decision', yes: 1, no: 0 }),
+    ]);
   });
 
   test('segments keep only runs started in that segment or below it: a correction in globex never counts for acme', async () => {
@@ -385,10 +404,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
           output: { matches: [{ id: 'x' }] },
           ...(segments !== undefined && { segments }),
         },
-        item: { key: 'x' },
-        verdict: 'no',
-        reason: `wrong for ${runId}`,
-        assertedBy: { kind: 'user', id: 'u1' },
+        ...says('u1', { why: `wrong for ${runId}`, items: [{ key: 'x', verdict: 'wrong' }] }),
       });
     await record('acme-run', at('acme'));
     await record('acme-cfo-run', at('acme', [{ key: 'role', value: 'cfo' }]));
@@ -440,18 +456,22 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     expect(res.body.caseCount).toBe(2);
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
     const byId = new Map(cases.body.data.map((c: { caseId: string }) => [c.caseId, c]));
-    // run-1 keeps the expert's correction on c1 and drops the rest.
+    // run-1 keeps the expert's correction (c1 and the answer) and drops the rest.
+    const kept = {
+      yes: 1,
+      no: 0,
+      yesWeight: 3,
+      totalWeight: 3,
+      restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+      // Only the kept class's correction is named: u2's unclassified no isn't counted.
+      correctionIds: ['j-2'],
+    };
     expect((byId.get('run-1') as { items: unknown[] }).items).toEqual([
+      { key: 'c1', rank: 0, ...kept, reasons: [] },
       {
-        key: 'c1',
-        rank: 0,
-        yes: 1,
-        no: 0,
-        yesWeight: 3,
-        totalWeight: 3,
-        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
-        // Only the kept class's correction is named: u2's unclassified no isn't counted.
-        correctionIds: ['j-2'],
+        key: 'answer',
+        pointer: '/appended/0/content',
+        ...kept,
         reasons: [{ verdict: 'yes', reason: 'right', judgeClassId: h.expertId }],
       },
     ]);
@@ -471,12 +491,17 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
       projectId: project,
       runId: 'run-1',
       run: { subject: subject(), input: {}, output: {} },
-      item: { key: 'c2', rank: 1 },
-      verdict: 'yes',
-      reason: 'the right firm',
+      ...says(
+        'senior-1',
+        {
+          answer: 'right',
+          why: 'the right firm',
+          items: [{ key: 'c2', rank: 1, verdict: 'right' }],
+        },
+        true,
+      ),
       judgeClassId: h.expertId,
       restricted: true,
-      assertedBy: { kind: 'user', id: 'senior-1' },
     });
     await h.call('POST', BUILD, base);
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
@@ -498,14 +523,19 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
       restricted: { yesWeight: 3, totalWeight: 3, correctionIds: ['j-6'] },
       correctionIds: ['j-6', 'j-1'],
     });
-    // Its reason says it was restricted; the expert's earlier one on c1 doesn't.
-    expect(run1.items[1].reasons).toContainEqual({
+    // On the answer, its reason says it was restricted; the expert's earlier one doesn't.
+    expect(run1.items[2]).toMatchObject({
+      key: 'answer',
+      restricted: { yesWeight: 3, totalWeight: 3, correctionIds: ['j-6'] },
+      correctionIds: ['j-6', 'j-3', 'j-2'],
+    });
+    expect(run1.items[2].reasons).toContainEqual({
       verdict: 'yes',
       reason: 'the right firm',
       judgeClassId: h.expertId,
       restricted: true,
     });
-    expect(run1.items[0].reasons).toContainEqual({
+    expect(run1.items[2].reasons).toContainEqual({
       verdict: 'yes',
       reason: 'right',
       judgeClassId: h.expertId,
@@ -524,9 +554,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
           output,
           ...(context !== undefined && { context }),
         },
-        item: { key: 'c1', rank: 0 },
-        verdict: 'yes',
-        assertedBy: { kind: 'user', id: 'u1' },
+        ...says('u1', { items: [{ key: 'c1', rank: 0, verdict: 'right' }] }),
       });
     // Stored before the stamp: only the agent turn's own replay report says so.
     await correctReplay('run-replay-old', {
@@ -556,9 +584,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         output: { matches: [{ id: 'c1' }] },
         context: { replayOf: 'run-1' },
       },
-      item: { key: 'c1', rank: 0 },
-      verdict: 'yes',
-      assertedBy: { kind: 'user', id: 'u1' },
+      ...says('u1', { items: [{ key: 'c1', rank: 0, verdict: 'right' }] }),
     });
     const listed = (
       await all.get({

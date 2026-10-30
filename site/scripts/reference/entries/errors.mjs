@@ -1892,6 +1892,14 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/evals/judge-a-runs-output'],
   },
+  'correction-status-change-not-allowed': {
+    description:
+      "The change isn't allowed from the correction's status: re-sorting only from `open`, `being-fixed` or `with-owner`; `being-fixed` only from `open` or `with-owner`; `open` only from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`. `fixed` is set only by a pin or a deploy.",
+    details: [
+      { key: 'from', meaning: "the correction's status" },
+      { key: 'to', meaning: 'the status the change would have set' },
+    ],
+  },
   'judge-class-not-found': {
     description: 'No live judge class exists with that id.',
     details: [],

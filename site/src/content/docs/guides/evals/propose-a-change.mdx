@@ -207,13 +207,13 @@ the run on the test cases:
 }
 ```
 
-`runIds` are its replay runs. Correct each new answer on its replay run, at
-the `pointer` it names. A replay's answer is at
-`/appended/1/content`, not at a turn's `/response/content`. A pointer that
-isn't in the run's output is refused with `400 item-not-found`:
+`runIds` are its replay runs. Correct each new answer as its replay run's
+answer. The correction takes no pointer: the answer is wherever the run's
+output has it, which for a replay is `/appended/1/content`, the `pointer`
+named above, not a turn's `/response/content`:
 
 ```sh
-pnpm exec kindgi corrections add --run=c839338c-cfc1-4bf3-b4e3-c7f24e38a473 --item=answer --pointer=/appended/1/content --yes
+pnpm exec kindgi corrections add --run=c839338c-cfc1-4bf3-b4e3-c7f24e38a473 --item=answer --yes
 ```
 
 It prints the correction as JSON.

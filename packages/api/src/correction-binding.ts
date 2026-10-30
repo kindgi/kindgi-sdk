@@ -4,11 +4,13 @@
 import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
 import type { Cursor, ListScope, ProjectId, ScopeSegment, TenantId } from '@kindgi/types';
 
-import type { ExpectedDecisions } from './expected-decisions.js';
+import type { ExpectedCall } from './expected-decisions.js';
 
 /**
- * Caller-plugged surface for corrections: a person says yes or no, with an
- * optional reason, about one item of a run's output. A correction may name a
+ * Caller-plugged surface for corrections: a person says whether a run's
+ * decisions and its answer were right, and what was right instead. Each
+ * correction has a status (open, being fixed, with the owner, fixed, won't
+ * fix, removed) and is sorted to whoever fixes it. A correction may name a
  * **judge class** ("expert", "user", …: the deployment's own names) that
  * carries a weight, so later metrics can weigh corrections. Classes are
  * optional: an unclassified correction counts with weight 1, so correcting
@@ -19,13 +21,15 @@ import type { ExpectedDecisions } from './expected-decisions.js';
  * own retention, so a set of corrected cases stays stable when the run is
  * purged.
  *
- * Who corrected: `assertedBy` is the authenticated caller (a user, or a
+ * Who corrected: `madeBy` is the authenticated caller (a user, or a
  * service token such as an app's API key). It is never taken from the
  * request body. When an app corrects on behalf of one of its own users, it
  * passes that user's opaque id as `participantId`.
  *
- * One live correction per (run, item key, asserting principal, participant):
+ * One live correction per (run, asserting principal, participant):
  * recording another supersedes the previous one, which stays as history.
+ * A correction from before statuses reads as one: its rows on the run are
+ * composed into it, open and unsorted.
  *
  * Every method is tenant-scoped. Deletes are soft (`unregister`); purging
  * follows the retention policies for the `correction` and `judge_class`
@@ -49,15 +53,28 @@ export interface CorrectionRegistryBinding {
   /**
    * Record a correction. The first correction of a run also stores the run's
    * copy (`run`); later ones keep the stored copy. Supersedes the live
-   * correction with the same run, item key, `assertedBy` and `participantId`.
+   * correction with the same run, `madeBy` and `participantId`.
    */
   record(input: CorrectionRecordInput): Promise<Correction>;
   /** Live corrections, newest first, cursor-paginated. */
   list(input: CorrectionListInput): Promise<CorrectionPage>;
   /** One correction (live or not) with its copies, or `null` when unknown. */
   get(input: CorrectionGetInput): Promise<CorrectionWithCopies | null>;
-  /** Soft-delete a live correction. `false` when unknown or already removed. */
+  /**
+   * Remove a live correction: its status becomes `removed`, and it can't
+   * come back. `false` when unknown, superseded or already removed.
+   */
   unregister(input: CorrectionGetInput): Promise<{ readonly unregistered: boolean }>;
+  /** Change a live correction's status or sorting (see `CorrectionUpdateInput`). */
+  update(input: CorrectionUpdateInput): Promise<CorrectionUpdateOutcome>;
+  /** How many corrections are in each status. */
+  counts(input: CorrectionCountsInput): Promise<CorrectionCounts>;
+  /**
+   * Where each of these corrections is, for whoever holds their ids (a
+   * suggested change's evidence). Unknown, superseded and other tenants'
+   * ids are left out; removed ones come back as `removed`.
+   */
+  correctionsByIds(input: CorrectionsByIdsInput): Promise<readonly CorrectionStanding[]>;
   /**
    * Corrected runs with their copies and live corrections, newest first:
    * what a test set is built from. Optional (a binding without it can't
@@ -209,8 +226,74 @@ export function judgeClassApplies(
 
 // ---------- corrections ----------
 
-export const VERDICTS = ['yes', 'no'] as const;
+/** A verdict on a run's decisions, its answer, or one item of a ranked answer. */
+export const VERDICTS = ['right', 'wrong'] as const;
 export type Verdict = (typeof VERDICTS)[number];
+
+/**
+ * Where a correction is in being fixed. `with-owner` while the agent's
+ * owner decides (every `decisions: 'wrong'` starts there); `fixed` only
+ * when a pin or a deploy fixed it, or when it said nothing was wrong;
+ * `removed` can't come back.
+ */
+export const CORRECTION_STATUSES = [
+  'open',
+  'being-fixed',
+  'with-owner',
+  'fixed',
+  'wont-fix',
+  'removed',
+] as const;
+export type CorrectionStatus = (typeof CORRECTION_STATUSES)[number];
+
+/** The statuses `not-fixed` is short for. */
+export const NOT_FIXED_STATUSES = ['open', 'being-fixed', 'with-owner'] as const;
+
+/** Who works on a correction: Improve, a developer, or the agent's owner. */
+export const CORRECTION_SORTED_TO = ['improve', 'developer', 'owner'] as const;
+export type CorrectionSortedTo = (typeof CORRECTION_SORTED_TO)[number];
+
+/** What sorted a correction: the fix job, the rule at save, or the caller who re-sorted it. */
+export type CorrectionSortedBy =
+  | { readonly kind: 'fix-job' }
+  | { readonly kind: 'rule' }
+  | { readonly kind: 'user' | 'service'; readonly id: string };
+
+export interface CorrectionSorted {
+  readonly by: CorrectionSortedBy;
+  readonly reason?: string;
+  readonly at: string;
+}
+
+/** The work fixing a correction, while it's `being-fixed`. */
+export type CorrectionLink =
+  | { readonly kind: 'improve-run'; readonly id: string }
+  | { readonly kind: 'suggested-change'; readonly id: string }
+  | { readonly kind: 'pull-request'; readonly url: string };
+
+/** How a `fixed` correction was fixed. */
+export const CORRECTION_FIXED_HOW = ['pin', 'latest', 'recorded-right'] as const;
+export type CorrectionFixedHow = (typeof CORRECTION_FIXED_HOW)[number];
+
+export interface CorrectionFixedIn {
+  /** The version that fixed it; absent for `recorded-right`, which nothing had to fix. */
+  readonly version?: string;
+  readonly how: CorrectionFixedHow;
+  readonly by?: CorrectionMadeBy;
+  readonly at: string;
+}
+
+/** A person's note on a status: why Won't fix, or why it went back to Open. */
+export interface CorrectionStatusNote {
+  readonly text: string;
+  readonly by: CorrectionMadeBy;
+  readonly at: string;
+}
+
+/** One item of a ranked answer, and whether it was right there. */
+export interface CorrectedAnswerItem extends CorrectedItem {
+  readonly verdict: Verdict;
+}
 
 /** What a corrected run ran: an agent at a version, or a flow at a version. */
 export interface CorrectedSubject {
@@ -230,23 +313,45 @@ export interface CorrectedItem {
 }
 
 /** Who asserted a correction: the authenticated caller, never a typed name. */
-export interface CorrectionAssertedBy {
+export interface CorrectionMadeBy {
   readonly kind: 'user' | 'service';
   /** A user id, or for a service token its token or session id. */
   readonly id: string;
 }
 
+/**
+ * A person's correction of one run: whether its decisions (the tool calls)
+ * and its answer were right, and what was right instead. It says at least
+ * one of `decisions` and `answer`.
+ */
 export interface Correction {
   readonly id: string;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly runId: string;
   readonly subject: CorrectedSubject;
-  readonly item: CorrectedItem;
-  readonly verdict: Verdict;
-  readonly reason?: string;
-  /** The expert's correction of the run's decisions, when they gave one. */
-  readonly correction?: ExpectedDecisions;
+  /** Whether the run's decisions were right. Absent when the correction says nothing about them. */
+  readonly decisions?: Verdict;
+  /** With `decisions: 'wrong'`: the calls that should have been made. */
+  readonly shouldCall?: readonly ExpectedCall[];
+  /** With `decisions: 'wrong'`: the tools that shouldn't have been called. */
+  readonly mustNotCall?: readonly string[];
+  /** Whether the run's answer was right. Absent when the correction says nothing about it. */
+  readonly answer?: Verdict;
+  /** With `answer: 'wrong'`: what it should have said. */
+  readonly shouldSay?: string;
+  readonly why?: string;
+  /** For an answer that's a ranked list: each item, and whether it was right there. */
+  readonly items?: readonly CorrectedAnswerItem[];
+  readonly status: CorrectionStatus;
+  /** Absent while it's unsorted. */
+  readonly sortedTo?: CorrectionSortedTo;
+  readonly sorted?: CorrectionSorted;
+  /** Present while it's `being-fixed`. */
+  readonly link?: CorrectionLink;
+  /** Present while it's `fixed`. */
+  readonly fixedIn?: CorrectionFixedIn;
+  readonly statusNote?: CorrectionStatusNote;
   /** The judge's class; absent for an unclassified correction (weight 1). */
   readonly judgeClassId?: string;
   /**
@@ -255,10 +360,12 @@ export interface Correction {
    * or lifted later doesn't change it (T200).
    */
   readonly restricted?: true;
-  readonly assertedBy: CorrectionAssertedBy;
+  readonly madeBy: CorrectionMadeBy;
   /** The app's opaque id for its end user who corrected it, when an app corrected it on their behalf. */
   readonly participantId?: string;
   readonly createdAt: string;
+  /** When it last changed: its `createdAt` until something changes it. */
+  readonly updatedAt: string;
   /** Set when the correction was removed or superseded. */
   readonly unregisteredAt?: string;
   /** The correction that replaced this one. */
@@ -388,8 +495,6 @@ export interface CorrectedRunCopy {
 export interface CorrectionWithCopies extends Correction {
   /** The run's input and output as they were when it was first corrected. */
   readonly run: CorrectedRunCopy;
-  /** The corrected item's value, when the correction pointed at it. */
-  readonly itemValue?: unknown;
 }
 
 export interface CorrectionRecordInput {
@@ -405,18 +510,25 @@ export interface CorrectionRecordInput {
     /** The segment path the run was started with (empty: none). */
     readonly segments?: readonly ScopeSegment[];
   };
-  readonly item: CorrectedItem;
-  /** The item's value at `item.pointer`, resolved by the route from the run's output. */
-  readonly itemValue?: unknown;
-  readonly verdict: Verdict;
-  readonly reason?: string;
-  /** The expert's correction of the run's decisions, validated by the route. */
-  readonly correction?: ExpectedDecisions;
+  /** What the correction says, validated by the route (see `Correction`). */
+  readonly decisions?: Verdict;
+  readonly shouldCall?: readonly ExpectedCall[];
+  readonly mustNotCall?: readonly string[];
+  readonly answer?: Verdict;
+  readonly shouldSay?: string;
+  readonly why?: string;
+  readonly items?: readonly CorrectedAnswerItem[];
   readonly judgeClassId?: string;
   /** The class was restricted, and whoever recorded it met it (see `Correction.restricted`). */
   readonly restricted?: true;
-  readonly assertedBy: CorrectionAssertedBy;
+  readonly madeBy: CorrectionMadeBy;
   readonly participantId?: string;
+  /** Where it's sorted at save, by the route's rule: the status, and `sortedTo` when sorted. */
+  readonly status: CorrectionStatus;
+  readonly sortedTo?: CorrectionSortedTo;
+  readonly sorted?: CorrectionSorted;
+  /** For a correction that says nothing was wrong: `recorded-right`. */
+  readonly fixedIn?: CorrectionFixedIn;
 }
 
 export interface CorrectionListInput {
@@ -426,7 +538,18 @@ export interface CorrectionListInput {
   readonly agentId?: string;
   readonly agentVersion?: string;
   readonly flowId?: string;
-  readonly verdict?: Verdict;
+  /** Any of these statuses. Absent: every status but `removed`, which comes back only when asked for. */
+  readonly statuses?: readonly CorrectionStatus[];
+  /** Any of these, with `none` for unsorted. */
+  readonly sortedTo?: readonly (CorrectionSortedTo | 'none')[];
+  /** Only experts' corrections (a restricted class's), or only end users' (`participantId`, no restricted class). Absent: all. */
+  readonly from?: 'experts' | 'end-users';
+  /** Made at or after this time (ISO 8601). */
+  readonly since?: string;
+  /** Made before this time (ISO 8601). */
+  readonly until?: string;
+  /** Only this author's (kind and id). */
+  readonly madeBy?: CorrectionMadeBy;
   readonly judgeClassId?: string;
   readonly participantId?: string;
   readonly cursor?: Cursor;
@@ -442,6 +565,63 @@ export interface CorrectionPage {
 export interface CorrectionGetInput {
   readonly tenantId: TenantId;
   readonly correctionId: string;
+}
+
+/**
+ * A change to a live correction's status or sorting. It applies only while
+ * the correction still has the `expected` status and `sortedTo` the route
+ * checked the change against, so two changes at once can't both apply.
+ */
+export interface CorrectionUpdateInput {
+  readonly tenantId: TenantId;
+  readonly correctionId: string;
+  readonly expected: {
+    readonly status: CorrectionStatus;
+    readonly sortedTo: CorrectionSortedTo | null;
+  };
+  readonly status?: CorrectionStatus;
+  /** `null` makes it unsorted. */
+  readonly sortedTo?: CorrectionSortedTo | null;
+  readonly sorted?: CorrectionSorted;
+  /** `null` clears it. */
+  readonly link?: CorrectionLink | null;
+  /** `null` clears it. */
+  readonly statusNote?: CorrectionStatusNote | null;
+}
+
+export type CorrectionUpdateOutcome =
+  | { readonly kind: 'updated'; readonly correction: Correction }
+  | { readonly kind: 'not-found' }
+  /** It changed since the route read it: `correction` is what it is now. */
+  | { readonly kind: 'changed'; readonly correction: Correction };
+
+/** Live corrections by status (`removed`: the removed ones), for an agent or a project. */
+export interface CorrectionCountsInput {
+  readonly tenantId: TenantId;
+  readonly scope?: ListScope;
+  readonly agentId?: string;
+}
+
+export interface CorrectionCounts {
+  readonly open: number;
+  readonly beingFixed: number;
+  readonly withOwner: number;
+  readonly fixed: number;
+  readonly wontFix: number;
+  readonly removed: number;
+}
+
+/** At most 500 ids. */
+export interface CorrectionsByIdsInput {
+  readonly tenantId: TenantId;
+  readonly ids: readonly string[];
+}
+
+/** Where one correction is: its status, and `sortedTo` (`null` while unsorted). */
+export interface CorrectionStanding {
+  readonly id: string;
+  readonly status: CorrectionStatus;
+  readonly sortedTo: CorrectionSortedTo | null;
 }
 
 export interface CorrectedRunListInput {

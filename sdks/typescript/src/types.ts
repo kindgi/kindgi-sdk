@@ -3063,12 +3063,59 @@ export interface ClientOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Corrections: yes or no, with an optional reason, about one item of a run's
-// output, optionally recorded under a weighted judge class.
+// Corrections: whether a run's decisions and answer were right, and what was
+// right instead, optionally recorded under a weighted judge class.
 // ---------------------------------------------------------------------------
 
-/** The verdict of a correction. */
-export type Verdict = 'yes' | 'no';
+/** Whether a run's decisions, its answer, or an item of it, were right. */
+export type Verdict = 'right' | 'wrong';
+
+/**
+ * Where a correction is: `open` (waiting to be fixed), `being-fixed`,
+ * `with-owner` (the agent's owner decides), `fixed`, `wont-fix` or `removed`.
+ */
+export type CorrectionStatus =
+  | 'open'
+  | 'being-fixed'
+  | 'with-owner'
+  | 'fixed'
+  | 'wont-fix'
+  | 'removed';
+
+/** Who fixes a correction: Improve, a developer, or the agent's owner. */
+export type CorrectionSortedTo = 'improve' | 'developer' | 'owner';
+
+/** How a correction was sorted: by a fix job, by the rule at save, or by the caller who re-sorted it. */
+export interface CorrectionSorted {
+  readonly by:
+    | { readonly kind: 'fix-job' }
+    | { readonly kind: 'rule' }
+    | { readonly kind: 'user' | 'service'; readonly id: string };
+  readonly reason?: string;
+  readonly at: import('@kindgi/types').Timestamp;
+}
+
+/** The work fixing a correction, while it's `being-fixed`. */
+export type CorrectionLink =
+  | { readonly kind: 'improve-run'; readonly id: string }
+  | { readonly kind: 'suggested-change'; readonly id: string }
+  | { readonly kind: 'pull-request'; readonly url: string };
+
+/** What fixed a correction, while it's `fixed`. */
+export interface CorrectionFixedIn {
+  readonly version?: string;
+  /** `pin`, `latest` (Latest moved in a project that follows it), or `recorded-right` (nothing was wrong). */
+  readonly how: 'pin' | 'latest' | 'recorded-right';
+  readonly by?: CorrectionMadeBy;
+  readonly at: import('@kindgi/types').Timestamp;
+}
+
+/** Why a correction is `wont-fix`, or went back to `open`. */
+export interface CorrectionStatusNote {
+  readonly text: string;
+  readonly by: CorrectionMadeBy;
+  readonly at: import('@kindgi/types').Timestamp;
+}
 
 /**
  * Where a judge class applies: the whole tenant, one project, or one
@@ -3154,8 +3201,13 @@ export interface CorrectedItem {
   readonly rank?: number;
 }
 
+/** An item of an answer that is a ranked list, and whether it was right. */
+export interface CorrectedAnswerItem extends CorrectedItem {
+  readonly verdict: Verdict;
+}
+
 /** Who asserted a correction: the authenticated caller, never a typed name. */
-export interface CorrectionAssertedBy {
+export interface CorrectionMadeBy {
   readonly kind: 'user' | 'service';
   readonly id: string;
 }
@@ -3193,11 +3245,29 @@ export interface Correction {
   readonly projectId: string;
   readonly runId: string;
   readonly subject: CorrectedSubject;
-  readonly item: CorrectedItem;
-  readonly verdict: Verdict;
-  readonly reason?: string;
-  /** What the agent should have done, graded on a replay. Cleared by an erasure. */
-  readonly correction?: ExpectedDecisions;
+  /** Whether the run's decisions were right. */
+  readonly decisions?: Verdict;
+  /** The calls the agent should have made. Cleared by an erasure. */
+  readonly shouldCall?: readonly ExpectedCall[];
+  /** Tools that shouldn't have been called. Cleared by an erasure. */
+  readonly mustNotCall?: readonly string[];
+  /** Whether the run's answer was right. */
+  readonly answer?: Verdict;
+  /** What it should have said. Cleared by an erasure. */
+  readonly shouldSay?: string;
+  /** Cleared by an erasure. */
+  readonly why?: string;
+  /** For an answer that is a ranked list: each item, and whether it was right. */
+  readonly items?: readonly CorrectedAnswerItem[];
+  readonly status: CorrectionStatus;
+  /** Absent while it's unsorted. */
+  readonly sortedTo?: CorrectionSortedTo;
+  readonly sorted?: CorrectionSorted;
+  /** Present while it's `being-fixed`. */
+  readonly link?: CorrectionLink;
+  /** Present while it's `fixed`. */
+  readonly fixedIn?: CorrectionFixedIn;
+  readonly statusNote?: CorrectionStatusNote;
   /** Absent when the correction is unclassified (it counts with weight 1). */
   readonly judgeClassId?: string;
   /**
@@ -3205,10 +3275,12 @@ export interface Correction {
    * was recorded, so whoever made it was checked against it.
    */
   readonly restricted?: true;
-  readonly assertedBy: CorrectionAssertedBy;
+  readonly madeBy: CorrectionMadeBy;
   /** An app's opaque id for its end user who made the correction, when the app made it on their behalf. */
   readonly participantId?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
+  /** The last change's time, or `createdAt` for one never changed. */
+  readonly updatedAt: import('@kindgi/types').Timestamp;
   /** Set when the correction was removed or superseded. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   /** The correction that replaced this one. */
@@ -3243,20 +3315,53 @@ export interface CorrectedRunCopy {
 export interface CorrectionWithCopies extends Correction {
   /** The run's input and output as they were when it was first corrected. */
   readonly run: CorrectedRunCopy;
-  /** The corrected item's value, when the correction pointed at it. */
-  readonly itemValue?: unknown;
 }
 
-/** Input for `POST /v1/corrections` per `#CreateCorrectionBody`. */
+/**
+ * Input for `POST /v1/corrections` per `#CreateCorrectionBody`. At least one
+ * of `decisions`, `answer` and `items`; `decisions: 'wrong'` needs an entry in
+ * `shouldCall` or `mustNotCall`, and `answer: 'wrong'` needs `shouldSay` or `why`.
+ */
 export interface CreateCorrectionInput {
   readonly runId: string;
-  readonly item: CorrectedItem;
-  readonly verdict: Verdict;
-  readonly reason?: string;
-  /** What the agent should have done: the calls it should have made and the tools it should not have. */
-  readonly correction?: ExpectedDecisions;
+  readonly decisions?: Verdict;
+  /** Only with `decisions: 'wrong'`. Give `args` only when the inputs matter. */
+  readonly shouldCall?: readonly {
+    readonly tool: string;
+    readonly args?: Readonly<Record<string, unknown>>;
+  }[];
+  /** Only with `decisions: 'wrong'`. */
+  readonly mustNotCall?: readonly string[];
+  readonly answer?: Verdict;
+  /** Only with `answer: 'wrong'`. */
+  readonly shouldSay?: string;
+  readonly why?: string;
+  readonly items?: readonly CorrectedAnswerItem[];
   /** Optional. When given it must exist and apply to the run. */
   readonly judgeClassId?: string;
   /** Your opaque id for the end user who made the correction, when you make it on their behalf. */
   readonly participantId?: string;
+}
+
+/**
+ * Input for `PATCH /v1/corrections/{correctionId}` per `#ChangeCorrectionBody`:
+ * a re-sort, a status, or both (the re-sort first).
+ */
+export interface ChangeCorrectionInput {
+  readonly sortedTo?: CorrectionSortedTo;
+  readonly status?: 'open' | 'being-fixed' | 'wont-fix';
+  /** With `status: 'being-fixed'`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`). */
+  readonly link?: string;
+  /** Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason. */
+  readonly reason?: string;
+}
+
+/** Matches `@kindgi/api/openapi.json#CorrectionCounts`. */
+export interface CorrectionCounts {
+  readonly open: number;
+  readonly beingFixed: number;
+  readonly withOwner: number;
+  readonly fixed: number;
+  readonly wontFix: number;
+  readonly removed: number;
 }
