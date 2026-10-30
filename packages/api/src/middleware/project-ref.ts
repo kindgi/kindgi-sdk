@@ -42,6 +42,7 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/service-accounts/:serviceAccountId/grant',
   '/service-accounts/:serviceAccountId/ungrant',
   '/connections',
+  '/suggested-changes',
 ];
 
 /**

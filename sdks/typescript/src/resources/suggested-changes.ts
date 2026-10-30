@@ -3,38 +3,33 @@
 
 import type { AgentId, Cursor, SuggestedChangeId } from '@kindgi/types';
 
-import type { LiveScope } from '../generated/api.js';
-
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
   SuggestedChange,
   SuggestedChangeContent,
-  SuggestedChangeObjective,
+  SuggestedChangeMadeBy,
   SuggestedChangeStatus,
-  SuggestedChangeTier,
 } from '../types.js';
-import { scopeQuery } from './agents.js';
 
 /**
- * suggested changes (`/v1/suggested-changes`): new content for one data block
- * an agent version pins (settings values, or a prompt template), for one
- * live scope. A suggested change is evaluated on a test set (a comparison of the
- * candidate version), then pinned: the candidate version is pinned for
- * the scope, through the scope's gate. `status` is derived by the server.
+ * Suggested changes (`/v1/suggested-changes`): new content for one block
+ * (settings values, or a prompt template) in what a project runs. Making
+ * one publishes the block version, derives an agent version from what the
+ * project runs, and checks both on the project's test set. Then it's
+ * pinned for the project, through the project's gate. `status` is derived
+ * by the server.
  *
  * ```ts
- * const p = await client.suggestedChanges.create({
+ * const s = await client.suggestedChanges.create({
  *   agentId: 'acme.scorer',
- *   fromVersion: '1.4.0',
- *   scope: { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] },
- *   tier: 'settings-block',
- *   change: { blockId: 'acme.scoring-weights', content: { values: { recency: 0.4, fit: 0.6 } } },
+ *   projectId,
+ *   block: 'acme.scoring-weights',
+ *   values: { recency: 0.4, fit: 0.6 },
  *   why: 'Recent filings matter more for this company',
  * });
- * await client.suggestedChanges.evaluate(p.id, { testSetId: 'acme.scoring-judged' });
- * // …once `status` is `evaluated`:
- * await client.suggestedChanges.pin(p.id);
+ * // …once `status` is `ready`, and `s.check` says how it did:
+ * await client.suggestedChanges.pin(s.id);
  * ```
  */
 export interface SuggestedChangesClient {
@@ -49,48 +44,46 @@ export interface SuggestedChangesClient {
   get(id: SuggestedChangeId | string): Promise<SuggestedChange>;
 
   /**
-   * A hand-written suggested change (a `draft`). The same change from the same
-   * version for the same scope returns the suggested change made before.
+   * A suggested change for a project, built on what the project runs and
+   * checked on its test set: the suggested change, `checking`. The same
+   * change on the same version for the same project returns the one made
+   * before.
    *
    * @wire `POST /v1/suggested-changes`
    */
   create(input: CreateSuggestedChangeInput): Promise<SuggestedChange>;
 
   /**
-   * Compare the suggested change on a test set. The first evaluation publishes the
-   * block version and derives the agent version (they serve no scope until
-   * pinned); it needs a live version of the agent for the whole tenant.
-   * Returns the suggested change, `evaluating`.
+   * Check it again on its project's test set, frozen now, so new
+   * corrections count: the suggested change, `checking`.
    *
-   * @wire `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
+   * @wire `POST /v1/suggested-changes/{suggestedChangeId}/check`
    */
-  evaluate(
-    id: SuggestedChangeId | string,
-    input: EvaluateSuggestedChangeInput,
-  ): Promise<SuggestedChange>;
-
-  /**
-   * Rescore the latest evaluation, after people corrected the comparison's new
-   * answers on its replay runs: a new comparison that scores the same
-   * replays again, counting those corrections. It becomes the suggested change's
-   * evaluation; the run rescored stays as it was. Returns the suggested change,
-   * `evaluating`.
-   *
-   * @wire `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
-   */
-  rescore(
+  check(
     id: SuggestedChangeId | string,
     input?: { readonly idempotencyKey?: string },
   ): Promise<SuggestedChange>;
 
   /**
-   * A pin of the candidate for the suggested change's scope, through its
-   * gate: the suggested change, `pinned` or `in-review`. A gate refusal throws
-   * (`gate-failed`, with the checks).
+   * A pin of its version for its project, through the project's gate: the
+   * suggested change, `pinned` or `waiting-for-second-person`. A gate
+   * refusal throws (`gate-failed`, with the checks).
    *
    * @wire `POST /v1/suggested-changes/{suggestedChangeId}/pin`
    */
   pin(id: SuggestedChangeId | string, input?: SuggestedChangeReasonInput): Promise<SuggestedChange>;
+
+  /**
+   * Its version made its project's Latest, now, for a project on Latest
+   * (no gate): the suggested change, `added-as-latest`. A pinned project
+   * takes a pin instead (`suggested-change-project-pinned`).
+   *
+   * @wire `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`
+   */
+  addAsLatest(
+    id: SuggestedChangeId | string,
+    input?: SuggestedChangeReasonInput,
+  ): Promise<SuggestedChange>;
 
   /** @wire `POST /v1/suggested-changes/{suggestedChangeId}/withdraw` */
   withdraw(id: SuggestedChangeId | string, input: WithdrawInput): Promise<SuggestedChange>;
@@ -100,45 +93,28 @@ export interface SuggestedChangesListInput {
   readonly limit?: number;
   readonly cursor?: Cursor | string;
   readonly agentId?: AgentId | string;
-  readonly tier?: SuggestedChangeTier;
-  /** Statuses are derived, so a page filtered by status can hold fewer rows than `limit`. */
+  /** Only suggested changes for this project. */
+  readonly projectId?: string;
+  /**
+   * Statuses and makers are derived, so a page filtered by either can hold
+   * fewer rows than `limit`.
+   */
   readonly status?: SuggestedChangeStatus;
-  /** Only suggested changes for exactly this live scope. */
-  readonly scope?: LiveScope;
+  readonly madeBy?: SuggestedChangeMadeBy['kind'];
 }
 
-export interface CreateSuggestedChangeInput {
+export type CreateSuggestedChangeInput = {
   readonly agentId: AgentId | string;
-  /** The agent version the change applies to. */
-  readonly fromVersion: string;
-  /** The live scope it's for. */
-  readonly scope: LiveScope;
-  readonly tier: SuggestedChangeTier;
-  /** A block `fromVersion` pins, and its new content. */
-  readonly change: { readonly blockId: string; readonly content: SuggestedChangeContent };
-  /** What the change should improve, and why. */
+  /** The project it's for: it's built on what the project runs. */
+  readonly projectId: string;
+  /** The block it changes: one the project's version of the agent pins. */
+  readonly block: string;
+  /** What the change should fix, and why. */
   readonly why: string;
-  readonly evidence?: { readonly fixes?: readonly string[] };
+  /** The corrections it fixes, by id. */
+  readonly fixes?: readonly string[];
   readonly idempotencyKey?: string;
-}
-
-export interface EvaluateSuggestedChangeInput {
-  /** The test set: a corrections test set. */
-  readonly testSetId: string;
-  /** Default `weightedYesShare`. */
-  readonly objective?: SuggestedChangeObjective;
-  readonly reads?: 'recorded' | 'live';
-  readonly repetitions?: number;
-  readonly k?: number;
-  readonly groupWeights?: 'as-recorded' | 'experts-only';
-  /** Only part of the test set: the hold-out part proves a candidate (a gate refuses the search part). */
-  readonly sample?: {
-    readonly part: 'search' | 'hold-out';
-    readonly seed: string;
-    readonly holdOutShare: number;
-  };
-  readonly idempotencyKey?: string;
-}
+} & SuggestedChangeContent;
 
 export interface SuggestedChangeReasonInput {
   readonly reason?: string;
@@ -170,9 +146,9 @@ export function makeSuggestedChangesClient(transport: Transport): SuggestedChang
           ...(input.limit !== undefined && { limit: input.limit }),
           ...(input.cursor !== undefined && { cursor: input.cursor as string }),
           ...(input.agentId !== undefined && { agentId: input.agentId as string }),
-          ...(input.tier !== undefined && { tier: input.tier }),
+          ...(input.projectId !== undefined && { projectId: input.projectId }),
           ...(input.status !== undefined && { status: input.status }),
-          ...(input.scope !== undefined && scopeQuery(input.scope)),
+          ...(input.madeBy !== undefined && { madeBy: input.madeBy }),
         },
       });
       return listPage(page);
@@ -195,19 +171,23 @@ export function makeSuggestedChangesClient(transport: Transport): SuggestedChang
       });
     },
 
-    async evaluate(id, input) {
-      const { idempotencyKey, ...body } = input;
-      return post({ path: `/v1/suggested-changes/${seg(id)}/evaluate`, body, idempotencyKey });
-    },
-
-    async rescore(id, input = {}) {
+    async check(id, input = {}) {
       const { idempotencyKey } = input;
-      return post({ path: `/v1/suggested-changes/${seg(id)}/rescore`, body: {}, idempotencyKey });
+      return post({ path: `/v1/suggested-changes/${seg(id)}/check`, body: {}, idempotencyKey });
     },
 
     async pin(id, input = {}) {
       const { idempotencyKey, ...body } = input;
       return post({ path: `/v1/suggested-changes/${seg(id)}/pin`, body, idempotencyKey });
+    },
+
+    async addAsLatest(id, input = {}) {
+      const { idempotencyKey, ...body } = input;
+      return post({
+        path: `/v1/suggested-changes/${seg(id)}/add-as-latest`,
+        body,
+        idempotencyKey,
+      });
     },
 
     async withdraw(id, input) {

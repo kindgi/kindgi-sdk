@@ -299,7 +299,8 @@ export const LiveVersionResolutionSchema: JsonSchema = {
     via: {
       type: 'string',
       enum: ['live', 'latest'],
-      description: 'A live pin chose it, or nothing is live on the way up and it is the latest.',
+      description:
+        "A live pin chose it, or nothing is live on the way up and it is the project's Latest.",
     },
     liveScope: { $ref: '#/components/schemas/LiveScope' },
   },
@@ -340,7 +341,76 @@ export const AgentProjectSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['projectId'],
-  properties: { projectId: { type: 'string', format: 'uuid' } },
+  properties: {
+    projectId: { type: 'string', format: 'uuid' },
+    follows: {
+      type: 'string',
+      enum: ['pin', 'latest'],
+      description:
+        "Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server has no live versions.",
+    },
+    runs: { $ref: '#/components/schemas/AgentProjectRuns' },
+    segments: {
+      type: 'array',
+      description:
+        'The pins on segments inside the project, which those segment paths run instead.',
+      items: { $ref: '#/components/schemas/AgentProjectSegmentPin' },
+    },
+  },
+};
+
+export const AgentProjectRunsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version'],
+  description:
+    "The version a run in the project that names none gets (and isn't a follow-up turn of a conversation).",
+  properties: {
+    version: { type: 'string' },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When it began to run there: when the pin was set; or, for Latest, the deployment into the project that shipped it, or when a person published it or added it as the latest version. Absent when nothing records a time, as for a pack's version under `kindgi dev`.",
+    },
+    by: {
+      $ref: '#/components/schemas/PinActor',
+      description:
+        'Who: the requester of the promotion that set the pin, or the person who published it or added it as the latest version. Absent when a deployment made it Latest.',
+    },
+    deploymentId: {
+      type: 'string',
+      description:
+        'With `follows: latest`: the deployment into the project that made it Latest, when one did.',
+    },
+    liveScope: {
+      $ref: '#/components/schemas/LiveScope',
+      description: 'With `follows: pin`: the pin that covers the project.',
+    },
+    promotionId: {
+      type: 'string',
+      description: 'With `follows: pin`: the promotion that set the pin.',
+    },
+  },
+};
+
+export const AgentProjectSegmentPinSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['path', 'version'],
+  properties: {
+    path: { type: 'array', items: { $ref: '#/components/schemas/ScopeSegment' } },
+    version: { type: 'string' },
+  },
+};
+
+export const AgentHighestVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version'],
+  description:
+    "The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server has no live versions.",
+  properties: { version: { type: 'string' } },
 };
 
 export const AgentProjectListSchema: JsonSchema = {
@@ -353,6 +423,7 @@ export const AgentProjectListSchema: JsonSchema = {
       description: 'Its first project first, then the others, each once.',
       items: { $ref: '#/components/schemas/AgentProject' },
     },
+    highest: { $ref: '#/components/schemas/AgentHighestVersion' },
   },
 };
 
@@ -6706,215 +6777,117 @@ export const RevokeSigningKeyResultSchema: JsonSchema = {
 
 // ---------------- suggested changes ----------------
 
-export const SuggestedChangeTierSchema: JsonSchema = {
-  type: 'string',
-  enum: ['settings-block', 'prompt-block'],
-  description:
-    'What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.',
-};
-
 export const SuggestedChangeStatusSchema: JsonSchema = {
   type: 'string',
   enum: [
-    'draft',
-    'evaluating',
-    'evaluated',
-    'not-better',
-    'evaluation-failed',
-    'in-review',
+    'checking',
+    'check-failed',
+    'ready',
+    'waiting-for-second-person',
     'pinned',
-    'refused',
-    'rejected',
-    'expired',
-    'superseded',
-    'rolled-back',
+    'added-as-latest',
     'withdrawn',
   ],
   description:
-    "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`. `withdrawn`: withdrawn.",
-};
-
-export const SuggestedChangeBlockEditSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['blockId', 'fromVersion', 'content'],
-  properties: {
-    blockId: { type: 'string', description: 'The data block the change is to.' },
-    fromVersion: {
-      type: 'string',
-      description: "The block version the agent version pins: what's being changed.",
-    },
-    content: {
-      type: 'object',
-      description:
-        'The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).',
-      additionalProperties: false,
-      properties: {
-        values: { type: 'object', additionalProperties: true },
-        template: { type: 'string' },
-      },
-    },
-  },
+    "Where a suggested change stands, from its check, its pin and its own steps (never stored). `checking`: its check's test runs are queued or running. `check-failed`: its check failed or was cancelled, or never ran (`check.status: not-started`). `ready`: its check finished; `check` says how it did. A pin the gate refused, a second person rejected, or whose approval expired leaves it `ready`, with a `note`. `waiting-for-second-person`: pinned, and the approval (`approvalId`) is open. `pinned`: its version was pinned for its project. `added-as-latest`: its version was added as its project's Latest. `withdrawn`: withdrawn.",
 };
 
 export const SuggestedChangeMadeBySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind'],
-  description: "Who wrote the suggested change: a person, or one of the runtime's drafters.",
-  properties: {
-    kind: { type: 'string', enum: ['person', 'settings-optimizer', 'prompt-drafter'] },
-    by: { type: 'string', description: 'For a person: `user:<id>` (or `service:<id>`).' },
-    version: { type: 'string', description: "For a drafter: the drafter's version." },
-    model: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['providerId', 'model'],
-      description: 'For a drafter that used a model: which.',
-      properties: { providerId: { type: 'string' }, model: { type: 'string' } },
-    },
-    improveRunId: {
-      type: 'string',
-      description:
-        'For a drafter: the Improve run that drafted it (`GET /v1/improve-runs/{improveRunId}`).',
-    },
-  },
-};
-
-export const SuggestedChangeEvidenceSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  description: 'What a suggested change rests on.',
-  properties: {
-    fixes: {
-      type: 'array',
-      items: { type: 'string' },
-      description:
-        "The corrections it fixes, by id. An Improve run's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt Improve run, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.",
-    },
-    correctionCount: {
-      type: 'integer',
-      minimum: 0,
-      description:
-        'How many corrections it rests on, when `fixes` names only the first of them. Absent when `fixes` names them all.',
-    },
-  },
-};
-
-export const SuggestedChangeCandidateSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['agentVersion', 'blockVersion', 'pinsDigest'],
   description:
-    'The versions evaluating the suggested change published. They serve no scope until a promotion makes the agent version live.',
+    'Who or what made the suggested change. `improve-run`: an Improve run (`improveRunId`, and `scheduleId` when a schedule started it). `person`: a person (`userId`). `service`: a service account (`id`). `deploy`: a deploy, for a project its new version reaches (`deploymentId`, and who deployed, `by`). `offer`: a change pinned in another project, offered to this one (`fromProjectId`, `pinChangeId`). One made before this was recorded reads it from its drafter.',
   properties: {
-    agentVersion: {
-      type: 'string',
-      description:
-        'The derived agent version (its `derivedFrom.suggestedChangeId` names the suggested change).',
-    },
-    blockVersion: {
-      type: 'string',
-      description: "The block version published from the suggested change's content.",
-    },
-    pinsDigest: { type: 'string' },
+    kind: { type: 'string', enum: ['improve-run', 'person', 'service', 'deploy', 'offer'] },
+    improveRunId: { type: 'string' },
+    scheduleId: { type: 'string' },
+    userId: { type: 'string' },
+    id: { type: 'string' },
+    deploymentId: { type: 'string' },
+    by: { $ref: '#/components/schemas/PinActor' },
+    fromProjectId: { type: 'string', format: 'uuid' },
+    pinChangeId: { type: 'string' },
   },
 };
 
-export const SuggestedChangeEvaluationSchema: JsonSchema = {
+export const SuggestedChangeBlockContentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['testRunId', 'testSetId', 'objective', 'startedAt'],
+  description: '`{ values }` for a settings block, `{ template }` for a prompt block.',
+  properties: {
+    values: { type: 'object', additionalProperties: true },
+    template: { type: 'string' },
+  },
+};
+
+export const SuggestedChangeChangeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'blockId', 'from'],
   description:
-    "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).",
+    "One change the suggested change makes: a new version of a block its project's version pins. `from` is the block version what it's built on pins, and `to` the one it published (absent until it made one). `GET /v1/suggested-changes/{suggestedChangeId}` adds `from`'s content (`before`) and the new content (`after`).",
+  properties: {
+    kind: { type: 'string', enum: ['block'] },
+    blockId: { type: 'string' },
+    from: { type: 'string' },
+    to: { type: 'string' },
+    before: { $ref: '#/components/schemas/SuggestedChangeBlockContent' },
+    after: { $ref: '#/components/schemas/SuggestedChangeBlockContent' },
+  },
+};
+
+export const SuggestedChangeCheckSideSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['testRunId'],
+  description:
+    "How one version did on the check's cases: its test run, and once that finished, the corrections it passed (every repetition did) of those it was checked on.",
   properties: {
     testRunId: { type: 'string', format: 'uuid' },
-    testSetId: { type: 'string', description: 'The test set (a corrections test set).' },
-    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    passing: { type: 'integer', minimum: 0 },
+    of: { type: 'integer', minimum: 0 },
+    costPerConversation: {
+      type: 'string',
+      description:
+        'What its replays cost in model calls per case, in US dollars, as a decimal string. Absent when the runtime reported no cost.',
+    },
+  },
+};
+
+export const SuggestedChangeCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status'],
+  description:
+    "The suggested change's check: its version (`with`) and the version it's built on (`now`) run the same cases of its project's test set, frozen when the check started. `status`: `not-started` (it never ran), `running`, `done` or `failed`. A check from before suggested changes were for a project compared its version with the recorded outputs only, so it has no `now`.",
+  properties: {
+    status: { type: 'string', enum: ['not-started', 'running', 'done', 'failed'] },
+    testSetId: { type: 'string' },
+    testSetVersion: {
+      type: 'string',
+      description: 'The test set version its runs ran. Absent until its version ran.',
+    },
+    now: { $ref: '#/components/schemas/SuggestedChangeCheckSide' },
+    with: { $ref: '#/components/schemas/SuggestedChangeCheckSide' },
+    newlyFailing: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Once both runs finished: the corrections `now` passes and `with` fails, by id.',
+    },
     startedAt: { type: 'string', format: 'date-time' },
-    runStatus: {
-      type: 'string',
-      enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
-      description: "The test run's status. Absent when the run can't be read.",
-    },
-    baseline: {
-      type: ['number', 'null'],
-      description: "The recorded outputs' score; `null` without evidence from corrections.",
-    },
-    candidate: { type: ['number', 'null'], description: "The candidate's score." },
-    delta: { type: ['number', 'null'] },
-    spread: {
-      type: 'number',
-      description:
-        "With more than one repetition: the candidate's max − min, the noise a delta must beat.",
-    },
-    cases: { type: 'integer' },
-    better: { type: 'boolean', description: 'Set once the comparison finished.' },
-    rule: {
-      type: 'string',
-      enum: ['better', 'cheaper'],
-      description:
-        "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.",
-    },
-    costUsd: { $ref: '#/components/schemas/SuggestedChangeCost' },
-    decisions: { $ref: '#/components/schemas/SuggestedChangeDecisions' },
   },
 };
 
-export const SuggestedChangeCostSchema: JsonSchema = {
+export const SuggestedChangeNoteSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['current', 'candidate'],
+  required: ['kind', 'promotionId'],
   description:
-    "What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.",
+    "Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion.",
   properties: {
-    current: { type: 'number', minimum: 0 },
-    candidate: { type: 'number', minimum: 0 },
-  },
-};
-
-export const SuggestedChangeDecisionsSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['checked', 'held', 'broken', 'stillWrong'],
-  description:
-    "The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.",
-  properties: {
-    checked: { type: 'integer', minimum: 0 },
-    held: {
-      type: 'integer',
-      minimum: 0,
-      description: 'The current version passed them, and so did the candidate.',
-    },
-    broken: {
-      type: 'integer',
-      minimum: 0,
-      description: "The current version passed them; the candidate didn't.",
-    },
-    stillWrong: {
-      type: 'integer',
-      minimum: 0,
-      description: 'Neither passed them. The rest of `checked` the candidate fixed.',
-    },
-  },
-};
-
-export const SuggestedChangePromotionSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['id', 'status'],
-  description: "The promotion the suggested change's request made.",
-  properties: {
-    id: { type: 'string' },
-    status: {
-      type: 'string',
-      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
-    },
-    approvalId: { type: 'string', description: 'The approval a request in review waits on.' },
-    liveNow: {
-      type: 'boolean',
-      description: 'For a pinned suggested change: whether its version still serves the scope.',
-    },
+    kind: { type: 'string', enum: ['gate-refused', 'rejected', 'expired', 'superseded'] },
+    promotionId: { type: 'string' },
   },
 };
 
@@ -6922,16 +6895,17 @@ export const SuggestedChangeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'A suggested change: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.',
+    "A suggested change: one block changed in what a project runs, checked on the project's test set, then pinned for the project or added as its Latest.",
   required: [
     'id',
     'agentId',
-    'fromVersion',
-    'scope',
-    'tier',
-    'change',
-    'why',
+    'title',
     'madeBy',
+    'builtOn',
+    'changes',
+    'why',
+    'fixes',
+    'check',
     'status',
     'createdAt',
     'updatedAt',
@@ -6939,36 +6913,80 @@ export const SuggestedChangeSchema: JsonSchema = {
   properties: {
     id: { type: 'string', format: 'uuid' },
     agentId: { type: 'string' },
-    fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    tier: { $ref: '#/components/schemas/SuggestedChangeTier' },
-    change: { $ref: '#/components/schemas/SuggestedChangeBlockEdit' },
-    why: { type: 'string', description: 'What the change should improve, and why.' },
-    evidence: { $ref: '#/components/schemas/SuggestedChangeEvidence' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project it's for. On one made before suggested changes were for a project, its agent version's project, when known: such a one can only be withdrawn (`409 suggested-change-not-for-a-project`).",
+    },
+    title: {
+      type: 'string',
+      description:
+        'The first line of `why`, cut at 60 characters, then the change: `tone v2 → v3`.',
+    },
     madeBy: { $ref: '#/components/schemas/SuggestedChangeMadeBy' },
-    status: { $ref: '#/components/schemas/SuggestedChangeStatus' },
-    candidate: { $ref: '#/components/schemas/SuggestedChangeCandidate' },
-    evaluation: { $ref: '#/components/schemas/SuggestedChangeEvaluation' },
-    promotion: { $ref: '#/components/schemas/SuggestedChangePromotion' },
-    rolledBack: {
+    builtOn: {
       type: 'object',
       additionalProperties: false,
-      required: ['at', 'promotionId', 'by'],
+      required: ['version'],
+      description:
+        "The agent version it's built on: what its project ran when it was made, or when it was last rebuilt (`rebuiltAt`).",
       properties: {
+        version: { type: 'string' },
+        rebuiltAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    version: {
+      type: 'string',
+      description:
+        'Its agent version: what it is built on, with its changes. Absent until it made one. It serves nothing until it is pinned or added as Latest.',
+    },
+    changes: { type: 'array', items: { $ref: '#/components/schemas/SuggestedChangeChange' } },
+    why: { type: 'string', description: 'What the change should fix, and why.' },
+    fixes: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The corrections it fixes, by id.',
+    },
+    check: { $ref: '#/components/schemas/SuggestedChangeCheck' },
+    status: { $ref: '#/components/schemas/SuggestedChangeStatus' },
+    note: { $ref: '#/components/schemas/SuggestedChangeNote' },
+    pinned: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['version', 'by', 'at'],
+      description: 'Once `pinned`: its version, who pinned it, and when.',
+      properties: {
+        version: { type: 'string' },
+        by: { $ref: '#/components/schemas/PinActor' },
         at: { type: 'string', format: 'date-time' },
-        promotionId: { type: 'string', description: "The rollback's own promotion row." },
-        by: { type: 'string' },
+      },
+    },
+    approvalId: {
+      type: 'string',
+      description: 'While `waiting-for-second-person`: the approval the pin waits on.',
+    },
+    addedAsLatest: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['version', 'by', 'at'],
+      description:
+        "Once `added-as-latest`: its version, who added it as its project's Latest, when, and why when given.",
+      properties: {
+        version: { type: 'string' },
+        by: { $ref: '#/components/schemas/PinActor' },
+        at: { type: 'string', format: 'date-time' },
         reason: { type: 'string' },
       },
     },
     withdrawn: {
       type: 'object',
       additionalProperties: false,
-      required: ['at', 'by', 'reason'],
+      required: ['by', 'reason', 'at'],
       properties: {
-        at: { type: 'string', format: 'date-time' },
-        by: { type: 'string' },
+        by: { $ref: '#/components/schemas/PinActor' },
         reason: { type: 'string' },
+        at: { type: 'string', format: 'date-time' },
       },
     },
     createdAt: { type: 'string', format: 'date-time' },
@@ -7259,61 +7277,30 @@ export const ImproveRunCheckSchema: JsonSchema = {
 
 export const CreateSuggestedChangeBodySchema: JsonSchema = {
   description:
-    'A hand-written suggested change: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).',
+    'A suggested change by hand: new settings values (`values`) or a new prompt template (`template`) for one block, in what the project runs (its pin, or Latest). The same change on the same version for the same project is one suggested change (answered with `X-Suggested-Change-Deduped: true`).',
   type: 'object',
   additionalProperties: false,
-  required: ['agentId', 'fromVersion', 'scope', 'tier', 'change', 'why'],
+  required: ['agentId', 'projectId', 'block', 'why'],
   properties: {
     agentId: { type: 'string' },
-    fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    tier: { $ref: '#/components/schemas/SuggestedChangeTier' },
-    change: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['blockId', 'content'],
-      properties: {
-        blockId: { type: 'string', description: "A block `fromVersion` pins, of the tier's kind." },
-        content: {
-          type: 'object',
-          description:
-            '`{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.',
-          additionalProperties: false,
-          properties: {
-            values: { type: 'object', additionalProperties: true },
-            template: { type: 'string' },
-          },
-        },
-      },
-    },
-    why: { type: 'string', minLength: 1, maxLength: 2000 },
-    evidence: {
-      type: 'object',
-      additionalProperties: false,
-      properties: { fixes: { type: 'array', items: { type: 'string' } } },
-    },
-  },
-};
-
-export const EvaluateSuggestedChangeBodySchema: JsonSchema = {
-  description:
-    "Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
-  type: 'object',
-  additionalProperties: false,
-  required: ['testSetId'],
-  properties: {
-    testSetId: { type: 'string', description: 'The test set: a corrections test set.' },
-    objective: {
+    projectId: { type: 'string', format: 'uuid', description: "The project it's for." },
+    block: {
       type: 'string',
-      enum: ['weightedYesShare', 'weightedPrecisionAtK'],
-      default: 'weightedYesShare',
-      description: 'The metric that says whether the candidate is better.',
+      description: "The block it changes: one the project's version of the agent pins.",
     },
-    reads: { type: 'string', enum: ['recorded', 'live'] },
-    repetitions: { type: 'integer', minimum: 1, maximum: 10 },
-    k: { type: 'integer', minimum: 1, maximum: 100 },
-    groupWeights: { type: 'string', enum: ['as-recorded', 'experts-only'] },
-    sample: { $ref: '#/components/schemas/EvalSample' },
+    values: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        "For a settings block: its new values. They must satisfy the block's schema, and for the version's model-settings block, be model settings.",
+    },
+    template: { type: 'string', description: 'For a prompt block: its new template.' },
+    why: { type: 'string', minLength: 1, maxLength: 2000 },
+    fixes: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The corrections it fixes, by id.',
+    },
   },
 };
 
@@ -9396,6 +9383,30 @@ export const BlockSchema: JsonSchema = {
       description:
         'Present only on an unregistered version; agent versions that pin it still read it.',
     },
+    publishedBy: {
+      type: 'object',
+      description:
+        'Who published the version: a user, or a service token. Absent on a version published before it was recorded.',
+      additionalProperties: false,
+      required: ['kind', 'id'],
+      properties: {
+        kind: { type: 'string', enum: ['user', 'service'] },
+        id: { type: 'string' },
+      },
+    },
+    source: { $ref: '#/components/schemas/BlockVersionSource' },
+  },
+};
+
+export const BlockVersionSourceSchema: JsonSchema = {
+  description:
+    "Where a block version came from: `api` (`POST /v1/blocks`), `deploy` (a deploy's pack; `id` is the deployment's) or `suggested-change` (`id` is the suggested change's). Absent on a version published before it was recorded.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  properties: {
+    kind: { type: 'string', enum: ['api', 'deploy', 'suggested-change'] },
+    id: { type: 'string', description: 'Present for `deploy` and `suggested-change`.' },
   },
 };
 
@@ -16470,6 +16481,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LivePinList', LivePinListSchema],
   ['ProjectPinnedVersionPage', ProjectPinnedVersionPageSchema],
   ['AgentProject', AgentProjectSchema],
+  ['AgentProjectRuns', AgentProjectRunsSchema],
+  ['AgentProjectSegmentPin', AgentProjectSegmentPinSchema],
+  ['AgentHighestVersion', AgentHighestVersionSchema],
   ['AgentProjectList', AgentProjectListSchema],
   ['Promotion', PromotionSchema],
   ['PromotionPage', PromotionPageSchema],
@@ -16743,16 +16757,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ReplayMemoryErasuresBody', ReplayMemoryErasuresBodySchema],
   ['ResumeMemoryErasureBody', ResumeMemoryErasureBodySchema],
   ['ReplayMemoryErasuresResult', ReplayMemoryErasuresResultSchema],
-  ['SuggestedChangeTier', SuggestedChangeTierSchema],
   ['SuggestedChangeStatus', SuggestedChangeStatusSchema],
-  ['SuggestedChangeBlockEdit', SuggestedChangeBlockEditSchema],
   ['SuggestedChangeMadeBy', SuggestedChangeMadeBySchema],
-  ['SuggestedChangeEvidence', SuggestedChangeEvidenceSchema],
-  ['SuggestedChangeCandidate', SuggestedChangeCandidateSchema],
-  ['SuggestedChangeEvaluation', SuggestedChangeEvaluationSchema],
-  ['SuggestedChangeCost', SuggestedChangeCostSchema],
-  ['SuggestedChangeDecisions', SuggestedChangeDecisionsSchema],
-  ['SuggestedChangePromotion', SuggestedChangePromotionSchema],
+  ['SuggestedChangeBlockContent', SuggestedChangeBlockContentSchema],
+  ['SuggestedChangeChange', SuggestedChangeChangeSchema],
+  ['SuggestedChangeCheckSide', SuggestedChangeCheckSideSchema],
+  ['SuggestedChangeCheck', SuggestedChangeCheckSchema],
+  ['SuggestedChangeNote', SuggestedChangeNoteSchema],
   ['SuggestedChange', SuggestedChangeSchema],
   ['SuggestedChangeCollectionPage', SuggestedChangeCollectionPageSchema],
   ['ImprovementBudget', ImprovementBudgetSchema],
@@ -16762,7 +16773,6 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['StartImproveRunBody', StartImproveRunBodySchema],
   ['ImproveRunCheck', ImproveRunCheckSchema],
   ['CreateSuggestedChangeBody', CreateSuggestedChangeBodySchema],
-  ['EvaluateSuggestedChangeBody', EvaluateSuggestedChangeBodySchema],
   ['SuggestedChangeReasonBody', SuggestedChangeReasonBodySchema],
   ['WithdrawSuggestedChangeBody', WithdrawSuggestedChangeBodySchema],
   ['ProvenanceNodeKind', ProvenanceNodeKindSchema],
@@ -16859,6 +16869,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PromptBlockContent', PromptBlockContentSchema],
   ['SettingsBlockContent', SettingsBlockContentSchema],
   ['Block', BlockSchema],
+  ['BlockVersionSource', BlockVersionSourceSchema],
   ['BlockCollectionPage', BlockCollectionPageSchema],
   ['PublishBlockBody', PublishBlockBodySchema],
   ['PublishBlockResult', PublishBlockResultSchema],

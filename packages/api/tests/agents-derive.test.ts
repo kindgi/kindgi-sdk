@@ -24,6 +24,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  AgentPublishInput,
   AgentRegistryBinding,
   AgentVersionRecord,
   BlockRegistryBinding,
@@ -60,11 +61,14 @@ function agentBinding(
   markUnregistered: (version: string) => void;
   /** The entries each version's publish wrote. */
   written: TupleIntent[];
+  /** What each version was made for, and who made it Latest, by version. */
+  made: Map<string, Pick<AgentPublishInput, 'madeFor' | 'latestBy'>>;
 } {
   const registry = createAgentRegistry();
   const projects = new Map<string, ProjectId>();
   const unregistered = new Set<string>();
   const written: TupleIntent[] = [];
+  const made = new Map<string, Pick<AgentPublishInput, 'madeFor' | 'latestBy'>>();
   const withProject = (agent: AgentVersionRecord): AgentVersionRecord => {
     const project = projects.get(agent.version as unknown as string);
     const owner = projects.values().next().value;
@@ -81,6 +85,7 @@ function agentBinding(
   return {
     markUnregistered: (version) => unregistered.add(version),
     written,
+    made,
     async list() {
       return { data: [] };
     },
@@ -107,7 +112,7 @@ function agentBinding(
       const data = all.slice(at, at + 1);
       return at + 1 < all.length ? { data, nextCursor: String(at + 1) as never } : { data };
     },
-    async publish({ agent, projectId: project, enqueueTuples }) {
+    async publish({ agent, projectId: project, enqueueTuples, madeFor, latestBy }) {
       // The agent stays in its first version's project, as a store keeps it;
       // a version may be made in another project of that project's order.
       const owner = projects.values().next().value;
@@ -128,11 +133,16 @@ function agentBinding(
       registry.register(agent);
       projects.set(agent.version as unknown as string, project);
       written.push(...enqueueTuples(agent.id as unknown as string));
+      made.set(agent.version as unknown as string, {
+        madeFor,
+        ...(latestBy !== undefined && { latestBy }),
+      });
       return { kind: 'ok', agentId: agent.id, version: agent.version };
     },
     async unregister() {
       return { unregistered: false };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -164,7 +174,13 @@ async function harness(
   const agents = agentBinding(opts.recordsProject, opts.orders);
   const blocks = inMemoryBlocks([projectId]);
   const put = (block: Parameters<BlockRegistryBinding['publish']>[0]['block']) =>
-    blocks.publish({ tenantId, projectId, block });
+    blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
+      tenantId,
+      projectId,
+      block,
+    });
   const prompt = (version: string, template: string) =>
     put({ id: 'acme.intake-prompt', version, kind: 'prompt', content: { template } });
   const settings = (id: string, version: string, values: Record<string, unknown>) =>
@@ -229,7 +245,13 @@ async function harness(
       ...(pinned && { pins, pinsDigest: pinsDigest(pins) }),
       ...extra,
     } as unknown as Agent;
-    await agents.publish({ tenantId, projectId, agent, enqueueTuples: () => [] });
+    await agents.publish({
+      tenantId,
+      projectId,
+      agent,
+      madeFor: 'latest',
+      enqueueTuples: () => [],
+    });
   };
   return { call, agents, prompt, settings, publishAgent };
 }
@@ -268,6 +290,17 @@ describe('POST /v1/agents/:agentId/versions derives a version', () => {
     const read = await call('GET', '/v1/agents/acme.intake/versions/1.0.1');
     expect(read.body.pins).toEqual(pins);
     expect(read.body.projectId).toBe(projectId);
+  });
+
+  test("is made for its project: never Latest by itself, and no one's Latest add", async () => {
+    const { call, prompt, publishAgent, agents } = await harness();
+    await publishAgent('1.0.0');
+    await prompt('1.1.0', 'Sort it well.');
+    const res = await call(
+      ...derive({ from: '1.0.0', pins: { prompts: { 'acme.intake-prompt': '1.1.0' } } }),
+    );
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(agents.made.get('1.0.1')).toEqual({ madeFor: 'project' });
   });
 
   test("is numbered the next free patch after the agent's highest version", async () => {

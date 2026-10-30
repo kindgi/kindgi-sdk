@@ -21,7 +21,7 @@ import {
   itemPathCheck,
   shownLatest,
 } from '../item-rights.js';
-import type { LiveVersionBinding } from '../live-version-binding.js';
+import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
@@ -656,8 +656,8 @@ function flowPinnedItem(
 export interface FlowPinning {
   readonly tools: ToolRegistryBinding;
   readonly agents: AgentRegistryBinding;
-  /** The agents' live versions: an agent step pins the one live for the flow's project. */
-  readonly live?: LiveVersionBinding;
+  /** The agents' pins and Latest: an agent step pins what runs in the flow's project (`whatRuns`). */
+  readonly releases?: Pick<AgentReleaseBindings, 'live' | 'latest'>;
   /** The tools' pinned versions: a tool step pins the one pinned for the flow's project. */
   readonly pinned?: PinnedVersionBinding;
 }
@@ -678,7 +678,7 @@ async function pinFlow(
     pinning.agents,
     tenantId,
     flow,
-    pinning.live !== undefined ? { binding: pinning.live, projectId } : undefined,
+    pinning.releases !== undefined ? { releases: pinning.releases, projectId } : undefined,
     toolPinLookup(pinning.pinned, projectId),
   );
   if (resolved.kind === 'unpinnable') return resolved;

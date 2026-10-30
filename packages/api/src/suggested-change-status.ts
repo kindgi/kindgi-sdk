@@ -2,67 +2,60 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { CorrectedComparisonSummary } from './corrected-dispatcher.js';
-import type { TestRun, TestRunStatus } from './test-run-binding.js';
 import type { Promotion } from './live-version-binding.js';
 import type {
   StoredSuggestedChange,
+  SuggestedChangeDrafter,
+  SuggestedChangeMaker,
   SuggestedChangeObjective,
   SuggestedChangeRule,
 } from './supervisor-binding.js';
+import type { TestRun, TestRunStatus } from './test-run-binding.js';
 
 /**
- * Where a suggested change stands. Never stored: it follows from the
- * suggested change's own steps, its comparison test run and its promotion.
+ * Where a suggested change stands. Never stored: it follows from its own
+ * steps, its check's test runs and its promotion.
  *
- * - `draft`: not evaluated yet.
- * - `evaluating`: its comparison is queued or running.
- * - `evaluated`: the comparison finished and the candidate beat the
- *   recorded outputs on the objective metric by more than the noise.
- *   Under `rule: 'cheaper'`, it was instead no worse than the current
- *   version on the same cases and cost less; with a reference (a
- *   model-settings change), also no correction the current version
- *   passes failed.
- * - `not-better`: the comparison finished; the candidate didn't.
- * - `evaluation-failed`: the comparison failed or was cancelled.
- * - `in-review`: requested; the gate passed and an approval is open.
- * - `pinned`: the candidate went live for the scope.
- * - `refused`: requested; the gate refused it.
- * - `rejected`: the reviewer rejected it.
- * - `expired`: the approval expired undecided.
- * - `superseded`: approved after the scope's live version or policy changed.
- * - `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`.
+ * - `checking`: its check's runs are queued or running.
+ * - `check-failed`: its check failed or was cancelled, or never started
+ *   (its check `not-started`).
+ * - `ready`: its check finished; the scores say how it did. A pin the
+ *   gate refused, a second person rejected or that expired leaves it here,
+ *   with a note.
+ * - `waiting-for-second-person`: pinned, and the approval is open.
+ * - `pinned`: its version was pinned in its project.
+ * - `added-as-latest`: its version was added as its project's Latest.
  * - `withdrawn`: withdrawn.
  */
 export type SuggestedChangeStatus =
-  | 'draft'
-  | 'evaluating'
-  | 'evaluated'
-  | 'not-better'
-  | 'evaluation-failed'
-  | 'in-review'
+  | 'checking'
+  | 'check-failed'
+  | 'ready'
+  | 'waiting-for-second-person'
   | 'pinned'
-  | 'refused'
-  | 'rejected'
-  | 'expired'
-  | 'superseded'
-  | 'rolled-back'
+  | 'added-as-latest'
   | 'withdrawn';
 
 export const SUGGESTED_CHANGE_STATUSES: readonly SuggestedChangeStatus[] = [
-  'draft',
-  'evaluating',
-  'evaluated',
-  'not-better',
-  'evaluation-failed',
-  'in-review',
+  'checking',
+  'check-failed',
+  'ready',
+  'waiting-for-second-person',
   'pinned',
-  'refused',
-  'rejected',
-  'expired',
-  'superseded',
-  'rolled-back',
+  'added-as-latest',
   'withdrawn',
 ];
+
+/**
+ * Why a `ready` suggested change was asked to be pinned and wasn't: the
+ * release gate refused it, a second person rejected it, the approval
+ * expired, or the project's version or policy changed before it was
+ * approved.
+ */
+export interface SuggestedChangeNote {
+  readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
+  readonly promotionId: string;
+}
 
 /** What a finished comparison says about the candidate, on the suggested change's objective. */
 export interface SuggestedChangeEvaluationOutcome {
@@ -91,6 +84,31 @@ export interface SuggestedChangeEvaluationOutcome {
    */
   readonly kept?: boolean;
   readonly notKept?: SuggestedChangeNotKept;
+  /** Once the candidate's run finished: the test set version it ran. */
+  readonly testSetVersion?: string;
+  /** Once the candidate's run finished: how it did. */
+  readonly with?: SuggestedChangeSide;
+  /** With a reference, once both finished: how the current version did on the same cases. */
+  readonly now?: SuggestedChangeSide;
+  /**
+   * With a reference, once both finished: the corrections the current
+   * version passes and the candidate fails, by id.
+   */
+  readonly newlyFailing?: readonly string[];
+}
+
+/** How one version did on a check's cases. */
+export interface SuggestedChangeSide {
+  /** The corrections it passed (every repetition did). */
+  readonly passing: number;
+  /** The corrections it was checked on. */
+  readonly of: number;
+  /**
+   * Its replays' cost in model calls, in US dollars: the total over
+   * `cases`, the cases whose every repetition reported one, averaged over
+   * the repetitions. Absent when no case's did.
+   */
+  readonly costUsd?: { readonly total: number; readonly cases: number };
 }
 
 /**
@@ -163,10 +181,38 @@ export function evaluationOutcome(
     better,
     ...rule,
     ...referenceStatus,
+    testSetVersion: summary.testSet.version,
+    with: sideOf(summary),
     ...(against !== undefined &&
-      reference !== null &&
-      heldTo(objective, against.rule, summary, reference, better)),
+      reference !== null && {
+        ...heldTo(objective, against.rule, summary, reference, better),
+        now: sideOf(reference),
+        newlyFailing: newlyFailingOf(reference, summary),
+      }),
   };
+}
+
+/** How a finished comparison's candidate did. */
+function sideOf(summary: CorrectedComparisonSummary): SuggestedChangeSide {
+  const cost = summary.costUsd;
+  return {
+    passing: summary.corrections?.passed ?? 0,
+    of: summary.corrections?.checked ?? 0,
+    ...(cost !== undefined && { costUsd: { total: cost.candidate, cases: cost.cases } }),
+  };
+}
+
+/** The corrections the reference passed and the candidate didn't, by id. */
+function newlyFailingOf(
+  reference: CorrectedComparisonSummary,
+  candidate: CorrectedComparisonSummary,
+): string[] {
+  const passed = new Set(
+    (candidate.corrections?.results ?? []).filter((j) => j.pass).map((j) => j.correctionId),
+  );
+  return (reference.corrections?.results ?? [])
+    .filter((j) => j.pass && !passed.has(j.correctionId))
+    .map((j) => j.correctionId);
 }
 
 /** A finished candidate held to its finished reference under the rule. */
@@ -247,21 +293,22 @@ function decisionsOf(
   return { checked: checked.length, held, broken, stillWrong };
 }
 
-const PROMOTION_STATUS: Readonly<Record<NonNullable<Promotion['status']>, SuggestedChangeStatus>> =
-  {
-    'pending-approval': 'in-review',
-    promoted: 'pinned',
-    refused: 'refused',
-    rejected: 'rejected',
-    expired: 'expired',
-    superseded: 'superseded',
-  };
+const PROMOTION_NOTE: Readonly<
+  Record<'refused' | 'rejected' | 'expired' | 'superseded', SuggestedChangeNote['kind']>
+> = {
+  refused: 'gate-refused',
+  rejected: 'rejected',
+  expired: 'expired',
+  superseded: 'superseded',
+};
 
 /**
  * A suggested change's status from what's recorded: its own steps first
- * (withdrawn, rolled back), then its promotion, then its comparison.
- * `promotion` and `evaluation` are what the suggested change's ids resolve to
- * (`undefined` when it has none).
+ * (withdrawn, added as Latest, rolled back), then its promotion, then its
+ * check. `promotion` and `evaluation` are what its ids resolve to
+ * (`undefined` when it has none). One stored before these statuses reads
+ * the same way: a rollback was a pin, and a draft never checked is
+ * `check-failed`.
  */
 export function suggestedChangeStatus(
   suggestedChange: StoredSuggestedChange,
@@ -269,69 +316,85 @@ export function suggestedChangeStatus(
   evaluation: SuggestedChangeEvaluationOutcome | null | undefined,
 ): SuggestedChangeStatus {
   if (suggestedChange.withdrawn !== undefined) return 'withdrawn';
-  if (suggestedChange.rolledBack !== undefined) return 'rolled-back';
+  if (suggestedChange.addedAsLatest !== undefined) return 'added-as-latest';
+  if (suggestedChange.rolledBack !== undefined) return 'pinned';
   if (promotion !== undefined && promotion !== null) {
-    return PROMOTION_STATUS[promotion.status ?? 'promoted'];
+    const status = promotion.status ?? 'promoted';
+    if (status === 'pending-approval') return 'waiting-for-second-person';
+    if (status === 'promoted') return 'pinned';
   }
-  if (evaluation === undefined || evaluation === null) {
-    return suggestedChange.evaluation === undefined ? 'draft' : 'evaluation-failed';
-  }
+  if (evaluation === undefined || evaluation === null) return 'check-failed';
   switch (evaluation.runStatus) {
     case 'pending':
     case 'running':
-      return 'evaluating';
+      return 'checking';
     case 'failed':
     case 'cancelled':
-      return 'evaluation-failed';
+      return 'check-failed';
     case 'completed':
       return finishedStatus(evaluation);
   }
 }
 
-/**
- * A finished comparison's status. With a reference, the candidate is kept
- * only once that's finished too.
- */
+/** The note on a `ready` suggested change whose pin didn't go through. */
+export function suggestedChangeNote(
+  promotion: Promotion | null | undefined,
+): SuggestedChangeNote | undefined {
+  const status = promotion?.status;
+  if (promotion === undefined || promotion === null || status === undefined) return undefined;
+  if (status === 'pending-approval' || status === 'promoted') return undefined;
+  return { kind: PROMOTION_NOTE[status], promotionId: promotion.id };
+}
+
+/** A finished check's status: with a reference, `ready` once that's finished too. */
 function finishedStatus(evaluation: SuggestedChangeEvaluationOutcome): SuggestedChangeStatus {
-  const reference = evaluation.referenceStatus;
-  if (reference === undefined) return evaluation.better === true ? 'evaluated' : 'not-better';
-  switch (reference) {
+  const status = evaluation.referenceStatus;
+  if (status === undefined) return 'ready';
+  switch (status) {
+    case 'completed':
+      return 'ready';
     case 'pending':
     case 'running':
-      return 'evaluating';
+      return 'checking';
     case 'failed':
     case 'cancelled':
-      return 'evaluation-failed';
-    case 'completed':
-      return evaluation.kept === true ? 'evaluated' : 'not-better';
+      return 'check-failed';
   }
 }
 
-/** The lifecycle calls, and the statuses each starts from. */
+/**
+ * Who or what made a suggested change: as recorded, or for one stored
+ * before that was, read from its drafter. A person's `user:<id>` is that
+ * person, and a `service:<id>` that service account; a drafter with an
+ * improvement pass is that Improve run; any other drafter is a service
+ * named by its kind.
+ */
+export function suggestedChangeMaker(suggestedChange: {
+  readonly madeBy?: SuggestedChangeMaker;
+  readonly drafter: SuggestedChangeDrafter;
+}): SuggestedChangeMaker {
+  if (suggestedChange.madeBy !== undefined) return suggestedChange.madeBy;
+  const { drafter } = suggestedChange;
+  if (drafter.kind === 'person') {
+    const [kind, ...rest] = drafter.by.split(':');
+    const id = rest.join(':');
+    if (kind === 'user' && id !== '') return { kind: 'person', userId: id };
+    return { kind: 'service', id: kind === 'service' && id !== '' ? id : drafter.by };
+  }
+  if (drafter.improveRunId !== undefined) {
+    return { kind: 'improve-run', improveRunId: drafter.improveRunId };
+  }
+  return { kind: 'service', id: drafter.kind };
+}
+
+/** The calls on a suggested change, and the statuses each starts from. */
 export const SUGGESTED_CHANGE_ACTIONS = {
-  evaluate: [
-    'draft',
-    'evaluated',
-    'not-better',
-    'evaluation-failed',
-    'refused',
-    'superseded',
-    'expired',
-  ],
-  // Its latest evaluation scored again: once that comparison completed.
-  rescore: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],
-  // The gate decides what goes live: a candidate that isn't measurably
-  // better (a wording change) can still be pinned through it.
-  pin: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],
-  withdraw: [
-    'draft',
-    'evaluated',
-    'not-better',
-    'evaluation-failed',
-    'refused',
-    'superseded',
-    'expired',
-  ],
+  // Check it again: after its check failed, or for new scores.
+  check: ['check-failed', 'ready'],
+  pin: ['ready'],
+  'add-as-latest': ['ready'],
+  // Not while a second person decides its pin: they reject it instead.
+  withdraw: ['checking', 'check-failed', 'ready'],
 } as const satisfies Readonly<Record<string, readonly SuggestedChangeStatus[]>>;
 
 export type SuggestedChangeAction = keyof typeof SUGGESTED_CHANGE_ACTIONS;

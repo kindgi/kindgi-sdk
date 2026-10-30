@@ -21,18 +21,20 @@ import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
   CorrectedComparisonSummary,
-  TestRun,
-  TestRunBinding,
   GatePolicy,
   GatePolicySpec,
+  LatestAnswer,
   LivePin,
   LiveResolution,
   Promotion,
   PromotionError,
   PromotionRequestInput,
   RunHandlerBinding,
+  TestRun,
+  TestRunBinding,
   TokenResolver,
 } from '../src/index.js';
+import { highestAsLatest } from './support/latest.js';
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
@@ -114,6 +116,9 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
     requestError: PromotionError | null;
     projectOrg: string | undefined;
     pins: LivePin[];
+    /** Latest in every scope, `null` for none; absent: the highest version. */
+    latest?: LatestAnswer | null;
+    suspended: boolean;
   } = {
     resolved: null,
     policy: null,
@@ -121,6 +126,7 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
     requestError: null,
     projectOrg: undefined,
     pins: [],
+    suspended: false,
   };
   const record = (method: string, input: unknown) => calls.push({ method, input });
   const promotionOf = (input: PromotionRequestInput): Promotion => ({
@@ -148,6 +154,14 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
         return state.resolved;
       },
       list: async () => state.pins,
+    },
+    // `registry`, declared below, is read when a question is asked.
+    latest: {
+      latest: async (q) =>
+        state.latest === undefined
+          ? highestAsLatest({ get: (input) => registry.get(input) }).latest(q)
+          : state.latest,
+      byProject: async () => [],
     },
     promotions: {
       promote: async (input) => {
@@ -201,6 +215,7 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
     }),
   };
   const versions: Record<string, { pinsDigest?: string; unregisteredAt?: string }> = {
+    '1.0.0': { pinsDigest: 'sha-100' },
     '1.1.0': { pinsDigest: 'sha-110' },
     '1.2.0': { pinsDigest: 'sha-120' },
     '1.3.0': { pinsDigest: 'sha-130', unregisteredAt: '2026-10-01T00:00:00.000Z' },
@@ -219,6 +234,7 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
     listVersions: unused,
     publish: unused,
     unregister: unused,
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     reinstateVersion: unused,
   };
   const testRuns: TestRunBinding = {
@@ -237,6 +253,10 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
     agentRegistry: registry,
     agentReleases: releases,
     testRunBinding: testRuns,
+    projectSuspended: async (_t: TenantId, projectId: ProjectId) => {
+      record('projectSuspended', projectId);
+      return state.suspended;
+    },
     projectBinding: {
       get: async (_t: TenantId, projectId: ProjectId) => {
         record('projects.get', projectId);
@@ -590,5 +610,75 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
     const res = await app.request(`/v1/agents/${AGENT}/promotions`, pinHere);
     expect(res.status).toBe(409);
     expect(JSON.stringify(await res.json())).toContain('promotion-superseded');
+  });
+});
+
+describe('what the scope runs: its Latest, not the highest version (1.1.0)', () => {
+  const STRICT: GatePolicySpec = {
+    ...FAILING,
+    approvals: { role: 'senior', separateApprover: true },
+  };
+  const LATEST: LatestAnswer = { version: '1.0.0' as Semver, deploymentId: 'dep-1' };
+
+  test('the gate measures the version against the Latest', async () => {
+    const { app, calls, state } = setup();
+    state.latest = LATEST;
+    const res = await app.request(
+      `/v1/agents/${AGENT}/promotions`,
+      promote({ evalRunId: undefined }),
+    );
+    expect(res.status).toBe(201);
+    const request = calls.find((c) => c.method === 'request')?.input as PromotionRequestInput;
+    expect(request.gate.servingVersion).toBe('1.0.0');
+  });
+
+  test('pinning the Latest is a pin in place; pinning the highest runs the gate', async () => {
+    const { app, calls, state } = setup();
+    state.policy = policy(STRICT);
+    state.latest = LATEST;
+    const here = await app.request(
+      `/v1/agents/${AGENT}/promotions`,
+      post({ version: '1.0.0', scope: PROJECT_SCOPE }),
+    );
+    expect(here.status).toBe(201);
+    const requested = calls.find((c) => c.method === 'request')?.input as PromotionRequestInput;
+    expect(requested.gate).toMatchObject({ servingVersion: '1.0.0', pinInPlace: true });
+    expect(requested.gate.checks[0]?.message).toContain('as its Latest');
+
+    // The policy wants a comparison, and none was named.
+    const highest = await app.request(
+      `/v1/agents/${AGENT}/promotions`,
+      post({ version: '1.1.0', scope: PROJECT_SCOPE }),
+    );
+    expect(highest.status).toBe(422);
+  });
+
+  test('nothing runs in the scope (no pin, no Latest): 409 nothing-runs-in-scope, nothing recorded', async () => {
+    const { app, calls, state } = setup();
+    state.latest = null;
+    const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
+    expect(res.status).toBe(409);
+    const { error } = (await res.json()) as { error: { code: string; message: string } };
+    expect(error.code).toBe('nothing-runs-in-scope');
+    expect(error.message).toContain(
+      'Deploy or publish a version into the project first; into a later environment, promote a build that ships one',
+    );
+    expect(methods(calls)).not.toContain('request');
+
+    const check = await app.request(`/v1/agents/${AGENT}/promotions/check`, promote());
+    expect(check.status).toBe(409);
+    expect(JSON.stringify(await check.json())).toContain('nothing-runs-in-scope');
+  });
+
+  test("nothing runs because the scope's project is suspended: 409 project-suspended", async () => {
+    const { app, calls, state } = setup();
+    state.latest = null;
+    state.suspended = true;
+    const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
+    expect(res.status).toBe(409);
+    const { error } = (await res.json()) as { error: { code: string } };
+    expect(error.code).toBe('project-suspended');
+    expect(calls.find((c) => c.method === 'projectSuspended')?.input).toBe(PROJECT);
+    expect(methods(calls)).not.toContain('request');
   });
 });

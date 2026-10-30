@@ -3,7 +3,7 @@
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
+import type { AgentId, Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 /**
  * Caller-plugged surface for the evaluation-harness test set catalog —
@@ -324,3 +324,33 @@ export type TestSetReinstateVersionOutcome =
       readonly testSetId: string;
       readonly version: string;
     };
+
+/**
+ * A project's test set for an agent, frozen as a version: what a
+ * suggested change is checked on. The runtime keeps one test set per agent
+ * and project, made of the corrections that are cases there and the
+ * cases added by hand, and freezes a new version only when they changed
+ * since the newest (else that one is answered again).
+ */
+export interface TestSetFreezeBinding {
+  freezeTestSet(input: FreezeTestSetInput): Promise<FrozenTestSet>;
+}
+
+export interface FreezeTestSetInput {
+  readonly tenantId: TenantId;
+  readonly agentId: AgentId;
+  readonly projectId: ProjectId;
+}
+
+export interface FrozenTestSet {
+  readonly testSetId: string;
+  readonly testSetVersion: string;
+  /**
+   * Its cases. A correction's case has the correction's id as its own;
+   * a case added by hand names no correction, and still counts.
+   */
+  readonly cases: readonly {
+    readonly caseId: string;
+    readonly correctionId: string | null;
+  }[];
+}

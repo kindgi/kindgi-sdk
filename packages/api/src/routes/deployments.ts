@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { type Context, Hono } from 'hono';
 
@@ -16,6 +16,7 @@ import {
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
+import { emitAuditEvent } from '@kindgi/compliance';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
 import {
@@ -57,6 +58,7 @@ import {
 } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { type BlockPins, type BlockVersionReads, resolveBlockPins } from '../block-pins.js';
+import { callerIdentity } from '../caller.js';
 import { canonicalJson } from '../canonical-json.js';
 import {
   type PlannedBlock,
@@ -87,7 +89,7 @@ import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
 import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { ItemRights } from '../item-rights.js';
-import type { AgentReleaseBindings, LiveVersionBinding } from '../live-version-binding.js';
+import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
@@ -117,7 +119,7 @@ import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import type { AgentReleaseGateDeps } from './agent-releases.js';
+import { type AgentReleaseGateDeps, actorOf } from './agent-releases.js';
 import { capabilityRefusal, deniedBy } from './denied.js';
 import {
   carriedFor,
@@ -263,11 +265,6 @@ export interface DeploymentsRouterBindings {
   readonly agentRegistry?: AgentRegistryBinding;
   readonly flowRegistry?: FlowRegistryBinding;
   /**
-   * The agents' live versions: a deployed flow's agent step that names no
-   * version pins the one live for the deploy's project, else the latest.
-   */
-  readonly liveVersions?: LiveVersionBinding;
-  /**
    * The flows' and tools' pinned versions: each tool a deployed agent or
    * flow runs pins the version pinned for the deploy's project (an
    * agent's, when it's in the reference's range), else as without it; and
@@ -336,7 +333,11 @@ export interface DeploymentsRouterBindings {
    * Each one absent isn't checked.
    */
   readonly values?: Pick<DeploymentValuesDeps, 'env' | 'providers' | 'modelKeyLookup' | 'packEnv'>;
-  /** Where a promotion is recorded (`deployment-promoted`). Absent: it isn't. */
+  /**
+   * Where a promotion (`deployment-promoted`) and each block version a
+   * deploy publishes (`block-version-published`) are recorded. Absent:
+   * they aren't.
+   */
   readonly auditEvents?: AuditEventBinding;
   /**
    * The agents' live versions and gated promotions, for a promotion asked
@@ -1125,6 +1126,10 @@ export function deploymentsRouter(
     // the one a deploy registered in its place (`publishDeployedAgent`).
     const deployedAgents: DeployedAgent[] = [];
     const deployedFlows: DeployedFlow[] = [];
+    // Minted before the first write, so each block version it publishes
+    // names this deployment (`source`).
+    const deploymentId = randomUUID();
+    let publishedBlocks: readonly BlockDefinition[] = [];
     try {
       // Past the first write, a compile is a registry's own compile of a
       // schema compiled above, which the tenant's budget was charged for:
@@ -1133,12 +1138,14 @@ export function deploymentsRouter(
       await runOutsideTenant(async () => {
         // The pack's blocks first: what follows pins them.
         if (bindings.blockRegistry !== undefined && targetProjectId !== undefined) {
-          await publishPackBlocks({
+          publishedBlocks = await publishPackBlocks({
             blocks: bindings.blockRegistry,
             tenantId,
             projectId: targetProjectId,
             planned: packBlocks,
             rolled,
+            publishedBy: actorOf(c),
+            deploymentId,
           });
         }
         if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
@@ -1277,7 +1284,7 @@ export function deploymentsRouter(
               flows: bindings.flowRegistry,
               tools: bindings.toolRegistry,
               agents: bindings.agentRegistry,
-              ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
+              ...(bindings.agentReleases !== undefined && { releases: bindings.agentReleases }),
               toolPins,
               tenantId,
               projectId: targetProjectId,
@@ -1323,6 +1330,7 @@ export function deploymentsRouter(
     let outcome: DeploymentRegisterOutcome;
     try {
       outcome = await bindings.deploymentRegistry.register({
+        deploymentId,
         tenantId,
         imageRef: wire.imageRef,
         imageDigest,
@@ -1379,6 +1387,24 @@ export function deploymentsRouter(
     }
 
     await notifyWrites(tenantId, validated, bindings);
+    for (const block of publishedBlocks) {
+      await emitAuditEvent({
+        auditEvents: bindings.auditEvents,
+        tenantId,
+        ...(targetProjectId !== undefined && { projectId: targetProjectId }),
+        kind: 'block-version-published',
+        actor: callerIdentity(c),
+        outcome: 'succeeded',
+        correlationId: requestId,
+        doc: {
+          blockId: block.id,
+          version: block.version,
+          kind: block.kind,
+          source: { kind: 'deploy', id: outcome.deployment.deploymentId },
+        },
+        log: c.get('log').child({ subsystem: 'audit' }),
+      });
+    }
     c.status(201);
     return c.json(serializeDeployment(outcome.deployment));
   });
@@ -2803,7 +2829,13 @@ async function registerAgents(input: {
 
   if (tools === undefined || blockPins === undefined) {
     for (const [index, agent] of input.defined.entries()) {
-      const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
+      const outcome = await agents.publish({
+        tenantId,
+        projectId,
+        agent,
+        madeFor: 'latest',
+        enqueueTuples,
+      });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
       else if (outcome.kind === 'already-registered') {
         const agentId = agent.id;
@@ -2866,7 +2898,8 @@ async function registerFlows(input: {
   readonly flows: FlowRegistryBinding;
   readonly tools: ToolRegistryBinding | undefined;
   readonly agents: AgentRegistryBinding | undefined;
-  readonly live?: LiveVersionBinding;
+  /** The agents' pins and Latest: an agent step with no version pins what runs in the flow's project. */
+  readonly releases?: Pick<AgentReleaseBindings, 'live' | 'latest'>;
   /** The tools' pins for the deploy's project, shared with its agents. */
   readonly toolPins: ToolPinLookup | undefined;
   readonly tenantId: TenantId;
@@ -2876,7 +2909,7 @@ async function registerFlows(input: {
   readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
-  const { flows, tools, agents, live, toolPins, tenantId, projectId, rolled } = input;
+  const { flows, tools, agents, releases, toolPins, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
@@ -2920,7 +2953,7 @@ async function registerFlows(input: {
     agents,
     tenantId,
     input.defined,
-    live !== undefined ? { binding: live, projectId } : undefined,
+    releases !== undefined ? { releases, projectId } : undefined,
     toolPins,
   );
   const deployed: DeployedFlow[] = [];

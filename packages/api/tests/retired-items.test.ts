@@ -24,9 +24,9 @@ import { validateAgainst } from './support/openapi-schema.js';
 import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
+  RunHandlerBinding,
   TestRun,
   TestRunBinding,
-  RunHandlerBinding,
   TestSetRegistryBinding,
   TokenResolver,
   ToolRegistryBinding,

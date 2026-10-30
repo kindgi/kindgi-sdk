@@ -16,6 +16,8 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
+import type { PromotionActor } from './live-version-binding.js';
+
 /**
  * Caller-plugged store behind suggested changes (`/v1/suggested-changes`)
  * and the supervisor's observation readback (`/v1/observations`). Same
@@ -99,7 +101,7 @@ export type ProposedChange =
     };
 
 /** Who wrote a suggested change: a person, or one of the runtime's drafters. */
-export type SuggestedChangeMadeBy =
+export type SuggestedChangeDrafter =
   | { readonly kind: 'person'; readonly by: string }
   | {
       readonly kind: 'settings-optimizer' | 'prompt-drafter';
@@ -108,6 +110,19 @@ export type SuggestedChangeMadeBy =
       /** The Improve run that drafted it. */
       readonly improveRunId?: string;
     };
+
+/**
+ * Who or what made a suggested change: an Improve run, a person, a
+ * service account, a deploy (for each pinned project its new version
+ * reaches) or an offer (a change pinned in another project, offered to
+ * one on Latest).
+ */
+export type SuggestedChangeMaker =
+  | { readonly kind: 'improve-run'; readonly improveRunId: string; readonly scheduleId?: string }
+  | { readonly kind: 'person'; readonly userId: string }
+  | { readonly kind: 'service'; readonly id: string }
+  | { readonly kind: 'deploy'; readonly deploymentId: string; readonly by: PromotionActor }
+  | { readonly kind: 'offer'; readonly fromProjectId: string; readonly pinChangeId: string };
 
 /** What a suggested change rests on. */
 export interface SuggestedChangeEvidence {
@@ -173,7 +188,28 @@ export interface StoredSuggestedChange {
   readonly change: ProposedChange['change'];
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
-  readonly madeBy: SuggestedChangeMadeBy;
+  readonly drafter: SuggestedChangeDrafter;
+  /**
+   * Who or what made it. Absent on one stored before it was recorded:
+   * read from `drafter` (`suggestedChangeMaker`).
+   */
+  readonly madeBy?: SuggestedChangeMaker;
+  /**
+   * The version it's built on, once a rebuild moved it there (its
+   * project's version changed first). Absent: `fromVersion`.
+   */
+  readonly builtOnVersion?: string;
+  /** When it was last rebuilt. */
+  readonly rebuiltAt?: Timestamp;
+  /**
+   * Its version, added as its project's Latest: when, by whom
+   * (`user:<id>`), and why, when given.
+   */
+  readonly addedAsLatest?: {
+    readonly at: Timestamp;
+    readonly by: string;
+    readonly reason?: string;
+  };
   /** Dedup key: the same change for the same scope is one suggested change. */
   readonly fingerprint: string;
   /** Goes up by one with each recorded step. */
@@ -220,7 +256,8 @@ export interface CreateSuggestedChangeInput {
   readonly change: ProposedChange['change'];
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
-  readonly madeBy: SuggestedChangeMadeBy;
+  readonly drafter: SuggestedChangeDrafter;
+  readonly madeBy: SuggestedChangeMaker;
   readonly fingerprint: string;
 }
 
@@ -231,12 +268,26 @@ export type CreateSuggestedChangeOutcome =
 /**
  * One step's outcome, recorded on the suggested change. An `evaluation` replaces
  * the one before and clears `promotionId`: a new comparison starts the
- * request over. A `candidate` is recorded once.
+ * request over. A `candidate` is recorded once per version it's built on.
+ * A `rebuilt` moves it onto the version its project runs now: it sets
+ * `builtOnVersion`, `rebuiltAt` and its `change` on that version, and
+ * clears its `candidate`, `evaluation` and `promotionId`. It keeps its
+ * fingerprint, so the same change made on the new version is a new one.
  */
 export type SuggestedChangeStep =
   | { readonly kind: 'candidate'; readonly candidate: SuggestedChangeCandidate }
   | { readonly kind: 'evaluation'; readonly evaluation: SuggestedChangeEvaluationRef }
   | { readonly kind: 'promotion'; readonly promotionId: string }
+  | {
+      readonly kind: 'rebuilt';
+      readonly builtOnVersion: string;
+      readonly rebuiltAt: Timestamp;
+      readonly change: ProposedChange['change'];
+    }
+  | {
+      readonly kind: 'added-as-latest';
+      readonly addedAsLatest: NonNullable<StoredSuggestedChange['addedAsLatest']>;
+    }
   | {
       readonly kind: 'withdrawn';
       readonly withdrawn: NonNullable<StoredSuggestedChange['withdrawn']>;

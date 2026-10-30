@@ -523,6 +523,9 @@ export type {
   AgentGetVersionInput,
   AgentListInput,
   AgentListVersionsInput,
+  AgentMadeFor,
+  AgentMarkLatestInput,
+  AgentMarkLatestOutcome,
   AgentOwner,
   AgentPage,
   AgentPublishInput,
@@ -536,6 +539,18 @@ export type {
   AgentUnregisterInput,
   AgentUnregisterOutcome,
 } from './agent-binding.js';
+export type {
+  LatestAnswer,
+  LatestBinding,
+  LatestInProject,
+  LatestQuestion,
+} from './latest-binding.js';
+export {
+  type WhatRuns,
+  type WhatRunsInProject,
+  whatRuns,
+  whatRunsByProject,
+} from './what-runs.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
@@ -779,7 +794,11 @@ export type {
   BlockRecord,
   BlockRegistryBinding,
   BlockReinstateOutcome,
+  BlockUse,
+  BlockUseBinding,
+  BlockUseInput,
   BlockVersionInput,
+  BlockVersionSource,
 } from './block-binding.js';
 export type {
   AgentReleaseBindings,
@@ -852,6 +871,9 @@ export type {
   TestSetReinstateVersionOutcome,
   TestSetUnregisterInput,
   TestSetUnregisterOutcome,
+  TestSetFreezeBinding,
+  FreezeTestSetInput,
+  FrozenTestSet,
 } from './test-set-binding.js';
 export { TEST_RUN_STATUSES } from './test-run-binding.js';
 export type {
@@ -1055,9 +1077,10 @@ export type {
   ObservationStatus,
   ObservedViolation,
   SuggestedChangeCandidate,
-  SuggestedChangeMadeBy,
+  SuggestedChangeDrafter,
   SuggestedChangeEvaluationRef,
   SuggestedChangeEvidence,
+  SuggestedChangeMaker,
   SuggestedChangeObjective,
   SuggestedChangeRule,
   SuggestedChangeStep,

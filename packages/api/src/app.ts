@@ -27,7 +27,7 @@ import type { MemoryQueryBinding } from '@kindgi/memory';
 import { type PolicyRegistryBinding, RETENTION_DOMAINS } from '@kindgi/policy-contract';
 import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
-import type { BlockRegistryBinding } from './block-binding.js';
+import type { BlockRegistryBinding, BlockUseBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { ConnectionBinding } from './connection-binding.js';
 import type { CorrectionRegistryBinding } from './correction-binding.js';
@@ -234,7 +234,7 @@ import type { SupervisorBinding } from './supervisor-binding.js';
 import { ONE_TENANT_SYSTEM_SCOPES } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TestRunBinding } from './test-run-binding.js';
-import type { TestSetRegistryBinding } from './test-set-binding.js';
+import type { TestSetFreezeBinding, TestSetRegistryBinding } from './test-set-binding.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
@@ -940,11 +940,24 @@ export interface CreateAppInput {
    */
   readonly testSetRegistry?: TestSetRegistryBinding;
   /**
+   * Freezes a project's test set for a suggested change's check
+   * (`/v1/suggested-changes`). Absent: making or checking a suggested
+   * change answers `501 suggested-change-check-unsupported`.
+   */
+  readonly testSetFreeze?: TestSetFreezeBinding;
+  /**
    * Data blocks (`/v1/blocks`): versioned prompts and settings that agent
    * versions pin. Mounted when supplied. Authorized through each block's
    * project; the binding writes no authorization tuples.
    */
   readonly blockRegistry?: BlockRegistryBinding;
+  /**
+   * Which agent versions use a block (a deployment's agent registry
+   * answers it): `POST /v1/blocks` checks a new settings version of a
+   * block an agent version uses as its model settings as model settings.
+   * Absent: it isn't checked so.
+   */
+  readonly blockUse?: BlockUseBinding;
   /**
    * Optional. When present alongside `testSetRegistry`, mounts the
    * evaluation-run data-plane surface: `POST /v1/test-sets/:testSetId/runs`
@@ -980,11 +993,12 @@ export interface CreateAppInput {
    */
   readonly evalCaseStore?: EvalCaseStoreBinding;
   /**
-   * Optional. Live versions of agents per scope, and their promotions
-   * (`/v1/agents/{id}/live`, `/live-versions`, `/promotions`,
-   * `/live/rollback`, `/live/unpin`), and with `projectBinding`, a
-   * project's pinned versions (`/v1/projects/{id}/pinned-versions`).
-   * Absent → a run takes the latest version, as before.
+   * Optional. Live versions of agents per scope, each project's Latest
+   * (`latest`), and their promotions (`/v1/agents/{id}/live`,
+   * `/live-versions`, `/promotions`, `/live/rollback`, `/live/unpin`), and
+   * with `projectBinding`, a project's pinned versions
+   * (`/v1/projects/{id}/pinned-versions`). Absent → a run that names no
+   * version takes the highest.
    */
   readonly agentReleases?: AgentReleaseBindings;
   /**
@@ -1758,6 +1772,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         {
           ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
         },
         {
           ...(input.memory?.semanticSearch !== undefined && {
@@ -1805,7 +1820,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ? {
               tools: input.toolRegistry,
               agents: input.agentRegistry,
-              ...(input.agentReleases !== undefined && { live: input.agentReleases.live }),
+              ...(input.agentReleases !== undefined && { releases: input.agentReleases }),
               ...(input.pinnedVersions !== undefined && { pinned: input.pinnedVersions }),
             }
           : undefined,
@@ -1932,14 +1947,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           blocks: input.blockRegistry,
           testRuns: input.testRunBinding,
           releases: input.agentReleases,
+          ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+          ...(input.projectSuspended !== undefined && {
+            projectSuspended: input.projectSuspended,
+          }),
           ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
           // A drafter's promotion needs a separate approver when the tenant has
           // a second person who could approve it — one who can read the
           // approval's resource, so the count matches who the decide route lets in.
           ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
           ...(input.authz !== undefined && { authz: input.authz.authzCheckBinding }),
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
         authorizer,
         itemRights,
@@ -2084,7 +2104,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onProviderWrite,
         input.adapterFactories,
         authorizer,
-        { secretUsers, ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }) },
+        {
+          secretUsers,
+          ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        },
       ),
     );
   }
@@ -2149,6 +2173,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const targetTools = {
       ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
       ...(input.flowRegistry !== undefined && { flows: input.flowRegistry }),
+      ...(input.agentReleases !== undefined && { releases: input.agentReleases }),
     };
     if (kinds.has('cron')) {
       v1.route(
@@ -2281,6 +2306,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.environmentOrders,
         itemRights,
         itemServing,
+        input.blockUse,
+        input.auditEvents,
       ),
     );
   }
@@ -2510,7 +2537,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           }),
           ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
-          ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
           ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
           // A promotion asked to make its carried agents live pins each in
           // the target through the same gate a live route uses.
@@ -2520,6 +2546,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
               ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+              ...(input.projectSuspended !== undefined && {
+                projectSuspended: input.projectSuspended,
+              }),
             },
           }),
           ...(itemRights !== undefined && { itemRights }),

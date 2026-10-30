@@ -48,39 +48,35 @@ const PROJECT = '0b9f4c1e-1111-4a2b-8c3d-000000000001';
 const SUGGESTED_CHANGE = {
   id: 'prop-1',
   agentId: 'acme.scorer',
-  fromVersion: '1.4.0',
-  scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
-  tier: 'settings-block',
-  change: {
-    blockId: 'acme.weights',
-    fromVersion: '1.0.0',
-    content: { values: { recency: 0.4 } },
-  },
+  projectId: PROJECT,
+  title: 'Recent filings matter more: acme.weights 1.0.0 → a new version',
+  madeBy: { kind: 'person', userId: 'alice' },
+  builtOn: { version: '1.4.0' },
+  changes: [{ kind: 'block', blockId: 'acme.weights', from: '1.0.0' }],
   why: 'Recent filings matter more',
-  madeBy: { kind: 'person', by: 'user:alice' },
-  status: 'draft',
+  fixes: [],
+  check: { status: 'running', testSetId: 'acme.judged' },
+  status: 'checking',
   createdAt: '2026-10-07T10:00:00.000Z',
   updatedAt: '2026-10-07T10:00:00.000Z',
 };
 
-describe('kindgi suggested-changes draft', () => {
-  test('settings values from a file, for a segment, with evidence', async () => {
+describe('kindgi suggested-changes create', () => {
+  test('settings values from a file, for a project, with the corrections it fixes', async () => {
     const { calls, rec } = recorder();
     const file = join(cwd, 'values.json');
     await writeFile(file, JSON.stringify({ recency: 0.4, fit: 0.6 }));
     const out = await run(
       [
         'suggested-changes',
-        'draft',
+        'create',
         '--agent=acme.scorer',
-        '--from-version=1.4.0',
         `--project=${PROJECT}`,
-        '--segment=company:acme',
         '--block=acme.weights',
         `--values=@${file}`,
         '--why=Recent filings matter more',
-        '--correction=j-1',
-        '--correction=j-2',
+        '--fixes=j-1',
+        '--fixes=j-2',
         '--idempotency-key=k-1',
       ],
       { suggestedChanges: { create: rec('create') } },
@@ -91,17 +87,16 @@ describe('kindgi suggested-changes draft', () => {
         'create',
         {
           agentId: 'acme.scorer',
-          fromVersion: '1.4.0',
-          scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
-          tier: 'settings-block',
-          change: { blockId: 'acme.weights', content: { values: { recency: 0.4, fit: 0.6 } } },
+          projectId: PROJECT,
+          block: 'acme.weights',
+          values: { recency: 0.4, fit: 0.6 },
           why: 'Recent filings matter more',
-          evidence: { fixes: ['j-1', 'j-2'] },
+          fixes: ['j-1', 'j-2'],
           idempotencyKey: 'k-1',
         },
       ],
     ]);
-    expect(JSON.parse(out.stdout)).toMatchObject({ id: 'prop-1', status: 'draft' });
+    expect(JSON.parse(out.stdout)).toMatchObject({ id: 'prop-1', status: 'checking' });
   });
 
   test('a prompt template, inline or from a file (as text, not JSON)', async () => {
@@ -112,10 +107,9 @@ describe('kindgi suggested-changes draft', () => {
       const out = await run(
         [
           'suggested-changes',
-          'draft',
+          'create',
           '--agent=acme.scorer',
-          '--from-version=1.4.0',
-          '--tenant',
+          `--project=${PROJECT}`,
           '--block=acme.prompt',
           `--template=${template}`,
           '--why=Clearer',
@@ -124,42 +118,41 @@ describe('kindgi suggested-changes draft', () => {
       );
       expect(out.exitCode, out.stderr).toBe(0);
     }
-    expect(calls.map((c) => (c[1] as { tier: string; change: unknown }).change)).toEqual([
-      { blockId: 'acme.prompt', content: { template: 'Score it.' } },
-      { blockId: 'acme.prompt', content: { template: 'You score {{company}} filings.\n' } },
+    expect(calls.map((c) => c[1])).toEqual([
+      {
+        agentId: 'acme.scorer',
+        projectId: PROJECT,
+        block: 'acme.prompt',
+        template: 'Score it.',
+        why: 'Clearer',
+      },
+      {
+        agentId: 'acme.scorer',
+        projectId: PROJECT,
+        block: 'acme.prompt',
+        template: 'You score {{company}} filings.\n',
+        why: 'Clearer',
+      },
     ]);
-    expect(calls.every((c) => (c[1] as { tier: string }).tier === 'prompt-block')).toBe(true);
   });
 
   test.each([
     [[], '--agent is required'],
-    [['--agent=a'], '--from-version is required'],
-    [['--agent=a', '--from-version=1.0.0'], 'Name the scope'],
-    [['--agent=a', '--from-version=1.0.0', '--tenant'], '--block is required'],
-    [['--agent=a', '--from-version=1.0.0', '--tenant', '--block=b'], '--why is required'],
+    [['--agent=a'], '--project is required'],
+    [['--agent=a', `--project=${PROJECT}`], '--block is required'],
+    [['--agent=a', `--project=${PROJECT}`, '--block=b'], '--why is required'],
+    [['--agent=a', `--project=${PROJECT}`, '--block=b', '--why=h'], 'Give the new content'],
     [
-      ['--agent=a', '--from-version=1.0.0', '--tenant', '--block=b', '--why=h'],
+      ['--agent=a', `--project=${PROJECT}`, '--block=b', '--why=h', '--values={}', '--template=t'],
       'Give the new content',
     ],
     [
-      [
-        '--agent=a',
-        '--from-version=1.0.0',
-        '--tenant',
-        '--block=b',
-        '--why=h',
-        '--values={}',
-        '--template=t',
-      ],
-      'Give the new content',
-    ],
-    [
-      ['--agent=a', '--from-version=1.0.0', '--tenant', '--block=b', '--why=h', '--values=[1]'],
+      ['--agent=a', `--project=${PROJECT}`, '--block=b', '--why=h', '--values=[1]'],
       '--values must be a JSON object',
     ],
   ])('refuses %j: %s', async (flags, message) => {
     const { calls, rec } = recorder();
-    const out = await run(['suggested-changes', 'draft', ...flags], {
+    const out = await run(['suggested-changes', 'create', ...flags], {
       suggestedChanges: { create: rec('create') },
     });
     expect(out.exitCode).toBe(2); // a usage error
@@ -168,139 +161,100 @@ describe('kindgi suggested-changes draft', () => {
   });
 });
 
-describe('kindgi suggested-changes evaluate', () => {
-  test('sends the test set and the comparison options', async () => {
+describe('kindgi suggested-changes check', () => {
+  test("checks it again on the project's test cases", async () => {
     const { calls, rec } = recorder();
-    const out = await run(
-      [
-        'suggested-changes',
-        'evaluate',
-        'prop-1',
-        '--test-set=acme.judged',
-        '--objective=weightedPrecisionAtK',
-        '--k=5',
-        '--reads=live',
-        '--repetitions=3',
-        '--group-weights=experts-only',
-      ],
-      {
-        suggestedChanges: {
-          evaluate: rec('evaluate', { ...SUGGESTED_CHANGE, status: 'evaluating' }),
-        },
-      },
-    );
+    const out = await run(['suggested-changes', 'check', 'prop-1', '--idempotency-key=c-1'], {
+      suggestedChanges: { check: rec('check') },
+    });
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([
-      [
-        'evaluate',
-        'prop-1',
-        {
-          testSetId: 'acme.judged',
-          objective: 'weightedPrecisionAtK',
-          reads: 'live',
-          repetitions: 3,
-          k: 5,
-          groupWeights: 'experts-only',
-        },
-      ],
-    ]);
+    expect(calls).toEqual([['check', 'prop-1', { idempotencyKey: 'c-1' }]]);
+    expect(JSON.parse(out.stdout)).toMatchObject({ status: 'checking' });
   });
 
-  test('--wait reads the suggested change until it is no longer evaluating', async () => {
-    const reads = [
-      { ...SUGGESTED_CHANGE, status: 'evaluating' },
-      { ...SUGGESTED_CHANGE, status: 'evaluated', evaluation: { delta: 0.12 } },
-    ];
+  test('--wait reads the suggested change until its check is no longer running', async () => {
+    const done = {
+      ...SUGGESTED_CHANGE,
+      status: 'ready',
+      check: {
+        status: 'done',
+        testSetId: 'acme.judged',
+        testSetVersion: '3',
+        now: { testRunId: 'run-now', passing: 23, of: 27 },
+        with: { testRunId: 'run-with', passing: 25, of: 27 },
+        newlyFailing: [],
+      },
+    };
+    const reads = [SUGGESTED_CHANGE, done];
     const gets: string[] = [];
-    const out = await run(
-      ['suggested-changes', 'evaluate', 'prop-1', '--test-set=acme.judged', '--wait'],
-      {
-        suggestedChanges: {
-          evaluate: async () => ({ ...SUGGESTED_CHANGE, status: 'evaluating' }),
-          get: async (id: string) => {
-            gets.push(id);
-            return reads.shift();
-          },
-        },
-      },
-    );
-    expect(out.exitCode, out.stderr).toBe(0);
-    expect(gets).toEqual(['prop-1', 'prop-1']);
-    expect(JSON.parse(out.stdout)).toMatchObject({ status: 'evaluated' });
-  }, 10_000);
-
-  test('an unknown objective or group weighting is refused before any call', async () => {
-    const { calls, rec } = recorder();
-    for (const flag of ['--objective=accuracy', '--group-weights=all']) {
-      const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--test-set=s', flag], {
-        suggestedChanges: { evaluate: rec('evaluate') },
-      });
-      expect(out.exitCode).toBe(2); // a usage error
-      expect(out.stderr).toContain('must be one of');
-    }
-    expect(calls).toEqual([]);
-  });
-
-  test('--rescore rescores the latest evaluation, and --wait follows it', async () => {
-    const { calls, rec } = recorder();
-    const reads = [{ ...SUGGESTED_CHANGE, status: 'evaluated', evaluation: { delta: 0.2 } }];
-    const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--rescore', '--wait'], {
+    const out = await run(['suggested-changes', 'check', 'prop-1', '--wait'], {
       suggestedChanges: {
-        rescore: rec('rescore', { ...SUGGESTED_CHANGE, status: 'evaluating' }),
-        evaluate: rec('evaluate'),
-        get: async () => reads.shift(),
+        check: async () => SUGGESTED_CHANGE,
+        get: async (id: string) => {
+          gets.push(id);
+          return reads.shift();
+        },
       },
     });
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['rescore', 'prop-1', {}]]);
-    expect(JSON.parse(out.stdout)).toMatchObject({ status: 'evaluated' });
-  });
+    expect(gets).toEqual(['prop-1', 'prop-1']);
+    expect(JSON.parse(out.stdout)).toMatchObject({ status: 'ready', check: { status: 'done' } });
+  }, 10_000);
 
-  test('--rescore takes no comparison flag: they come from the evaluation it rescores', async () => {
-    const { calls, rec } = recorder();
-    for (const flag of ['--test-set=acme.judged', '--repetitions=3', '--reads=live']) {
-      const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--rescore', flag], {
-        suggestedChanges: { rescore: rec('rescore'), evaluate: rec('evaluate') },
-      });
-      expect(out.exitCode).toBe(2); // a usage error
-      expect(out.stderr).toContain(`--rescore cannot be combined with ${flag.split('=')[0]}`);
-    }
-    expect(calls).toEqual([]);
-  });
-
-  test("the server's needs-a-tenant-pin refusal comes through with its fix", async () => {
-    const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--test-set=s'], {
+  test("the server's nothing-to-check refusal comes through with its fix", async () => {
+    const out = await run(['suggested-changes', 'check', 'prop-1'], {
       suggestedChanges: {
-        evaluate: async () => {
+        check: async () => {
           throw new KindgiApiError({
             code: 'conflict',
-            reason: 'suggested-change-needs-pin',
+            reason: 'suggested-change-nothing-to-check',
             message:
-              'acme.scorer has no live version for the whole tenant: promote one for {kind:"tenant"} first.',
+              "The project's test set has no cases: correct a conversation of the agent in the project first.",
           } as never);
         },
       },
     });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain('Error [suggested-change-needs-pin]');
-    expect(out.stderr).toContain('promote one');
+    expect(out.stderr).toContain('Error [suggested-change-nothing-to-check]');
+    expect(out.stderr).toContain('correct a conversation');
   });
 });
 
-describe('kindgi suggested-changes request / withdraw', () => {
-  test('request takes an optional reason', async () => {
+describe('kindgi suggested-changes pin / add-as-latest / withdraw', () => {
+  test('pin takes an optional reason', async () => {
     const { calls, rec } = recorder();
     const client = { suggestedChanges: { pin: rec('pin') } };
-    await run(['suggested-changes', 'request', 'prop-1'], client);
-    await run(['suggested-changes', 'request', 'prop-1', '--reason=Better on acme'], client);
+    await run(['suggested-changes', 'pin', 'prop-1'], client);
+    await run(['suggested-changes', 'pin', 'prop-1', '--reason=Better on acme'], client);
     await run(
-      ['suggested-changes', 'request', 'prop-1', '--reason=Complaints', '--idempotency-key=r'],
+      ['suggested-changes', 'pin', 'prop-1', '--reason=Complaints', '--idempotency-key=r'],
       client,
     );
     expect(calls).toEqual([
       ['pin', 'prop-1', {}],
       ['pin', 'prop-1', { reason: 'Better on acme' }],
       ['pin', 'prop-1', { reason: 'Complaints', idempotencyKey: 'r' }],
+    ]);
+  });
+
+  test('add-as-latest takes an optional reason', async () => {
+    const { calls, rec } = recorder();
+    const client = { suggestedChanges: { addAsLatest: rec('addAsLatest') } };
+    const out = await run(['suggested-changes', 'add-as-latest', 'prop-1'], client);
+    expect(out.exitCode, out.stderr).toBe(0);
+    await run(
+      [
+        'suggested-changes',
+        'add-as-latest',
+        'prop-1',
+        '--reason=Fit first for acme',
+        '--idempotency-key=a',
+      ],
+      client,
+    );
+    expect(calls).toEqual([
+      ['addAsLatest', 'prop-1', {}],
+      ['addAsLatest', 'prop-1', { reason: 'Fit first for acme', idempotencyKey: 'a' }],
     ]);
   });
 
@@ -319,12 +273,31 @@ describe('kindgi suggested-changes request / withdraw', () => {
 });
 
 describe('kindgi suggested-changes list / get', () => {
-  test('filters, and a table with the scope, block, status and delta', async () => {
+  test('filters, and a table with the project, block, status and check', async () => {
     const { calls, rec } = recorder();
     const page = {
       data: [
-        { ...SUGGESTED_CHANGE, status: 'evaluated', evaluation: { delta: 0.12 } },
-        { ...SUGGESTED_CHANGE, id: 'prop-2', status: 'not-better', evaluation: { delta: -0.034 } },
+        {
+          ...SUGGESTED_CHANGE,
+          status: 'ready',
+          check: {
+            status: 'done',
+            testSetId: 'acme.judged',
+            now: { testRunId: 'run-now', passing: 23, of: 27 },
+            with: { testRunId: 'run-with', passing: 25, of: 27 },
+            newlyFailing: [],
+          },
+        },
+        {
+          ...SUGGESTED_CHANGE,
+          id: 'prop-2',
+          status: 'ready',
+          check: {
+            status: 'done',
+            testSetId: 'acme.judged',
+            with: { testRunId: 'run-old', passing: 9, of: 12 },
+          },
+        },
         { ...SUGGESTED_CHANGE, id: 'prop-3' },
       ],
       hasMore: false,
@@ -334,8 +307,8 @@ describe('kindgi suggested-changes list / get', () => {
         'suggested-changes',
         'list',
         '--agent=acme.scorer',
-        '--tier=settings-block',
-        '--status=evaluated',
+        `--project=${PROJECT}`,
+        '--status=ready',
         '--limit=10',
         '--table',
       ],
@@ -343,36 +316,19 @@ describe('kindgi suggested-changes list / get', () => {
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
-      ['list', { agentId: 'acme.scorer', tier: 'settings-block', status: 'evaluated', limit: 10 }],
+      ['list', { agentId: 'acme.scorer', projectId: PROJECT, status: 'ready', limit: 10 }],
     ]);
     expect(out.stdout).toContain('acme.scorer@1.4.0');
-    expect(out.stdout).toContain(`project ${PROJECT} company=acme`);
+    expect(out.stdout).toContain(PROJECT);
     expect(out.stdout).toContain('acme.weights@1.0.0');
-    expect(out.stdout).toContain('+0.120');
-    expect(out.stdout).toContain('-0.034');
+    expect(out.stdout).toContain('25/27 (now 23/27)');
+    expect(out.stdout).toContain('9/12');
+    expect(out.stdout).toContain('running');
   });
 
-  test('a scope keeps the suggested changes for exactly that scope', async () => {
+  test('an unknown status is refused before any call', async () => {
     const { calls, rec } = recorder();
-    const list = rec('list', { data: [], hasMore: false });
-    await run(['suggested-changes', 'list', '--tenant'], { suggestedChanges: { list } });
-    await run(['suggested-changes', 'list', `--project=${PROJECT}`, '--segment=company:acme'], {
-      suggestedChanges: { list },
-    });
-    expect(calls).toEqual([
-      ['list', { scope: { kind: 'tenant' } }],
-      [
-        'list',
-        {
-          scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
-        },
-      ],
-    ]);
-  });
-
-  test('an unknown status or tier is refused before any call', async () => {
-    const { calls, rec } = recorder();
-    for (const flag of ['--status=approved', '--tier=prompt']) {
+    for (const flag of ['--status=approved', '--status=evaluated']) {
       const out = await run(['suggested-changes', 'list', flag], {
         suggestedChanges: { list: rec('list') },
       });
@@ -393,7 +349,7 @@ describe('kindgi suggested-changes list / get', () => {
   test('is wired: help lists the group', async () => {
     const out = await run(['suggested-changes', '--help'], {});
     expect(out.exitCode).toBe(0);
-    expect(`${out.stdout}${out.stderr}`).toContain('evaluate');
+    expect(`${out.stdout}${out.stderr}`).toContain('add-as-latest');
   });
 });
 

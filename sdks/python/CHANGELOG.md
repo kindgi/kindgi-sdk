@@ -51,6 +51,21 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   The models follow (`EvalRun*` models are `TestRun*`). A test run's own id is
   `test_run_id` where it was `run_id`, `eval_run_id` is `test_run_id`, and the
   stream's `eval-run.*` events are `test-run.*`.
+- `kindgi`: **a promotion into a scope where nothing runs yet raises
+  `ConflictError` with `server_code` `nothing-runs-in-scope`.** With no pin
+  covering the scope and no Latest there, there's nothing to measure the
+  version against: deploy or publish a version into the project first, or,
+  into a later environment, promote a build that ships one.
+- `kindgi`: **`client.agents.projects(agent_id)` says what runs in each
+  project.** Each project gains `runs` (the version a run there that names no
+  version gets, since when, and the pin or deployment behind it), `follows`
+  (`pin` or `latest`) and `segments` (the pins on segments inside it), and the
+  answer gains `highest`, the agent's highest version. A run that names no
+  version, in a scope no pin covers, now gets the agent's Latest in its
+  project: it moves only when a deployment into the project ships a version,
+  or when a person publishes a full version, and a derived version is never
+  Latest by itself. `client.agents.get(agent_id)` still answers the highest
+  version.
 - `kindgi`: **Improvement passes are now Improve runs.** This is a breaking
   rename, and no old name is kept. `client.improvement_passes` and
   `client.proposals` are `client.improve_runs`, sync and async, with `start`,
@@ -76,6 +91,64 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `CorrectorGroupId`. A `corrections` test set built before is still read by
   id, but `client.test_sets.list` doesn't list it, and `kind="corrections"`
   there is `400 bad-input`.
+- `kindgi`: **A suggested change is made for one project, and checked on that
+  project's test set.** This is a breaking change.
+  - `client.suggested_changes.create` takes `agent_id`, `project_id`, `block`,
+    then `values` (a settings block) or `template` (a prompt block), `why` and
+    `fixes`. The change is built on the version the project runs, and its
+    check starts at once.
+  - In the check, its version (`with`) and the version it's built on (`now`)
+    run the same cases of the project's test set, frozen when the check
+    starts.
+  - `client.suggested_changes.check(suggested_change_id)` checks it again. It
+    replaces `evaluate` and `rescore`.
+  - `client.suggested_changes.add_as_latest(suggested_change_id)` makes its
+    version its project's Latest, for a project on Latest, with no gate. A
+    `reason` is kept on its `added_as_latest`.
+  - `list` filters by `agent_id`, `project_id`, `status` and `made_by`.
+  - `SuggestedChange` gains `project_id`, `title`, `built_on`, `version`,
+    `changes`, `fixes`, `check`, `note`, `pinned`, `approval_id`,
+    `added_as_latest` and `withdrawn`.
+  - Its `made_by` is now who or what made it: an Improve run, a person, a
+    service account, a deploy or an offer. It no longer says which drafter
+    wrote it.
+  - `from_version`, `scope`, `tier`, `change`, `evidence`, `candidate`,
+    `evaluation`, `promotion` and `rolled_back` are gone.
+  - Its statuses are `checking`, `check-failed`, `ready`,
+    `waiting-for-second-person`, `pinned`, `added-as-latest` and `withdrawn`.
+  - New models: `SuggestedChangeChange`, `SuggestedChangeCheck`,
+    `SuggestedChangeCheckSide`, `SuggestedChangeNote` and
+    `SuggestedChangeBlockContent`.
+  - Removed models: `SuggestedChangeBlockEdit`, `SuggestedChangeCandidate`,
+    `SuggestedChangeCost`, `SuggestedChangeDecisions`,
+    `SuggestedChangeEvaluation`, `SuggestedChangeEvidence`,
+    `SuggestedChangePromotion` and `EvaluateSuggestedChangeBody`.
+  - The numbered models `Model` to `Model4` are named after their owners:
+    - `ImproveRunModel` (an Improve run's model);
+    - `StartImproveRunBodyModel` (the start body's);
+    - `CorrectedComparisonSummarySamplingModel` (a corrected comparison's
+      sampling models);
+    - `ImproveScheduleInputModel` (an improve schedule's).
+  - New `server_code` values:
+    - `suggested-change-not-for-a-project` (`ConflictError`): one made for a
+      tenant, an org or a segment can only be withdrawn;
+    - `suggested-change-nothing-to-check` (`ConflictError`): the project's
+      test set has no cases;
+    - `suggested-change-project-on-latest` (`ConflictError`): a pin, for a
+      project that runs Latest;
+    - `suggested-change-project-pinned` (`ConflictError`): an add as Latest,
+      for a project that runs a pin;
+    - `suggested-change-check-unsupported` (`ServerError`, a 501): the
+      server freezes no test set, so nothing can be checked;
+    - `suggested-change-out-of-date` (`ConflictError`): a pin or an add as
+      Latest of one built on a version its project no longer runs. It's
+      being rebuilt on the version the project runs now when
+      `details["rebuilding"]` is true.
+  - A suggested change built on a version its project no longer runs is
+    rebuilt there, and checked again: `built_on.rebuilt_at` says when.
+  - An audit event's `kind` can be `suggested-change-created`,
+    `suggested-change-pinned`, `suggested-change-added-as-latest` or
+    `suggested-change-withdrawn`.
 
 ## 0.3.0
 

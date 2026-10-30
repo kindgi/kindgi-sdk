@@ -54,14 +54,17 @@ import {
 import { refuseReadOnly, refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import { type WhatRunsInProject, whatRunsByProject } from '../what-runs.js';
 import {
   type AgentReleaseGateDeps,
+  actorOf,
   isLiveSet,
   isLiveUndo,
   isPromotionCheck,
   isPromotionRequest,
   isPromotionWrite,
   mountAgentReleaseRoutes,
+  seenVersions,
 } from './agent-releases.js';
 import { isTestSetPath } from './agent-test-set.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
@@ -334,14 +337,14 @@ export function agentsRouter(
     });
   });
 
-  // ---------- GET /:agentId (latest version) ----------
+  // ---------- GET /:agentId (highest version) ----------
   r.get('/:agentId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
 
-    const latest = await binding.get({ tenantId, agentId });
-    if (latest === null) {
+    const highest = await binding.get({ tenantId, agentId });
+    if (highest === null) {
       // Distinguish 410 gone (identity exists — head row present, no
       // active version) from 404 not-found (never registered).
       // Retirement is a derived state (no active
@@ -379,7 +382,7 @@ export function agentsRouter(
       itemRights ?? itemServing,
       'agent',
       agentId as unknown as string,
-      latest,
+      highest,
       {
         versionOf: (a) => a.version as unknown as string,
         projectOf: (a) => a.projectId as unknown as string | undefined,
@@ -406,7 +409,7 @@ export function agentsRouter(
     }
     // The owner is the agent's, not a version's: it's read off the head
     // record, whichever version is shown.
-    return c.json({ ...serializeAgent(shown.row), ...(await ownerField(tenantId, latest)) });
+    return c.json({ ...serializeAgent(shown.row), ...(await ownerField(tenantId, highest)) });
   });
 
   /** `owner: { userId, name? }`, the name when the directory has one for the person. */
@@ -429,7 +432,11 @@ export function agentsRouter(
   // Its own project first, then each other project a version of it can run
   // in (`ItemProjectsBinding.projectsOf`, unregistered versions included): a
   // change to the agent reaches each. Only the projects the caller reads are
-  // named, its own included. With no binding, its own project alone.
+  // named, its own included. With no binding, its own project alone. With
+  // pins and Latest wired, each says what runs there (`whatRunsByProject`),
+  // and the answer gives the highest version, which numbers the next one.
+  // A version the caller can't see is left out (`seenVersions`), as
+  // `GET …/live` leaves it out.
   r.get('/:agentId/projects', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
@@ -457,8 +464,80 @@ export function agentsRouter(
         : await authorizer.filterByCan(c, 'read', projects, (p) =>
             ref('project', p as unknown as string),
           );
-    return c.json({ data: named.map((projectId) => ({ projectId })) });
+    if (releases === undefined) {
+      return c.json({ data: named.map((projectId) => ({ projectId })) });
+    }
+    const [rows, highest] = await Promise.all([
+      whatRunsByProject(releases, { tenantId, agentId }, named),
+      binding.get({ tenantId, agentId }),
+    ]);
+    const visible = await seenVersions(
+      itemRights,
+      c,
+      agentId,
+      [
+        ...rows.flatMap((row) => [
+          ...(row.runs === null ? [] : [row.runs.version]),
+          ...row.segments.map((s) => s.version),
+        ]),
+        ...(highest === null ? [] : [highest.version]),
+      ].map(String),
+    );
+    const shown = (version: Semver) => visible.has(version as unknown as string);
+    const data = await Promise.all(rows.map((row) => projectRow(tenantId, releases, row, shown)));
+    return c.json({
+      data,
+      ...(highest !== null && shown(highest.version) && { highest: { version: highest.version } }),
+    });
   });
+
+  /** One project's row: what runs there and why, and the segment pins inside it. */
+  async function projectRow(
+    tenantId: TenantId,
+    releases: AgentReleaseBindings,
+    { projectId, runs, pin, segments }: WhatRunsInProject,
+    shown: (version: Semver) => boolean,
+  ) {
+    const seen = segments.filter((s) => shown(s.version));
+    const bySegment =
+      seen.length === 0
+        ? {}
+        : {
+            segments: seen.map((s) => ({
+              path: s.path.map(({ key, value }) => ({ key, value })),
+              version: s.version,
+            })),
+          };
+    if (runs === null || !shown(runs.version)) return { projectId, ...bySegment };
+    if (runs.follows === 'latest') {
+      const { version, since, deploymentId, by } = runs;
+      return {
+        projectId,
+        follows: 'latest',
+        runs: {
+          version,
+          ...(since !== undefined && { since }),
+          ...(deploymentId !== undefined && { deploymentId }),
+          ...(by !== undefined && { by }),
+        },
+        ...bySegment,
+      };
+    }
+    // A pin: when it was set, and who asked for the promotion that set it.
+    const promotion =
+      pin === undefined ? null : await releases.promotions.get(tenantId, pin.promotionId);
+    return {
+      projectId,
+      follows: 'pin',
+      runs: {
+        version: runs.version,
+        liveScope: liveScopeToWire(runs.liveScope),
+        ...(pin !== undefined && { since: pin.setAt, promotionId: pin.promotionId }),
+        ...(promotion !== null && { by: promotion.requestedBy }),
+      },
+      ...bySegment,
+    };
+  }
 
   /**
    * An agent's own project with no item-projects binding: every version
@@ -666,6 +745,9 @@ export function agentsRouter(
       tenantId,
       projectId,
       agent,
+      // A full publish is the person's own version: Latest in its project at once.
+      madeFor: 'latest',
+      latestBy: actorOf(c),
       // Write the authorization tuples in the same transaction as the
       // registry row. The binding calls this with the business
       // `agentId`.

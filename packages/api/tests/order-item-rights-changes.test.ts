@@ -38,6 +38,7 @@ import { itemRightsOf, liveChangeRefusal } from '../src/item-rights.js';
 import { type Authorizer, createAuthorizer } from '../src/middleware/authorize.js';
 import type { AppEnv } from '../src/types.js';
 import { environmentOrders } from './support/environment-orders.js';
+import { noLatest } from './support/latest.js';
 import { type Grant, type ItemRow, grantsAuthz, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -215,6 +216,7 @@ function releasesFake(changed: string[]) {
           : [];
       },
     },
+    latest: noLatest,
     promotions: {
       promote: reached('promote'),
       rollback: reached('rollback'),
