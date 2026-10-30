@@ -21,8 +21,10 @@ import {
 
 /**
  * In-memory `CorrectionRegistryBinding` honouring supersede, one run copy per
- * run, a change that applies only from the status and sorting it expects, and
- * the agent's test set: its correction cases, hand cases and retirements.
+ * run, a change that applies only from the status and sorting it expects, a
+ * test run's outcome that applies only to corrections unchanged since the
+ * run ended, and the agent's test set: its correction cases, hand cases and
+ * retirements.
  * `eraseRun` erases a run as the runtime's erasure does: its copy's words
  * are cleared, and `runCopies` leaves it out.
  */
@@ -295,6 +297,36 @@ export function inMemoryCorrections(): CorrectionRegistryBinding & {
       ) as unknown as Correction;
       corrections[i] = correction;
       return { kind: 'updated', correction };
+    },
+    async applyRunOutcome(input) {
+      const applied: string[] = [];
+      for (const change of input.changes) {
+        const i = corrections.findIndex(
+          (x) =>
+            x.id === change.correctionId &&
+            x.tenantId === input.tenantId &&
+            x.unregisteredAt === undefined &&
+            x.updatedAt <= input.endedAt,
+        );
+        const current = corrections[i];
+        if (current === undefined) continue;
+        const { link, statusNote, fixedIn, reopenedIn, ...rest } = current;
+        const next = {
+          ...rest,
+          status: change.status,
+          link: change.link === null ? undefined : link,
+          statusNote: change.statusNote === null ? undefined : statusNote,
+          fixedIn: change.fixedIn ?? undefined,
+          reopenedIn: change.reopenedIn ?? undefined,
+          updatedAt: now(),
+        };
+        // Absent, not `undefined`, as a store answers it.
+        corrections[i] = Object.fromEntries(
+          Object.entries(next).filter(([, v]) => v !== undefined),
+        ) as unknown as Correction;
+        applied.push(change.correctionId);
+      }
+      return applied;
     },
     async counts(input) {
       const counts = { open: 0, beingFixed: 0, withOwner: 0, fixed: 0, wontFix: 0, removed: 0 };

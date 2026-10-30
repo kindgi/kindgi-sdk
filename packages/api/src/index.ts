@@ -702,12 +702,15 @@ export {
   STATUSES_SET_BY_HAND,
   parseCorrectionLink,
   planChange,
+  planRunOutcome,
   sortAtSave,
 } from './correction-sorting.js';
 export type {
   CorrectionChange,
   PlannedChange,
   PlannedChangeOutcome,
+  RunOutcomeInput,
+  RunOutcomePlan,
   SortedAtSave,
   StatusSetByHand,
 } from './correction-sorting.js';
@@ -746,6 +749,7 @@ export type {
   CorrectedAnswerItem,
   Correction,
   CorrectionMadeBy,
+  CorrectionOutcomeChange,
   CorrectionCounts,
   CorrectionCountsInput,
   CorrectionFixedHow,
@@ -755,6 +759,7 @@ export type {
   CorrectionListInput,
   CorrectionPage,
   CorrectionRecordInput,
+  CorrectionRunOutcomeInput,
   CorrectionRegistryBinding,
   CorrectionReopenedHow,
   CorrectionReopenedIn,

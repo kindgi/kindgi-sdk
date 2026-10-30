@@ -78,6 +78,13 @@ export interface CorrectionRegistryBinding {
   unregister(input: CorrectionGetInput): Promise<{ readonly unregistered: boolean }>;
   /** Change a live correction's status or sorting (see `CorrectionUpdateInput`). */
   update(input: CorrectionUpdateInput): Promise<CorrectionUpdateOutcome>;
+  /**
+   * Apply a test run's outcome (`planRunOutcome`): each change lands only
+   * while its correction is live and unchanged since the run ended, so
+   * applying the same outcome again changes nothing. Returns the ids of
+   * the corrections it changed.
+   */
+  applyRunOutcome(input: CorrectionRunOutcomeInput): Promise<readonly string[]>;
   /** How many corrections are in each status. */
   counts(input: CorrectionCountsInput): Promise<CorrectionCounts>;
   /**
@@ -396,7 +403,7 @@ export interface Correction {
   readonly link?: CorrectionLink;
   /** Present while it's `fixed`. */
   readonly fixedIn?: CorrectionFixedIn;
-  /** Present while it's `open` because a test run got it wrong again after it was `fixed`. */
+  /** Present after a test run got a `fixed` correction wrong again, until its status next changes. */
   readonly reopenedIn?: CorrectionReopenedIn;
   readonly statusNote?: CorrectionStatusNote;
   /** The corrector's group; absent for an unclassified correction (weight 1). */
@@ -639,10 +646,7 @@ export interface CorrectionUpdateInput {
    * while it's fixed).
    */
   readonly fixedIn?: null;
-  /**
-   * `null` clears it, when the status leaves `open` (`reopenedIn` is there
-   * only while it's open after coming back).
-   */
+  /** `null` clears it: a status set by hand ends a test run's reopening. */
   readonly reopenedIn?: null;
 }
 
@@ -651,6 +655,31 @@ export type CorrectionUpdateOutcome =
   | { readonly kind: 'not-found' }
   /** It changed since the route read it: `correction` is what it is now. */
   | { readonly kind: 'changed'; readonly correction: Correction };
+
+/**
+ * A test run's outcome for the corrections whose cases it checked. A change
+ * lands only while its correction's `updatedAt` is no later than `endedAt`:
+ * one a person changed since, or this outcome changed already, keeps what
+ * it is.
+ */
+export interface CorrectionRunOutcomeInput {
+  readonly tenantId: TenantId;
+  /** When the run ended, ISO-8601. */
+  readonly endedAt: string;
+  readonly changes: readonly CorrectionOutcomeChange[];
+}
+
+/** What a test run's outcome writes to one correction: `null` clears a field. */
+export interface CorrectionOutcomeChange {
+  readonly correctionId: string;
+  readonly status: CorrectionStatus;
+  readonly fixedIn: CorrectionFixedIn | null;
+  readonly reopenedIn: CorrectionReopenedIn | null;
+  /** Cleared when it stops being fixed elsewhere. */
+  readonly link?: null;
+  /** Cleared: the note was a person's, on the status before. */
+  readonly statusNote?: null;
+}
 
 /** Live corrections by status (`removed`: the removed ones), for an agent or a project. */
 export interface CorrectionCountsInput {
