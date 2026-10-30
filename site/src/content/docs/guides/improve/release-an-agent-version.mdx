@@ -537,35 +537,35 @@ each part asks, and who may publish one.
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
+pnpm exec kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<test-run-id> --check
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
+uv run kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<test-run-id> --check
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
+./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<test-run-id> --check
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
+./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<test-run-id> --check
 ```
 
 </TabItem>
 </Tabs>
 
-`--test-run=<comparison-id>` names the run of 1.3.0 on the test cases, where
-`<comparison-id>` is its test run's id. It prints what the release gate would say:
+`--test-run=<test-run-id>` names the run of 1.3.0 on the test cases. It prints
+what the release gate would say:
 
 ```json
 {
@@ -603,28 +603,28 @@ Ask to pin it the same way, without `--check`:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+pnpm exec kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<test-run-id> --reason="1.3.0 did as well on the order checks"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+uv run kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<test-run-id> --reason="1.3.0 did as well on the order checks"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<test-run-id> --reason="1.3.0 did as well on the order checks"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<test-run-id> --reason="1.3.0 did as well on the order checks"
 ```
 
 </TabItem>
@@ -662,28 +662,28 @@ role, as [Decide an approval](../../approvals/decide-an-approval/) shows:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi approvals complete <approval-id> --decision=approve --rationale="Checked the comparison"
+pnpm exec kindgi approvals complete <approval-id> --decision=approve --rationale="Checked the test run"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi approvals complete <approval-id> --decision=approve --rationale="Checked the comparison"
+uv run kindgi approvals complete <approval-id> --decision=approve --rationale="Checked the test run"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw approvals complete <approval-id> --decision=approve --rationale="Checked the comparison"
+./kindgiw approvals complete <approval-id> --decision=approve --rationale="Checked the test run"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw approvals complete <approval-id> --decision=approve --rationale="Checked the comparison"
+./kindgiw approvals complete <approval-id> --decision=approve --rationale="Checked the test run"
 ```
 
 </TabItem>
@@ -718,7 +718,7 @@ this, with the id of the run on the test cases as its argument:
 import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
-const testRunId = process.argv[2]; // the comparison of 1.3.0
+const testRunId = process.argv[2]; // the test run of 1.3.0
 const request = {
   version: '1.3.0',
   scope: { kind: 'tenant' as const },
@@ -750,7 +750,7 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 request = {
     "version": "1.3.0",
     "scope": {"kind": "tenant"},
-    "test_run_id": sys.argv[1],  # the comparison of 1.3.0
+    "test_run_id": sys.argv[1],  # the test run of 1.3.0
     "reason": "1.3.0 did as well on the order checks",
 }
 
