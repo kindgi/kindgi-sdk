@@ -86,10 +86,10 @@ A person does these, with a key of their own:
   [pin in place](../../guides/evals/live-versions-reference/#a-scope-with-a-release-gate-policy-needs-a-live-version-of-its-own):
   no test run and no approval. A version the build only carries counts as
   Latest there when it was published in full, made Latest in staging, or
-  came from before 0.4.0. So
-  an agent the build carries only as a version derived in staging, and never
-  made Latest, has no Latest in prod until a build ships a version of it. A
-  scope with a release gate policy needs a Pinned version of its own.
+  published before the runtime recorded Latest. So an agent the build
+  carries only as a version derived in staging, and never made Latest, has
+  no Latest in prod until a build ships a version of it. A scope with a
+  release gate policy needs a Pinned version of its own.
   Without one, prod's runs take each agent's
   [Latest](../../guides/evals/live-versions-reference/#latest) in prod: the
   version the newest build promoted there shipped.
