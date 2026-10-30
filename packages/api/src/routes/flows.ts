@@ -70,7 +70,7 @@ import { parseScopeParams } from './scope-params.js';
  * runs at no named version to what a run in the flow's project would
  * get, its pinned version there with `pinning.agentPinned`, else its latest.
  * Every run of that version uses those (`pins`, see `resolveFlowPins`),
- * but for an agent step under a gate policy set on a segment, which runs
+ * but for an agent step under a release gate set on a segment, which runs
  * the version pinned there; one with no published version refuses
  * the publish. Without `pinning`, versions carry no pins and bind the
  * latest versions per run.

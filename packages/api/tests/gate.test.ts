@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The promotion gate (evals step 4b): a policy's checks against a
+ * The release gate: a gate's checks against a
  * comparison's summary, one by one, passing and failing.
  */
 
@@ -11,8 +11,8 @@ import { describe, expect, test } from 'vitest';
 import type { AgentPinScope, OrgId, ProjectId } from '@kindgi/types';
 
 import type { ComparisonMetric, CorrectedComparisonSummary } from '../src/corrected-dispatcher.js';
-import type { GatePolicySpec } from '../src/gate-policy-binding.js';
 import { type GateInput, evaluateGate } from '../src/gate.js';
+import type { ReleaseGateSpec } from '../src/release-gate-binding.js';
 
 const PROJECT = '00000000-0000-4000-8000-0000000000aa' as ProjectId;
 const ORG = '00000000-0000-4000-8000-0000000000bb' as OrgId;
@@ -53,8 +53,8 @@ function summary(overrides: Partial<CorrectedComparisonSummary> = {}): Corrected
     sampling: { models: [] },
     repetitions: 1,
     metrics: {
-      weightedYesShare: metric(),
-      judgedCoverage: metric({ baseline: 0.9, candidate: 0.9, delta: 0 }),
+      passRate: metric(),
+      caseCoverage: metric({ baseline: 0.9, candidate: 0.9, delta: 0 }),
       weightedPrecisionAtK: metric({ k: 5 }),
     },
     ...overrides,
@@ -62,7 +62,7 @@ function summary(overrides: Partial<CorrectedComparisonSummary> = {}): Corrected
 }
 
 function gate(
-  spec: GatePolicySpec,
+  spec: ReleaseGateSpec,
   over: {
     summary?: CorrectedComparisonSummary | null;
     scope?: AgentPinScope;
@@ -73,7 +73,7 @@ function gate(
 ) {
   const input: GateInput = {
     spec,
-    promotion: {
+    pin: {
       agentId: 'acme.drafting',
       version: '1.2.0',
       pinsDigest: over.pinsDigest === undefined ? 'sha-120' : over.pinsDigest,
@@ -98,10 +98,7 @@ describe('the comparison', () => {
   });
 
   test('a spec with metrics needs a comparison', () => {
-    const r = gate(
-      { metrics: [{ name: 'weightedYesShare', minCandidate: 0.5 }] },
-      { summary: null },
-    );
+    const r = gate({ metrics: [{ name: 'passRate', minCandidate: 0.5 }] }, { summary: null });
     expect(r.passed).toBe(false);
     expect(check(r, 'comparison.required')?.message).toContain('`testRunId`');
   });
@@ -135,7 +132,7 @@ describe('the comparison', () => {
     );
   });
 
-  test('testSet: id, and version when the policy names one', () => {
+  test('testSet: id, and version when the gate names one', () => {
     expect(
       check(gate({ comparison: { testSet: { id: 'acme.drafting-set' } } }), 'comparison.testSet')
         ?.passed,
@@ -146,7 +143,7 @@ describe('the comparison', () => {
         'comparison.testSet',
       )?.message,
     ).toBe(
-      'The test run used test cases acme.drafting-set 1.0.0; the policy needs acme.drafting-set 2.0.0.',
+      'The test run used test cases acme.drafting-set 1.0.0; the gate needs acme.drafting-set 2.0.0.',
     );
   });
 });
@@ -178,10 +175,10 @@ describe('sameContents', () => {
   });
 });
 
-describe('baselineIsLive', () => {
+describe('baselineIsPinned', () => {
   test('one baseline version, the one serving the scope', () => {
-    expect(check(gate({}), 'baselineIsLive')?.passed).toBe(true);
-    expect(check(gate({}, { serving: '1.0.0' }), 'baselineIsLive')).toMatchObject({
+    expect(check(gate({}), 'baselineIsPinned')?.passed).toBe(true);
+    expect(check(gate({}, { serving: '1.0.0' }), 'baselineIsPinned')).toMatchObject({
       passed: false,
       value: 'acme.drafting 1.1.0',
       threshold: 'acme.drafting 1.0.0',
@@ -198,14 +195,14 @@ describe('baselineIsLive', () => {
         ],
       },
     });
-    expect(check(gate({}, { summary: mixed }), 'baselineIsLive')?.message).toContain(
+    expect(check(gate({}, { summary: mixed }), 'baselineIsPinned')?.message).toContain(
       'measured this version against 2 versions',
     );
   });
 });
 
 describe('scopeCovered', () => {
-  test('a project or segment promotion needs that project’s corrections', () => {
+  test('a project or segment pin needs that project’s corrections', () => {
     expect(check(gate({}), 'scopeCovered')?.passed).toBe(true);
     const elsewhere = summary({ scope: { projectId: '00000000-0000-4000-8000-0000000000cc' } });
     expect(check(gate({}, { summary: elsewhere }), 'scopeCovered')?.passed).toBe(false);
@@ -217,7 +214,7 @@ describe('scopeCovered', () => {
     expect(check(gate({}, { scope: segment }), 'scopeCovered')?.passed).toBe(true);
   });
 
-  test('an org promotion: tenant-wide corrections, or a project in the org', () => {
+  test('an org pin: tenant-wide corrections, or a project in the org', () => {
     const org: AgentPinScope = { kind: 'org', orgId: ORG };
     const inOrg = check(gate({}, { scope: org, summaryProjectOrgId: ORG }), 'scopeCovered');
     expect(inOrg?.passed).toBe(true);
@@ -237,7 +234,7 @@ describe('scopeCovered', () => {
     );
   });
 
-  test('a tenant promotion takes any corrections', () => {
+  test('a tenant pin takes any corrections', () => {
     expect(check(gate({}, { scope: { kind: 'tenant' } }), 'scopeCovered')?.passed).toBe(true);
   });
 });
@@ -263,17 +260,17 @@ describe('replay', () => {
       { summary: summary({ refusedWrites: 1, stopped: 1 }) },
     );
     expect(check(one, 'replay.maxRefusedWrites')?.message).toBe(
-      '1 tool call was refused; the policy allows 1.',
+      '1 tool call was refused; the gate allows 1.',
     );
     expect(check(one, 'replay.maxStopped')?.message).toBe(
-      '1 case stopped at a refused tool call; the policy allows 0.',
+      '1 case stopped at a refused tool call; the gate allows 0.',
     );
     const many = gate({ replay: {} }, { summary: summary({ refusedWrites: 2, stopped: 2 }) });
     expect(check(many, 'replay.maxRefusedWrites')?.message).toBe(
-      '2 tool calls were refused; the policy allows 0.',
+      '2 tool calls were refused; the gate allows 0.',
     );
     expect(check(many, 'replay.maxStopped')?.message).toBe(
-      '2 cases stopped at a refused tool call; the policy allows 0.',
+      '2 cases stopped at a refused tool call; the gate allows 0.',
     );
   });
 
@@ -288,7 +285,7 @@ describe('metrics and evidence', () => {
     expect(check(r, 'metric.weightedPrecisionAtK.minCandidate')).toEqual({
       name: 'metric.weightedPrecisionAtK.minCandidate',
       passed: false,
-      message: 'Precision at 5 is 0.75; the policy needs at least 0.8.',
+      message: 'Precision at 5 is 0.75; the gate needs at least 0.8.',
       value: 0.75,
       threshold: 0.8,
     });
@@ -298,19 +295,19 @@ describe('metrics and evidence', () => {
     const exact = summary({
       metrics: {
         ...summary().metrics,
-        weightedYesShare: metric({ baseline: 0.7, candidate: 0.68 }),
+        passRate: metric({ baseline: 0.7, candidate: 0.68 }),
       },
     });
     expect(
       check(
-        gate({ metrics: [{ name: 'weightedYesShare', maxDrop: 0.02 }] }, { summary: exact }),
-        'metric.weightedYesShare.maxDrop',
+        gate({ metrics: [{ name: 'passRate', maxDrop: 0.02 }] }, { summary: exact }),
+        'metric.passRate.maxDrop',
       )?.passed,
     ).toBe(true);
     expect(
       check(
-        gate({ metrics: [{ name: 'weightedYesShare', maxDrop: 0.01 }] }, { summary: exact }),
-        'metric.weightedYesShare.maxDrop',
+        gate({ metrics: [{ name: 'passRate', maxDrop: 0.01 }] }, { summary: exact }),
+        'metric.passRate.maxDrop',
       )?.passed,
     ).toBe(false);
   });
@@ -319,18 +316,18 @@ describe('metrics and evidence', () => {
     const empty = summary({
       metrics: {
         ...summary().metrics,
-        judgedCoverage: metric({ baseline: null, candidate: null }),
+        caseCoverage: metric({ baseline: null, candidate: null }),
       },
     });
     const r = gate(
-      { metrics: [{ name: 'judgedCoverage', minCandidate: 0.1, maxDrop: 0 }] },
+      { metrics: [{ name: 'caseCoverage', minCandidate: 0.1, maxDrop: 0 }] },
       { summary: empty },
     );
-    expect(check(r, 'metric.judgedCoverage.minCandidate')?.passed).toBe(false);
-    expect(check(r, 'metric.judgedCoverage.maxDrop')?.passed).toBe(false);
+    expect(check(r, 'metric.caseCoverage.minCandidate')?.passed).toBe(false);
+    expect(check(r, 'metric.caseCoverage.maxDrop')?.passed).toBe(false);
   });
 
-  test("k must be the policy's", () => {
+  test("k must be the gate's", () => {
     const r = gate({ metrics: [{ name: 'weightedPrecisionAtK', k: 10, minCandidate: 0.5 }] });
     expect(check(r, 'metric.weightedPrecisionAtK.k')).toMatchObject({
       passed: false,
@@ -343,25 +340,25 @@ describe('metrics and evidence', () => {
     const thin = summary({
       metrics: {
         ...summary().metrics,
-        weightedYesShare: metric({ n: 30, weight: 40, baselineN: 2, baselineWeight: 2 }),
+        passRate: metric({ n: 30, weight: 40, baselineN: 2, baselineWeight: 2 }),
       },
     });
     const r = gate(
       {
         evidence: { minCases: 20, minWeight: 10 },
-        metrics: [{ name: 'weightedYesShare', maxDrop: 0.02 }],
+        metrics: [{ name: 'passRate', maxDrop: 0.02 }],
       },
       { summary: thin },
     );
-    expect(check(r, 'evidence.weightedYesShare.minCases')?.passed).toBe(true);
-    expect(check(r, 'evidence.weightedYesShare.minWeight')?.passed).toBe(true);
-    expect(check(r, 'evidence.weightedYesShare.baselineMinCases')).toMatchObject({
+    expect(check(r, 'evidence.passRate.minCases')?.passed).toBe(true);
+    expect(check(r, 'evidence.passRate.minWeight')?.passed).toBe(true);
+    expect(check(r, 'evidence.passRate.baselineMinCases')).toMatchObject({
       passed: false,
       value: 2,
     });
-    expect(check(r, 'evidence.weightedYesShare.baselineMinWeight')?.passed).toBe(false);
+    expect(check(r, 'evidence.passRate.baselineMinWeight')?.passed).toBe(false);
     const minOnly = gate(
-      { evidence: { minCases: 20 }, metrics: [{ name: 'weightedYesShare', minCandidate: 0.5 }] },
+      { evidence: { minCases: 20 }, metrics: [{ name: 'passRate', minCandidate: 0.5 }] },
       { summary: thin },
     );
     expect(minOnly.checks.some((c) => /^evidence\..*\.baseline/.test(c.name))).toBe(false);
@@ -369,14 +366,14 @@ describe('metrics and evidence', () => {
 });
 
 describe('the verdict', () => {
-  const strict: GatePolicySpec = {
+  const strict: ReleaseGateSpec = {
     comparison: { maxAgeHours: 168 },
     evidence: { minCases: 20 },
     metrics: [{ name: 'weightedPrecisionAtK', k: 5, minCandidate: 0.7, maxDrop: 0.02 }],
     replay: {},
   };
 
-  test('every check passing passes; the policy’s approval comes with it', () => {
+  test('every check passing passes; the gate’s approval comes with it', () => {
     expect(gate(strict).passed).toBe(true);
     expect(gate({ ...strict, approvals: {} })).toMatchObject({
       passed: true,

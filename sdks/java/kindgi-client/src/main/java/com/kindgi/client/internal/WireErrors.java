@@ -44,9 +44,9 @@ public final class WireErrors {
           "not-pinned", "agent-version-pinned", "test-set-already-registered",
           "mcp-endpoint-already-registered", "identity-provider-already-registered",
           "version-already-exists", "test-run-already-terminal", "approval-already-decided",
-          "corrector-group-name-taken", "pin-superseded", "gate-policy-already-registered",
-          "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
-          "gate-policy-needs-pin", "gate-policy-descendant-unpinned");
+          "corrector-group-name-taken", "pin-superseded", "release-gate-already-registered",
+          "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
+          "release-gate-needs-pin", "release-gate-descendant-unpinned");
   static final Set<String> INVALID =
       Set.of(
           "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

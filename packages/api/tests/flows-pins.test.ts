@@ -218,7 +218,7 @@ describe('POST /v1/flows pins the version', () => {
   });
 
   test("with pinned versions, an agent with no version of its own pins to what's pinned for the flow's project (T268)", async () => {
-    // The gated case: 1.0.0 was promoted, 1.4.1 is the latest and was never let go live.
+    // The pinned case: 1.0.0 is pinned, 1.4.1 is the latest and was never pinned.
     const asked: AgentPinResolveInput[] = [];
     const { app } = makeApp(
       registries(

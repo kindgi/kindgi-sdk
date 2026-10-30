@@ -45,10 +45,7 @@ import { clampLimit } from './pagination.js';
 export type SuggestedChangesRouteDeps = Omit<SuggestedChangeServiceDeps, 'store'>;
 
 const TIERS: readonly SuggestedChangeTier[] = ['settings-block', 'prompt-block'];
-const OBJECTIVES: readonly SuggestedChangeObjective[] = [
-  'weightedYesShare',
-  'weightedPrecisionAtK',
-];
+const OBJECTIVES: readonly SuggestedChangeObjective[] = ['passRate', 'weightedPrecisionAtK'];
 const MAX_TEXT = 2000;
 
 type Ctx = Context<AppEnv>;
@@ -522,7 +519,7 @@ function parseEvaluateBody(b: Record<string, unknown>): EvaluateBody | string {
   if (comparison.kind === 'err') return comparison.message;
   return {
     testSetId: b.testSetId,
-    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'weightedYesShare',
+    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'passRate',
     ...(comparison.value !== undefined && { comparison: comparison.value }),
   };
 }

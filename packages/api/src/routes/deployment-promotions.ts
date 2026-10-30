@@ -67,15 +67,15 @@ import {
   deploymentValues,
 } from '../deployment-values.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { GatePolicyRef } from '../gate-policy-binding.js';
 import type { GateCheck } from '../gate.js';
 import { agentPinChangeRefusal, pinChangeRefusal } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCaller } from '../middleware/key-project.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
+import type { ReleaseGateRef } from '../release-gate-binding.js';
 import { deploymentSecretScope, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, pinResponse, policyFor, requestPin } from './agent-pins.js';
+import { actorOf, pinResponse, releaseGateFor, requestPin } from './agent-pins.js';
 import { deniedBy, refused } from './denied.js';
 import type { DeploymentsRouterBindings } from './deployments.js';
 import { pinWriteFailure } from './pinned-versions.js';
@@ -233,7 +233,7 @@ export interface PromotionMoves {
 export interface DeploymentLivePinGate {
   readonly status: PinStatus;
   readonly changeId: string;
-  readonly policy?: GatePolicyRef | null;
+  readonly releaseGate?: ReleaseGateRef | null;
   readonly approvalId?: string;
   readonly checks?: readonly GateCheck[];
 }
@@ -510,7 +510,7 @@ async function pinCarriedFlows(
 /**
  * `pin-gate-unsupported`, decidable before any pin: when this
  * deployment can't record a gated promotion, the first carried agent
- * whose scope a gate policy applies to is answered here, so nothing is
+ * whose scope a release gate applies to is answered here, so nothing is
  * pinned. `undefined` when every carried agent can promote without one.
  */
 async function gateUnsupportedBefore(
@@ -522,8 +522,8 @@ async function gateUnsupportedBefore(
 ): Promise<Response | undefined> {
   if (agentPins.changes.request !== undefined) return undefined;
   for (const agent of pinnable) {
-    const policy = await policyFor(agentPins, tenantId, agent.id, scope);
-    if (policy !== null) return pinResponse(c, { kind: 'gate-unsupported', policy });
+    const releaseGate = await releaseGateFor(agentPins, tenantId, agent.id, scope);
+    if (releaseGate !== null) return pinResponse(c, { kind: 'gate-unsupported', releaseGate });
   }
   return undefined;
 }
@@ -564,7 +564,7 @@ async function authorizeCarried(
  * nothing pinned: each agent is authorized — a project scope at the
  * target, `agentPinChangeRefusal`, the one the pin routes use — and, when
  * this deployment can't record a gated promotion, any agent whose scope a
- * gate policy applies to answers `pin-gate-unsupported` here (fix
+ * release gate applies to answers `pin-gate-unsupported` here (fix
  * the grant or the deployment and promote again: the move is idempotent,
  * and so is a pin in place). The width check in `agentPinChangeRefusal` never
  * fires here: the scope is one project. Then each version is requested
@@ -649,7 +649,7 @@ function livePinOf(
       ? {
           status: pin.status ?? 'pinned',
           changeId: pin.id,
-          ...(pin.policy !== undefined && { policy: pin.policy }),
+          ...(pin.releaseGate !== undefined && { releaseGate: pin.releaseGate }),
           ...(pin.approvalId !== undefined && { approvalId: pin.approvalId }),
           ...(checks !== undefined && { checks }),
         }

@@ -160,10 +160,7 @@ async function testSetProjectId(
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
 const MAX_COST_USD = 100;
 const MAX_CANDIDATES = 200;
-const OBJECTIVES: readonly SuggestedChangeObjective[] = [
-  'weightedYesShare',
-  'weightedPrecisionAtK',
-];
+const OBJECTIVES: readonly SuggestedChangeObjective[] = ['passRate', 'weightedPrecisionAtK'];
 
 /**
  * `POST /` (under `/v1/improve-runs`): start an Improve run for
@@ -767,7 +764,7 @@ function parseRunOptions(b: Record<string, unknown>): RunOptions | string {
   if (typeof budget === 'string') return budget;
   return {
     tiers: [tier],
-    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'weightedYesShare',
+    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'passRate',
     ...(groupWeights !== undefined && { groupWeights }),
     ...prompt,
     budget,

@@ -12,7 +12,7 @@ import type { Cursor, Result, TenantId, Timestamp } from '@kindgi/types';
  * every matching rule has the correction it wants.
  *
  * Rules only list runs: nothing here starts a model or spends. A rule is
- * versioned as gate policies are: each change is a new version, the
+ * versioned as release gates are: each change is a new version, the
  * latest live one applies, nothing is deleted.
  */
 

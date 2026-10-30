@@ -983,7 +983,7 @@ and what's different after:
     runs that served them (`kindgi memory erasures`).
   - **Improve:** suggest new settings or a new prompt for an agent
     version, try the candidate on the test cases, and pin it through
-    the release gate policy where it is pinned, after review
+    the release gate where it is pinned, after review
     (`kindgi suggested-changes`). Improve can look for better settings on its own,
     and a schedule can start an Improve run.
   - **Files kept with a run** (artifacts) and the capability catalog

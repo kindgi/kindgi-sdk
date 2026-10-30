@@ -38,7 +38,7 @@ kindgi test-runs start <test-set-id> --project=<project-id> \
 
 Where an expert said what the run should have done, its summary's
 `corrections` says how many of those the version now passes (`passed` of
-`checked`). No release gate policy checks it: quote it in the pin
+`checked`). No release gate checks it: quote it in the pin
 `--reason`.
 
 Either way, ask a person to pin the new version, naming the
@@ -53,13 +53,13 @@ kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> \
 - The scope is `--tenant` (every project), `--org=<org-id>`, or
   `--project=<project-id> [--segment=<key:value>]…` (one project).
 - `--check` changes nothing and answers whether it *would* pin it,
-  needs an approval, or fails the release gate policy.
+  needs an approval, or fails the release gate.
 - `--reason` is kept on the record — write what the corrections were, so the
   approver reads the change in plain words.
 - The outcome is `pinned`, or `pending-approval` when the scope's release
-  gate policy has `approvals` and a second person must approve — the "a
+  gate has `approvals` and a second person must approve — the "a
   second person checks it" step, working as it should. (Whoever asked can't
-  approve their own request, unless the policy sets `separateApprover: false`.)
+  approve their own request, unless the release gate sets `separateApprover: false`.)
 - `--check` and the request exit 3 when the answer is no or the request
   waits for an approval. Read the printed outcome: exit 3 isn't an error.
 

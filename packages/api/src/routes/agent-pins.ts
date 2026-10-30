@@ -28,7 +28,6 @@ import type {
 } from '../agent-pin-binding.js';
 import type { CorrectedComparisonSummary } from '../corrected-dispatcher.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { GatePolicy } from '../gate-policy-binding.js';
 import { type GateApproval, type GateCheck, type GateResult, evaluateGate } from '../gate.js';
 import type { ItemRights } from '../item-rights.js';
 import {
@@ -36,12 +35,13 @@ import {
   agentPinScopeOutOfScope,
   outOfScopeResponse,
 } from '../reference-scope.js';
+import type { ReleaseGate } from '../release-gate-binding.js';
 import type { TestRun, TestRunBinding } from '../test-run-binding.js';
 import type { AppEnv } from '../types.js';
 import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
-import { serializeGatePolicy } from './gate-policy-wire.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
+import { serializeReleaseGate } from './release-gate-wire.js';
 import { parseSegmentsQuery } from './segments.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -80,14 +80,14 @@ export interface AgentPinGateDeps {
 }
 
 /**
- * Pinned versions of an agent per scope, and the pin changes that set them
- * (evals step 4):
+ * Pinned versions of an agent per scope, and the pin changes that set
+ * them:
  *   GET  /:agentId/pinned            the version a run would use for a project and segment path
  *   GET  /:agentId/pinned-versions   every pin
  *   POST /:agentId/pinned/pin        pin a version for a scope, through its gate
  *                                      (201 pinned, 202 waiting for approval, 422 gate-failed)
  *   POST /:agentId/pinned/check      what the gate would say, writing nothing
- *   GET  /:agentId/gate-policy       the gate policy that applies to a scope
+ *   GET  /:agentId/release-gate      the release gate that applies to a scope
  *   GET  /:agentId/pin-history[/:id] the history
  *   POST /:agentId/pinned/unpin      remove the scope's pin (it falls back to the scope above)
  * Going back to an earlier version is a pin of that version.
@@ -225,13 +225,13 @@ export function mountAgentPinRoutes(
     const agentId = c.req.param('agentId');
     const refused = await outOfScope(tenantId, agentId, parsed.value.scope);
     if (refused !== undefined) return outOfScopeResponse(c, requestId, refused);
-    const policy = await policyFor(agentPins, tenantId, agentId, parsed.value.scope);
+    const releaseGate = await releaseGateFor(agentPins, tenantId, agentId, parsed.value.scope);
     const gate = await runGate(
       registry,
       agentPins,
       deps,
       { ...parsed.value, tenantId, agentId },
-      policy,
+      releaseGate,
     );
     if (gate.kind === 'err') return failed(c, requestId, gate.error);
     const { result } = gate;
@@ -241,26 +241,29 @@ export function mountAgentPinRoutes(
         : result.approval !== undefined
           ? 'needs-approval'
           : 'would-pin',
-      policy: policy === null ? null : { id: policy.id, version: policy.version },
+      releaseGate:
+        releaseGate === null ? null : { id: releaseGate.id, version: releaseGate.version },
       checks: result.checks,
       ...(result.approval !== undefined && { approval: result.approval }),
     });
   });
 
-  r.get('/:agentId/gate-policy', async (c) => {
+  r.get('/:agentId/release-gate', async (c) => {
     const requestId = c.get('requestId');
     const scope = scopeFromQuery((n) => c.req.query(n), c.req.queries('segment') ?? []);
     if (scope.kind === 'err') return badInput(c, requestId, scope.message);
     if (scope.scope === undefined) {
       return badInput(c, requestId, '`scopeKind` is required: the scope a pin would be for');
     }
-    const policy = await policyFor(
+    const releaseGate = await releaseGateFor(
       agentPins,
       c.get('tenantId') as TenantId,
       c.req.param('agentId'),
       scope.scope,
     );
-    return c.json({ policy: policy === null ? null : serializeGatePolicy(policy) });
+    return c.json({
+      releaseGate: releaseGate === null ? null : serializeReleaseGate(releaseGate),
+    });
   });
 
   r.get('/:agentId/pin-history', async (c) => {
@@ -403,7 +406,7 @@ export type PinRequestOutcome =
       readonly checks?: readonly GateCheck[];
     }
   | { readonly kind: 'err'; readonly error: { code: string; message: string } }
-  | { readonly kind: 'gate-unsupported'; readonly policy: GatePolicy };
+  | { readonly kind: 'gate-unsupported'; readonly releaseGate: ReleaseGate };
 
 /**
  * Request that `version` be pinned for `scope`, through the scope's gate:
@@ -417,14 +420,14 @@ export async function requestPin(
   deps: AgentPinGateDeps,
   input: AgentPinInput,
   options: {
-    /** An approval the pin waits for even when the scope's policy asks for none. */
+    /** An approval the pin waits for even when the scope's release gate asks for none. */
     readonly requireApproval?: GateApproval;
     /**
      * For a drafter's pin: whether the tenant has a separate approver (a
      * reviewer other than the requester who could decide) ranked at or above
-     * the given role. Consulted only when a scope policy sets
+     * the given role. Consulted only when a scope's release gate sets
      * `separateApprover: false`, so the drafter's rule is re-checked at the
-     * policy's role rather than the drafter's own `standard`.
+     * gate's role rather than the drafter's own `standard`.
      */
     readonly draftedEligibleAtRole?: (role: ReviewerRole) => Promise<boolean>;
   } = {},
@@ -438,9 +441,9 @@ export async function requestPin(
     input.scope,
   );
   if (outOfScope !== undefined) return { kind: 'err', error: outOfScope };
-  const policy = await policyFor(agentPins, input.tenantId, input.agentId, input.scope);
+  const releaseGate = await releaseGateFor(agentPins, input.tenantId, input.agentId, input.scope);
   if (agentPins.changes.request === undefined) {
-    if (policy !== null) return { kind: 'gate-unsupported', policy };
+    if (releaseGate !== null) return { kind: 'gate-unsupported', releaseGate };
     if (options.requireApproval !== undefined) {
       return {
         kind: 'err',
@@ -457,13 +460,14 @@ export async function requestPin(
       ? { kind: 'err', error: outcome.error }
       : { kind: 'ok', pin: outcome.value };
   }
-  const gate = await runGate(registry, agentPins, deps, input, policy);
+  const gate = await runGate(registry, agentPins, deps, input, releaseGate);
   if (gate.kind === 'err') return gate;
   const approval = await resolveApproval(gate.result.approval, options);
   const outcome = await agentPins.changes.request({
     ...input,
     gate: {
-      policy: policy === null ? null : { id: policy.id, version: policy.version },
+      releaseGate:
+        releaseGate === null ? null : { id: releaseGate.id, version: releaseGate.version },
       checks: gate.result.checks,
       passed: gate.result.passed,
       ...(approval !== undefined && { approval }),
@@ -477,33 +481,33 @@ export async function requestPin(
 }
 
 /**
- * The approval a pin request waits for. A scope policy's approval wins —
- * its role and its reviewer eligibility. For a drafter's pin the policy's
- * rule is only a floor: the drafter's separate-approver rule can make it
- * stricter, never looser, so whoever started the pass can't approve their own
- * drafter's work. The policy's `separateApprover` defaults to `true`
+ * The approval a pin request waits for. A scope's release gate approval
+ * wins — its role and its reviewer eligibility. For a drafter's pin the
+ * gate's rule is only a floor: the drafter's separate-approver rule can make
+ * it stricter, never looser, so whoever started the pass can't approve their
+ * own drafter's work. The gate's `separateApprover` defaults to `true`
  * (`gateApproval`), so only an explicit `false` defers to the drafter's rule,
- * re-checked at the policy's role (`draftedEligibleAtRole`) rather than the
- * drafter's own `standard`. A policy with no approvals block, and any
+ * re-checked at the gate's role (`draftedEligibleAtRole`) rather than the
+ * drafter's own `standard`. A gate with no approvals block, and any
  * non-drafted pin, are left unchanged.
  */
 async function resolveApproval(
-  policyApproval: GateApproval | undefined,
+  gateApproval: GateApproval | undefined,
   options: {
     readonly requireApproval?: GateApproval;
     readonly draftedEligibleAtRole?: (role: ReviewerRole) => Promise<boolean>;
   },
 ): Promise<GateApproval | undefined> {
-  if (policyApproval === undefined) return options.requireApproval;
-  // A non-drafted pin carries no drafter approval: the policy's stands.
-  if (options.requireApproval === undefined) return policyApproval;
+  if (gateApproval === undefined) return options.requireApproval;
+  // A non-drafted pin carries no drafter approval: the gate's stands.
+  if (options.requireApproval === undefined) return gateApproval;
   // Already strict (the default, or an explicit true): nothing to add.
-  if (policyApproval.separateApprover) return policyApproval;
+  if (gateApproval.separateApprover) return gateApproval;
   const separateApprover =
     options.draftedEligibleAtRole !== undefined
-      ? await options.draftedEligibleAtRole(policyApproval.role)
+      ? await options.draftedEligibleAtRole(gateApproval.role)
       : options.requireApproval.separateApprover;
-  return { ...policyApproval, separateApprover };
+  return { ...gateApproval, separateApprover };
 }
 
 /**
@@ -524,7 +528,7 @@ export function pinResponse(
       toWireError(
         {
           code: 'pin-gate-unsupported',
-          message: `Gate policy ${outcome.policy.id} ${outcome.policy.version} applies to this pin, and this deployment can't record a gated pin yet.`,
+          message: `Release gate ${outcome.releaseGate.id} ${outcome.releaseGate.version} applies to this pin, and this deployment can't record a gated pin yet.`,
           ...extra,
         },
         requestId,
@@ -540,12 +544,12 @@ export function pinResponse(
       toWireError(
         {
           code: 'gate-failed',
-          message: `The release gate policy refused ${pin.agentId} ${pin.toVersion as unknown as string}: ${checks
+          message: `The release gate refused ${pin.agentId} ${pin.toVersion as unknown as string}: ${checks
             .filter((check) => !check.passed)
             .map((check) => check.message)
             .join(' ')}`,
           changeId: pin.id,
-          policy: pin.policy ?? null,
+          releaseGate: pin.releaseGate ?? null,
           checks,
           ...extra,
         },
@@ -629,16 +633,16 @@ async function readPinBody(c: Ctx): Promise<
   };
 }
 
-/** The gate policy for a pin of `agentId` for `scope`; `null` when none applies. */
-export async function policyFor(
+/** The release gate for a pin of `agentId` for `scope`; `null` when none applies. */
+export async function releaseGateFor(
   agentPins: AgentPinBindings,
   tenantId: TenantId,
   agentId: string,
   scope: AgentPinScope,
-): Promise<GatePolicy | null> {
-  return agentPins.gatePolicies === undefined
+): Promise<ReleaseGate | null> {
+  return agentPins.releaseGates === undefined
     ? null
-    : agentPins.gatePolicies.resolve({ tenantId, agentId, scope });
+    : agentPins.releaseGates.resolve({ tenantId, agentId, scope });
 }
 
 /** The scope's coordinates, as a run in it would resolve its version. */
@@ -686,10 +690,10 @@ function sameScope(a: AgentPinScope, b: AgentPinScope): boolean {
 
 /**
  * The gate for a pin request: what serves the scope now, the
- * comparison it names, and the policy's checks against them. With no
- * policy there's nothing to check. A pin in place (the scope has no pin
+ * comparison it names, and the release gate's checks against them. With
+ * no gate there's nothing to check. A pin in place (the scope has no pin
  * of its own and serves exactly the version already) changes nothing any
- * run gets, so the policy's checks and approval don't apply: one passing
+ * run gets, so the gate's checks and approval don't apply: one passing
  * `pinInPlace` check, and `pinInPlace` for the binding to re-check.
  */
 async function runGate(
@@ -703,7 +707,7 @@ async function runGate(
     readonly scope: AgentPinScope;
     readonly testRunId?: string;
   },
-  policy: GatePolicy | null,
+  releaseGate: ReleaseGate | null,
 ): Promise<
   | { kind: 'ok'; result: GateResult; servingVersion: string; pinInPlace?: boolean }
   | { kind: 'err'; error: { code: string; message: string } }
@@ -732,7 +736,9 @@ async function runGate(
     if (latest === null) return err('agent-not-found', `No agent "${agentId}" is registered`);
     servingVersion = latest.version as unknown as string;
   }
-  if (policy === null) return { kind: 'ok', result: { checks: [], passed: true }, servingVersion };
+  if (releaseGate === null) {
+    return { kind: 'ok', result: { checks: [], passed: true }, servingVersion };
+  }
   if (servingVersion === (req.version as unknown as string)) {
     const pins = await agentPins.pinned.list({ tenantId, agentId });
     if (!pins.some((pin) => sameScope(pin.scope, req.scope))) {
@@ -777,8 +783,8 @@ async function runGate(
     summaryProjectOrgId = project?.orgId as unknown as string | undefined;
   }
   const result = evaluateGate({
-    spec: policy.spec,
-    promotion: {
+    spec: releaseGate.spec,
+    pin: {
       agentId,
       version: req.version as unknown as string,
       pinsDigest: candidate.pinsDigest ?? null,
@@ -844,7 +850,7 @@ export function serializePin(p: Pin): Record<string, unknown> {
     ...(p.testRunId !== undefined && { testRunId: p.testRunId }),
     createdAt: p.createdAt as unknown as string,
     ...(p.status !== undefined && { status: p.status }),
-    ...(p.policy !== undefined && { policy: p.policy }),
+    ...(p.releaseGate !== undefined && { releaseGate: p.releaseGate }),
     ...(p.checks !== undefined && { checks: p.checks }),
     ...(p.approvalId !== undefined && { approvalId: p.approvalId }),
     ...(p.resolvedAt !== undefined && { resolvedAt: p.resolvedAt as unknown as string }),

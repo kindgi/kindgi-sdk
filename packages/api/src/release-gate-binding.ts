@@ -5,15 +5,15 @@ import type { ReviewerRole } from '@kindgi/authz';
 import type { AgentPinScope, Cursor, Result, TenantId, Timestamp } from '@kindgi/types';
 
 /**
- * Gate policies (evals step 4b): what a promotion of an agent must show
- * before a version goes live for a scope. One policy per agent and scope;
- * the most specific one covering a promotion's scope applies, at its
- * latest active version. The same registry shape as retention policies:
- * the caller names the policy and its semver versions.
+ * Release gates: what an agent version must show before it is pinned for
+ * a scope. One gate per agent and scope; the most specific one covering a
+ * pin's scope applies, at its latest active version. The same registry
+ * shape as retention policies: the caller names the gate and its semver
+ * versions.
  */
 
-/** The metrics a policy can gate, from a comparison's summary. */
-export const GATE_METRICS = ['weightedYesShare', 'judgedCoverage', 'weightedPrecisionAtK'] as const;
+/** The metrics a release gate can check, from a comparison's summary. */
+export const GATE_METRICS = ['passRate', 'caseCoverage', 'weightedPrecisionAtK'] as const;
 export type GateMetricName = (typeof GATE_METRICS)[number];
 
 export interface GateMetricSpec {
@@ -27,13 +27,13 @@ export interface GateMetricSpec {
 }
 
 /**
- * What a policy asks of a promotion. Every part is optional; an empty
- * spec checks nothing (the promotion is still recorded with the policy).
- * A promotion must name a comparison (`testRunId`) exactly when the spec
+ * What a release gate asks of a pin. Every part is optional; an empty
+ * spec checks nothing (the pin is still recorded with the gate). A pin
+ * must name a comparison (`testRunId`) exactly when the spec
  * checks anything one shows: `comparison`, `evidence`, `metrics`,
  * `replay` or `onlyExpertGroups`.
  */
-export interface GatePolicySpec {
+export interface ReleaseGateSpec {
   readonly comparison?: {
     /** The comparison must have finished within this many hours. */
     readonly maxAgeHours?: number;
@@ -50,7 +50,7 @@ export interface GatePolicySpec {
     readonly maxRefusedWrites?: number;
     readonly maxStopped?: number;
   };
-  /** A passing promotion waits for a reviewer's approval. */
+  /** A passing pin waits for a reviewer's approval. */
   readonly approvals?: {
     /** The reviewer role it needs (default `senior`). */
     readonly role?: ReviewerRole;
@@ -65,109 +65,109 @@ export interface GatePolicySpec {
   readonly onlyExpertGroups?: boolean;
 }
 
-export interface GatePolicy {
+export interface ReleaseGate {
   readonly id: string;
   readonly version: string;
   readonly tenantId: TenantId;
   readonly agentId: string;
   readonly scope: AgentPinScope;
-  readonly spec: GatePolicySpec;
+  readonly spec: ReleaseGateSpec;
   readonly description?: string;
   readonly createdAt: Timestamp;
   /** Set when this version was unregistered. */
   readonly unregisteredAt?: Timestamp;
 }
 
-/** A policy version, as a promotion records which one gated it. */
-export interface GatePolicyRef {
+/** A release gate version, as a pin records which one gated it. */
+export interface ReleaseGateRef {
   readonly id: string;
   readonly version: string;
 }
 
-export interface GatePolicyPublishInput {
+export interface ReleaseGatePublishInput {
   readonly tenantId: TenantId;
   readonly id: string;
   readonly version: string;
   readonly agentId: string;
   readonly scope: AgentPinScope;
-  readonly spec: GatePolicySpec;
+  readonly spec: ReleaseGateSpec;
   readonly description?: string;
 }
 
-export type GatePolicyErrorCode =
+export type ReleaseGateErrorCode =
   /** This id and version are registered already. */
-  | 'gate-policy-already-registered'
-  /** Another policy already gates this agent and scope. */
-  | 'gate-policy-scope-taken'
-  /** A new version names another agent or scope than the policy's. */
-  | 'gate-policy-scope-changed'
+  | 'release-gate-already-registered'
+  /** Another release gate already gates this agent and scope. */
+  | 'release-gate-scope-taken'
+  /** A new version names another agent or scope than the gate's. */
+  | 'release-gate-scope-changed'
   /**
    * The scope has no pinned version of its own. A gated scope holds its own
-   * pin: following the latest version, a publish would go live there
-   * ungated; following a pin above it, a promotion there would. Pin a
-   * version for the scope first.
+   * pin: following the latest version, a publish would take effect there
+   * ungated; following a pin above it, a pin up there would. Pin a version
+   * for the scope first.
    */
-  | 'gate-policy-scope-unpinned'
-  | 'gate-policy-not-found'
+  | 'release-gate-scope-unpinned'
+  | 'release-gate-not-found'
   /** The scope names an org or project the tenant doesn't have. */
   | 'scope-invalid'
   | 'persistence-error';
 
-export interface GatePolicyError {
-  readonly code: GatePolicyErrorCode;
+export interface ReleaseGateError {
+  readonly code: ReleaseGateErrorCode;
   readonly message: string;
-  /** `gate-policy-scope-taken`: the policy that holds the scope. */
+  /** `release-gate-scope-taken`: the gate that holds the scope. */
   readonly heldBy?: string;
 }
 
-export interface GatePolicyListInput {
+export interface ReleaseGateListInput {
   readonly tenantId: TenantId;
   readonly agentId?: string;
-  /** Only the policy of exactly this scope. */
+  /** Only the gate of exactly this scope. */
   readonly scope?: AgentPinScope;
   readonly limit: number;
   readonly cursor?: Cursor;
 }
 
-export interface GatePolicyVersionInput {
+export interface ReleaseGateVersionInput {
   readonly tenantId: TenantId;
   readonly id: string;
   readonly version: string;
 }
 
-export interface GatePolicyBinding {
+export interface ReleaseGateBinding {
   /**
-   * Register `id` at `version`: a new policy, or a new version of one
+   * Register `id` at `version`: a new gate, or a new version of one
    * (same agent and scope). A gated scope holds its own pin:
-   * `gate-policy-scope-unpinned` when the scope has none (a pin above it
+   * `release-gate-scope-unpinned` when the scope has none (a pin above it
    * isn't enough). Reinstating a version checks the same.
    */
-  publish(input: GatePolicyPublishInput): Promise<Result<GatePolicy, GatePolicyError>>;
-  /** The policy's latest active version, or `null`. */
-  get(input: { readonly tenantId: TenantId; readonly id: string }): Promise<GatePolicy | null>;
+  publish(input: ReleaseGatePublishInput): Promise<Result<ReleaseGate, ReleaseGateError>>;
+  /** The gate's latest active version, or `null`. */
+  get(input: { readonly tenantId: TenantId; readonly id: string }): Promise<ReleaseGate | null>;
   /** One version, unregistered ones too, or `null`. */
-  getVersion(input: GatePolicyVersionInput): Promise<GatePolicy | null>;
-  /** Every version of a policy, oldest first. */
+  getVersion(input: ReleaseGateVersionInput): Promise<ReleaseGate | null>;
+  /** Every version of a gate, oldest first. */
   listVersions(input: {
     readonly tenantId: TenantId;
     readonly id: string;
-  }): Promise<readonly GatePolicy[]>;
-  /** Each policy's latest active version. */
-  list(input: GatePolicyListInput): Promise<{
-    readonly data: readonly GatePolicy[];
+  }): Promise<readonly ReleaseGate[]>;
+  /** Each gate's latest active version. */
+  list(input: ReleaseGateListInput): Promise<{
+    readonly data: readonly ReleaseGate[];
     readonly nextCursor?: Cursor;
   }>;
-  unregister(input: GatePolicyVersionInput): Promise<Result<GatePolicy, GatePolicyError>>;
-  reinstate(input: GatePolicyVersionInput): Promise<Result<GatePolicy, GatePolicyError>>;
+  unregister(input: ReleaseGateVersionInput): Promise<Result<ReleaseGate, ReleaseGateError>>;
+  reinstate(input: ReleaseGateVersionInput): Promise<Result<ReleaseGate, ReleaseGateError>>;
   /**
-   * The policy that gates a promotion of `agentId` for `scope`: the most
-   * specific scope with an active policy (a segment path's longer
-   * prefixes first, then its project, the project's org, the tenant), at
-   * its latest active version. `null`: no policy, so no gate.
+   * The release gate that checks a pin of `agentId` for `scope`: the most
+   * specific scope with an active gate (a segment path's longer prefixes
+   * first, then its project, the project's org, the tenant), at its latest
+   * active version. `null`: no gate.
    */
   resolve(input: {
     readonly tenantId: TenantId;
     readonly agentId: string;
     readonly scope: AgentPinScope;
-  }): Promise<GatePolicy | null>;
+  }): Promise<ReleaseGate | null>;
 }

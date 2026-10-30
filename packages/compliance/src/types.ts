@@ -70,7 +70,7 @@ export const EVIDENCE_KINDS = [
   // Which agent version is pinned for a scope: a pin, or an unpin (the scope
   // falls back to the one above).
   'agent-pinned',
-  // A pin its gate policy refused (evals step 4b): the checks that failed.
+  // A pin its release gate refused: the checks that failed.
   'agent-pin-refused',
   'agent-unpinned',
   // A pin whose version was unregistered: runs use the scope above.

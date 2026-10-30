@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** Gate policies and gated pins (evals step 4b): what each call sends, and a refusal. */
+/** Release gates and gated pins: what each call sends, and a refusal. */
 
 import { describe, expect, it } from 'vitest';
 
@@ -10,12 +10,12 @@ import { jsonFetch, recordingFetch } from '../support/recording-fetch.js';
 
 const API = 'https://api.example.com';
 const PROJECT = '00000000-0000-4000-8000-0000000000aa';
-const POLICY = {
+const RELEASE_GATE = {
   id: 'acme.drafting-prod',
   version: '1.0.0',
   agentId: 'acme.drafting',
   scope: { kind: 'project', projectId: PROJECT },
-  spec: { metrics: [{ name: 'weightedYesShare', minCandidate: 0.7 }] },
+  spec: { metrics: [{ name: 'passRate', minCandidate: 0.7 }] },
   createdAt: '2026-10-06T12:00:00.000Z',
 } as const;
 
@@ -31,66 +31,69 @@ async function sent(answer: unknown, call: (c: KindgiClient) => Promise<unknown>
   return { result, method: req?.method, url: req?.url, body: req?.body };
 }
 
-describe('gatePolicies', () => {
+describe('releaseGates', () => {
   it.each([
     [
       'list',
       (c: KindgiClient) =>
-        c.gatePolicies.list({
+        c.releaseGates.list({
           agentId: 'acme.drafting',
           scope: { kind: 'project', projectId: PROJECT },
         }),
       'GET',
-      `/v1/gate-policies?agentId=acme.drafting&scopeKind=project&scopeId=${PROJECT}`,
+      `/v1/release-gates?agentId=acme.drafting&scopeKind=project&scopeId=${PROJECT}`,
     ],
     [
       'get',
-      (c: KindgiClient) => c.gatePolicies.get('acme.drafting-prod'),
+      (c: KindgiClient) => c.releaseGates.get('acme.drafting-prod'),
       'GET',
-      '/v1/gate-policies/acme.drafting-prod',
+      '/v1/release-gates/acme.drafting-prod',
     ],
     [
       'versions.list',
-      (c: KindgiClient) => c.gatePolicies.versions.list('acme.drafting-prod'),
+      (c: KindgiClient) => c.releaseGates.versions.list('acme.drafting-prod'),
       'GET',
-      '/v1/gate-policies/acme.drafting-prod/versions',
+      '/v1/release-gates/acme.drafting-prod/versions',
     ],
     [
       'versions.get',
-      (c: KindgiClient) => c.gatePolicies.versions.get('acme.drafting-prod', '1.0.0'),
+      (c: KindgiClient) => c.releaseGates.versions.get('acme.drafting-prod', '1.0.0'),
       'GET',
-      '/v1/gate-policies/acme.drafting-prod/versions/1.0.0',
+      '/v1/release-gates/acme.drafting-prod/versions/1.0.0',
     ],
     [
       'versions.unregister',
-      (c: KindgiClient) => c.gatePolicies.versions.unregister('acme.drafting-prod', '1.0.0'),
+      (c: KindgiClient) => c.releaseGates.versions.unregister('acme.drafting-prod', '1.0.0'),
       'POST',
-      '/v1/gate-policies/acme.drafting-prod/versions/1.0.0/unregister',
+      '/v1/release-gates/acme.drafting-prod/versions/1.0.0/unregister',
     ],
     [
       'versions.reinstate',
-      (c: KindgiClient) => c.gatePolicies.versions.reinstate('acme.drafting-prod', '1.0.0'),
+      (c: KindgiClient) => c.releaseGates.versions.reinstate('acme.drafting-prod', '1.0.0'),
       'POST',
-      '/v1/gate-policies/acme.drafting-prod/versions/1.0.0/reinstate',
+      '/v1/release-gates/acme.drafting-prod/versions/1.0.0/reinstate',
     ],
   ] as const)('%s → %s %s', async (_name, call, method, path) => {
-    const req = await sent({ ...POLICY, data: [], hasMore: false }, call);
+    const req = await sent({ ...RELEASE_GATE, data: [], hasMore: false }, call);
     expect(req.method).toBe(method);
     expect(req.url).toBe(`${API}${path}`);
   });
 
-  it('publish sends the policy', async () => {
-    const { method, url, body } = await sent(POLICY, (c) =>
-      c.gatePolicies.publish({
-        id: POLICY.id,
-        version: POLICY.version,
-        agentId: POLICY.agentId,
-        scope: POLICY.scope,
-        spec: POLICY.spec,
+  it('publish sends the release gate', async () => {
+    const { method, url, body } = await sent(RELEASE_GATE, (c) =>
+      c.releaseGates.publish({
+        id: RELEASE_GATE.id,
+        version: RELEASE_GATE.version,
+        agentId: RELEASE_GATE.agentId,
+        scope: RELEASE_GATE.scope,
+        spec: RELEASE_GATE.spec,
       } as never),
     );
-    expect([method, url]).toEqual(['POST', `${API}/v1/gate-policies`]);
-    expect(JSON.parse(body as string)).toMatchObject({ id: POLICY.id, spec: POLICY.spec });
+    expect([method, url]).toEqual(['POST', `${API}/v1/release-gates`]);
+    expect(JSON.parse(body as string)).toMatchObject({
+      id: RELEASE_GATE.id,
+      spec: RELEASE_GATE.spec,
+    });
   });
 });
 
@@ -104,7 +107,7 @@ describe('gated pins', () => {
   it('agents.pinned.check posts the same body to …/pinned/check', async () => {
     const answer = {
       outcome: 'needs-approval',
-      policy: { id: POLICY.id, version: '1.0.0' },
+      releaseGate: { id: RELEASE_GATE.id, version: '1.0.0' },
       checks: [],
     };
     const { result, method, url, body } = await sent(answer, (c) =>
@@ -115,34 +118,32 @@ describe('gated pins', () => {
     expect(result).toEqual(answer);
   });
 
-  it('agents.gatePolicy.resolve asks for a scope', async () => {
+  it('agents.releaseGate.resolve asks for a scope', async () => {
     const segment = {
       kind: 'segment',
       projectId: PROJECT,
       path: [{ key: 'company', value: 'acme' }],
     } as const;
-    const { url } = await sent({ policy: null }, (c) =>
-      c.agents.gatePolicy.resolve('acme.drafting', segment),
+    const { url } = await sent({ releaseGate: null }, (c) =>
+      c.agents.releaseGate.resolve('acme.drafting', segment),
     );
     expect(url).toBe(
-      `${API}/v1/agents/acme.drafting/gate-policy?scopeKind=segment&scopeId=${PROJECT}&segment=company%3Aacme`,
+      `${API}/v1/agents/acme.drafting/release-gate?scopeKind=segment&scopeId=${PROJECT}&segment=company%3Aacme`,
     );
   });
 
   it('a refused pin throws gate-failed, with the checks', async () => {
-    const checks = [
-      { name: 'metric.weightedYesShare.minCandidate', passed: false, message: 'too low' },
-    ];
+    const checks = [{ name: 'metric.passRate.minCandidate', passed: false, message: 'too low' }];
     const stub = recordingFetch([
       {
         status: 422,
         body: JSON.stringify({
           error: {
             code: 'gate-failed',
-            message: 'The release gate policy refused acme.drafting 1.2.0: too low',
+            message: 'The release gate refused acme.drafting 1.2.0: too low',
             details: {
               changeId: 'promo-1',
-              policy: { id: POLICY.id, version: '1.0.0' },
+              releaseGate: { id: RELEASE_GATE.id, version: '1.0.0' },
               checks,
             },
             requestId: 'req-1',

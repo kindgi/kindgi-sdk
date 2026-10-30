@@ -442,7 +442,7 @@ export type SuggestedChangeContent =
   | { readonly template: string };
 
 /** The metric that says whether a candidate is better. */
-export type SuggestedChangeObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
 /**
  * A suggested change — `@kindgi/api/openapi.json#SuggestedChange`: a

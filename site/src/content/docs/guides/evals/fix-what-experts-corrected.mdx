@@ -31,7 +31,7 @@ its `kindgi-fix-corrections` skill, which walks it through these same steps.
 2. **Sort each** to a rule in code, a setting, an approval rule, or the instructions.
 3. **Change that layer, with a test per correction** so the mistake can't come back.
 4. **Publish a new version and ask to pin it,** naming the corrections it fixes.
-5. A person reviews and pins it; the release gate policy's `approvals` means a second person checks it.
+5. A person reviews and pins it; the release gate's `approvals` means a second person checks it.
 
 Most corrections make the agent stricter or change how it talks, and those a
 coding agent can make. Some ask for a policy *looser* than the one in force —
@@ -150,7 +150,7 @@ If you keep test cases built from the corrected runs,
 [try the new version on them](../compare-an-agent-version/#what-it-should-have-done)
 first. Where an expert said what the run should have done, the summary's
 `corrections` says how many of those the version now passes, `passed` of
-`checked`. No release gate policy checks it, so put it in the `--reason`.
+`checked`. No release gate checks it, so put it in the `--reason`.
 
 Then ask a person to pin it, naming the corrections. Check first what
 will happen, then pin it:
@@ -164,12 +164,12 @@ pnpm exec kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> \
 - Where it is pinned: `--tenant` (every project), `--org=<org-id>`, or
   `--project=<project-id>` (one project).
 - `--check` changes nothing and answers whether it would be pinned, needs an
-  approval, or fails a release gate policy.
+  approval, or fails a release gate.
 - `--reason` is kept on the record: write what the corrections were, so the
   approver reads the change in plain words.
 - The outcome is `pinned`, or `pending-approval` when the release gate
-  policy there has `approvals` and a second person must approve. The release
-  gate policy's `approvals` is how you
+  there has `approvals` and a second person must approve. The release
+  gate's `approvals` is how you
   [get that second person](../release-an-agent-version/).
 - `--check` and the request exit 3 when the answer is no or the request
   waits for an approval. Read the printed outcome: exit 3 isn't an error.

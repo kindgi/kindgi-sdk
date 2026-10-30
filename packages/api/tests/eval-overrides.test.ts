@@ -5,7 +5,7 @@
  * An Improve run's comparisons: settings `overrides` (unpublished
  * values for blocks the candidate pins, checked when the run starts) and
  * a `sample` of the test set (a deterministic search / hold-out split).
- * Neither may gate a promotion except a hold-out sample.
+ * Neither may gate a pin except a hold-out sample.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -21,7 +21,7 @@ import type {
   AgentVersionRecord,
   CorrectedComparisonSummary,
   CorrectedTestCase,
-  GatePolicySpec,
+  ReleaseGateSpec,
   RunHandlerBinding,
   TestRun,
   TestRunBinding,
@@ -377,7 +377,7 @@ describe('a sample of the test set', () => {
 });
 
 describe('the gate', () => {
-  const spec: GatePolicySpec = { metrics: [{ name: 'weightedYesShare', minCandidate: 0.5 }] };
+  const spec: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0.5 }] };
   const m = {
     baseline: 0.5,
     candidate: 0.8,
@@ -407,13 +407,13 @@ describe('the gate', () => {
     reads: 'recorded',
     sampling: { models: [] },
     repetitions: 1,
-    metrics: { weightedYesShare: m, judgedCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
+    metrics: { passRate: m, caseCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
     ...extra,
   });
   const gate = (s: CorrectedComparisonSummary) =>
     evaluateGate({
       spec,
-      promotion: {
+      pin: {
         agentId: 'acme.agent',
         version: '2.0.0',
         pinsDigest: 'sha-2',

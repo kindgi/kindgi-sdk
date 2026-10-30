@@ -4471,7 +4471,7 @@ describe('POST /v1/deployments/:deploymentId/secrets — Idempotency-Key', () =>
   });
 });
 
-// ---------------- agents are pinned (evals step 2) ----------------
+// ---------------- agents are pinned ----------------
 
 /** A tool registry keyed by (id, version), as the runtime's is. */
 function makeVersionedToolRegistry(): ToolRegistryBinding & { versions: (id: string) => string[] } {

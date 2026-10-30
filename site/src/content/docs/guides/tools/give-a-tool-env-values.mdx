@@ -427,7 +427,7 @@ A pack's code gets four kinds of values. Pick by what the value is:
 
 | The value… | Use | The code reads |
 |---|---|---|
-| should change only with a new agent version, evaluated before it goes live (a threshold, a prompt parameter) | a [settings block](../../evals/change-a-prompt-or-setting/) | `ctx.settings` |
+| should change only with a new agent version, evaluated before it is pinned (a threshold, a prompt parameter) | a [settings block](../../evals/change-a-prompt-or-setting/) | `ctx.settings` |
 | differs per tenant, org or project, and isn't secret (a base URL, a region) | an env value | `ctx.env` |
 | is a credential (an API key, a signing key) | a secret | `ctx.secrets` |
 | is the pack service's own setup (its database, its SDK's config) | the pack's environment | `process.env` / `os.environ` |

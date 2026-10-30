@@ -176,7 +176,7 @@ export interface RescoreSuggestedChangeInput {
 
 /**
  * What a pin that a drafter (not a person) asks for needs even when
- * the scope's policy asks for none: a reviewer (K2). Any reviewer may
+ * the scope's release gate asks for none: a reviewer (K2). Any reviewer may
  * approve: the drafter, not a person, requested it.
  */
 export const DRAFTED_SUGGESTED_CHANGE_APPROVAL: GateApproval = {
@@ -247,11 +247,11 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
    * legacy rule (any reviewer, the requester included, may approve).
    *
    * Returns both the approval (its `separateApprover` settled at the drafter's
-   * own `standard` rank, which is what a pin with no scope policy waits
+   * own `standard` rank, which is what a pin with no release gate waits
    * for) and `eligibleAtRole`, the same roster test at an arbitrary role: a
-   * scope policy that sets `separateApprover: false` asks it again at the
-   * policy's (higher) role, so a lower-ranked reviewer doesn't deadlock a
-   * requester the policy would let decide alone.
+   * release gate that sets `separateApprover: false` asks it again at the
+   * gate's (higher) role, so a lower-ranked reviewer doesn't deadlock a
+   * requester the gate would let decide alone.
    */
   async function draftedApproval(
     tenantId: TenantId,
@@ -791,8 +791,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       // A drafter's pin always waits for a reviewer (K2). Whether that
       // reviewer must differ from whoever asked is the tenant roster's to say:
       // a second eligible reviewer → a separate approver; a lone reviewer →
-      // the requester may approve their own, so they aren't stuck. A scope
-      // policy's approval is the floor; the drafter's rule only tightens it.
+      // the requester may approve their own, so they aren't stuck. A release
+      // gate's approval is the floor; the drafter's rule only tightens it.
       const drafted =
         suggestedChange.drafter.kind === 'person'
           ? undefined

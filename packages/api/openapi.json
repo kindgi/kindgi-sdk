@@ -63,8 +63,8 @@
       "description": "Agent catalog (list, get, publish, unregister — caller-plugged registry)."
     },
     {
-      "name": "gate-policies",
-      "description": "What a promotion of an agent must show before a version goes live for a scope (evals step 4b)."
+      "name": "release-gates",
+      "description": "What an agent version must show before it is pinned for a scope."
     },
     {
       "name": "flows",
@@ -402,13 +402,13 @@
           "pin-gate-unsupported": 501,
           "separate-approver-required": 403,
           "named-approver-required": 403,
-          "gate-policy-not-found": 404,
-          "gate-policy-already-registered": 409,
-          "gate-policy-scope-taken": 409,
-          "gate-policy-scope-changed": 409,
-          "gate-policy-scope-unpinned": 409,
-          "gate-policy-needs-pin": 409,
-          "gate-policy-descendant-unpinned": 409,
+          "release-gate-not-found": 404,
+          "release-gate-already-registered": 409,
+          "release-gate-scope-taken": 409,
+          "release-gate-scope-changed": 409,
+          "release-gate-scope-unpinned": 409,
+          "release-gate-needs-pin": 409,
+          "release-gate-descendant-unpinned": 409,
           "principal-not-found": 404,
           "role-exceeds-principal": 403,
           "key-project-mismatch": 403,
@@ -1244,16 +1244,16 @@
             ],
             "description": "A `pin` row's state: it changes once, from `pending-approval` to its final state. Absent on unpin rows, and on pins made before gates (`pinned`)."
           },
-          "policy": {
+          "releaseGate": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/GatePolicyRef"
+                "$ref": "#/components/schemas/ReleaseGateRef"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The gate policy that applied; null when none did. Absent before gates."
+            "description": "The release gate that applied; null when none did. Absent before gates."
           },
           "checks": {
             "type": "array",
@@ -1595,18 +1595,18 @@
           "passed",
           "message"
         ],
-        "description": "One of a gate's checks, as the promotion records it.",
+        "description": "One of a gate's checks, as the pin records it.",
         "properties": {
           "name": {
             "type": "string",
-            "description": "Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check."
+            "description": "Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check."
           },
           "passed": {
             "type": "boolean"
           },
           "message": {
             "type": "string",
-            "description": "A plain sentence: what was found against what the policy asks."
+            "description": "A plain sentence: what was found against what the gate asks."
           },
           "value": {
             "type": [
@@ -1622,7 +1622,7 @@
           }
         }
       },
-      "GatePolicyRef": {
+      "ReleaseGateRef": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1646,7 +1646,7 @@
           "count",
           "separateApprover"
         ],
-        "description": "The approval a passing promotion waits for.",
+        "description": "The approval a passing pin waits for.",
         "properties": {
           "role": {
             "type": "string",
@@ -1662,14 +1662,14 @@
           },
           "separateApprover": {
             "type": "boolean",
-            "description": "Whoever asked for the promotion may not approve it."
+            "description": "Whoever asked for the pin may not approve it."
           }
         }
       },
-      "GatePolicySpec": {
+      "ReleaseGateSpec": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.",
+        "description": "What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.",
         "properties": {
           "comparison": {
             "type": "object",
@@ -1723,8 +1723,8 @@
                 "name": {
                   "type": "string",
                   "enum": [
-                    "weightedYesShare",
-                    "judgedCoverage",
+                    "passRate",
+                    "caseCoverage",
                     "weightedPrecisionAtK"
                   ]
                 },
@@ -1775,7 +1775,7 @@
           "approvals": {
             "type": "object",
             "additionalProperties": false,
-            "description": "A passing promotion waits for a reviewer.",
+            "description": "A passing pin waits for a reviewer.",
             "properties": {
               "role": {
                 "type": "string",
@@ -1798,7 +1798,7 @@
           }
         }
       },
-      "GatePolicy": {
+      "ReleaseGate": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1823,7 +1823,7 @@
             "$ref": "#/components/schemas/AgentPinScope"
           },
           "spec": {
-            "$ref": "#/components/schemas/GatePolicySpec"
+            "$ref": "#/components/schemas/ReleaseGateSpec"
           },
           "description": {
             "type": "string"
@@ -1838,7 +1838,7 @@
           }
         }
       },
-      "GatePolicyPage": {
+      "ReleaseGatePage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1849,7 +1849,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/GatePolicy"
+              "$ref": "#/components/schemas/ReleaseGate"
             }
           },
           "hasMore": {
@@ -1860,7 +1860,7 @@
           }
         }
       },
-      "PublishGatePolicyBody": {
+      "PublishReleaseGateBody": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1887,30 +1887,30 @@
             "$ref": "#/components/schemas/AgentPinScope"
           },
           "spec": {
-            "$ref": "#/components/schemas/GatePolicySpec"
+            "$ref": "#/components/schemas/ReleaseGateSpec"
           },
           "description": {
             "type": "string"
           }
         }
       },
-      "GatePolicyResolution": {
+      "ReleaseGateResolution": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "policy"
+          "releaseGate"
         ],
         "properties": {
-          "policy": {
+          "releaseGate": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/GatePolicy"
+                "$ref": "#/components/schemas/ReleaseGate"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The policy that gates a promotion for the scope; null when none does."
+            "description": "The release gate that checks a pin for the scope; null when none does."
           }
         }
       },
@@ -1919,7 +1919,7 @@
         "additionalProperties": false,
         "required": [
           "outcome",
-          "policy",
+          "releaseGate",
           "checks"
         ],
         "description": "What the gate would say about a pin. Nothing is recorded.",
@@ -1932,16 +1932,16 @@
               "gate-failed"
             ]
           },
-          "policy": {
+          "releaseGate": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/GatePolicyRef"
+                "$ref": "#/components/schemas/ReleaseGateRef"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The policy that applies; null when none does."
+            "description": "The release gate that applies; null when none does."
           },
           "checks": {
             "type": "array",
@@ -7534,7 +7534,7 @@
         }
       },
       "FlowPins": {
-        "description": "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.",
+        "description": "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -10872,7 +10872,7 @@
           "objective": {
             "type": "string",
             "enum": [
-              "weightedYesShare",
+              "passRate",
               "weightedPrecisionAtK"
             ]
           },
@@ -11294,7 +11294,7 @@
           "objective": {
             "type": "string",
             "enum": [
-              "weightedYesShare",
+              "passRate",
               "weightedPrecisionAtK"
             ]
           },
@@ -11565,10 +11565,10 @@
           "objective": {
             "type": "string",
             "enum": [
-              "weightedYesShare",
+              "passRate",
               "weightedPrecisionAtK"
             ],
-            "default": "weightedYesShare"
+            "default": "passRate"
           },
           "budget": {
             "type": "object",
@@ -11715,10 +11715,10 @@
           "objective": {
             "type": "string",
             "enum": [
-              "weightedYesShare",
+              "passRate",
               "weightedPrecisionAtK"
             ],
-            "default": "weightedYesShare",
+            "default": "passRate",
             "description": "The metric that says whether the candidate is better."
           },
           "reads": {
@@ -15329,7 +15329,7 @@
       "TestRunOverrides": {
         "type": "object",
         "additionalProperties": false,
-        "description": "For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.",
+        "description": "For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a pin.",
         "properties": {
           "settings": {
             "type": "object",
@@ -15365,7 +15365,7 @@
           "seed",
           "holdOutShare"
         ],
-        "description": "Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a \"no\" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).",
+        "description": "Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a \"no\" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A release gate refuses a comparison on the search part (`comparison.sample`).",
         "properties": {
           "part": {
             "type": "string",
@@ -15538,12 +15538,12 @@
               },
               "pinsDigest": {
                 "type": "string",
-                "description": "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it."
+                "description": "The version's pinsDigest: what it ran, as a release gate checks. Absent for a version published before pins, and from a comparison recorded before it."
               },
               "overrides": {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.",
+                "description": "The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a pin. Absent otherwise.",
                 "properties": {
                   "settings": {
                     "type": "array",
@@ -15590,7 +15590,7 @@
         ]
       },
       "CorrectedComparisonSummary": {
-        "description": "What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.",
+        "description": "What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a release gate reads.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -15837,15 +15837,15 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "weightedYesShare",
-              "judgedCoverage",
+              "passRate",
+              "caseCoverage",
               "weightedPrecisionAtK"
             ],
             "properties": {
-              "weightedYesShare": {
+              "passRate": {
                 "$ref": "#/components/schemas/ComparisonMetric"
               },
-              "judgedCoverage": {
+              "caseCoverage": {
                 "$ref": "#/components/schemas/ComparisonMetric"
               },
               "weightedPrecisionAtK": {
@@ -15860,7 +15860,7 @@
               "checked",
               "passed"
             ],
-            "description": "Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.",
+            "description": "Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.",
             "properties": {
               "checked": {
                 "type": "integer",
@@ -16552,7 +16552,7 @@
           "result": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: \"agent\", agentId, version }` or `{ kind: \"flow\", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship."
+            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: \"agent\", agentId, version }` or `{ kind: \"flow\", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`passRate`, `caseCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship."
           },
           "error": {
             "type": "string"
@@ -20051,16 +20051,16 @@
             "type": "string",
             "format": "uuid"
           },
-          "policy": {
+          "releaseGate": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/GatePolicyRef"
+                "$ref": "#/components/schemas/ReleaseGateRef"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The gate policy that applied; null when none did."
+            "description": "The release gate that applied; null when none did."
           },
           "approvalId": {
             "type": "string",
@@ -26666,7 +26666,7 @@
           "objective": {
             "type": "string",
             "enum": [
-              "weightedYesShare",
+              "passRate",
               "weightedPrecisionAtK"
             ]
           },
@@ -35803,7 +35803,7 @@
             }
           },
           "409": {
-            "description": "`pin-superseded`: the scope's pinned version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+            "description": "`pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35853,7 +35853,7 @@
             }
           },
           "501": {
-            "description": "`pin-gate-unsupported`: a gate policy applies, and the deployment can't record a gated pin.",
+            "description": "`pin-gate-unsupported`: a release gate applies, and the deployment can't record a gated pin.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35873,7 +35873,7 @@
             }
           }
         },
-        "description": "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.policy` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+        "description": "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nWith a release gate for the scope (`GET …/release-gate`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.releaseGate` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
         "parameters": [
           {
             "name": "agentId",
@@ -36000,20 +36000,20 @@
         ]
       }
     },
-    "/v1/agents/{agentId}/gate-policy": {
+    "/v1/agents/{agentId}/release-gate": {
       "get": {
-        "operationId": "agents.gatePolicy.resolve",
-        "summary": "The gate policy for a scope",
+        "operationId": "agents.releaseGate.resolve",
+        "summary": "The release gate for a scope",
         "tags": [
           "agents"
         ],
         "responses": {
           "200": {
-            "description": "The policy, or null.",
+            "description": "The release gate, or null.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatePolicyResolution"
+                  "$ref": "#/components/schemas/ReleaseGateResolution"
                 }
               }
             }
@@ -36049,7 +36049,7 @@
             }
           }
         },
-        "description": "The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.",
+        "description": "The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `releaseGate: null` when none applies.",
         "parameters": [
           {
             "name": "agentId",
@@ -36106,20 +36106,20 @@
         ]
       }
     },
-    "/v1/gate-policies": {
+    "/v1/release-gates": {
       "get": {
-        "operationId": "gatePolicies.list",
-        "summary": "List gate policies",
+        "operationId": "releaseGates.list",
+        "summary": "List release gates",
         "tags": [
-          "gate-policies"
+          "release-gates"
         ],
         "responses": {
           "200": {
-            "description": "Page of gate policies.",
+            "description": "Page of release gates.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatePolicyPage"
+                  "$ref": "#/components/schemas/ReleaseGatePage"
                 }
               }
             }
@@ -36155,7 +36155,7 @@
             }
           }
         },
-        "description": "Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
+        "description": "Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
         "parameters": [
           {
             "name": "limit",
@@ -36185,7 +36185,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Only the policies gating this agent."
+            "description": "Only the release gates of this agent."
           },
           {
             "name": "scopeKind",
@@ -36233,18 +36233,18 @@
         ]
       },
       "post": {
-        "operationId": "gatePolicies.publish",
-        "summary": "Publish a gate policy",
+        "operationId": "releaseGates.publish",
+        "summary": "Publish a release gate",
         "tags": [
-          "gate-policies"
+          "release-gates"
         ],
         "responses": {
           "201": {
-            "description": "Gate policy published.",
+            "description": "Release gate published.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatePolicy"
+                  "$ref": "#/components/schemas/ReleaseGate"
                 }
               }
             }
@@ -36270,7 +36270,7 @@
             }
           },
           "409": {
-            "description": "`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope. `gate-policy-scope-unpinned`: the scope has no pinned version of its own; a gated scope holds its own pin (a pin above it is not enough, since a promotion there would change this scope ungated), so pin a version for the scope first.",
+            "description": "`release-gate-already-registered`: that (id, version) exists. `release-gate-scope-taken`: another release gate gates the agent for the scope (`details.heldBy`). `release-gate-scope-changed`: the version would change the agent or scope. `release-gate-scope-unpinned`: the scope has no pinned version of its own; a gated scope holds its own pin (a pin above it is not enough, since a pin there would change this scope ungated), so pin a version for the scope first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36310,7 +36310,7 @@
             }
           }
         },
-        "description": "Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.",
+        "description": "Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may pin can't loosen their own gate.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -36328,7 +36328,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PublishGatePolicyBody"
+                "$ref": "#/components/schemas/PublishReleaseGateBody"
               }
             }
           }
@@ -36340,20 +36340,20 @@
         ]
       }
     },
-    "/v1/gate-policies/{policyId}": {
+    "/v1/release-gates/{releaseGateId}": {
       "get": {
-        "operationId": "gatePolicies.get",
-        "summary": "Get a gate policy",
+        "operationId": "releaseGates.get",
+        "summary": "Get a release gate",
         "tags": [
-          "gate-policies"
+          "release-gates"
         ],
         "responses": {
           "200": {
-            "description": "The gate policy.",
+            "description": "The release gate.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatePolicy"
+                  "$ref": "#/components/schemas/ReleaseGate"
                 }
               }
             }
@@ -36369,7 +36369,7 @@
             }
           },
           "404": {
-            "description": "No active gate policy with that id.",
+            "description": "No active release gate with that id.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36389,16 +36389,16 @@
             }
           }
         },
-        "description": "The policy's latest active version.",
+        "description": "The release gate's latest active version.",
         "parameters": [
           {
-            "name": "policyId",
+            "name": "releaseGateId",
             "in": "path",
             "schema": {
               "type": "string"
             },
             "required": true,
-            "description": "The gate policy id."
+            "description": "The release gate id."
           }
         ],
         "security": [
@@ -36408,12 +36408,12 @@
         ]
       }
     },
-    "/v1/gate-policies/{policyId}/versions": {
+    "/v1/release-gates/{releaseGateId}/versions": {
       "get": {
-        "operationId": "gatePolicies.versions.list",
-        "summary": "List a gate policy's versions",
+        "operationId": "releaseGates.versions.list",
+        "summary": "List a release gate's versions",
         "tags": [
-          "gate-policies"
+          "release-gates"
         ],
         "responses": {
           "200": {
@@ -36421,7 +36421,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatePolicyPage"
+                  "$ref": "#/components/schemas/ReleaseGatePage"
                 }
               }
             }
@@ -36437,7 +36437,7 @@
             }
           },
           "404": {
-            "description": "No gate policy with that id.",
+            "description": "No release gate with that id.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36460,13 +36460,13 @@
         "description": "Every version, oldest first, unregistered ones too (with `unregisteredAt`).",
         "parameters": [
           {
-            "name": "policyId",
+            "name": "releaseGateId",
             "in": "path",
             "schema": {
               "type": "string"
             },
             "required": true,
-            "description": "The gate policy id."
+            "description": "The release gate id."
           }
         ],
         "security": [
@@ -36476,12 +36476,12 @@
         ]
       }
     },
-    "/v1/gate-policies/{policyId}/versions/{version}": {
+    "/v1/release-gates/{releaseGateId}/versions/{version}": {
       "get": {
-        "operationId": "gatePolicies.versions.get",
-        "summary": "Get a gate policy version",
+        "operationId": "releaseGates.versions.get",
+        "summary": "Get a release gate version",
         "tags": [
-          "gate-policies"
+          "release-gates"
         ],
         "responses": {
           "200": {
@@ -36489,7 +36489,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatePolicy"
+                  "$ref": "#/components/schemas/ReleaseGate"
                 }
               }
             }
@@ -36527,13 +36527,13 @@
         },
         "parameters": [
           {
-            "name": "policyId",
+            "name": "releaseGateId",
             "in": "path",
             "schema": {
               "type": "string"
             },
             "required": true,
-            "description": "The gate policy id."
+            "description": "The release gate id."
           },
           {
             "name": "version",
@@ -36542,7 +36542,7 @@
               "type": "string"
             },
             "required": true,
-            "description": "A semver version of the gate policy."
+            "description": "A semver version of the release gate."
           }
         ],
         "security": [
@@ -36552,12 +36552,12 @@
         ]
       }
     },
-    "/v1/gate-policies/{policyId}/versions/{version}/unregister": {
+    "/v1/release-gates/{releaseGateId}/versions/{version}/unregister": {
       "post": {
-        "operationId": "gatePolicies.versions.unregister",
-        "summary": "Unregister a gate policy version",
+        "operationId": "releaseGates.versions.unregister",
+        "summary": "Unregister a release gate version",
         "tags": [
-          "gate-policies"
+          "release-gates"
         ],
         "responses": {
           "200": {
@@ -36565,7 +36565,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatePolicy"
+                  "$ref": "#/components/schemas/ReleaseGate"
                 }
               }
             }
@@ -36621,16 +36621,16 @@
             }
           }
         },
-        "description": "The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.",
+        "description": "The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the tenant.",
         "parameters": [
           {
-            "name": "policyId",
+            "name": "releaseGateId",
             "in": "path",
             "schema": {
               "type": "string"
             },
             "required": true,
-            "description": "The gate policy id."
+            "description": "The release gate id."
           },
           {
             "name": "version",
@@ -36639,7 +36639,7 @@
               "type": "string"
             },
             "required": true,
-            "description": "A semver version of the gate policy."
+            "description": "A semver version of the release gate."
           }
         ],
         "security": [
@@ -36649,12 +36649,12 @@
         ]
       }
     },
-    "/v1/gate-policies/{policyId}/versions/{version}/reinstate": {
+    "/v1/release-gates/{releaseGateId}/versions/{version}/reinstate": {
       "post": {
-        "operationId": "gatePolicies.versions.reinstate",
-        "summary": "Reinstate a gate policy version",
+        "operationId": "releaseGates.versions.reinstate",
+        "summary": "Reinstate a release gate version",
         "tags": [
-          "gate-policies"
+          "release-gates"
         ],
         "responses": {
           "200": {
@@ -36662,7 +36662,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatePolicy"
+                  "$ref": "#/components/schemas/ReleaseGate"
                 }
               }
             }
@@ -36698,7 +36698,7 @@
             }
           },
           "409": {
-            "description": "`gate-policy-scope-taken`: another policy gates the agent for the scope now (`details.heldBy`). `gate-policy-scope-unpinned`: the scope has no pinned version of its own; pin one first.",
+            "description": "`release-gate-scope-taken`: another release gate gates the agent for the scope now (`details.heldBy`). `release-gate-scope-unpinned`: the scope has no pinned version of its own; pin one first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36721,13 +36721,13 @@
         "description": "Needs `admin` on the tenant.",
         "parameters": [
           {
-            "name": "policyId",
+            "name": "releaseGateId",
             "in": "path",
             "schema": {
               "type": "string"
             },
             "required": true,
-            "description": "The gate policy id."
+            "description": "The release gate id."
           },
           {
             "name": "version",
@@ -36736,7 +36736,7 @@
               "type": "string"
             },
             "required": true,
-            "description": "A semver version of the gate policy."
+            "description": "A semver version of the release gate."
           }
         ],
         "security": [
@@ -36988,7 +36988,7 @@
             }
           },
           "409": {
-            "description": "`not-pinned`: the scope has no pin of its own. `gate-policy-needs-pin`: the scope has a gate policy of its own, and a gated scope keeps its own pin; unregister the policy first, or pin another version instead. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; undo it there, with git.",
+            "description": "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; undo it there, with git.",
             "content": {
               "application/json": {
                 "schema": {

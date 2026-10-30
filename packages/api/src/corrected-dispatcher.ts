@@ -12,7 +12,7 @@
  * for experts to correct), the tool calls and what happened to each, and
  * whether the replay diverged (a read ran live under `reads: 'recorded'`,
  * other than a recomputed one). The summary (`CorrectedComparisonSummary`) is what a
- * promotion gate reads.
+ * release gate reads.
  */
 
 import type { ReplayTurnReport } from '@kindgi/agents';
@@ -113,7 +113,7 @@ export type ComparisonCandidate =
       readonly agentId: string;
       readonly version: string;
       /**
-       * The version's `pinsDigest`: what it ran, as a promotion gate checks.
+       * The version's `pinsDigest`: what it ran, as a release gate checks.
        * Absent for a version published before pins, and from a dispatcher
        * without an agent registry.
        */
@@ -121,7 +121,7 @@ export type ComparisonCandidate =
       /**
        * The blocks whose content the replays replaced
        * (`comparison.overrides`): it ran no published version, so it
-       * can't gate a promotion.
+       * can't gate a pin.
        */
       readonly overrides?: {
         readonly settings?: readonly string[];
@@ -136,7 +136,7 @@ export type ComparisonCandidate =
       readonly versions?: FlowVersionOverrides;
     };
 
-/** What a comparison test run concluded: what a promotion gate reads. */
+/** What a comparison test run concluded: what a release gate reads. */
 export interface CorrectedComparisonSummary {
   readonly testRunId: string;
   readonly status: 'completed' | 'partial' | 'failed';
@@ -195,12 +195,12 @@ export interface CorrectedComparisonSummary {
   };
   readonly repetitions: number;
   readonly metrics: {
-    readonly weightedYesShare: ComparisonMetric;
-    readonly judgedCoverage: ComparisonMetric;
+    readonly passRate: ComparisonMetric;
+    readonly caseCoverage: ComparisonMetric;
     readonly weightedPrecisionAtK: ComparisonMetric;
   };
   /**
-   * Corrections graded across the cases, shown for a promotion gate, not
+   * Corrections graded across the cases, shown for a release gate, not
    * enforced. Absent when the test set carries no corrections.
    */
   readonly corrections?: {
@@ -973,10 +973,10 @@ function summarize(
     sampling: { models },
     repetitions: comparison.repetitions,
     metrics: {
-      weightedYesShare: metric(results, comparison.repetitions, yesShare, correctedWeight, {
+      passRate: metric(results, comparison.repetitions, yesShare, correctedWeight, {
         fresh: true,
       }),
-      judgedCoverage: metric(results, comparison.repetitions, coverage, correctedWeight, {
+      caseCoverage: metric(results, comparison.repetitions, coverage, correctedWeight, {
         fresh: true,
       }),
       weightedPrecisionAtK: metric(

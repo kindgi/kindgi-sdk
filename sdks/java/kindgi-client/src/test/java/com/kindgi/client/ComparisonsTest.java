@@ -58,11 +58,11 @@ class ComparisonsTest {
             "sampling": { "models": [{ "providerId": "acme", "model": "m-1", "runs": 1 }] },
             "repetitions": 1,
             "metrics": {
-              "weightedYesShare": {
+              "passRate": {
                 "baseline": 0.5, "candidate": 0.75, "delta": 0.25,
                 "n": 2, "weight": 2, "baselineN": 2, "baselineWeight": 2, "direction": "higher"
               },
-              "judgedCoverage": {
+              "caseCoverage": {
                 "baseline": 1, "candidate": 1, "delta": 0,
                 "n": 2, "weight": 2, "baselineN": 2, "baselineWeight": 2, "direction": "higher"
               },
@@ -134,7 +134,7 @@ class ComparisonsTest {
 
     assertThat(result).isPresent();
     CorrectedComparisonResult comparison = result.orElseThrow();
-    assertThat(comparison.summary().metrics().weightedYesShare().delta()).isEqualTo(0.25);
+    assertThat(comparison.summary().metrics().passRate().delta()).isEqualTo(0.25);
     assertThat(comparison.summary().stopped()).isEqualTo(1L);
     assertThat(comparison.perCase()).hasSize(2);
     assertThat(comparison.perCase().get(1).stopped()).isNotNull();

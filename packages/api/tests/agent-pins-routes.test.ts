@@ -28,7 +28,7 @@ import { agentsRouter } from '../src/routes/agents.js';
 import type { AppEnv } from '../src/types.js';
 
 /**
- * Agent pin routes (evals step 4). The bindings are
+ * Agent pin routes. The bindings are
  * fakes that record their inputs and return what each test sets up; the
  * routes only parse, call the binding and serialize.
  */
@@ -511,7 +511,7 @@ describe('authorization: changing a pin needs pin; reading needs read', () => {
     ['POST', '/pinned/pin', { version: '1.0.0', scope: { kind: 'tenant' } }, 'pin'],
     ['POST', '/pinned/unpin', { scope: { kind: 'tenant' } }, 'pin'],
     ['POST', '/pinned/check', { version: '1.0.0', scope: { kind: 'tenant' } }, 'read'],
-    ['GET', '/gate-policy?scopeKind=tenant', undefined, 'read'],
+    ['GET', '/release-gate?scopeKind=tenant', undefined, 'read'],
     ['GET', '/pinned', undefined, 'read'],
     ['GET', '/pinned-versions', undefined, 'read'],
     ['GET', '/pin-history', undefined, 'read'],

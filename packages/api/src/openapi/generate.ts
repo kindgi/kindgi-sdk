@@ -80,8 +80,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   approvals: 'Human-in-the-loop review queue (role-scoped).',
   observations: 'Supervisor readback of run outcomes.',
   agents: 'Agent catalog (list, get, publish, unregister — caller-plugged registry).',
-  'gate-policies':
-    'What a promotion of an agent must show before a version goes live for a scope (evals step 4b).',
+  'release-gates': 'What an agent version must show before it is pinned for a scope.',
   flows:
     'Flow catalog (list, get, publish, unregister — caller-plugged registry). Enables non-agent workflows via HTTP — publish once, execute many via `POST /v1/runs`.',
   tools: 'Tool catalog (list, get, register, unregister — caller-plugged registry, metadata-only).',

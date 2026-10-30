@@ -238,17 +238,17 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/agents/{agentId}/pin-history/{changeId}'],
   },
   {
-    name: 'gate-policies',
-    route: '/v1/gate-policies',
+    name: 'release-gates',
+    route: '/v1/release-gates',
     paging: cursor,
-    covers: ['/v1/gate-policies/{policyId}'],
+    covers: ['/v1/release-gates/{releaseGateId}'],
   },
   {
-    name: 'gate-policy-versions',
-    route: '/v1/gate-policies/{policyId}/versions',
+    name: 'release-gate-versions',
+    route: '/v1/release-gates/{releaseGateId}/versions',
     paging: whole,
-    parent: { kind: 'gate-policies', params: { policyId: 'id' } },
-    covers: ['/v1/gate-policies/{policyId}/versions/{version}'],
+    parent: { kind: 'release-gates', params: { releaseGateId: 'id' } },
+    covers: ['/v1/release-gates/{releaseGateId}/versions/{version}'],
   },
   {
     name: 'flows',
@@ -627,7 +627,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/usage':
     'computed from runs, approvals, cost-records and projects (the metering ledger counts them)',
   '/v1/agents/{agentId}/pinned': 'computed from agent-pinned-versions',
-  '/v1/agents/{agentId}/gate-policy': 'computed from gate-policies',
+  '/v1/agents/{agentId}/release-gate': 'computed from release-gates',
   '/v1/agents/{agentId}/projects': 'computed from agent-versions and deployments',
   '/v1/flows/{flowId}/pinned': 'computed from flow-pinned-versions and flow-versions',
   '/v1/tools/{toolId}/pinned': 'computed from tool-pinned-versions and tool-versions',

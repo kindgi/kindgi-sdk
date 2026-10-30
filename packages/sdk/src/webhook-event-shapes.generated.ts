@@ -340,7 +340,7 @@ export const WEBHOOK_EVENT_SHAPES = {
               },
               objective: {
                 kind: 'string',
-                enum: ['weightedYesShare', 'weightedPrecisionAtK'],
+                enum: ['passRate', 'weightedPrecisionAtK'],
               },
               budget: {
                 kind: 'object',

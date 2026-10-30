@@ -343,7 +343,7 @@ export const CLI_DEFAULTS = {
     reason: 'none',
     wait: 'off; a bare `--wait` waits at most `1h`',
   },
-  'agents gate-policy': {
+  'agents release-gate': {
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
     org: 'required: one of `--tenant`, `--org`, `--project`',
     project: 'required: one of `--tenant`, `--org`, `--project`',
@@ -470,7 +470,7 @@ export const CLI_DEFAULTS = {
     'group-weights': '`as-recorded`',
     'idempotency-key': 'none',
     k: '`10`',
-    objective: '`weightedYesShare`',
+    objective: '`passRate`',
     reads: '`recorded`',
     repetitions: '`1`',
     'test-set': 'required',
@@ -493,7 +493,7 @@ export const CLI_DEFAULTS = {
     'max-candidates': '`30`',
     'max-cost': '`5` (US dollars)',
     model: 'none (needed with `--tier=prompt`, with `--provider`)',
-    objective: '`weightedYesShare`',
+    objective: '`passRate`',
     org: 'none',
     'run-project': "the scope's project, else the agent version's",
     project: 'none',
@@ -991,7 +991,7 @@ export const CLI_DEFAULTS = {
   'blocks reinstate': {
     'block-version': 'required',
   },
-  'gate-policies list': {
+  'release-gates list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -999,12 +999,12 @@ export const CLI_DEFAULTS = {
     project: 'none',
     segment: 'none',
   },
-  'gate-policies publish': {
+  'release-gates publish': {
     agent: 'required',
     description: 'none',
     org: 'required: one of `--tenant`, `--org`, `--project`',
-    'policy-version': 'required',
     project: 'required: one of `--tenant`, `--org`, `--project`',
+    'release-gate-version': 'required',
     segment: 'none',
     spec: 'required',
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
@@ -1304,7 +1304,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose:
-        'Promote to prod and make each agent the build carries live there, each through its release gate policy.',
+        'Promote to prod and make each agent the build carries live there, each through its release gate.',
       line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
     },
     {
@@ -1535,14 +1535,14 @@ export const CLI_EXAMPLES = {
       line: 'kindgi agents pinned-versions acme.order-desk',
     },
   ],
-  'agents gate-policy': [
+  'agents release-gate': [
     {
-      purpose: 'Show the release gate policy for the whole tenant.',
-      line: 'kindgi agents gate-policy acme.order-desk --tenant',
+      purpose: 'Show the release gate for the whole tenant.',
+      line: 'kindgi agents release-gate acme.order-desk --tenant',
     },
     {
-      purpose: 'Show the policy for a segment of a project.',
-      line: 'kindgi agents gate-policy acme.order-desk --project=<project-id> --segment=company:acme',
+      purpose: 'Show the release gate for a segment of a project.',
+      line: 'kindgi agents release-gate acme.order-desk --project=<project-id> --segment=company:acme',
     },
   ],
   'agents pin-history get': [
@@ -2167,42 +2167,42 @@ export const CLI_EXAMPLES = {
       line: 'kindgi blocks reinstate acme.reply-style --block-version=1.0.0',
     },
   ],
-  'gate-policies list': [
+  'release-gates list': [
     {
-      purpose: 'List the release gate policies of one agent.',
-      line: 'kindgi gate-policies list --agent=acme.order-desk --table',
+      purpose: 'List the release gates of one agent.',
+      line: 'kindgi release-gates list --agent=acme.order-desk --table',
     },
     {
-      purpose: 'List the policies set for the whole tenant.',
-      line: 'kindgi gate-policies list --tenant',
-    },
-  ],
-  'gate-policies show': [
-    {
-      purpose: "Show a policy's latest active version.",
-      line: 'kindgi gate-policies show acme.order-desk-release',
-    },
-    {
-      purpose: 'Show one version of a policy.',
-      line: 'kindgi gate-policies show acme.order-desk-release 1.0.0',
+      purpose: 'List the release gates set for the whole tenant.',
+      line: 'kindgi release-gates list --tenant',
     },
   ],
-  'gate-policies versions': [
+  'release-gates show': [
     {
-      purpose: "List a policy's versions, unregistered ones too.",
-      line: 'kindgi gate-policies versions acme.order-desk-release --table',
+      purpose: "Show a release gate's latest active version.",
+      line: 'kindgi release-gates show acme.order-desk-release',
+    },
+    {
+      purpose: 'Show one version of a release gate.',
+      line: 'kindgi release-gates show acme.order-desk-release 1.0.0',
     },
   ],
-  'gate-policies unregister': [
+  'release-gates versions': [
     {
-      purpose: 'Unregister a release gate policy version.',
-      line: 'kindgi gate-policies unregister acme.order-desk-release 1.0.0',
+      purpose: "List a release gate's versions, unregistered ones too.",
+      line: 'kindgi release-gates versions acme.order-desk-release --table',
     },
   ],
-  'gate-policies reinstate': [
+  'release-gates unregister': [
     {
-      purpose: 'Reinstate an unregistered release gate policy version.',
-      line: 'kindgi gate-policies reinstate acme.order-desk-release 1.0.0',
+      purpose: 'Unregister a release gate version.',
+      line: 'kindgi release-gates unregister acme.order-desk-release 1.0.0',
+    },
+  ],
+  'release-gates reinstate': [
+    {
+      purpose: 'Reinstate an unregistered release gate version.',
+      line: 'kindgi release-gates reinstate acme.order-desk-release 1.0.0',
     },
   ],
   'tokens get': [

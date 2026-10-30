@@ -92,8 +92,8 @@ It prints the run, with its metrics:
       "candidate": { "kind": "agent", "agentId": "acme-ops.article-picker", "version": "0.2.0" },
       "baseline": { "kind": "recorded", "versions": [{ "agentId": "acme-ops.article-picker", "version": "0.1.0", "cases": 3 }] },
       "metrics": {
-        "weightedYesShare": { "baseline": 0.3333333333333333, "candidate": 1, "delta": 0.6666666666666667, "n": 3, … },
-        "judgedCoverage": { "baseline": 0.75, "candidate": 0.5, "delta": -0.25, "n": 3, … },
+        "passRate": { "baseline": 0.3333333333333333, "candidate": 1, "delta": 0.6666666666666667, "n": 3, … },
+        "caseCoverage": { "baseline": 0.75, "candidate": 0.5, "delta": -0.25, "n": 3, … },
         "weightedPrecisionAtK": { "k": 10, "baseline": 0.3333333333333333, "candidate": 1, "delta": 0.6666666666666667, "n": 3, … }
       },
       "diverged": 1,
@@ -145,8 +145,8 @@ for (const [name, metric] of Object.entries(comparison?.summary.metrics ?? {})) 
 ```
 
 ```text
-judgedCoverage: 0.75 → 0.5
-weightedYesShare: 0.3333333333333333 → 1
+caseCoverage: 0.75 → 0.5
+passRate: 0.3333333333333333 → 1
 weightedPrecisionAtK: 0.3333333333333333 → 1
 ```
 
@@ -179,16 +179,16 @@ comparison = comparison_of(run)  # None until it's finished
 if comparison is not None:
     metrics = comparison.summary.metrics
     for name, metric in [
-        ("judgedCoverage", metrics.judged_coverage),
-        ("weightedYesShare", metrics.weighted_yes_share),
+        ("caseCoverage", metrics.case_coverage),
+        ("passRate", metrics.pass_rate),
         ("weightedPrecisionAtK", metrics.weighted_precision_at_k),
     ]:
         print(f"{name}: {metric.baseline} → {metric.candidate}")
 ```
 
 ```text
-judgedCoverage: 0.75 → 0.5
-weightedYesShare: 0.3333333333333333 → 1.0
+caseCoverage: 0.75 → 0.5
+passRate: 0.3333333333333333 → 1.0
 weightedPrecisionAtK: 0.3333333333333333 → 1.0
 ```
 
@@ -235,8 +235,8 @@ public final class Compare {
         .ifPresent(
             comparison -> {
               CorrectedComparisonSummary.Metrics metrics = comparison.summary().metrics();
-              print("judgedCoverage", metrics.judgedCoverage());
-              print("weightedYesShare", metrics.weightedYesShare());
+              print("caseCoverage", metrics.caseCoverage());
+              print("passRate", metrics.passRate());
               print("weightedPrecisionAtK", metrics.weightedPrecisionAtK());
             });
   }
@@ -250,8 +250,8 @@ public final class Compare {
 ```
 
 ```text
-judgedCoverage: 0.75 → 0.5
-weightedYesShare: 0.3333333333333333 → 1.0
+caseCoverage: 0.75 → 0.5
+passRate: 0.3333333333333333 → 1.0
 weightedPrecisionAtK: 0.3333333333333333 → 1.0
 ```
 
@@ -278,11 +278,11 @@ value minus its lowest. In the clients, it's `repetitions`.
 Each metric has its value for the recorded runs (`baseline`) and for the
 version (`candidate`), the `delta`, and `n`, the cases it's based on.
 
-- **`weightedYesShare`,** "Share marked right" in the console: of the items in
+- **`passRate`,** "Share marked right" in the console: of the items in
   the answer that people corrected, the share they marked right, weighted by
   corrector group. 0.1.0's answers had 3 marked right of 9 corrected articles.
   0.2.0's had 3 of 3: it kept only the right article each time.
-- **`judgedCoverage`,** "Corrected items": the share of the answer's items
+- **`caseCoverage`,** "Corrected items": the share of the answer's items
   that people corrected. Items no one corrected bring it down. Here, each
   answer's text is an item too, and no one corrected it.
 - **`weightedPrecisionAtK`,** "Top 10 marked right": marked right among the
@@ -308,8 +308,8 @@ afterwards:
 
 | | `as-recorded` | `experts-only` |
 | --- | --- | --- |
-| `weightedYesShare` | 0.556 (5 of 9) | 0.5 (3 of 6) |
-| `judgedCoverage` | 1 | 0.667 |
+| `passRate` | 0.556 (5 of 9) | 0.5 (3 of 6) |
+| `caseCoverage` | 1 | 0.667 |
 
 **Case by case,** `perCase` has, for each case:
 
@@ -374,7 +374,7 @@ CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's su
 ```
 
 With `--group-weights=experts-only`, only the ones made under a
-expert group are checked. No release gate policy checks them: read them
+expert group are checked. No release gate checks them: read them
 before you [pin the version](../release-an-agent-version/#check-before-you-pin-it).
 
 ## What a replay does
@@ -503,7 +503,7 @@ tool:
     "versions": { "tools": { "acme-ops.find-articles": "0.2.0" } }
   },
   "metrics": {
-    "weightedYesShare": { "baseline": 0.5, "candidate": 1, … },
+    "passRate": { "baseline": 0.5, "candidate": 1, … },
     …
   },
   …

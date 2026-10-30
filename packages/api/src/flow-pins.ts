@@ -43,7 +43,7 @@ export interface FlowAgentPins {
  * the agent's pinned version there (project, then its org, then the
  * tenant), with `agentPins`, else its latest. A gated agent's flow runs what
  * its pins let through, not an unpinned newer version; and an
- * agent step under one of its gate policies set on a segment runs the
+ * agent step under one of its release gates set on a segment runs the
  * version pinned there, not its pin (the runtime decides that per run). A
  * tool or agent with no published version makes the flow unpinnable: the
  * caller refuses the publish, naming each, rather than store a partly

@@ -150,7 +150,7 @@ describe('an improve schedule', () => {
       projectId: PROJECT,
       input: {
         tiers: ['settings'],
-        objective: 'weightedYesShare',
+        objective: 'passRate',
         budget: { maxCostUsd: 5, maxCandidates: 30 },
         threshold: { corrections: 5, runs: 3, correctors: 2 },
         monthlyCapUsd: 20,

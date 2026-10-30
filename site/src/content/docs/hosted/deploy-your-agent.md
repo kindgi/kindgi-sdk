@@ -238,7 +238,7 @@ registers a version, and you can run any of them by its number. You make
 one of them; the others stay, and you can still run them.
 
 [Release an agent version](../../guides/evals/release-an-agent-version/)
-shows each step, a release for some runs only, and a release gate policy
+shows each step, a release for some runs only, and a release gate
 that needs a reviewer.
 [Pinned versions reference](../../guides/evals/live-versions-reference/) has
 every rule and refusal.

@@ -149,7 +149,6 @@ import { eventTriggersRouter } from './routes/event-triggers.js';
 import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
 import { flowsRouter } from './routes/flows.js';
-import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
@@ -172,6 +171,7 @@ import { projectsRouter } from './routes/projects.js';
 import { provenanceRouter } from './routes/provenance.js';
 import { providersRouter } from './routes/providers.js';
 import { publicRunTokensRouter } from './routes/public-run-tokens.js';
+import { releaseGatesRouter } from './routes/release-gates.js';
 import { retentionRouter } from './routes/retention.js';
 import { reviewersRouter } from './routes/reviewers.js';
 import { type RunsRouterOptions, runsRouter } from './routes/runs.js';
@@ -1775,8 +1775,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
-  if (input.agentPins?.gatePolicies !== undefined) {
-    v1.route('/gate-policies', gatePoliciesRouter(input.agentPins.gatePolicies, authorizer));
+  if (input.agentPins?.releaseGates !== undefined) {
+    v1.route('/release-gates', releaseGatesRouter(input.agentPins.releaseGates, authorizer));
   }
   // A project's pinned versions need its project (the 404, and the org the
   // binding reads), so the route mounts only with the project binding too.

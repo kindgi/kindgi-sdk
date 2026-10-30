@@ -38,7 +38,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `test_set_id` and `suite_version` is `test_set_version`, and a test set's or
   an eval run's kind `judged` is `corrections`. A release gate's
   `comparison.suite` is `comparison.test_set`, and a comparison's summary says
-  `test_set`; their models are `GatePolicySpecComparisonTestSet` and
+  `test_set`; their models are `ReleaseGateSpecComparisonTestSet` and
   `CorrectedComparisonSummaryTestSet` (were `Suite` and `Suite1`).
 - `kindgi`: **Proposals are now suggested changes.** This is a breaking rename,
   and no old name is kept. `client.suggested_changes` holds suggested changes,
@@ -88,6 +88,22 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `promotion-not-found` and `promotion-superseded` are `pin-not-found` and
   `pin-superseded`, `agent-version-live` is `agent-version-pinned`, and
   `nothing-to-roll-back` is removed.
+- `kindgi`: **A gate policy is now a release gate.** This is a breaking rename,
+  and no old name is kept. `client.gate_policies` is `client.release_gates`, and
+  `client.agents.gate_policy` is `client.agents.release_gate`, sync and async;
+  `policy_id` is `release_gate_id`. The models follow: `GatePolicy`,
+  `GatePolicyPage`, `GatePolicyRef`, `GatePolicyResolution`, `GatePolicySpec`,
+  `GatePolicySpecComparisonTestSet` and `PublishGatePolicyBody` are
+  `ReleaseGate`, `ReleaseGatePage`, `ReleaseGateRef`, `ReleaseGateResolution`,
+  `ReleaseGateSpec`, `ReleaseGateSpecComparisonTestSet` and
+  `PublishReleaseGateBody`. A pin's, a pin check's and a release gate
+  resolution's `policy` is `release_gate`. The metrics follow: a comparison's
+  `weighted_yes_share` is `pass_rate` and its `judged_coverage` is
+  `case_coverage`, as are the metric names in a release gate's spec and the
+  `objective` value of a suggested change, an Improve run, a schedule's
+  Improve run and the Improve run webhook event (`passRate`). The gate's
+  check `baselineIsLive` is `baselineIsPinned`, and the `gate-policy-*` errors
+  are `release-gate-*`.
 
 ## 0.3.0
 

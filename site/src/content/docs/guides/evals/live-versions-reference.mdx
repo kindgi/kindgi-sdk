@@ -1,6 +1,6 @@
 ---
 title: Pinned versions reference
-description: How a run gets its agent version, what conversations and flows keep, what unpins refuse, the pin history, every pin that covers a project, release gate policies, and the console's Pinned versions page.
+description: How a run gets its agent version, what conversations and flows keep, what unpins refuse, the pin history, every pin that covers a project, release gates, and the console's Pinned versions page.
 sidebar:
   order: 5.5
 ---
@@ -8,7 +8,7 @@ sidebar:
 This page lists everything about pinned agent versions: how a run gets its
 version, what conversations and flows keep, what requests to pin a version
 and unpins refuse, the pin history, every pin that
-covers a project, release gate policies, and what the console shows. On the
+covers a project, release gates, and what the console shows. On the
 CLI, pinning a version is `kindgi agents pin`. To release a version,
 follow [Release an agent version](../release-an-agent-version/).
 
@@ -81,8 +81,8 @@ for the flow's project when a pin covers it, else the tool's newest.
 
 ## Unpins
 
-**An unpin** removes a scope's own pinned version, at once. No release gate
-policy checks it. Its runs then use a wider scope's pinned version, or the
+**An unpin** removes a scope's own pinned version, at once. No release
+gate checks it. Its runs then use a wider scope's pinned version, or the
 latest version when none is pinned. To go back to an earlier version, pin it
 again.
 
@@ -96,9 +96,9 @@ What a request to pin or unpin refuses:
   time, or in a segment of one;
 - an unpin where the scope has no pinned version of its own:
   `The scope has no pinned version of its own`;
-- an unpin of a scope with a release gate policy, since such a scope keeps
+- an unpin of a scope with a release gate, since such a scope keeps
   its own pinned version:
-  `segment company:acme in project <project-id> has a gate policy for acme.order-desk, and a gated scope keeps its own pinned version: unregister the gate policy first, or pin another version instead`.
+  `segment company:acme in project <project-id> has a release gate for acme.order-desk, and a gated scope keeps its own pinned version: unregister the release gate first, or pin an earlier version instead`.
 
 To retire a version that's pinned somewhere, unpin it, or pin another
 version there first, in each of those scopes. Until then,
@@ -130,11 +130,11 @@ ea4e7c15-7990-41b6-b153-0847a83f2e9d  pin       pinned    tenant                
 - A request's `status` is `pinned`, `pending-approval`, `refused`,
   `superseded`, `rejected` or `expired`. A waiting request is `superseded`
   when something changed before it was approved: what serves the scope isn't
-  what the release gate policy measured against (another request was pinned
-  first, for example), the scope's release gate policy isn't the one it passed
-  (a new version, another policy, or none now), the version is no longer
+  what the release gate measured against (another request was pinned
+  first, for example), the scope's release gate isn't the one it passed
+  (a new version, another gate, or none now), the version is no longer
   registered, or pinning it would move a narrower scope that has a release
-  gate policy of its own and follows this one.
+  gate of its own and follows this one.
 - `--test-run=<test-run-id>` on `pin` keeps the run on the test cases
   behind the decision on its record.
 
@@ -183,43 +183,43 @@ not on the count. `limit` is 25 by default and at most 100, and
 `projects.pinned_versions.list`. A runtime that can't list them answers
 `501 pinned-versions-not-supported`.
 
-## Release gate policies
+## Release gates
 
-A release gate policy's parts, and what each asks of a request to pin a
+A release gate's parts, and what each asks of a request to pin a
 version:
 
 | Part | A request must show |
 | --- | --- |
 | `comparison.maxAgeHours` | a run of the version on the test cases, finished at most this many hours ago |
 | `evidence.minCases` | each figure resting on at least this many corrected cases, for the version and for the pinned one |
-| `metrics` | each named figure at least `minCandidate`, and lower than the pinned version's by at most `maxDrop`. The figures are `weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k` |
+| `metrics` | each named figure at least `minCandidate`, and lower than the pinned version's by at most `maxDrop`. The figures are `passRate`, `caseCoverage`, or `weightedPrecisionAtK` with its `k` |
 | `replay` | at most this many diverged cases, errors, refused tool calls and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. `maxRefusedWrites` counts refused reads too, despite its name. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
 | `approvals` | then a reviewer with this role approves it, `senior` if left out. It's someone other than whoever asked, unless `separateApprover: false` lets the one who asked approve it |
 | `onlyExpertGroups: true` | a run on the test cases that [counted only experts' corrections](../compare-an-agent-version/#count-only-experts-corrections) |
 
-- **A request must name its run on the test cases** when the policy has
+- **A request must name its run on the test cases** when the release gate has
   `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`.
   The run must be of the version you pin, with the same pins, and its
   recorded runs must be from the version pinned for the scope now.
 - **With `onlyExpertGroups`,** a run on the test cases that counted
   everyone's corrections is refused with
-  `` The policy counts only experts' corrections; the test run counted everyone's. Re-run it with `groupWeights: 'experts-only'`. ``.
+  `` The gate counts only experts' corrections; the test run counted everyone's. Re-run it with `groupWeights: 'experts-only'`. ``.
   So only expert groups can release a version.
-- **To change a release gate policy,** publish a new version of it.
-  `kindgi gate-policies unregister acme.order-desk-release <version>` goes
+- **To change a release gate,** publish a new version of it.
+  `kindgi release-gates unregister acme.order-desk-release <version>` goes
   back to the one before.
-- **`kindgi agents gate-policy acme.order-desk --tenant`** shows the policy
-  that applies to a scope.
+- **`kindgi agents release-gate acme.order-desk --tenant`** shows the release
+  gate that applies to a scope.
 - **With [authorization](../../../deploy/authorization/) on,** publishing a
-  release gate policy takes `admin` on the tenant. Reading one takes `read`
+  release gate takes `admin` on the tenant. Reading one takes `read`
   on its scope: its project, a segment's too, its org, or the tenant for a
-  tenant-wide one. A policy you can't read is left out of lists, and answers
-  `404 gate-policy-not-found`, as if it weren't there.
+  tenant-wide one. A release gate you can't read is left out of lists,
+  and answers `404 release-gate-not-found`, as if it weren't there.
 
-### A scope with a release gate policy needs a pinned version of its own
+### A scope with a release gate needs a pinned version of its own
 
 Otherwise, the next published version, or pinning a version for a wider
-scope, would reach its runs without its release gate policy. A policy for a
+scope, would reach its runs without its release gate. A release gate for a
 scope without one is refused:
 
 ```text
@@ -235,7 +235,7 @@ Segment company:globex has no pinned version of acme.order-desk of its own, so a
 
 **Pin it in place:** pin the version it serves now there. That changes
 nothing for its runs, so it needs no run on the test cases and no approval,
-even when a release gate policy already applies:
+even when a release gate already applies:
 
 ```sh
 pnpm exec kindgi agents pin acme.order-desk 1.0.0 --project=<project-id> --segment=company:globex --reason="Pin globex before its gate"
@@ -246,17 +246,17 @@ pnpm exec kindgi agents pin acme.order-desk 1.0.0 --project=<project-id> --segme
   repeats `--segment`, coarse to fine.
 - `--reason` says why, and is kept with the request.
 
-Under a release gate policy, the request's one check says why it went
+Under a release gate, the request's one check says why it went
 through, and its reason starts with `pin-in-place`:
 `acme.order-desk 1.0.0 already serves this scope (from a pin above it), so pinning it here changes nothing for runs: the gate's checks and approval don't apply.`
 `--check` answers `would-pin` with that same check.
 
-A scope with a release gate policy that still follows a wider scope's pin,
+A scope with a release gate that still follows a wider scope's pin,
 such as one set up by an older runtime, refuses pinning a version or an unpin in that wider scope with
-`409 gate-policy-descendant-unpinned`, naming the scope and its version:
+`409 release-gate-descendant-unpinned`, naming the scope and its version:
 
 ```text
-Pinning acme.order-desk for project <project-id> would also change segment company:acme, which a gate policy applies to and which has no pinned version of its own, without its gate. Pin it at its current version first: segment company:acme at 1.0.0
+Pinning acme.order-desk for project <project-id> would also change segment company:acme, which a release gate applies to and which has no pinned version of its own, without its gate. Pin it at its current version first: segment company:acme at 1.0.0
 ```
 
 Pin that scope in place, and pin the version again.
@@ -276,24 +276,24 @@ Pin that scope in place, and pin the version again.
   such as "Runs in this project (Support) will use 1.3.0."
 - A run's page says why it ran its version, such as "Pinned for company = acme
   in this project (Default)".
-- **Release gate policies,** on the Pinned versions page, has each policy in
-  sentences, with its versions, **New version** and **Add a release gate
-  policy**. The sentences read like "Share marked right: at least 60%, and no
-  more than 2 points below the pinned version" and "Then a senior reviewer
+- **Release gates,** on the Pinned versions page, has each release gate in
+  sentences, with its versions, **New version** and **Add a release
+  gate**. The sentences read like "Share marked right: at least 60%, and
+  no more than 2 points below the pinned version" and "Then a senior reviewer
   approves it, someone other than whoever asked".
-- **Add a release gate policy** has **Count only experts**: "The run must
+- **Add a release gate** has **Count only experts**: "The run must
   count only experts' corrections (start it with "Count only experts"), so a
-  correction anyone may give can't change what the release gate policy
+  correction anyone may give can't change what the release gate
   decides."
 - **Pin a version** has **Run on the test cases (optional)**, a
   finished run of the version on the test cases. One that counted only
-  expert groups says "expert groups only". It runs the release gate
-  policy's check before anything is recorded: "The release gate policy passes
-  (release gate policy acme.order-desk-release 1.0.0) Then a senior reviewer
-  approves it, someone other than you, and it is pinned.", with each check.
-  Its button follows: **Ask to pin 1.3.0**, or "The release gate policy
+  expert groups says "expert groups only". It runs the release gate's
+  check before anything is recorded: "The release gate passes (release
+  gate acme.order-desk-release 1.0.0) Then a senior reviewer approves it,
+  someone other than you, and it's pinned.", with each check.
+  Its button follows: **Ask to pin 1.3.0**, or "The release gate
   refuses it".
 - A request waiting for approval shows on Pinned versions, with **Open the
   approval**. Its approval page shows the request to pin it, who asked
-  and why, the run on the test cases and the policy, and each check. Once
+  and why, the run on the test cases and the release gate, and each check. Once
   approved, it says "Pinned 1.3.0, replacing 1.0.0".

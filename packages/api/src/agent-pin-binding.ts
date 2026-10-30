@@ -13,12 +13,12 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
-import type { GatePolicyBinding, GatePolicyRef } from './gate-policy-binding.js';
 import type { GateApproval, GateCheck } from './gate.js';
+import type { ReleaseGateBinding, ReleaseGateRef } from './release-gate-binding.js';
 
 /**
  * Pinned versions of agents: which version serves a scope, and the
- * pin changes that put it there (evals step 4). A run that names no
+ * pin changes that put it there. A run that names no
  * version takes the most specific pinned version that covers it (a
  * segment path, then its project, its org, the tenant), else the latest
  * registered one, as before anything is pinned.
@@ -109,7 +109,7 @@ export type PinStatus =
   | 'pending-approval'
   /** The gate failed (`checks` say why). The pinned version is unchanged. */
   | 'refused'
-  /** Approved, but the scope's pinned version or policy changed meanwhile: check again. */
+  /** Approved, but the scope's pinned version or release gate changed meanwhile: check again. */
   | 'superseded'
   /** The reviewer rejected it. */
   | 'rejected'
@@ -136,8 +136,8 @@ export interface Pin {
   readonly createdAt: Timestamp;
   /** A `pin` row's state; absent on a pin made before gates (`pinned`). */
   readonly status?: PinStatus;
-  /** The gate policy that applied; `null` when none did. Absent before gates. */
-  readonly policy?: GatePolicyRef | null;
+  /** The release gate that applied; `null` when none did. Absent before gates. */
+  readonly releaseGate?: ReleaseGateRef | null;
   /** The gate's checks, as they ran. */
   readonly checks?: readonly GateCheck[];
   /** The approval a `pending-approval` pin waits on (kept once decided). */
@@ -156,19 +156,19 @@ export type PinErrorCode =
   /** The scope's pinned version changed while the gate ran: check again. */
   | 'pin-superseded'
   /**
-   * Unpin: the scope has a gate policy of its own, and a gated scope keeps
+   * Unpin: the scope has a release gate of its own, and a gated scope keeps
    * its own pin (else a change above it, or a publish, would reach it
-   * ungated). Unregister the gate policy first, or pin an earlier version instead.
+   * ungated). Unregister the release gate first, or pin an earlier version instead.
    */
-  | 'gate-policy-needs-pin'
+  | 'release-gate-needs-pin'
   /**
    * Pin or unpin: the change would also move a narrower
-   * scope a gate policy applies to, which has no pin of its own and so
+   * scope a release gate applies to, which has no pin of its own and so
    * follows this scope, without its gate. The message names each such
    * scope: pin it at its current version first. (A gated scope must hold
    * its own pin; this guards scopes gated before that rule.)
    */
-  | 'gate-policy-descendant-unpinned'
+  | 'release-gate-descendant-unpinned'
   /**
    * Pin: the gate wants an approval, and the tenant's approvals waiting
    * for a decision are at its limit (the runtime's operator sets it).
@@ -207,7 +207,7 @@ export interface AgentPinInput {
  */
 export interface PinRequestInput extends AgentPinInput {
   readonly gate: {
-    readonly policy: GatePolicyRef | null;
+    readonly releaseGate: ReleaseGateRef | null;
     readonly checks: readonly GateCheck[];
     readonly passed: boolean;
     /** A passing pin waits for this approval instead of taking effect. */
@@ -226,7 +226,7 @@ export interface PinRequestInput extends AgentPinInput {
      * `approval`. The binding re-checks both conditions in the write's
      * transaction, under the scope's lock, and refuses with
      * `pin-superseded` when either no longer holds; it records the
-     * pin `pinned`, with the policy, its reason starting
+     * pin `pinned`, with the release gate, its reason starting
      * `pin-in-place`.
      */
     readonly pinInPlace?: boolean;
@@ -253,25 +253,25 @@ export interface ListPinHistoryInput {
 export interface PinBinding {
   /**
    * Pin `version` for `scope`. The version must be registered and
-   * active. `gate-policy-descendant-unpinned` when it would also move a
+   * active. `release-gate-descendant-unpinned` when it would also move a
    * narrower gated scope with no pin of its own.
    */
   pin(input: AgentPinInput): Promise<Result<Pin, PinError>>;
   /**
-   * Record a gated pin request (evals step 4b): `refused` when the
+   * Record a gated pin request: `refused` when the
    * gate failed, `pending-approval` (opening a HITL approval, subject
-   * `agent-pin`) when it passed and the policy wants an approval,
+   * `agent-pin`) when it passed and the gate wants an approval,
    * else `pinned`. Optional: without it, the route refuses a pin
-   * a gate policy applies to (`501`), rather than pinning ungated. A
+   * a release gate applies to (`501`), rather than pinning ungated. A
    * passing request that would also move a narrower gated scope with no
-   * pin of its own is `gate-policy-descendant-unpinned`, and so is its
+   * pin of its own is `release-gate-descendant-unpinned`, and so is its
    * approval's apply (the pin is then `superseded`).
    */
   request?(input: PinRequestInput): Promise<Result<Pin, PinError>>;
   /**
    * Remove the scope's own pin: it falls back to the next scope up. With
-   * gate policies, `gate-policy-needs-pin` when the scope has a gate
-   * policy of its own, and `gate-policy-descendant-unpinned` when a
+   * release gates, `release-gate-needs-pin` when the scope has a release
+   * gate of its own, and `release-gate-descendant-unpinned` when a
    * narrower gated scope with no pin of its own follows it.
    */
   unpin(input: AgentUnpinInput): Promise<Result<Pin, PinError>>;
@@ -294,6 +294,6 @@ export interface PinBinding {
 export interface AgentPinBindings {
   readonly pinned: AgentPinnedVersionBinding;
   readonly changes: PinBinding;
-  /** Gate policies (evals step 4b). Absent: no gates, every pin goes through as before. */
-  readonly gatePolicies?: GatePolicyBinding;
+  /** Release gates. Absent: no gates, every pin goes through as before. */
+  readonly releaseGates?: ReleaseGateBinding;
 }

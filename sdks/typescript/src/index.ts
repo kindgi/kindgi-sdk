@@ -15,7 +15,7 @@ export { createClient } from './client.js';
 export type { KindgiClient } from './client.js';
 
 export type {
-  AgentGatePolicyClient,
+  AgentReleaseGateClient,
   AgentPinnedClient,
   AgentUnpinInput,
   AgentsClient,
@@ -35,11 +35,11 @@ export type {
   UnpinVersionInput,
 } from './resources/pinned-versions.js';
 export type {
-  GatePoliciesClient,
-  GatePolicyFilter,
-  GatePolicyVersionsClient,
-  PublishGatePolicyInput,
-} from './resources/gate-policies.js';
+  ReleaseGatesClient,
+  ReleaseGateFilter,
+  ReleaseGateVersionsClient,
+  PublishReleaseGateInput,
+} from './resources/release-gates.js';
 export type {
   Run,
   RunAgent,
@@ -303,11 +303,11 @@ export type {
   AgentPinnedVersionResolution,
   GateApproval,
   GateCheck,
-  GatePolicy,
-  GatePolicyPage,
-  GatePolicyRef,
-  GatePolicyResolution,
-  GatePolicySpec,
+  ReleaseGate,
+  ReleaseGatePage,
+  ReleaseGateRef,
+  ReleaseGateResolution,
+  ReleaseGateSpec,
   PinActor,
   PinScope,
   PinnedVersion,

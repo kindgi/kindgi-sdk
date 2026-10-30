@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { GatePolicy } from '../gate-policy-binding.js';
+import type { ReleaseGate } from '../release-gate-binding.js';
 import { agentPinScopeToWire } from './agent-pin-scope-wire.js';
 
-export function serializeGatePolicy(p: GatePolicy): Record<string, unknown> {
+export function serializeReleaseGate(p: ReleaseGate): Record<string, unknown> {
   return {
     id: p.id,
     version: p.version,

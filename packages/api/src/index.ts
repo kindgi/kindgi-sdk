@@ -774,17 +774,17 @@ export type {
 export type {
   GateMetricName,
   GateMetricSpec,
-  GatePolicy,
-  GatePolicyBinding,
-  GatePolicyError,
-  GatePolicyErrorCode,
-  GatePolicyListInput,
-  GatePolicyPublishInput,
-  GatePolicyRef,
-  GatePolicySpec,
-  GatePolicyVersionInput,
-} from './gate-policy-binding.js';
-export { GATE_METRICS } from './gate-policy-binding.js';
+  ReleaseGate,
+  ReleaseGateBinding,
+  ReleaseGateError,
+  ReleaseGateErrorCode,
+  ReleaseGateListInput,
+  ReleaseGatePublishInput,
+  ReleaseGateRef,
+  ReleaseGateSpec,
+  ReleaseGateVersionInput,
+} from './release-gate-binding.js';
+export { GATE_METRICS } from './release-gate-binding.js';
 export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
 export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentPinGateDeps } from './routes/agent-pins.js';

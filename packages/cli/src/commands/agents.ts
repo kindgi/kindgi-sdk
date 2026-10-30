@@ -395,18 +395,18 @@ const pin: LeafCommand = {
   kind: 'leaf',
   name: 'pin',
   description:
-    "Pin a version for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate policy for the scope, the run on the test cases named by --test-run is checked first: the answer's `status` is `pinned`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
+    "Pin a version for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate for the scope, the run on the test cases named by --test-run is checked first: the answer's `status` is `pinned`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
   usage: `kindgi agents pin <agent-id> <version> ${SCOPE_USAGE} [--test-run=<test-run-id>] [--reason=<text>] [--check] [--wait[=<duration>]]`,
   optionSpec: {
     ...SCOPE_FLAGS,
     'test-run': {
       type: 'string',
-      description: 'The run on the test cases the release gate policy checks, kept on the record.',
+      description: 'The run on the test cases the release gate checks, kept on the record.',
     },
     check: {
       type: 'boolean',
       description:
-        'What the release gate policy would say: would-pin, needs-approval or gate-failed. Changes nothing. Exits 3 unless it would pin.',
+        'What the release gate would say: would-pin, needs-approval or gate-failed. Changes nothing. Exits 3 unless it would pin.',
     },
     ...WAIT_FLAG,
     ...WRITE_FLAGS,
@@ -414,7 +414,7 @@ const pin: LeafCommand = {
   run: (ctx) => runSdkRendered(ctx, 'agents pin', () => pinAgent(ctx), gateFailed),
 };
 
-/** A release gate policy's refusal (`422 gate-failed`): the command's answer, not a failure. */
+/** A release gate's refusal (`422 gate-failed`): the command's answer, not a failure. */
 function gateFailed(err: unknown): boolean {
   if (!(err instanceof KindgiApiError)) return false;
   const e = err.error;
@@ -489,17 +489,17 @@ function waitedAnswer(
   }
 }
 
-const gatePolicy: LeafCommand = {
+const releaseGate: LeafCommand = {
   kind: 'leaf',
-  name: 'gate-policy',
+  name: 'release-gate',
   description:
-    'Show the release gate policy that pinning a version of this agent for a scope is checked against (the most specific scope with one), or null.',
-  usage: `kindgi agents gate-policy <agent-id> ${SCOPE_USAGE}`,
+    'Show the release gate that pinning a version of this agent for a scope is checked against (the most specific scope with one), or null.',
+  usage: `kindgi agents release-gate <agent-id> ${SCOPE_USAGE}`,
   optionSpec: SCOPE_FLAGS,
   run: (ctx) =>
-    runSdk(ctx, 'agents gate-policy', async () => {
+    runSdk(ctx, 'agents release-gate', async () => {
       const agentId = requiredPositional(ctx, 0, 'agent-id');
-      return await ctx.client().agents.gatePolicy.resolve(agentId, scopeFrom(ctx, true));
+      return await ctx.client().agents.releaseGate.resolve(agentId, scopeFrom(ctx, true));
     }),
 };
 
@@ -603,7 +603,7 @@ export const agentsCommand: Command = {
     pinned,
     pinnedVersions,
     pin,
-    gatePolicy,
+    releaseGate,
     unpin,
     pinHistory,
   ],

@@ -338,15 +338,15 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'approval-already-decided':
     case 'corrector-group-name-taken':
     case 'pin-superseded':
-    case 'gate-policy-already-registered':
-    case 'gate-policy-scope-taken':
-    case 'gate-policy-scope-changed':
-    case 'gate-policy-scope-unpinned':
-    case 'gate-policy-needs-pin':
+    case 'release-gate-already-registered':
+    case 'release-gate-scope-taken':
+    case 'release-gate-scope-changed':
+    case 'release-gate-scope-unpinned':
+    case 'release-gate-needs-pin':
     case 'fact-changed':
     case 'legal-hold':
     case 'erasure-in-progress':
-    case 'gate-policy-descendant-unpinned':
+    case 'release-gate-descendant-unpinned':
     case 'service-account-name-taken':
     case 'service-account-unregistered':
     case 'identity-user-email-taken':

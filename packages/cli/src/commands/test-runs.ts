@@ -276,7 +276,7 @@ const start: LeafCommand = {
     'group-weights': {
       type: 'string',
       description:
-        "Which corrections count: `as-recorded` (the default: each at its corrector group's weight) or `experts-only` (only corrections of groups restricted to experts; a release gate policy with `onlyExpertGroups` needs it).",
+        "Which corrections count: `as-recorded` (the default: each at its corrector group's weight) or `experts-only` (only corrections of groups restricted to experts; a release gate with `onlyExpertGroups` needs it).",
     },
     'dry-run': { type: 'boolean', description: 'Check the request without running anything.' },
     wait: {

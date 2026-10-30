@@ -393,9 +393,9 @@ export const PinSchema: JsonSchema = {
       description:
         "A `pin` row's state: it changes once, from `pending-approval` to its final state. Absent on unpin rows, and on pins made before gates (`pinned`).",
     },
-    policy: {
-      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
-      description: 'The gate policy that applied; null when none did. Absent before gates.',
+    releaseGate: {
+      oneOf: [{ $ref: '#/components/schemas/ReleaseGateRef' }, { type: 'null' }],
+      description: 'The release gate that applied; null when none did. Absent before gates.',
     },
     checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
     approvalId: {
@@ -564,30 +564,30 @@ export const UnpinVersionBodySchema: JsonSchema = {
   },
 };
 
-// ---------------- the promotion gate (evals step 4b) ----------------
+// ---------------- the release gate ----------------
 
 export const GateCheckSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['name', 'passed', 'message'],
-  description: "One of a gate's checks, as the promotion records it.",
+  description: "One of a gate's checks, as the pin records it.",
   properties: {
     name: {
       type: 'string',
       description:
-        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.',
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.',
     },
     passed: { type: 'boolean' },
     message: {
       type: 'string',
-      description: 'A plain sentence: what was found against what the policy asks.',
+      description: 'A plain sentence: what was found against what the gate asks.',
     },
     value: { type: ['number', 'string'] },
     threshold: { type: ['number', 'string'] },
   },
 };
 
-export const GatePolicyRefSchema: JsonSchema = {
+export const ReleaseGateRefSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version'],
@@ -598,13 +598,13 @@ export const GateApprovalSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['role', 'count', 'separateApprover'],
-  description: 'The approval a passing promotion waits for.',
+  description: 'The approval a passing pin waits for.',
   properties: {
     role: { type: 'string', enum: ['standard', 'senior', 'admin'] },
     count: { type: 'integer', minimum: 1 },
     separateApprover: {
       type: 'boolean',
-      description: 'Whoever asked for the promotion may not approve it.',
+      description: 'Whoever asked for the pin may not approve it.',
     },
   },
 };
@@ -614,7 +614,7 @@ const GateMetricSpecSchema: JsonSchema = {
   additionalProperties: false,
   required: ['name'],
   properties: {
-    name: { type: 'string', enum: ['weightedYesShare', 'judgedCoverage', 'weightedPrecisionAtK'] },
+    name: { type: 'string', enum: ['passRate', 'caseCoverage', 'weightedPrecisionAtK'] },
     k: {
       type: 'integer',
       minimum: 1,
@@ -631,11 +631,11 @@ const GateMetricSpecSchema: JsonSchema = {
   },
 };
 
-export const GatePolicySpecSchema: JsonSchema = {
+export const ReleaseGateSpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
+    'What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
   properties: {
     comparison: {
       type: 'object',
@@ -680,7 +680,7 @@ export const GatePolicySpecSchema: JsonSchema = {
     approvals: {
       type: 'object',
       additionalProperties: false,
-      description: 'A passing promotion waits for a reviewer.',
+      description: 'A passing pin waits for a reviewer.',
       properties: {
         role: {
           type: 'string',
@@ -698,7 +698,7 @@ export const GatePolicySpecSchema: JsonSchema = {
   },
 };
 
-export const GatePolicySchema: JsonSchema = {
+export const ReleaseGateSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version', 'agentId', 'scope', 'spec', 'createdAt'],
@@ -707,25 +707,25 @@ export const GatePolicySchema: JsonSchema = {
     version: { type: 'string' },
     agentId: { type: 'string' },
     scope: { $ref: '#/components/schemas/AgentPinScope' },
-    spec: { $ref: '#/components/schemas/GatePolicySpec' },
+    spec: { $ref: '#/components/schemas/ReleaseGateSpec' },
     description: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
     unregisteredAt: { type: 'string', format: 'date-time' },
   },
 };
 
-export const GatePolicyPageSchema: JsonSchema = {
+export const ReleaseGatePageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/GatePolicy' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/ReleaseGate' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
 };
 
-export const PublishGatePolicyBodySchema: JsonSchema = {
+export const PublishReleaseGateBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version', 'agentId', 'scope', 'spec'],
@@ -738,19 +738,19 @@ export const PublishGatePolicyBodySchema: JsonSchema = {
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     agentId: { type: 'string' },
     scope: { $ref: '#/components/schemas/AgentPinScope' },
-    spec: { $ref: '#/components/schemas/GatePolicySpec' },
+    spec: { $ref: '#/components/schemas/ReleaseGateSpec' },
     description: { type: 'string' },
   },
 };
 
-export const GatePolicyResolutionSchema: JsonSchema = {
+export const ReleaseGateResolutionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['policy'],
+  required: ['releaseGate'],
   properties: {
-    policy: {
-      oneOf: [{ $ref: '#/components/schemas/GatePolicy' }, { type: 'null' }],
-      description: 'The policy that gates a promotion for the scope; null when none does.',
+    releaseGate: {
+      oneOf: [{ $ref: '#/components/schemas/ReleaseGate' }, { type: 'null' }],
+      description: 'The release gate that checks a pin for the scope; null when none does.',
     },
   },
 };
@@ -758,13 +758,13 @@ export const GatePolicyResolutionSchema: JsonSchema = {
 export const PinCheckSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['outcome', 'policy', 'checks'],
+  required: ['outcome', 'releaseGate', 'checks'],
   description: 'What the gate would say about a pin. Nothing is recorded.',
   properties: {
     outcome: { type: 'string', enum: ['would-pin', 'needs-approval', 'gate-failed'] },
-    policy: {
-      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
-      description: 'The policy that applies; null when none does.',
+    releaseGate: {
+      oneOf: [{ $ref: '#/components/schemas/ReleaseGateRef' }, { type: 'null' }],
+      description: 'The release gate that applies; null when none does.',
     },
     checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
     approval: { $ref: '#/components/schemas/GateApproval' },
@@ -3752,7 +3752,7 @@ export const FlowSchema: JsonSchema = {
 
 export const FlowPinsSchema: JsonSchema = {
   description:
-    "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.",
+    "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.",
   type: 'object',
   additionalProperties: false,
   required: ['tools', 'agents'],
@@ -6367,7 +6367,7 @@ export const SuggestedChangeEvaluationSchema: JsonSchema = {
   properties: {
     testRunId: { type: 'string', format: 'uuid' },
     testSetId: { type: 'string', description: 'The test set (a corrections test set).' },
-    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    objective: { type: 'string', enum: ['passRate', 'weightedPrecisionAtK'] },
     startedAt: { type: 'string', format: 'date-time' },
     runStatus: {
       type: 'string',
@@ -6597,7 +6597,7 @@ export const ImproveRunSchema: JsonSchema = {
     scope: { $ref: '#/components/schemas/AgentPinScope' },
     testSetId: { type: 'string', description: 'The test set it searches and proves on.' },
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
-    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    objective: { type: 'string', enum: ['passRate', 'weightedPrecisionAtK'] },
     groupWeights: {
       type: 'string',
       enum: ['as-recorded', 'experts-only'],
@@ -6742,8 +6742,8 @@ export const StartImproveRunBodySchema: JsonSchema = {
     },
     objective: {
       type: 'string',
-      enum: ['weightedYesShare', 'weightedPrecisionAtK'],
-      default: 'weightedYesShare',
+      enum: ['passRate', 'weightedPrecisionAtK'],
+      default: 'passRate',
     },
     budget: {
       type: 'object',
@@ -6842,8 +6842,8 @@ export const EvaluateSuggestedChangeBodySchema: JsonSchema = {
     testSetId: { type: 'string', description: 'The test set: a corrections test set.' },
     objective: {
       type: 'string',
-      enum: ['weightedYesShare', 'weightedPrecisionAtK'],
-      default: 'weightedYesShare',
+      enum: ['passRate', 'weightedPrecisionAtK'],
+      default: 'passRate',
       description: 'The metric that says whether the candidate is better.',
     },
     reads: { type: 'string', enum: ['recorded', 'live'] },
@@ -9066,7 +9066,7 @@ export const TestRunOverridesSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.",
+    "For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a pin.",
   properties: {
     settings: {
       type: 'object',
@@ -9091,7 +9091,7 @@ export const TestRunSampleSchema: JsonSchema = {
   additionalProperties: false,
   required: ['part', 'seed', 'holdOutShare'],
   description:
-    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
+    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A release gate refuses a comparison on the search part (`comparison.sample`).',
   properties: {
     part: { type: 'string', enum: ['search', 'hold-out'] },
     seed: { type: 'string', minLength: 1, maxLength: 200 },
@@ -9192,13 +9192,13 @@ export const ComparisonCandidateSchema: JsonSchema = {
         pinsDigest: {
           type: 'string',
           description:
-            "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.",
+            "The version's pinsDigest: what it ran, as a release gate checks. Absent for a version published before pins, and from a comparison recorded before it.",
         },
         overrides: {
           type: 'object',
           additionalProperties: false,
           description:
-            "The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.",
+            "The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a pin. Absent otherwise.",
           properties: {
             settings: { type: 'array', items: { type: 'string' } },
             prompts: { type: 'array', items: { type: 'string' } },
@@ -9222,7 +9222,7 @@ export const ComparisonCandidateSchema: JsonSchema = {
 
 export const CorrectedComparisonSummarySchema: JsonSchema = {
   description:
-    'What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.',
+    'What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a release gate reads.',
   type: 'object',
   additionalProperties: false,
   required: [
@@ -9372,10 +9372,10 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
     metrics: {
       type: 'object',
       additionalProperties: false,
-      required: ['weightedYesShare', 'judgedCoverage', 'weightedPrecisionAtK'],
+      required: ['passRate', 'caseCoverage', 'weightedPrecisionAtK'],
       properties: {
-        weightedYesShare: { $ref: '#/components/schemas/ComparisonMetric' },
-        judgedCoverage: { $ref: '#/components/schemas/ComparisonMetric' },
+        passRate: { $ref: '#/components/schemas/ComparisonMetric' },
+        caseCoverage: { $ref: '#/components/schemas/ComparisonMetric' },
         weightedPrecisionAtK: { $ref: '#/components/schemas/ComparisonMetric' },
       },
     },
@@ -9384,7 +9384,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
       additionalProperties: false,
       required: ['checked', 'passed'],
       description:
-        'Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.',
+        'Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.',
       properties: {
         checked: { type: 'integer', minimum: 0, description: 'How many corrections were graded.' },
         passed: {
@@ -9695,7 +9695,7 @@ export const TestRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`passRate`, `caseCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     cancelReason: {
@@ -11673,9 +11673,9 @@ export const DeploymentLivePinGateSchema: JsonSchema = {
       enum: ['pinned', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
     },
     changeId: { type: 'string', format: 'uuid' },
-    policy: {
-      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
-      description: 'The gate policy that applied; null when none did.',
+    releaseGate: {
+      oneOf: [{ $ref: '#/components/schemas/ReleaseGateRef' }, { type: 'null' }],
+      description: 'The release gate that applied; null when none did.',
     },
     approvalId: { type: 'string', description: 'The approval a `pending-approval` pin waits on.' },
     checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
@@ -13704,7 +13704,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
     "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `groupWeights` counts them: by default everyone's corrections until a restricted (experts') corrector group is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
   properties: {
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
-    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    objective: { type: 'string', enum: ['passRate', 'weightedPrecisionAtK'] },
     groupWeights: { type: 'string', enum: ['experts-only', 'as-recorded'] },
     model: {
       type: 'object',
@@ -16020,13 +16020,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PinVersionBody', PinVersionBodySchema],
   ['UnpinVersionBody', UnpinVersionBodySchema],
   ['GateCheck', GateCheckSchema],
-  ['GatePolicyRef', GatePolicyRefSchema],
+  ['ReleaseGateRef', ReleaseGateRefSchema],
   ['GateApproval', GateApprovalSchema],
-  ['GatePolicySpec', GatePolicySpecSchema],
-  ['GatePolicy', GatePolicySchema],
-  ['GatePolicyPage', GatePolicyPageSchema],
-  ['PublishGatePolicyBody', PublishGatePolicyBodySchema],
-  ['GatePolicyResolution', GatePolicyResolutionSchema],
+  ['ReleaseGateSpec', ReleaseGateSpecSchema],
+  ['ReleaseGate', ReleaseGateSchema],
+  ['ReleaseGatePage', ReleaseGatePageSchema],
+  ['PublishReleaseGateBody', PublishReleaseGateBodySchema],
+  ['ReleaseGateResolution', ReleaseGateResolutionSchema],
   ['PinCheck', PinCheckSchema],
   ['AgentPinBody', AgentPinBodySchema],
   ['AgentUnpinBody', AgentUnpinBodySchema],

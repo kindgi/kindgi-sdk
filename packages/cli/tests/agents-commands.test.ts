@@ -341,7 +341,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     ['needs-approval', 3],
     ['gate-failed', 3],
   ])('--check answering %s exits %i, the answer printed as it is', async (outcome, code) => {
-    const answer = { outcome, policy: null, checks: [] };
+    const answer = { outcome, releaseGate: null, checks: [] };
     const out = await run(['agents', 'pin', ...SCOPE, '--check'], {
       agents: { pinned: { check: async () => answer } },
     });
@@ -351,7 +351,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
 
   test("the gate's refusal (422 gate-failed) is said as before, exit 3", async () => {
     const message =
-      'The release gate policy refused acme.drafter 1.1.0: Precision at 5 is 0.75; the policy needs at least 0.8.';
+      'The release gate refused acme.drafter 1.1.0: Precision at 5 is 0.75; the gate needs at least 0.8.';
     const out = await run(['agents', 'pin', ...SCOPE], {
       agents: {
         pinned: {
@@ -435,7 +435,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     name: 'approval.recheck',
     passed: false,
     message:
-      "Approved, but things changed since the check: The scope's gate policy is acme.drafter-prod 1.1.0 now, not the one it passed. Check again.",
+      "Approved, but things changed since the check: The scope's release gate is acme.drafter-prod 1.1.0 now, not the one it passed. Check again.",
   };
   const PASSED = { name: 'comparison.status', passed: true, message: 'The comparison completed.' };
 
@@ -443,7 +443,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     [
       'the approval.recheck check',
       [PASSED, RECHECK],
-      "acme.drafter 1.1.0 was superseded: Approved, but things changed since the check: The scope's gate policy is acme.drafter-prod 1.1.0 now, not the one it passed. Check again. Pin it again to ask again.",
+      "acme.drafter 1.1.0 was superseded: Approved, but things changed since the check: The scope's release gate is acme.drafter-prod 1.1.0 now, not the one it passed. Check again. Pin it again to ask again.",
     ],
     [
       'other checks, but no approval.recheck',

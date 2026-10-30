@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `/v1/gate-policies` (evals step 4b): the registry routes over a fake
+ * `/v1/release-gates`: the registry routes over a fake
  * binding, the strict spec check, `admin` on the tenant for writes, and
- * `read` on a policy's scope for reads.
+ * `read` on a release gate's scope for reads.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -18,20 +18,20 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import { createApp } from '../src/index.js';
 import type {
   AgentPinBindings,
-  GatePolicy,
-  GatePolicyBinding,
-  GatePolicyError,
+  ReleaseGate,
+  ReleaseGateBinding,
+  ReleaseGateError,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
 import type { Authorizer } from '../src/middleware/authorize.js';
-import { gatePoliciesRouter } from '../src/routes/gate-policies.js';
-import { parseGatePolicySpec } from '../src/routes/gate-policy-spec.js';
+import { parseReleaseGateSpec } from '../src/routes/release-gate-spec.js';
+import { releaseGatesRouter } from '../src/routes/release-gates.js';
 import type { AppEnv } from '../src/types.js';
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
-const TOKEN = 'gate-policies-token';
+const TOKEN = 'release-gates-token';
 const PROJECT = randomUUID();
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId } : null;
@@ -63,14 +63,14 @@ const BODY = {
   description: 'Production gate',
 };
 
-function policy(version = '1.0.0'): GatePolicy {
+function releaseGate(version = '1.0.0'): ReleaseGate {
   return {
     id: BODY.id,
     version,
     tenantId,
     agentId: BODY.agentId,
     scope: SCOPE as AgentPinScope,
-    spec: BODY.spec as GatePolicy['spec'],
+    spec: BODY.spec as ReleaseGate['spec'],
     description: BODY.description,
     createdAt: '2026-10-06T12:00:00.000Z' as Timestamp,
   };
@@ -78,17 +78,17 @@ function policy(version = '1.0.0'): GatePolicy {
 
 function fakeBinding() {
   const calls: { method: string; input: unknown }[] = [];
-  const state: { error: GatePolicyError | null; found: GatePolicy | null } = {
+  const state: { error: ReleaseGateError | null; found: ReleaseGate | null } = {
     error: null,
-    found: policy(),
+    found: releaseGate(),
   };
   const result = (method: string, input: unknown) => {
     calls.push({ method, input });
     return state.error !== null
       ? { kind: 'err' as const, error: state.error }
-      : { kind: 'ok' as const, value: policy() };
+      : { kind: 'ok' as const, value: releaseGate() };
   };
-  const binding: GatePolicyBinding = {
+  const binding: ReleaseGateBinding = {
     publish: async (input) => result('publish', input),
     get: async (input) => {
       calls.push({ method: 'get', input });
@@ -100,11 +100,11 @@ function fakeBinding() {
     },
     listVersions: async (input) => {
       calls.push({ method: 'listVersions', input });
-      return state.found === null ? [] : [policy('1.0.0'), policy('1.1.0')];
+      return state.found === null ? [] : [releaseGate('1.0.0'), releaseGate('1.1.0')];
     },
     list: async (input) => {
       calls.push({ method: 'list', input });
-      return { data: [policy()] };
+      return { data: [releaseGate()] };
     },
     unregister: async (input) => result('unregister', input),
     reinstate: async (input) => result('reinstate', input),
@@ -113,7 +113,7 @@ function fakeBinding() {
   return { binding, calls, state };
 }
 
-function appWith(binding: GatePolicyBinding) {
+function appWith(binding: ReleaseGateBinding) {
   const pinStore: AgentPinBindings = {
     pinned: { resolve: async () => null, list: async () => [] },
     changes: {
@@ -122,7 +122,7 @@ function appWith(binding: GatePolicyBinding) {
       list: async () => ({ data: [] }),
       get: async () => null,
     },
-    gatePolicies: binding,
+    releaseGates: binding,
   };
   return createApp({
     ...createStubAppBindings(),
@@ -132,10 +132,10 @@ function appWith(binding: GatePolicyBinding) {
   });
 }
 
-describe('POST /v1/gate-policies', () => {
-  test('publishes → 201, the policy on the wire', async () => {
+describe('POST /v1/release-gates', () => {
+  test('publishes → 201, the release gate on the wire', async () => {
     const { binding, calls } = fakeBinding();
-    const res = await appWith(binding).request('/v1/gate-policies', post(BODY));
+    const res = await appWith(binding).request('/v1/release-gates', post(BODY));
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({
       ...BODY,
@@ -147,15 +147,12 @@ describe('POST /v1/gate-policies', () => {
   test('an unknown spec key, a bad metric, a later feature → 400 validation-failed, every issue', async () => {
     const { binding, calls } = fakeBinding();
     const res = await appWith(binding).request(
-      '/v1/gate-policies',
+      '/v1/release-gates',
       post({
         ...BODY,
         spec: {
           metric: [],
-          metrics: [
-            { name: 'weightedYesShare' },
-            { name: 'judgedCoverage', k: 5, minCandidate: 2 },
-          ],
+          metrics: [{ name: 'passRate' }, { name: 'caseCoverage', k: 5, minCandidate: 2 }],
           approvals: { count: 2, forRollback: true },
         },
       }),
@@ -175,20 +172,23 @@ describe('POST /v1/gate-policies', () => {
       '/spec/approvals/forRollback',
     ]);
     expect(error.details.issues[4]?.message).toContain('one reviewer decides');
+    expect(error.details.issues[5]?.message).toBe(
+      "`forRollback` isn't a release gate setting here (expected: role, separateApprover)",
+    );
     expect(calls).toEqual([]);
   });
 
   test("the binding's 409s pass through, with who holds the scope", async () => {
     const { binding, state } = fakeBinding();
     state.error = {
-      code: 'gate-policy-scope-taken',
+      code: 'release-gate-scope-taken',
       message: 'taken',
       heldBy: 'acme.other-gate',
     };
-    const res = await appWith(binding).request('/v1/gate-policies', post(BODY));
+    const res = await appWith(binding).request('/v1/release-gates', post(BODY));
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({
-      error: { code: 'gate-policy-scope-taken', details: { heldBy: 'acme.other-gate' } },
+      error: { code: 'release-gate-scope-taken', details: { heldBy: 'acme.other-gate' } },
     });
   });
 });
@@ -197,7 +197,7 @@ describe('reads', () => {
   test('GET / passes the agent and scope filters', async () => {
     const { binding, calls } = fakeBinding();
     const res = await appWith(binding).request(
-      `/v1/gate-policies?agentId=acme.drafting&scopeKind=project&scopeId=${PROJECT}`,
+      `/v1/release-gates?agentId=acme.drafting&scopeKind=project&scopeId=${PROJECT}`,
       { headers: auth },
     );
     expect(res.status).toBe(200);
@@ -208,19 +208,19 @@ describe('reads', () => {
   test('GET /:id, /:id/versions, /:id/versions/:version; unknown → 404', async () => {
     const { binding, state } = fakeBinding();
     const app = appWith(binding);
-    expect((await app.request(`/v1/gate-policies/${BODY.id}`, { headers: auth })).status).toBe(200);
-    const versions = await app.request(`/v1/gate-policies/${BODY.id}/versions`, { headers: auth });
+    expect((await app.request(`/v1/release-gates/${BODY.id}`, { headers: auth })).status).toBe(200);
+    const versions = await app.request(`/v1/release-gates/${BODY.id}/versions`, { headers: auth });
     expect(await versions.json()).toMatchObject({
       data: [{ version: '1.0.0' }, { version: '1.1.0' }],
     });
     expect(
-      (await app.request(`/v1/gate-policies/${BODY.id}/versions/1.0.0`, { headers: auth })).status,
+      (await app.request(`/v1/release-gates/${BODY.id}/versions/1.0.0`, { headers: auth })).status,
     ).toBe(200);
     state.found = null;
     for (const path of ['', '/versions', '/versions/9.9.9']) {
-      const res = await app.request(`/v1/gate-policies/${BODY.id}${path}`, { headers: auth });
+      const res = await app.request(`/v1/release-gates/${BODY.id}${path}`, { headers: auth });
       expect(res.status).toBe(404);
-      expect(await res.json()).toMatchObject({ error: { code: 'gate-policy-not-found' } });
+      expect(await res.json()).toMatchObject({ error: { code: 'release-gate-not-found' } });
     }
   });
 
@@ -229,7 +229,7 @@ describe('reads', () => {
     const app = appWith(binding);
     for (const action of ['unregister', 'reinstate']) {
       const res = await app.request(
-        `/v1/gate-policies/${BODY.id}/versions/1.0.0/${action}`,
+        `/v1/release-gates/${BODY.id}/versions/1.0.0/${action}`,
         post(),
       );
       expect(res.status).toBe(200);
@@ -241,8 +241,12 @@ describe('reads', () => {
 describe('authorization: writes need admin on the tenant; reads need read on the scope', () => {
   const OTHER = randomUUID();
   const ORG = randomUUID();
-  const scoped = (id: string, scope: AgentPinScope): GatePolicy => ({ ...policy(), id, scope });
-  const POLICIES: readonly GatePolicy[] = [
+  const scoped = (id: string, scope: AgentPinScope): ReleaseGate => ({
+    ...releaseGate(),
+    id,
+    scope,
+  });
+  const RELEASE_GATES: readonly ReleaseGate[] = [
     scoped('acme.a', { kind: 'project', projectId: PROJECT } as AgentPinScope),
     scoped('acme.b', { kind: 'project', projectId: OTHER } as AgentPinScope),
     scoped('acme.a-eu', {
@@ -279,12 +283,12 @@ describe('authorization: writes need admin on the tenant; reads need read on the
         return out;
       },
     };
-    const binding: GatePolicyBinding = {
+    const binding: ReleaseGateBinding = {
       ...fakeBinding().binding,
-      list: async () => ({ data: [...POLICIES] }),
-      get: async ({ id }) => POLICIES.find((p) => p.id === id) ?? null,
-      getVersion: async ({ id }) => POLICIES.find((p) => p.id === id) ?? null,
-      listVersions: async ({ id }) => POLICIES.filter((p) => p.id === id),
+      list: async () => ({ data: [...RELEASE_GATES] }),
+      get: async ({ id }) => RELEASE_GATES.find((p) => p.id === id) ?? null,
+      getVersion: async ({ id }) => RELEASE_GATES.find((p) => p.id === id) ?? null,
+      listVersions: async ({ id }) => RELEASE_GATES.filter((p) => p.id === id),
     };
     const app = new Hono<AppEnv>();
     app.use('*', async (c, next) => {
@@ -292,7 +296,7 @@ describe('authorization: writes need admin on the tenant; reads need read on the
       c.set('requestId' as never, 'req-gate' as never);
       return next();
     });
-    app.route('/', gatePoliciesRouter(binding, authorizer));
+    app.route('/', releaseGatesRouter(binding, authorizer));
     return app;
   }
 
@@ -311,7 +315,7 @@ describe('authorization: writes need admin on the tenant; reads need read on the
     expect(asked).toEqual([`admin tenant:${tenantId}`]);
   });
 
-  test('GET / lists only the policies whose scope the caller may read', async () => {
+  test('GET / lists only the release gates whose scope the caller may read', async () => {
     const asked: string[] = [];
     const res = await mounted([`project:${PROJECT}`], asked).request('/');
     expect(res.status).toBe(200);
@@ -340,36 +344,38 @@ describe('authorization: writes need admin on the tenant; reads need read on the
       if (status === 404) {
         // As if it weren't there: the caller learns nothing about it.
         expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
-          'gate-policy-not-found',
+          'release-gate-not-found',
         );
       }
     }
   });
 
-  test('a tenant-wide policy needs read on the tenant; an org one, read on the org', async () => {
+  test('a tenant-wide release gate needs read on the tenant; an org one, read on the org', async () => {
     expect((await mounted([`tenant:${tenantId}`], []).request('/acme.all')).status).toBe(200);
     expect((await mounted([`org:${ORG}`], []).request('/acme.org')).status).toBe(200);
     expect((await mounted([`org:${ORG}`], []).request('/acme.all')).status).toBe(404);
   });
 
-  test('a caller who may read nothing gets an empty list, and 404 for each policy', async () => {
+  test('a caller who may read nothing gets an empty list, and 404 for each release gate', async () => {
     const res = await mounted([], []).request('/');
     expect(((await res.json()) as { data: unknown[] }).data).toEqual([]);
-    for (const p of POLICIES) expect((await mounted([], []).request(`/${p.id}`)).status).toBe(404);
+    for (const p of RELEASE_GATES) {
+      expect((await mounted([], []).request(`/${p.id}`)).status).toBe(404);
+    }
   });
 });
 
-describe('parseGatePolicySpec', () => {
+describe('parseReleaseGateSpec', () => {
   test('an empty spec is valid: it checks nothing', () => {
-    expect(parseGatePolicySpec({})).toEqual({ kind: 'ok', spec: {} });
+    expect(parseReleaseGateSpec({})).toEqual({ kind: 'ok', spec: {} });
   });
 
   test('a metric is gated once, with something to reach; k only for precision', () => {
-    const r = parseGatePolicySpec({
+    const r = parseReleaseGateSpec({
       metrics: [
         { name: 'weightedPrecisionAtK', k: 5, minCandidate: 0.7 },
         { name: 'weightedPrecisionAtK', minCandidate: 0.6 },
-        { name: 'judgedCoverage', maxDrop: 0 },
+        { name: 'caseCoverage', maxDrop: 0 },
       ],
     });
     expect(r).toEqual({
@@ -379,7 +385,7 @@ describe('parseGatePolicySpec', () => {
   });
 
   test('replay knobs are whole numbers; approvals take a reviewer role', () => {
-    const r = parseGatePolicySpec({
+    const r = parseReleaseGateSpec({
       replay: { maxDiverged: 1.5 },
       approvals: { role: 'boss', separateApprover: 'yes' },
     });

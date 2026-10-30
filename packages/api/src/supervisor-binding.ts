@@ -131,7 +131,7 @@ export interface SuggestedChangeCandidate {
 }
 
 /** The metric that says whether a candidate is better. */
-export type SuggestedChangeObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
 /**
  * How a candidate is kept: `better`, it beat the recorded outputs on the

@@ -48,11 +48,11 @@ import type {
   DeploymentBinding,
   DeploymentContents,
   DeploymentEndpoint,
-  GatePolicy,
   Pin,
   PinVersionInput,
   PinnedVersionBinding,
   PromotedToolSecretScopes,
+  ReleaseGate,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -346,11 +346,11 @@ function livePins(
     list: async () => ({ data: [] }),
     get: async () => null,
   };
-  // A gate policy on a carried agent's scope, so `makeLive` sees a gate it
+  // A release gate on a carried agent's scope, so `makeLive` sees a gate it
   // can't record (this binding has no `changes.request`): `pin-
   // gate-unsupported`, decided before any pin.
   const gated = new Set(opts.gated ?? []);
-  const gatePolicies = {
+  const releaseGates = {
     resolve: async ({ agentId, scope }: { agentId: string; scope: AgentPinScope }) =>
       gated.has(agentId)
         ? ({
@@ -361,7 +361,7 @@ function livePins(
             scope,
             spec: {},
             createdAt: '2026-10-01T00:00:00.000Z' as Timestamp,
-          } satisfies GatePolicy)
+          } satisfies ReleaseGate)
         : null,
   };
   return {
@@ -370,7 +370,7 @@ function livePins(
       pinned: { resolve: async () => null, list: async () => [] },
       changes: changes as unknown as AgentPinBindings['changes'],
       ...(gated.size > 0 && {
-        gatePolicies: gatePolicies as unknown as NonNullable<AgentPinBindings['gatePolicies']>,
+        releaseGates: releaseGates as unknown as NonNullable<AgentPinBindings['releaseGates']>,
       }),
     },
   };
@@ -394,7 +394,7 @@ function harness(
     readonly secretSchema?: object;
     /** Wire a live-release binding (`livePins`), so `makeLive` can pin. */
     readonly live?: boolean;
-    /** Carried agents whose scope has a gate policy this binding can't record. */
+    /** Carried agents whose scope has a release gate this binding can't record. */
     readonly gated?: readonly string[];
     /** Carried agents whose pin write fails (the error only the write can give). */
     readonly errorOn?: readonly string[];

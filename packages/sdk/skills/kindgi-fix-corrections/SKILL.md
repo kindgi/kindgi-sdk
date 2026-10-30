@@ -63,7 +63,7 @@ corrections and the tools to change each layer.
    — never loosen the policy.
 2. **Pinning a version is the person's.** You publish a new version and
    *ask* for it with `kindgi agents pin … --reason`. When the scope's
-   release gate policy has `approvals`, the pin waits for a second person
+   release gate has `approvals`, the pin waits for a second person
    (`pending-approval`) — don't try to get around it.
 3. **The pulled runs hold real conversations.** A run you pull is a real
    customer's. Keep it out of git. Write every pack test with invented data

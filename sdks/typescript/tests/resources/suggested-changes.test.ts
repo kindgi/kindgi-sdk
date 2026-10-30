@@ -107,7 +107,7 @@ describe('client.suggestedChanges', () => {
 
     const refused = errorFetch(422, {
       code: 'gate-failed',
-      message: 'The release gate policy refused acme.scorer 1.0.1',
+      message: 'The release gate refused acme.scorer 1.0.1',
       details: { suggestedChangeId: ID },
     });
     await expect(clientWith(refused).suggestedChanges.pin(ID)).rejects.toMatchObject({

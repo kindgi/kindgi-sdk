@@ -208,7 +208,7 @@ class PinActor(BaseModel):
 
 class GateCheck(BaseModel):
     """
-    One of a gate's checks, as the promotion records it.
+    One of a gate's checks, as the pin records it.
     """
 
     model_config = ConfigDict(
@@ -217,18 +217,18 @@ class GateCheck(BaseModel):
     )
     name: str
     """
-    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.
+    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.
     """
     passed: bool
     message: str
     """
-    A plain sentence: what was found against what the policy asks.
+    A plain sentence: what was found against what the gate asks.
     """
     value: float | str | None = None
     threshold: float | str | None = None
 
 
-class GatePolicyRef(BaseModel):
+class ReleaseGateRef(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -239,7 +239,7 @@ class GatePolicyRef(BaseModel):
 
 class GateApproval(BaseModel):
     """
-    The approval a passing promotion waits for.
+    The approval a passing pin waits for.
     """
 
     model_config = ConfigDict(
@@ -250,7 +250,7 @@ class GateApproval(BaseModel):
     count: Annotated[int, Field(ge=1)]
     separate_approver: Annotated[bool, Field(alias="separateApprover")]
     """
-    Whoever asked for the promotion may not approve it.
+    Whoever asked for the pin may not approve it.
     """
 
 
@@ -272,9 +272,7 @@ class Metric(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Annotated[
-        Literal["weightedYesShare", "judgedCoverage", "weightedPrecisionAtK"] | str, _open.OPEN
-    ]
+    name: Annotated[Literal["passRate", "caseCoverage", "weightedPrecisionAtK"] | str, _open.OPEN]
     k: Annotated[int | None, Field(ge=1, le=100)] = None
     """
     `weightedPrecisionAtK` only: the summary's `k` must be this.
@@ -306,7 +304,7 @@ class Replay(BaseModel):
 
 class Approvals(BaseModel):
     """
-    A passing promotion waits for a reviewer.
+    A passing pin waits for a reviewer.
     """
 
     model_config = ConfigDict(
@@ -333,9 +331,9 @@ class PinCheck(BaseModel):
         populate_by_name=True,
     )
     outcome: Annotated[Literal["would-pin", "needs-approval", "gate-failed"] | str, _open.OPEN]
-    policy: GatePolicyRef | None
+    release_gate: Annotated[ReleaseGateRef | None, Field(alias="releaseGate")]
     """
-    The policy that applies; null when none does.
+    The release gate that applies; null when none does.
     """
     checks: list[GateCheck]
     approval: GateApproval | None = None
@@ -2896,7 +2894,7 @@ class AgentPinSwaps(BaseModel):
 
 class FlowPins(BaseModel):
     """
-    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.
+    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.
     """
 
     model_config = ConfigDict(
@@ -6738,7 +6736,7 @@ class Prompts(BaseModel):
 
 class TestRunOverrides(BaseModel):
     """
-    For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
+    For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a pin.
     """
 
     model_config = ConfigDict(
@@ -6751,7 +6749,7 @@ class TestRunOverrides(BaseModel):
 
 class TestRunSample(BaseModel):
     """
-    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
+    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A release gate refuses a comparison on the search part (`comparison.sample`).
     """
 
     model_config = ConfigDict(
@@ -6855,8 +6853,8 @@ class Metrics(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    weighted_yes_share: Annotated[ComparisonMetric, Field(alias="weightedYesShare")]
-    judged_coverage: Annotated[ComparisonMetric, Field(alias="judgedCoverage")]
+    pass_rate: Annotated[ComparisonMetric, Field(alias="passRate")]
+    case_coverage: Annotated[ComparisonMetric, Field(alias="caseCoverage")]
     weighted_precision_at_k: Annotated[ComparisonMetric, Field(alias="weightedPrecisionAtK")]
 
 
@@ -6871,7 +6869,7 @@ class Result(BaseModel):
 
 class Corrections(BaseModel):
     """
-    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.
     """
 
     model_config = ConfigDict(
@@ -7072,7 +7070,7 @@ class TestRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`passRate`, `caseCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
@@ -8750,9 +8748,9 @@ class DeploymentLivePinGate(BaseModel):
         _open.OPEN,
     ]
     change_id: Annotated[UUID, Field(alias="changeId")]
-    policy: GatePolicyRef | None = None
+    release_gate: Annotated[ReleaseGateRef | None, Field(alias="releaseGate")] = None
     """
-    The gate policy that applied; null when none did.
+    The release gate that applied; null when none did.
     """
     approval_id: Annotated[str | None, Field(alias="approvalId")] = None
     """
@@ -11424,7 +11422,7 @@ class ImproveScheduleInput(BaseModel):
         populate_by_name=True,
     )
     tiers: list[Literal["settings", "prompt"]] | None = None
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = None
+    objective: Literal["passRate", "weightedPrecisionAtK"] | None = None
     group_weights: Annotated[
         Literal["experts-only", "as-recorded"] | None, Field(alias="groupWeights")
     ] = None
@@ -12147,7 +12145,7 @@ class MCPPromptMessageContentImage(BaseModel):
 
 class Overrides(BaseModel):
     """
-    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a pin. Absent otherwise.
     """
 
     model_config = ConfigDict(
@@ -12172,11 +12170,11 @@ class ComparisonCandidateAgent(BaseModel):
     version: str
     pins_digest: Annotated[str | None, Field(alias="pinsDigest")] = None
     """
-    The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.
+    The version's pinsDigest: what it ran, as a release gate checks. Absent for a version published before pins, and from a comparison recorded before it.
     """
     overrides: Overrides | None = None
     """
-    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a pin. Absent otherwise.
     """
 
 
@@ -12504,7 +12502,7 @@ class RunWaitingTokenTool(BaseModel):
     """
 
 
-class GatePolicySpecComparisonTestSet(BaseModel):
+class ReleaseGateSpecComparisonTestSet(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -13350,9 +13348,9 @@ class Pin(BaseModel):
     """
     A `pin` row's state: it changes once, from `pending-approval` to its final state. Absent on unpin rows, and on pins made before gates (`pinned`).
     """
-    policy: GatePolicyRef | None = None
+    release_gate: Annotated[ReleaseGateRef | None, Field(alias="releaseGate")] = None
     """
-    The gate policy that applied; null when none did. Absent before gates.
+    The release gate that applied; null when none did. Absent before gates.
     """
     checks: list[GateCheck] | None = None
     approval_id: Annotated[str | None, Field(alias="approvalId")] = None
@@ -13517,12 +13515,12 @@ class Comparison(BaseModel):
         populate_by_name=True,
     )
     max_age_hours: Annotated[float | None, Field(alias="maxAgeHours", gt=0.0)] = None
-    test_set: Annotated[GatePolicySpecComparisonTestSet | None, Field(alias="testSet")] = None
+    test_set: Annotated[ReleaseGateSpecComparisonTestSet | None, Field(alias="testSet")] = None
 
 
-class GatePolicySpec(BaseModel):
+class ReleaseGateSpec(BaseModel):
     """
-    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
+    What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
     """
 
     model_config = ConfigDict(
@@ -13541,7 +13539,7 @@ class GatePolicySpec(BaseModel):
     """
     approvals: Approvals | None = None
     """
-    A passing promotion waits for a reviewer.
+    A passing pin waits for a reviewer.
     """
     only_expert_groups: Annotated[bool | None, Field(alias="onlyExpertGroups")] = None
     """
@@ -13549,7 +13547,7 @@ class GatePolicySpec(BaseModel):
     """
 
 
-class GatePolicy(BaseModel):
+class ReleaseGate(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -13568,23 +13566,23 @@ class GatePolicy(BaseModel):
     """
     Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    spec: GatePolicySpec
+    spec: ReleaseGateSpec
     description: str | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
 
 
-class GatePolicyPage(BaseModel):
+class ReleaseGatePage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[GatePolicy]
+    data: list[ReleaseGate]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class PublishGatePolicyBody(BaseModel):
+class PublishReleaseGateBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -13606,18 +13604,18 @@ class PublishGatePolicyBody(BaseModel):
     """
     Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    spec: GatePolicySpec
+    spec: ReleaseGateSpec
     description: str | None = None
 
 
-class GatePolicyResolution(BaseModel):
+class ReleaseGateResolution(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    policy: GatePolicy | None
+    release_gate: Annotated[ReleaseGate | None, Field(alias="releaseGate")]
     """
-    The policy that gates a promotion for the scope; null when none does.
+    The release gate that checks a pin for the scope; null when none does.
     """
 
 
@@ -14695,7 +14693,7 @@ class SuggestedChangeEvaluation(BaseModel):
     """
     The test set (a corrections test set).
     """
-    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
+    objective: Annotated[Literal["passRate", "weightedPrecisionAtK"] | str, _open.OPEN]
     started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
     run_status: Annotated[
         Annotated[
@@ -14842,7 +14840,7 @@ class ImproveRun(BaseModel):
     The test set it searches and proves on.
     """
     tiers: list[Annotated[Literal["settings", "prompt"] | str, _open.OPEN]]
-    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
+    objective: Annotated[Literal["passRate", "weightedPrecisionAtK"] | str, _open.OPEN]
     group_weights: Annotated[
         Annotated[Literal["as-recorded", "experts-only"] | str, _open.OPEN] | None,
         Field(alias="groupWeights"),
@@ -14947,7 +14945,7 @@ class StartImproveRunBody(BaseModel):
     """
     Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the Improve run reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).
     """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    objective: Literal["passRate", "weightedPrecisionAtK"] | None = "passRate"
     budget: Budget2 | None = None
     """
     Default: $5 and 30 candidates.
@@ -15001,7 +14999,7 @@ class EvaluateSuggestedChangeBody(BaseModel):
     """
     The test set: a corrections test set.
     """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    objective: Literal["passRate", "weightedPrecisionAtK"] | None = "passRate"
     """
     The metric that says whether the candidate is better.
     """
@@ -15268,7 +15266,7 @@ class CostRecordCollectionPage(BaseModel):
 
 class CorrectedComparisonSummary(BaseModel):
     """
-    What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.
+    What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a release gate reads.
     """
 
     model_config = ConfigDict(
@@ -15336,7 +15334,7 @@ class CorrectedComparisonSummary(BaseModel):
     metrics: Metrics
     corrections: Corrections | None = None
     """
-    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.
     """
     cost_usd: Annotated[CorrectedComparisonCost | None, Field(alias="costUsd")] = None
 

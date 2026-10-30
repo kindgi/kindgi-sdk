@@ -49,13 +49,13 @@ import type {
   CheckImproveRunInput,
   CorrectedComparisonSummary,
   CorrectionRegistryBinding,
-  GatePolicy,
-  GatePolicySpec,
   ImproveRun,
   ImproveRunBinding,
   ImproveRunCheckBasis,
   Pin,
   ReferenceScopeBinding,
+  ReleaseGate,
+  ReleaseGateSpec,
   ReviewerRegistryBinding,
   RunHandlerBinding,
   StartImproveRunInput,
@@ -193,7 +193,7 @@ function summary(
     reads: 'recorded',
     sampling: { models: [] },
     repetitions: metric.spread === undefined ? 1 : 3,
-    metrics: { weightedYesShare: m, judgedCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
+    metrics: { passRate: m, caseCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
   };
 }
 
@@ -277,7 +277,7 @@ function testRunFake(agents: AgentRegistryBinding) {
 function pinsFake(agents: AgentRegistryBinding) {
   const pins: AgentPinnedVersion[] = [];
   const pinChanges = new Map<string, Pin>();
-  const state: { policy: GatePolicy | null } = { policy: null };
+  const state: { releaseGate: ReleaseGate | null } = { releaseGate: null };
   const calls: { method: string; input: unknown }[] = [];
   const key = (scope: AgentPinScope) => JSON.stringify(scope);
   const pinOf = (agentId: string, scope: AgentPinScope) =>
@@ -353,7 +353,7 @@ function pinsFake(agents: AgentRegistryBinding) {
           requestedBy: input.requestedBy,
           ...(input.testRunId !== undefined && { testRunId: input.testRunId }),
           status,
-          policy: input.gate.policy,
+          releaseGate: input.gate.releaseGate,
           checks: input.gate.checks,
           ...(status === 'pending-approval' && { approvalId: 'appr-1' }),
         });
@@ -386,8 +386,8 @@ function pinsFake(agents: AgentRegistryBinding) {
         return pinChanges.get(id) ?? null;
       },
     },
-    gatePolicies: {
-      resolve: async () => state.policy,
+    releaseGates: {
+      resolve: async () => state.releaseGate,
       publish: async () => ({ kind: 'err', error: { code: 'persistence-error', message: 'x' } }),
       get: async () => null,
       getVersion: async () => null,
@@ -1008,7 +1008,7 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
     expect(res.body.status).toBe(status);
     expect(res.body.evaluation).toMatchObject({
       runStatus: 'completed',
-      objective: 'weightedYesShare',
+      objective: 'passRate',
       better,
     });
   });
@@ -1093,7 +1093,7 @@ describe('POST /v1/suggested-changes/:id/rescore', () => {
     expect(rescoreRunId).not.toBe(firstRunId);
     expect(res.body.evaluation).toMatchObject({
       testSetId: 'acme.scoring-judged',
-      objective: 'weightedYesShare',
+      objective: 'passRate',
     });
     expect(testRuns.started[1]).toEqual({
       tenantId,
@@ -1109,7 +1109,7 @@ describe('POST /v1/suggested-changes/:id/rescore', () => {
     expect((await call('GET', `/v1/suggested-changes/${id}`)).body.status).toBe('evaluated');
     // The run rescored stays as it was.
     expect(testRuns.runs.get(firstRunId)?.result).toMatchObject({
-      summary: { metrics: { weightedYesShare: { delta: null } } },
+      summary: { metrics: { passRate: { delta: null } } },
     });
   });
 
@@ -1172,7 +1172,7 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     expect(res.body.status).toBe('pinned');
   });
 
-  test('with no gate policy it pins the candidate for the scope (201), pinned now', async () => {
+  test('with no release gate it pins the candidate for the scope (201), pinned now', async () => {
     const { call, id, pinStore } = await evaluated(0.1);
     const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {
       reason: 'acme wants recency',
@@ -1189,14 +1189,14 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
       version: '1.0.1',
       scope: SEGMENT,
       reason: 'acme wants recency',
-      gate: { policy: null, passed: true, servingVersion: '1.0.0' },
+      gate: { releaseGate: null, passed: true, servingVersion: '1.0.0' },
     });
   });
 
-  test('a policy that wants an approval leaves it in review (202), then pinned once approved', async () => {
+  test('a release gate that wants an approval leaves it in review (202), then pinned once approved', async () => {
     const { call, id, pinStore } = await evaluated(0.1);
-    const spec: GatePolicySpec = { approvals: { role: 'standard' } };
-    pinStore.state.policy = {
+    const spec: ReleaseGateSpec = { approvals: { role: 'standard' } };
+    pinStore.state.releaseGate = {
       id: 'acme.prod',
       version: '1.0.0',
       tenantId,
@@ -1224,13 +1224,13 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
 
   test("a gate refusal is 422 gate-failed with the suggested change's id; it can be evaluated again", async () => {
     const { call, id, pinStore } = await evaluated(0.1);
-    pinStore.state.policy = {
+    pinStore.state.releaseGate = {
       id: 'acme.prod',
       version: '1.0.0',
       tenantId,
       agentId: AGENT,
       scope: SEGMENT,
-      spec: { metrics: [{ name: 'weightedYesShare', minCandidate: 0.99 }] },
+      spec: { metrics: [{ name: 'passRate', minCandidate: 0.99 }] },
       createdAt: NOW,
     };
     const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
@@ -1448,7 +1448,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     expect(res.body.evidence).toEqual({ fixes: ['j-1', 'j-2'], correctionCount: 140 });
   });
 
-  test('its request waits for a reviewer even where no gate policy asks for one (K2)', async () => {
+  test('its request waits for a reviewer even where no release gate asks for one (K2)', async () => {
     const h = await harness();
     h.pinStore.pin({ kind: 'tenant' }, '1.0.0');
     const service = createSuggestedChangeService({
@@ -1475,7 +1475,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       tenantId,
       suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
-      objective: 'weightedYesShare',
+      objective: 'passRate',
       actor,
     });
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
@@ -1492,7 +1492,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       requestedBy: unknown;
     };
     expect(request.gate).toMatchObject({
-      policy: null,
+      releaseGate: null,
       passed: true,
       approval: { role: 'standard', count: 1, separateApprover: false },
     });
@@ -1602,7 +1602,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       tenantId,
       suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
-      objective: 'weightedYesShare',
+      objective: 'passRate',
       actor,
     });
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
@@ -1748,20 +1748,20 @@ describe('a suggested change a drafter wrote (not a person)', () => {
   });
 
   /**
-   * Like `draftedApprovalFor`, but with a scope policy in force — so the
-   * pin's approval is `resolveApproval`'s combination of the policy's own
+   * Like `draftedApprovalFor`, but with a scope's release gate in force — so the
+   * pin's approval is `resolveApproval`'s combination of the gate's own
    * approval and the drafter's separate-approver rule. `approvals` is the
-   * policy's approvals block; `undefined` is a policy with none (only a metric
+   * gate's approvals block; `undefined` is a gate with none (only a metric
    * bar the candidate clears), where the drafter's own approval applies.
    */
-  async function underPolicy(
-    approvals: NonNullable<GatePolicySpec['approvals']> | undefined,
+  async function underReleaseGate(
+    approvals: NonNullable<ReleaseGateSpec['approvals']> | undefined,
     reviewers: Pick<ReviewerRegistryBinding, 'list'>,
     actor: { kind: 'user' | 'service'; id: string },
   ): Promise<{ role: string; count: number; separateApprover: boolean } | undefined> {
     const h = await harness();
     h.pinStore.pin({ kind: 'tenant' }, '1.0.0');
-    h.pinStore.state.policy = {
+    h.pinStore.state.releaseGate = {
       id: 'acme.prod',
       version: '1.0.0',
       tenantId,
@@ -1769,7 +1769,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       scope: SEGMENT,
       spec:
         approvals === undefined
-          ? { metrics: [{ name: 'weightedYesShare', minCandidate: 0.1 }] }
+          ? { metrics: [{ name: 'passRate', minCandidate: 0.1 }] }
           : { approvals },
       createdAt: NOW,
     };
@@ -1797,7 +1797,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       tenantId,
       suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
-      objective: 'weightedYesShare',
+      objective: 'passRate',
       actor,
     });
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
@@ -1811,9 +1811,9 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     return request.gate.approval;
   }
 
-  test('a policy that asks for a separate approver is a floor the drafter cannot loosen', async () => {
+  test('a release gate that asks for a separate approver is a floor the drafter cannot loosen', async () => {
     // Explicit true, with a lone roster the drafter's own rule would let self-approve.
-    const approval = await underPolicy(
+    const approval = await underReleaseGate(
       { role: 'standard', separateApprover: true },
       roster({ userId: 'u-solo' }),
       {
@@ -1824,16 +1824,16 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     expect(approval).toMatchObject({ role: 'standard', separateApprover: true });
   });
 
-  test("a policy's separate-approver default (unset) is true, so a lone drafter still cannot self-approve", async () => {
-    const approval = await underPolicy({ role: 'standard' }, roster({ userId: 'u-solo' }), {
+  test("a release gate's separate-approver default (unset) is true, so a lone drafter still cannot self-approve", async () => {
+    const approval = await underReleaseGate({ role: 'standard' }, roster({ userId: 'u-solo' }), {
       kind: 'user',
       id: 'u-solo',
     });
     expect(approval).toMatchObject({ role: 'standard', separateApprover: true });
   });
 
-  test('a policy that sets separateApprover false still gets one when a second reviewer could decide', async () => {
-    const approval = await underPolicy(
+  test('a release gate that sets separateApprover false still gets one when a second reviewer could decide', async () => {
+    const approval = await underReleaseGate(
       { role: 'standard', separateApprover: false },
       roster({ userId: 'u-solo' }, { userId: 'u-two' }),
       { kind: 'user', id: 'u-solo' },
@@ -1841,8 +1841,8 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     expect(approval).toMatchObject({ role: 'standard', separateApprover: true });
   });
 
-  test('a policy that sets separateApprover false lets a lone reviewer approve their own drafted pin', async () => {
-    const approval = await underPolicy(
+  test('a release gate that sets separateApprover false lets a lone reviewer approve their own drafted pin', async () => {
+    const approval = await underReleaseGate(
       { role: 'standard', separateApprover: false },
       roster({ userId: 'u-solo' }),
       { kind: 'user', id: 'u-solo' },
@@ -1850,11 +1850,11 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     expect(approval).toMatchObject({ role: 'standard', separateApprover: false });
   });
 
-  test("a false policy's rule is re-checked at the policy's role, so a junior second reviewer does not count", async () => {
-    // Policy role senior; the only other reviewer is standard — below senior, so
+  test("a gate's separateApprover false is re-checked at the gate's role, so a junior second reviewer does not count", async () => {
+    // Gate role senior; the only other reviewer is standard — below senior, so
     // no separate approver. Ranking the re-check at the drafter's own 'standard'
     // (the bug) would count u-two and demand one.
-    const approval = await underPolicy(
+    const approval = await underReleaseGate(
       { role: 'senior', separateApprover: false },
       roster({ userId: 'u-solo' }, { userId: 'u-two', role: 'standard' }),
       { kind: 'user', id: 'u-solo' },
@@ -1862,8 +1862,8 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     expect(approval).toMatchObject({ role: 'senior', separateApprover: false });
   });
 
-  test("a false policy's rule counts a second reviewer ranked at the policy's role", async () => {
-    const approval = await underPolicy(
+  test("a gate's separateApprover false counts a second reviewer ranked at the gate's role", async () => {
+    const approval = await underReleaseGate(
       { role: 'senior', separateApprover: false },
       roster({ userId: 'u-solo' }, { userId: 'u-sr', role: 'senior' }),
       { kind: 'user', id: 'u-solo' },
@@ -1871,10 +1871,10 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     expect(approval).toMatchObject({ role: 'senior', separateApprover: true });
   });
 
-  test("a policy with no approvals block leaves the drafter's own approval to apply", async () => {
+  test("a release gate with no approvals block leaves the drafter's own approval to apply", async () => {
     // Only a metric bar: the gate improveRuns, names no approval, so the drafter's
     // approval (its own separate-approver rule, at standard) is what waits.
-    const approval = await underPolicy(
+    const approval = await underReleaseGate(
       undefined,
       roster({ userId: 'u-solo' }, { userId: 'u-two' }),
       {
@@ -1945,7 +1945,7 @@ describe("a change held to the current version's replays (an Improve run's model
       tenantId,
       suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
-      objective: 'weightedYesShare',
+      objective: 'passRate',
       actor: { kind: 'service', id: 'improve-run' },
       against: { rule, reference: { testRunId: referenceId } },
     });
@@ -2356,7 +2356,7 @@ describe('Improve runs', () => {
       fromVersion: '1.0.0',
       scope: SEGMENT_WIRE,
       tiers: ['settings'],
-      objective: 'weightedYesShare',
+      objective: 'passRate',
       budget: { maxCostUsd: 5, maxCandidates: 30 },
       status: 'running',
       requestedBy: 'user:user-1',
@@ -2969,7 +2969,7 @@ describe('Improve runs', () => {
       scope: { kind: 'tenant' },
       testSetId: 's',
       tiers: ['settings'],
-      objective: 'weightedYesShare',
+      objective: 'passRate',
       groupWeights: 'experts-only',
       budget: { maxCostUsd: 1, maxCandidates: 1 },
       requestedBy: { kind: 'user', id: 'u' },

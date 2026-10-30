@@ -512,7 +512,7 @@ describe('rescoring a comparison over the API: correct the new answers, then res
   test('the changed answer, corrected on its replay, scores in the rescore; nothing replays again', async () => {
     const h = await rescoreSetup();
     const before = (h.first.result as { summary: CorrectedComparisonSummary }).summary;
-    expect(before.metrics.weightedYesShare).toMatchObject({ baseline: 0, candidate: null });
+    expect(before.metrics.passRate).toMatchObject({ baseline: 0, candidate: null });
     // A lead reads the new answer on the replay and corrects it there.
     await h.corrections.record({
       tenantId,
@@ -537,7 +537,7 @@ describe('rescoring a comparison over the API: correct the new answers, then res
     expect(second.comparison?.rescoreOf).toBe(h.first.testRunId);
     const after = (second.result as { summary: CorrectedComparisonSummary }).summary;
     expect(after.rescoreOf).toBe(h.first.testRunId);
-    expect(after.metrics.weightedYesShare).toMatchObject({
+    expect(after.metrics.passRate).toMatchObject({
       baseline: 0,
       candidate: 1,
       delta: 1,

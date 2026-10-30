@@ -156,9 +156,9 @@ _CONFLICT = {
     "not-pinned", "agent-version-pinned", "test-set-already-registered",
     "mcp-endpoint-already-registered", "identity-provider-already-registered",
     "version-already-exists", "test-run-already-terminal", "approval-already-decided",
-    "corrector-group-name-taken", "pin-superseded", "gate-policy-already-registered",
-    "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
-    "gate-policy-needs-pin", "gate-policy-descendant-unpinned", "fact-changed", "legal-hold",
+    "corrector-group-name-taken", "pin-superseded", "release-gate-already-registered",
+    "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
+    "release-gate-needs-pin", "release-gate-descendant-unpinned", "fact-changed", "legal-hold",
     "erasure-in-progress", "provider-key-in-use",
 }  # fmt: skip
 _INVALID = {

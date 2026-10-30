@@ -455,7 +455,7 @@ const noopAgentPins: AgentPinBindings = {
     list: async () => ({ data: [] }),
     get: async () => null,
   },
-  gatePolicies: {
+  releaseGates: {
     publish: async () => ({ kind: 'err', error: { code: 'persistence-error', message: 'noop' } }),
     get: async () => null,
     getVersion: async () => null,
@@ -463,11 +463,11 @@ const noopAgentPins: AgentPinBindings = {
     list: async () => ({ data: [] }),
     unregister: async () => ({
       kind: 'err',
-      error: { code: 'gate-policy-not-found', message: 'noop' },
+      error: { code: 'release-gate-not-found', message: 'noop' },
     }),
     reinstate: async () => ({
       kind: 'err',
-      error: { code: 'gate-policy-not-found', message: 'noop' },
+      error: { code: 'release-gate-not-found', message: 'noop' },
     }),
     resolve: async () => null,
   },

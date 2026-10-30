@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Pins through their gate (evals step 4b): the route resolves the
- * scope's policy, runs the gate on the named comparison and has the
+ * Pins through their gate: the route resolves the
+ * scope's release gate, runs the gate on the named comparison and has the
  * binding record the outcome (201 pinned, 202 waiting for approval, 422
  * gate-failed). `…/pinned/check` answers the same, recording nothing.
  * The bindings are fakes that record their inputs.
@@ -23,11 +23,11 @@ import type {
   AgentPinnedVersion,
   AgentRegistryBinding,
   CorrectedComparisonSummary,
-  GatePolicy,
-  GatePolicySpec,
   Pin,
   PinError,
   PinRequestInput,
+  ReleaseGate,
+  ReleaseGateSpec,
   RunHandlerBinding,
   TestRun,
   TestRunBinding,
@@ -85,15 +85,15 @@ function summary(overrides: Partial<CorrectedComparisonSummary> = {}): Corrected
     reads: 'recorded',
     sampling: { models: [] },
     repetitions: 1,
-    metrics: { weightedYesShare: m, judgedCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
+    metrics: { passRate: m, caseCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
     ...overrides,
   };
 }
 
-function policy(
-  spec: GatePolicySpec,
+function releaseGate(
+  spec: ReleaseGateSpec,
   scope: AgentPinScope = PROJECT_SCOPE as AgentPinScope,
-): GatePolicy {
+): ReleaseGate {
   return {
     id: 'acme.drafting-prod',
     version: '1.0.0',
@@ -105,21 +105,21 @@ function policy(
   };
 }
 
-const PASSING: GatePolicySpec = { metrics: [{ name: 'weightedYesShare', minCandidate: 0.75 }] };
-const FAILING: GatePolicySpec = { metrics: [{ name: 'weightedYesShare', minCandidate: 0.9 }] };
+const PASSING: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0.75 }] };
+const FAILING: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0.9 }] };
 
-function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
+function setup(opts: { request?: boolean; releaseGates?: boolean } = {}) {
   const calls: { method: string; input: unknown }[] = [];
   const state: {
     resolved: AgentPinResolution | null;
-    policy: GatePolicy | null;
+    releaseGate: ReleaseGate | null;
     testRun: TestRun | null;
     requestError: PinError | null;
     projectOrg: string | undefined;
     pins: AgentPinnedVersion[];
   } = {
     resolved: null,
-    policy: null,
+    releaseGate: null,
     testRun: null,
     requestError: null,
     projectOrg: undefined,
@@ -140,7 +140,7 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
       : input.gate.approval !== undefined
         ? 'pending-approval'
         : 'pinned',
-    policy: input.gate.policy,
+    releaseGate: input.gate.releaseGate,
     checks: input.gate.checks,
     ...(input.gate.passed && input.gate.approval !== undefined && { approvalId: 'appr-1' }),
   });
@@ -180,11 +180,11 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
       list: async () => ({ data: [] }),
       get: async () => null,
     },
-    ...(opts.gatePolicies !== false && {
-      gatePolicies: {
+    ...(opts.releaseGates !== false && {
+      releaseGates: {
         resolve: async (input: unknown) => {
-          record('policy.resolve', input);
-          return state.policy;
+          record('releaseGate.resolve', input);
+          return state.releaseGate;
         },
         publish: async () => ({ kind: 'err', error: { code: 'persistence-error', message: 'x' } }),
         get: async () => null,
@@ -267,36 +267,36 @@ const pinBody = (body: Record<string, unknown> = {}) =>
 const methods = (calls: { method: string }[]) => calls.map((c) => c.method);
 
 describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
-  test('no policy: recorded as pinned, policy null, no checks → 201', async () => {
+  test('no release gate: recorded as pinned, releaseGate null, no checks → 201', async () => {
     const { app, calls } = setup();
     const res = await app.request(
       `/v1/agents/${AGENT}/pinned/pin`,
       pinBody({ testRunId: undefined }),
     );
     expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ status: 'pinned', policy: null, checks: [] });
+    expect(await res.json()).toMatchObject({ status: 'pinned', releaseGate: null, checks: [] });
     const request = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
     expect(request.gate).toEqual({
-      policy: null,
+      releaseGate: null,
       checks: [],
       passed: true,
       servingVersion: '1.1.0',
     });
   });
 
-  test('no policy, a binding from before gates (no request): pinned as before', async () => {
+  test('no release gate, a binding from before gates (no request): pinned as before', async () => {
     const { app, calls } = setup({ request: false });
     const res = await app.request(
       `/v1/agents/${AGENT}/pinned/pin`,
       pinBody({ testRunId: undefined }),
     );
     expect(res.status).toBe(201);
-    expect(methods(calls)).toEqual(['policy.resolve', 'pin']);
+    expect(methods(calls)).toEqual(['releaseGate.resolve', 'pin']);
   });
 
-  test("a policy applies, and the binding can't record a gated pin → 501, nothing pinned", async () => {
+  test("a release gate applies, and the binding can't record a gated pin → 501, nothing pinned", async () => {
     const { app, calls, state } = setup({ request: false });
-    state.policy = policy(PASSING);
+    state.releaseGate = releaseGate(PASSING);
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(501);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
@@ -305,16 +305,16 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     expect(methods(calls)).not.toContain('pin');
   });
 
-  test('the gate passes: 201 pinned, with the policy and its checks', async () => {
+  test('the gate passes: 201 pinned, with the release gate and its checks', async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(PASSING);
+    state.releaseGate = releaseGate(PASSING);
     state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({
       status: 'pinned',
-      policy: { id: 'acme.drafting-prod', version: '1.0.0' },
+      releaseGate: { id: 'acme.drafting-prod', version: '1.0.0' },
     });
     expect((body.checks as { passed: boolean }[]).every((c) => c.passed)).toBe(true);
     const request = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
@@ -322,9 +322,9 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     expect(request.testRunId).toBe('eval-1');
   });
 
-  test('the gate passes and the policy wants an approval: 202, with the approval id', async () => {
+  test('the gate passes and wants an approval: 202, with the approval id', async () => {
     const { app, calls, state } = setup();
-    state.policy = policy({ ...PASSING, approvals: { role: 'admin' } });
+    state.releaseGate = releaseGate({ ...PASSING, approvals: { role: 'admin' } });
     state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(202);
@@ -335,7 +335,7 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
 
   test('the gate fails: 422 gate-failed, the refusal recorded, every check in the details', async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(FAILING);
+    state.releaseGate = releaseGate(FAILING);
     state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(422);
@@ -344,21 +344,21 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     };
     expect(error.code).toBe('gate-failed');
     expect(error.message).toContain(
-      'The weighted share marked right is 0.8; the policy needs at least 0.9.',
+      'The weighted share marked right is 0.8; the gate needs at least 0.9.',
     );
     expect(error.details).toMatchObject({
       changeId: 'promo-1',
-      policy: { id: 'acme.drafting-prod', version: '1.0.0' },
+      releaseGate: { id: 'acme.drafting-prod', version: '1.0.0' },
     });
     expect(error.details.checks).toContainEqual(
-      expect.objectContaining({ name: 'metric.weightedYesShare.minCandidate', passed: false }),
+      expect.objectContaining({ name: 'metric.passRate.minCandidate', passed: false }),
     );
     expect(methods(calls)).toContain('request');
   });
 
   test("the serving version comes from the scope's coordinates", async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(PASSING);
+    state.releaseGate = releaseGate(PASSING);
     state.resolved = { version: '1.1.0' as Semver, scope: PROJECT_SCOPE as AgentPinScope };
     state.testRun = testRun(summary());
     const scope = {
@@ -378,7 +378,7 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
   test("an org pin looks up the org of the corrections' project", async () => {
     const { app, calls, state } = setup();
     const org = { kind: 'org', orgId: ORG };
-    state.policy = policy(PASSING, org as AgentPinScope);
+    state.releaseGate = releaseGate(PASSING, org as AgentPinScope);
     state.testRun = testRun(summary());
     state.projectOrg = ORG;
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody({ scope: org }));
@@ -388,13 +388,13 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
 
   test('an unknown test run → 404; one that is not a comparison → 400; nothing recorded', async () => {
     const missing = setup();
-    missing.state.policy = policy(PASSING);
+    missing.state.releaseGate = releaseGate(PASSING);
     const res404 = await missing.app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res404.status).toBe(404);
     expect(methods(missing.calls)).not.toContain('request');
 
     const accuracy = setup();
-    accuracy.state.policy = policy(PASSING);
+    accuracy.state.releaseGate = releaseGate(PASSING);
     accuracy.state.testRun = testRun(undefined, 'accuracy');
     const res400 = await accuracy.app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res400.status).toBe(400);
@@ -403,7 +403,7 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
 
   test('an unregistered version → 404 before any gate', async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(PASSING);
+    state.releaseGate = releaseGate(PASSING);
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody({ version: '1.3.0' }));
     expect(res.status).toBe(404);
     expect(methods(calls)).not.toContain('request');
@@ -411,7 +411,7 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
 
   test('the scope moved on while the gate ran → 409 pin-superseded', async () => {
     const { app, state } = setup();
-    state.policy = policy(PASSING);
+    state.releaseGate = releaseGate(PASSING);
     state.testRun = testRun(summary());
     state.requestError = { code: 'pin-superseded', message: 'moved' };
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
@@ -420,7 +420,7 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
 
   test("the gate wants an approval past the tenant's limit on approvals waiting → 429, naming it", async () => {
     const { app, state } = setup();
-    state.policy = policy({ ...PASSING, approvals: {} });
+    state.releaseGate = releaseGate({ ...PASSING, approvals: {} });
     state.testRun = testRun(summary());
     state.requestError = {
       code: 'approvals-pending-limit',
@@ -441,13 +441,13 @@ describe('POST /v1/agents/:agentId/pinned/check', () => {
     ['gate-failed', FAILING],
   ] as const)('%s, recording nothing', async (outcome, spec) => {
     const { app, calls, state } = setup();
-    state.policy = policy(spec);
+    state.releaseGate = releaseGate(spec);
     state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.outcome).toBe(outcome);
-    expect(body.policy).toEqual({ id: 'acme.drafting-prod', version: '1.0.0' });
+    expect(body.releaseGate).toEqual({ id: 'acme.drafting-prod', version: '1.0.0' });
     expect(Array.isArray(body.checks)).toBe(true);
     if (outcome === 'needs-approval') {
       expect(body.approval).toEqual({ role: 'senior', count: 1, separateApprover: true });
@@ -456,54 +456,59 @@ describe('POST /v1/agents/:agentId/pinned/check', () => {
     expect(methods(calls)).not.toContain('pin');
   });
 
-  test('no policy: would-pin, policy null', async () => {
+  test('no release gate: would-pin, releaseGate null', async () => {
     const { app } = setup();
     const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
-    expect(await res.json()).toEqual({ outcome: 'would-pin', policy: null, checks: [] });
+    expect(await res.json()).toEqual({ outcome: 'would-pin', releaseGate: null, checks: [] });
   });
 });
 
-describe('GET /v1/agents/:agentId/gate-policy', () => {
-  test('the policy for a scope, with the scope as the gate resolves it', async () => {
+describe('GET /v1/agents/:agentId/release-gate', () => {
+  test('the release gate for a scope, with the scope as the gate resolves it', async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(PASSING);
+    state.releaseGate = releaseGate(PASSING);
     const res = await app.request(
-      `/v1/agents/${AGENT}/gate-policy?scopeKind=project&scopeId=${PROJECT}`,
+      `/v1/agents/${AGENT}/release-gate?scopeKind=project&scopeId=${PROJECT}`,
       { headers: auth },
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
-      policy: { id: 'acme.drafting-prod', version: '1.0.0', agentId: AGENT, scope: PROJECT_SCOPE },
+      releaseGate: {
+        id: 'acme.drafting-prod',
+        version: '1.0.0',
+        agentId: AGENT,
+        scope: PROJECT_SCOPE,
+      },
     });
-    expect(calls.find((c) => c.method === 'policy.resolve')?.input).toEqual({
+    expect(calls.find((c) => c.method === 'releaseGate.resolve')?.input).toEqual({
       tenantId,
       agentId: AGENT,
       scope: PROJECT_SCOPE,
     });
   });
 
-  test('none → policy null; no gate policies at all → policy null', async () => {
+  test('none → releaseGate null; no release gates at all → releaseGate null', async () => {
     const none = setup();
-    const res = await none.app.request(`/v1/agents/${AGENT}/gate-policy?scopeKind=tenant`, {
+    const res = await none.app.request(`/v1/agents/${AGENT}/release-gate?scopeKind=tenant`, {
       headers: auth,
     });
-    expect(await res.json()).toEqual({ policy: null });
-    const ungated = setup({ gatePolicies: false });
-    const res2 = await ungated.app.request(`/v1/agents/${AGENT}/gate-policy?scopeKind=tenant`, {
+    expect(await res.json()).toEqual({ releaseGate: null });
+    const ungated = setup({ releaseGates: false });
+    const res2 = await ungated.app.request(`/v1/agents/${AGENT}/release-gate?scopeKind=tenant`, {
       headers: auth,
     });
-    expect(await res2.json()).toEqual({ policy: null });
+    expect(await res2.json()).toEqual({ releaseGate: null });
   });
 
   test('without a scope → 400', async () => {
     const { app } = setup();
-    const res = await app.request(`/v1/agents/${AGENT}/gate-policy`, { headers: auth });
+    const res = await app.request(`/v1/agents/${AGENT}/release-gate`, { headers: auth });
     expect(res.status).toBe(400);
   });
 });
 
 describe('a pin in place (T288): the scope has no pin of its own and serves the version already', () => {
-  const STRICT: GatePolicySpec = {
+  const STRICT: ReleaseGateSpec = {
     ...FAILING,
     approvals: { role: 'senior', separateApprover: true },
   };
@@ -511,7 +516,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
 
   test("skips the gate's checks and approval: one passing pinInPlace check, the binding re-checks → 201", async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(STRICT);
+    state.releaseGate = releaseGate(STRICT);
     // Nothing pinned: the scope serves the latest, 1.1.0.
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinHere);
     expect(res.status).toBe(201);
@@ -526,7 +531,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
     ]);
     const requested = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
     expect(requested.gate).toMatchObject({
-      policy: { id: 'acme.drafting-prod', version: '1.0.0' },
+      releaseGate: { id: 'acme.drafting-prod', version: '1.0.0' },
       passed: true,
       servingVersion: '1.1.0',
       pinInPlace: true,
@@ -537,7 +542,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
 
   test('serving it from a pin above counts too', async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(STRICT);
+    state.releaseGate = releaseGate(STRICT);
     state.resolved = { version: '1.2.0' as Semver, scope: { kind: 'tenant' } };
     const res = await app.request(
       `/v1/agents/${AGENT}/pinned/pin`,
@@ -551,7 +556,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
 
   test('a scope with a pin of its own runs the gate, even for the version it serves', async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(STRICT);
+    state.releaseGate = releaseGate(STRICT);
     state.resolved = { version: '1.1.0' as Semver, scope: PROJECT_SCOPE as AgentPinScope };
     state.pins = [
       {
@@ -563,7 +568,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
       },
     ];
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinHere);
-    // The policy wants a comparison, and none was named.
+    // The gate wants a comparison, and none was named.
     expect(res.status).toBe(422);
     const requested = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
     expect(requested.gate.passed).toBe(false);
@@ -572,7 +577,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
 
   test('…/check answers the same, recording nothing', async () => {
     const { app, calls, state } = setup();
-    state.policy = policy(STRICT);
+    state.releaseGate = releaseGate(STRICT);
     const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinHere);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
@@ -584,7 +589,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
 
   test('the scope moved before the write: the binding refuses → 409 pin-superseded', async () => {
     const { app, state } = setup();
-    state.policy = policy(STRICT);
+    state.releaseGate = releaseGate(STRICT);
     state.requestError = {
       code: 'pin-superseded',
       message: 'acme.drafting 1.2.0 serves this scope now, not 1.1.0: check again',

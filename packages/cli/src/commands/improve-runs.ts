@@ -87,7 +87,7 @@ const start: LeafCommand = {
   name: 'start',
   description:
     "Ask the runtime to look for better values for the settings an agent version marks as what Improve may change — or, with `--tier=prompt`, have a model draft new instructions — for a scope, within a budget. It searches on part of the test cases and checks its best candidate on the cases it didn't learn from; if that candidate is better, it writes a suggested change, which a reviewer decides (`kindgi suggested-changes request`). The Improve run works in one project: the test cases must be ones that project reaches, and its test runs run there. With `--project`, it's that project; with `--tenant` or `--org`, `--run-project`, else the agent version's. Answers at once with the Improve run; `--wait` waits for its outcome. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's.",
-  usage: `kindgi improve runs start --agent=<agent-id> ${SCOPE_USAGE} --test-set=<test-set-id> [--run-project=<project-id>] [--from-version=<semver>] [--tier=settings|prompt] [--objective=weightedYesShare|weightedPrecisionAtK] [--group-weights=as-recorded|experts-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
+  usage: `kindgi improve runs start --agent=<agent-id> ${SCOPE_USAGE} --test-set=<test-set-id> [--run-project=<project-id>] [--from-version=<semver>] [--tier=settings|prompt] [--objective=passRate|weightedPrecisionAtK] [--group-weights=as-recorded|experts-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
     ...SCOPE_FLAGS,
@@ -112,7 +112,7 @@ const start: LeafCommand = {
     },
     objective: {
       type: 'string',
-      description: 'What better means: `weightedYesShare` (the default) or `weightedPrecisionAtK`.',
+      description: 'What better means: `passRate` (the default) or `weightedPrecisionAtK`.',
     },
     'group-weights': {
       type: 'string',

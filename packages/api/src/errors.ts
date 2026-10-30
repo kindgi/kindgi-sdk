@@ -268,21 +268,21 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-version-not-found': 404,
   'pin-not-found': 404,
   'not-pinned': 409,
-  // The gate (evals step 4b).
+  // The release gate.
   'gate-failed': 422,
   'pin-superseded': 409,
-  // The binding can't record a gated pin, so one a policy applies to is refused.
+  // The binding can't record a gated pin, so one a release gate applies to is refused.
   'pin-gate-unsupported': 501,
   'separate-approver-required': 403,
   // An approval addressed to one member: someone else who reads it can't decide it.
   'named-approver-required': 403,
-  'gate-policy-not-found': 404,
-  'gate-policy-already-registered': 409,
-  'gate-policy-scope-taken': 409,
-  'gate-policy-scope-changed': 409,
-  'gate-policy-scope-unpinned': 409,
-  'gate-policy-needs-pin': 409,
-  'gate-policy-descendant-unpinned': 409,
+  'release-gate-not-found': 404,
+  'release-gate-already-registered': 409,
+  'release-gate-scope-taken': 409,
+  'release-gate-scope-changed': 409,
+  'release-gate-scope-unpinned': 409,
+  'release-gate-needs-pin': 409,
+  'release-gate-descendant-unpinned': 409,
   // API keys: whom a key acts for, and what it may do.
   /** Mint: the person or service account named doesn't exist. */
   'principal-not-found': 404,

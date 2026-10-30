@@ -213,7 +213,7 @@ export interface TestRunOverrides {
  * "no" and the rest, each split on their own), in the order of a hash of
  * each case id and `seed`. The same seed splits
  * the same test set the same way, so an Improve run searches on one
- * part and proves its candidate on the other. A promotion gate refuses a
+ * part and proves its candidate on the other. A release gate refuses a
  * comparison on the search part.
  */
 export interface TestRunSample {

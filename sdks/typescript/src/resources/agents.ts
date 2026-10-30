@@ -12,10 +12,10 @@ import type {
   AgentPinnedVersionResolution,
   AgentProjectList,
   DeriveAgentVersionBody,
-  GatePolicyResolution,
   Pin,
   PinCheck,
   PinPage,
+  ReleaseGateResolution,
   ScopeSegment,
   UnregisterAgentResult,
 } from '../generated/api.js';
@@ -68,8 +68,8 @@ export interface AgentsClient {
   /** Which version runs where: pin a version for a scope, unpin it, and the history of those changes. */
   readonly pinned: AgentPinnedClient;
 
-  /** The gate policy a pin for a scope is checked against. */
-  readonly gatePolicy: AgentGatePolicyClient;
+  /** The release gate a pin for a scope is checked against. */
+  readonly releaseGate: AgentReleaseGateClient;
 
   /**
    * Un-tombstone a specific previously-unregistered version.
@@ -152,12 +152,12 @@ export interface AgentPinnedClient {
    * conversations keep their version. `404 agent-version-not-found`
    * when the version isn't registered and active.
    *
-   * With a gate policy for the scope, the pin is checked first,
+   * With a release gate for the scope, the pin is checked first,
    * against the comparison named by `testRunId`. The answer's `status`
    * says what happened: `pinned`, or `pending-approval` (a reviewer
    * must approve it; `approvalId`). A refusal throws a `KindgiApiError`
    * whose `error.serverCode` is `gate-failed`, with `changeId`,
-   * `policy` and every check in `error.fields`.
+   * `releaseGate` and every check in `error.fields`.
    *
    * @wire POST /v1/agents/:agentId/pinned/pin
    */
@@ -183,15 +183,15 @@ export interface AgentPinnedClient {
   getChange(agentId: AgentId | string, changeId: string): Promise<Pin>;
 }
 
-export interface AgentGatePolicyClient {
+export interface AgentReleaseGateClient {
   /**
-   * The gate policy a pin for `scope` is checked against: the most
-   * specific scope with one, at its latest active version; `policy: null`
+   * The release gate a pin for `scope` is checked against: the most
+   * specific scope with one, at its latest active version; `releaseGate: null`
    * when none applies.
    *
-   * @wire GET /v1/agents/:agentId/gate-policy
+   * @wire GET /v1/agents/:agentId/release-gate
    */
-  resolve(agentId: AgentId | string, scope: AgentPinScope): Promise<GatePolicyResolution>;
+  resolve(agentId: AgentId | string, scope: AgentPinScope): Promise<ReleaseGateResolution>;
 }
 
 /** Where a run would happen: its project and segment path (coarse to fine). */
@@ -419,11 +419,11 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         });
       },
     },
-    gatePolicy: {
+    releaseGate: {
       async resolve(agentId, scope) {
-        return transport.request<GatePolicyResolution>({
+        return transport.request<ReleaseGateResolution>({
           method: 'GET',
-          path: `/v1/agents/${seg(agentId as string)}/gate-policy`,
+          path: `/v1/agents/${seg(agentId as string)}/release-gate`,
           query: scopeQuery(scope),
         });
       },

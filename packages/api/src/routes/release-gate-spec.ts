@@ -3,10 +3,14 @@
 
 import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
 
-import { GATE_METRICS, type GateMetricSpec, type GatePolicySpec } from '../gate-policy-binding.js';
+import {
+  GATE_METRICS,
+  type GateMetricSpec,
+  type ReleaseGateSpec,
+} from '../release-gate-binding.js';
 
 /**
- * A gate policy's `spec`, checked strictly: an unknown key is an issue, so
+ * A release gate's `spec`, checked strictly: an unknown key is an issue, so
  * a typo can't leave a check silently off.
  */
 
@@ -21,10 +25,9 @@ const REVIEWER_ROLES = Object.keys(REVIEWER_ROLE_RANK) as readonly ReviewerRole[
 
 const isObject = (v: unknown): v is Raw => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-/** Keys the policy may not use yet, with why. */
+/** Keys a release gate may not use yet, with why. */
 const LATER: Readonly<Record<string, string>> = {
-  '/spec/approvals/count': 'one reviewer decides a promotion today; leave `count` out',
-  '/spec/approvals/forRollback': "rollbacks aren't gated yet; leave `forRollback` out",
+  '/spec/approvals/count': 'one reviewer decides a pin today; leave `count` out',
 };
 
 function unknownKeys(raw: Raw, allowed: readonly string[], at: string, issues: SpecIssue[]) {
@@ -35,7 +38,7 @@ function unknownKeys(raw: Raw, allowed: readonly string[], at: string, issues: S
       path,
       message:
         LATER[path] ??
-        `\`${key}\` isn't a gate policy setting here (expected: ${allowed.join(', ')})`,
+        `\`${key}\` isn't a release gate setting here (expected: ${allowed.join(', ')})`,
     });
   }
 }
@@ -88,9 +91,9 @@ function block(raw: Raw, key: string, issues: SpecIssue[]): Raw | undefined {
   return v;
 }
 
-export function parseGatePolicySpec(
+export function parseReleaseGateSpec(
   raw: unknown,
-): { kind: 'ok'; spec: GatePolicySpec } | { kind: 'err'; issues: readonly SpecIssue[] } {
+): { kind: 'ok'; spec: ReleaseGateSpec } | { kind: 'err'; issues: readonly SpecIssue[] } {
   if (!isObject(raw)) {
     return { kind: 'err', issues: [{ path: '/spec', message: '`spec` must be an object' }] };
   }
@@ -102,7 +105,7 @@ export function parseGatePolicySpec(
     issues,
   );
   const spec: {
-    -readonly [K in keyof GatePolicySpec]: GatePolicySpec[K];
+    -readonly [K in keyof ReleaseGateSpec]: ReleaseGateSpec[K];
   } = {};
 
   const comparison = block(raw, 'comparison', issues);

@@ -117,7 +117,7 @@ const supervised = () => ({
   agentRegistry: absent(),
   blockRegistry: absent(),
   testRunBinding: absent(),
-  agentPins: { gatePolicies: absent(), pinned: absent(), changes: absent() },
+  agentPins: { releaseGates: absent(), pinned: absent(), changes: absent() },
 });
 
 /** A `{ data, nextCursor }` page of two hidden rows, then an empty one. */
@@ -227,13 +227,13 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'gate policies',
-    path: '/v1/gate-policies',
+    name: 'release gates',
+    path: '/v1/release-gates',
     bindings: () => {
       const l = page('list', () => ({ scope: { kind: 'project', projectId: 'hid-project' } }));
       return {
         bindings: {
-          agentPins: { gatePolicies: l.binding, pinned: absent(), changes: absent() },
+          agentPins: { releaseGates: l.binding, pinned: absent(), changes: absent() },
         },
         received: l.received,
       };

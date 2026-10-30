@@ -160,7 +160,7 @@ pnpm exec kindgi improve runs start --agent=acme.rank.scorer --tenant --test-set
   its best candidate on the cases it didn't search too. Those run after the
   search, so the budget doesn't stop them, and they can take an Improve run
   past `--max-cost`.
-- **What better means:** `--objective`, `weightedYesShare` by default or
+- **What better means:** `--objective`, `passRate` by default or
   `weightedPrecisionAtK`, as in a
   [run on the test cases](../compare-an-agent-version/#read-the-result).
 - **How it decides:** it searches on 70% of the test cases and proves its
@@ -192,7 +192,7 @@ most 30 minutes, and prints it:
   it, so the suggested change waits in reviewers' approvals. An
   Improve run's suggested change always waits for a reviewer, because Improve,
   not a person, drafted it. Who may approve it depends on the scope's
-  [release gate policy](../release-an-agent-version/#gate-a-release):
+  [release gate](../release-an-agent-version/#gate-a-pin):
   - **No `approvals`:** someone other than you, when there's another active
     reviewer who can see the approval. If there isn't, you can approve it
     yourself, as a registered reviewer.

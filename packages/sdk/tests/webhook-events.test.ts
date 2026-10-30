@@ -59,7 +59,7 @@ const IMPROVE_RUN = {
   },
   testSetId: 'acme-shop.helpdesk-testSet',
   tiers: ['prompt'],
-  objective: 'weightedYesShare',
+  objective: 'passRate',
   budget: { maxCostUsd: 2, maxCandidates: 3 },
   requestedBy: 'user_1',
   status: 'completed',
@@ -192,7 +192,7 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   [
     'an enum on an Improve run',
     withImproveRun({ ...IMPROVE_RUN, objective: 'accuracy' }),
-    '`data.improveRun.objective` is not one of "weightedYesShare", "weightedPrecisionAtK".',
+    '`data.improveRun.objective` is not one of "passRate", "weightedPrecisionAtK".',
   ],
   [
     'an exclusive minimum',

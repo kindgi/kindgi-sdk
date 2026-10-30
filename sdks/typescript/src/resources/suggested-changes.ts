@@ -125,7 +125,7 @@ export interface CreateSuggestedChangeInput {
 export interface EvaluateSuggestedChangeInput {
   /** The test set: a corrections test set. */
   readonly testSetId: string;
-  /** Default `weightedYesShare`. */
+  /** Default `passRate`. */
   readonly objective?: SuggestedChangeObjective;
   readonly reads?: 'recorded' | 'live';
   readonly repetitions?: number;

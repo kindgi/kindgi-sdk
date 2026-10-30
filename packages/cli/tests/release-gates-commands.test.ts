@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi gate-policies …`, `kindgi agents gate-policy` and `kindgi agents pin --check` (evals step 4b). */
+/** `kindgi release-gates …`, `kindgi agents release-gate` and `kindgi agents pin --check`. */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -44,32 +44,32 @@ function recorder() {
 }
 
 const PROJECT = '0b9f4c1e-1111-4a2b-8c3d-000000000001';
-const POLICY = {
+const RELEASE_GATE = {
   id: 'acme.drafter-prod',
   version: '1.0.0',
   agentId: 'acme.drafter',
   scope: { kind: 'project', projectId: PROJECT },
-  spec: { metrics: [{ name: 'weightedYesShare', minCandidate: 0.7 }], approvals: {} },
+  spec: { metrics: [{ name: 'passRate', minCandidate: 0.7 }], approvals: {} },
   createdAt: '2026-10-06T12:00:00.000Z',
 };
 
-describe('kindgi gate-policies', () => {
+describe('kindgi release-gates', () => {
   test('publish, with the spec from a file', async () => {
     const { calls, rec } = recorder();
     const file = join(cwd, 'spec.json');
-    await writeFile(file, JSON.stringify(POLICY.spec));
+    await writeFile(file, JSON.stringify(RELEASE_GATE.spec));
     const out = await run(
       [
-        'gate-policies',
+        'release-gates',
         'publish',
         'acme.drafter-prod',
-        '--policy-version=1.0.0',
+        '--release-gate-version=1.0.0',
         '--agent=acme.drafter',
         `--project=${PROJECT}`,
         `--spec=@${file}`,
         '--description=Production gate',
       ],
-      { gatePolicies: { publish: rec('publish', POLICY) } },
+      { releaseGates: { publish: rec('publish', RELEASE_GATE) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -80,7 +80,7 @@ describe('kindgi gate-policies', () => {
           version: '1.0.0',
           agentId: 'acme.drafter',
           scope: { kind: 'project', projectId: PROJECT },
-          spec: POLICY.spec,
+          spec: RELEASE_GATE.spec,
           description: 'Production gate',
         },
       ],
@@ -88,14 +88,14 @@ describe('kindgi gate-policies', () => {
   });
 
   test.each([
-    [['--agent=acme.drafter', '--tenant', '--spec={}'], '--policy-version'],
-    [['--policy-version=1.0.0', '--tenant', '--spec={}'], '--agent'],
-    [['--policy-version=1.0.0', '--agent=acme.drafter', '--spec={}'], 'Name the scope'],
-    [['--policy-version=1.0.0', '--agent=acme.drafter', '--tenant'], '--spec'],
+    [['--agent=acme.drafter', '--tenant', '--spec={}'], '--release-gate-version'],
+    [['--release-gate-version=1.0.0', '--tenant', '--spec={}'], '--agent'],
+    [['--release-gate-version=1.0.0', '--agent=acme.drafter', '--spec={}'], 'Name the scope'],
+    [['--release-gate-version=1.0.0', '--agent=acme.drafter', '--tenant'], '--spec'],
   ])('publish %j fails before calling: %s', async (flags, message) => {
     const { calls, rec } = recorder();
-    const out = await run(['gate-policies', 'publish', 'acme.drafter-prod', ...flags], {
-      gatePolicies: { publish: rec('publish') },
+    const out = await run(['release-gates', 'publish', 'acme.drafter-prod', ...flags], {
+      releaseGates: { publish: rec('publish') },
     });
     expect(out.exitCode).not.toBe(0);
     expect(out.stderr).toContain(message);
@@ -104,8 +104,8 @@ describe('kindgi gate-policies', () => {
 
   test('list for an agent, as a table', async () => {
     const { calls, rec } = recorder();
-    const out = await run(['gate-policies', 'list', '--agent=acme.drafter', '--table'], {
-      gatePolicies: { list: rec('list', { data: [POLICY], hasMore: false }) },
+    const out = await run(['release-gates', 'list', '--agent=acme.drafter', '--table'], {
+      releaseGates: { list: rec('list', { data: [RELEASE_GATE], hasMore: false }) },
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['list', { agentId: 'acme.drafter' }]]);
@@ -115,22 +115,22 @@ describe('kindgi gate-policies', () => {
   test('show (latest or a version), versions, unregister and reinstate call the client', async () => {
     const { calls, rec } = recorder();
     const client = {
-      gatePolicies: {
-        get: rec('get', POLICY),
+      releaseGates: {
+        get: rec('get', RELEASE_GATE),
         versions: {
-          get: rec('versions.get', POLICY),
-          list: rec('versions.list', { data: [POLICY], hasMore: false }),
-          unregister: rec('versions.unregister', POLICY),
-          reinstate: rec('versions.reinstate', POLICY),
+          get: rec('versions.get', RELEASE_GATE),
+          list: rec('versions.list', { data: [RELEASE_GATE], hasMore: false }),
+          unregister: rec('versions.unregister', RELEASE_GATE),
+          reinstate: rec('versions.reinstate', RELEASE_GATE),
         },
       },
     };
     for (const argv of [
-      ['gate-policies', 'show', 'acme.drafter-prod'],
-      ['gate-policies', 'show', 'acme.drafter-prod', '1.0.0'],
-      ['gate-policies', 'versions', 'acme.drafter-prod'],
-      ['gate-policies', 'unregister', 'acme.drafter-prod', '1.0.0'],
-      ['gate-policies', 'reinstate', 'acme.drafter-prod', '1.0.0'],
+      ['release-gates', 'show', 'acme.drafter-prod'],
+      ['release-gates', 'show', 'acme.drafter-prod', '1.0.0'],
+      ['release-gates', 'versions', 'acme.drafter-prod'],
+      ['release-gates', 'unregister', 'acme.drafter-prod', '1.0.0'],
+      ['release-gates', 'reinstate', 'acme.drafter-prod', '1.0.0'],
     ]) {
       const out = await run(argv, client);
       expect(out.exitCode, out.stderr).toBe(0);
@@ -146,21 +146,21 @@ describe('kindgi gate-policies', () => {
 });
 
 describe('kindgi agents: the gate', () => {
-  test('gate-policy resolves the policy for a scope', async () => {
+  test('release-gate resolves the release gate for a scope', async () => {
     const { calls, rec } = recorder();
-    const out = await run(['agents', 'gate-policy', 'acme.drafter', '--tenant'], {
-      agents: { gatePolicy: { resolve: rec('resolve', { policy: null }) } },
+    const out = await run(['agents', 'release-gate', 'acme.drafter', '--tenant'], {
+      agents: { releaseGate: { resolve: rec('resolve', { releaseGate: null }) } },
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['resolve', 'acme.drafter', { kind: 'tenant' }]]);
-    expect(JSON.parse(out.stdout)).toEqual({ policy: null });
+    expect(JSON.parse(out.stdout)).toEqual({ releaseGate: null });
   });
 
   test('pin --check asks the gate and changes nothing', async () => {
     const { calls, rec } = recorder();
     const answer = {
       outcome: 'needs-approval',
-      policy: { id: POLICY.id, version: '1.0.0' },
+      releaseGate: { id: RELEASE_GATE.id, version: '1.0.0' },
       checks: [],
     };
     const out = await run(

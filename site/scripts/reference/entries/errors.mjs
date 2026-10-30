@@ -1225,7 +1225,7 @@ export const ERROR_ENTRIES = {
   },
   'approvals-pending-limit': {
     description:
-      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to pin a version whose release gate policy wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
+      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to pin a version whose release gate wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
     details: [
       {
         key: 'approvalsPending',
@@ -1949,19 +1949,19 @@ export const ERROR_ENTRIES = {
   },
   'gate-failed': {
     description:
-      'A release gate policy refused pinning the version because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
+      'A release gate refused pinning the version because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
     details: [
       {
         key: 'changeId',
         meaning: 'the recorded refused pin request',
       },
       {
-        key: 'policy',
-        meaning: 'the release gate policy that applied (id and version), or null',
+        key: 'releaseGate',
+        meaning: 'the release gate that applied (id and version), or null',
       },
       {
         key: 'checks',
-        meaning: 'every check the release gate policy ran, with whether each passed',
+        meaning: 'every check the release gate ran, with whether each passed',
       },
       {
         key: 'suggestedChangeId',
@@ -1971,12 +1971,12 @@ export const ERROR_ENTRIES = {
   },
   'pin-superseded': {
     description:
-      "The scope's pinned version changed while the release gate policy was being checked, so the check no longer applies. Check the pin again against the new pinned version.",
+      "The scope's pinned version changed while the release gate was being checked, so the check no longer applies. Check the pin again against the new pinned version.",
     details: [],
   },
   'pin-gate-unsupported': {
     description:
-      "A release gate policy applies to this pin, and the deployment can't record a gated pin, so the pin is refused.",
+      "A release gate applies to this pin, and the deployment can't record a gated pin, so the pin is refused.",
     details: [],
   },
   'separate-approver-required': {
@@ -2001,50 +2001,49 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/approvals/decide-an-approval'],
   },
-  'gate-policy-not-found': {
-    description:
-      'No release gate policy with that id exists, or it has no version with that number.',
+  'release-gate-not-found': {
+    description: 'No release gate with that id exists, or it has no version with that number.',
     details: [
       {
-        key: 'policyId',
-        meaning: 'the policy id that was looked up',
+        key: 'releaseGateId',
+        meaning: 'the release gate id that was looked up',
       },
     ],
-    seeAlso: ['POST /v1/gate-policies'],
+    seeAlso: ['POST /v1/release-gates'],
   },
-  'gate-policy-already-registered': {
+  'release-gate-already-registered': {
     description:
-      'The release gate policy already has a version with that number. Publish with a new version number.',
+      'The release gate already has a version with that number. Publish with a new version number.',
     details: [],
   },
-  'gate-policy-scope-taken': {
+  'release-gate-scope-taken': {
     description:
-      'Another release gate policy already gates this agent for the same scope. Publish a new version of that policy instead, or unregister it first.',
+      'Another release gate already gates this agent for the same scope. Publish a new version of that gate instead, or unregister it first.',
     details: [
       {
         key: 'heldBy',
-        meaning: 'id of the policy that holds the scope',
+        meaning: 'id of the release gate that holds the scope',
       },
     ],
   },
-  'gate-policy-scope-changed': {
+  'release-gate-scope-changed': {
     description:
-      "A new version of a release gate policy can't change the agent or the scope the policy gates. Create a new policy for the other agent or scope.",
+      "A new version of a release gate can't change the agent or the scope it gates. Create a new release gate for the other agent or scope.",
     details: [],
   },
-  'gate-policy-scope-unpinned': {
+  'release-gate-scope-unpinned': {
     description:
-      'The scope has no pinned version of its own, so the release gate policy would not take effect. Pin a version for the scope first.',
+      'The scope has no pinned version of its own, so the release gate would not take effect. Pin a version for the scope first.',
     details: [],
   },
-  'gate-policy-needs-pin': {
+  'release-gate-needs-pin': {
     description:
-      "The scope has a release gate policy, and a gated scope keeps its own pinned version, so it can't be unpinned. Unregister the release gate policy first, or pin another version instead.",
+      "The scope has a release gate, and a gated scope keeps its own pinned version, so it can't be unpinned. Unregister the release gate first, or pin an earlier version instead.",
     details: [],
   },
-  'gate-policy-descendant-unpinned': {
+  'release-gate-descendant-unpinned': {
     description:
-      'The change would also move a narrower scope that a release gate policy applies to and that has no pinned version of its own, bypassing that policy. Pin that scope at its current version first.',
+      'The change would also move a narrower scope that a release gate applies to and that has no pinned version of its own, bypassing that gate. Pin that scope at its current version first.',
     details: [],
   },
   'principal-not-found': {

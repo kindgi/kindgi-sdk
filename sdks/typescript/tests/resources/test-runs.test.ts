@@ -118,7 +118,7 @@ const COMPARISON_RESULT = {
     },
     repetitions: 1,
     metrics: {
-      weightedYesShare: {
+      passRate: {
         baseline: 0.5,
         candidate: 0.75,
         delta: 0.25,
@@ -128,7 +128,7 @@ const COMPARISON_RESULT = {
         baselineWeight: 2,
         direction: 'higher',
       },
-      judgedCoverage: {
+      caseCoverage: {
         baseline: 1,
         candidate: 1,
         delta: 0,
@@ -255,7 +255,7 @@ describe('comparisonOf', () => {
 
   it("reads a comparison's result, typed", () => {
     const result = comparisonOf(judged);
-    expect(result?.summary.metrics.weightedYesShare.delta).toBe(0.25);
+    expect(result?.summary.metrics.passRate.delta).toBe(0.25);
     expect(result?.summary.candidate).toMatchObject({ kind: 'flow', flowId: 'acme.intake' });
     expect(result?.perCase[1]?.stopped?.toolId).toBe('acme.send');
   });
