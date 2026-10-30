@@ -581,16 +581,11 @@ export interface CreateAppInput {
    */
   readonly memoryErasures?: MemoryErasureBinding;
   /**
-   * Optional. When present, mounts the supervisor proposals surface
-   * (`/v1/proposals` list/get/draft, plus lifecycle actions
-   * dry-run / submit-review / apply / rollback / withdraw). Every
-   * route requires an `X-Supervisor-Id` request header — the API
-   * package doesn't own the supervisor registry, so the binding
-   * receives that scope explicitly.
-   *
-   * The binding wraps the supervisor runtime primitives +
-   * the deployment's `AgentRegistry` + `HITL` wiring + eval dataset
-   * registry. See `supervisor-binding.ts` for the full contract.
+   * Optional. The store of improvement proposals, and observation
+   * readback. With `agentRegistry`, `blockRegistry`, `evalRunBinding` and
+   * `agentReleases` too, it mounts `/v1/proposals`; with
+   * `enableObservations`, `GET /v1/observations`. See
+   * `supervisor-binding.ts` for the contract.
    */
   readonly supervisor?: SupervisorBinding;
   /**

@@ -358,7 +358,6 @@
           "improvement-pass-not-found": 404,
           "improvement-pass-finished": 409,
           "version-already-exists": 409,
-          "supervisor-header-missing": 400,
           "blob-not-found": 404,
           "blob-hash-mismatch": 400,
           "blob-size-mismatch": 400,
