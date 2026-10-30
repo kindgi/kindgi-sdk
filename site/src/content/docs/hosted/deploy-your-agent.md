@@ -187,17 +187,17 @@ pnpm exec kindgi agents promote acme-desk.reply-drafter <version> --project=<pro
 ```
 
 `kindgi projects list` lists the projects, with their ids. In the console,
-the agent's **Live versions** page shows where each version is live.
+the agent's **Pinned versions** page shows where each version is pinned.
 
 **2. Put the project in production.**
 
 :::note[What only you do]
-**Go live.** Open the project's **Dashboard** in the console. On its
-**Production** card, choose **Go live**, and **Go live** again to confirm.
+**Go live.** Open the project's **Dashboard** in the console. Choose
+**Testing mode** at the top of the page, then **Go live**.
 Do this yourself: from then on, the project's runs are real work.
 :::
 
-The card then says **Live**, and since when.
+The Dashboard then says **Live**, and since when.
 [Organize by org and project](../../guides/projects/organize-by-org-and-project/)
 says what being in production changes. How many projects can be in
 production at once is in
@@ -277,11 +277,11 @@ version and every version that's waiting read the same values:
   deployments, with their ids). Run the same
   `kindgi deploy --hosted --env=prod` again: it sends the same deployment
   and goes on waiting.
-- **The Production card says `Going live isn't on for this tenant yet.`**
-  If the card offers **See how to go live**, that link says what comes
-  next. Until then, building and testing work as they are.
-- **Going live is refused at the limit.** Take another project out of
-  production first, or see
+- **Testing mode says `Going live isn't turned on for this tenant yet.`**
+  If it offers **See how to go live**, that link says what comes next.
+  Until then, building and testing work as they are.
+- **Going live is refused at the limit.** Move another project back to
+  testing first, or see
   [projects in production](../limits/#projects-in-production).
 
 ## What's next

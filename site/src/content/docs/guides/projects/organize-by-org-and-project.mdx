@@ -414,15 +414,14 @@ kindgi.projects().production()
 </TabItem>
 </Tabs>
 
-In the console, a project's **Dashboard** has a **Production** card. It shows
-**Live**, and since when, or **Not live**. A tenant admin puts the project in
-production with **Go live**, and takes it out with **Take out of
-production**, after the console asks ("Go live?", "Take this project out of
-production?"). While the tenant may not put projects in production, the card says so,
-and gives a tenant admin **See how to go live** when the runtime names where
-to go. A refused switch shows the runtime's own message.
-
-![The Default project's Dashboard, as a tenant admin sees it: the Production card, "Runs here count as staging: building and testing.", marked Not live, with Go live.](../../../../assets/projects/production-card.png)
+In the console, a project's **Dashboard** says at the top whether it's in
+production: **Live**, by a green dot, or **Testing mode**, by a gray one.
+Choosing it says since when it's been live, or "Kindgi counts its runs as
+testing. Once it's live, they count as live use.", and gives a tenant admin
+the switch: **Go live**, or **Move back to testing**. While the tenant may
+not put projects in production, it says "Going live isn't turned on for this
+tenant yet.", and gives a tenant admin **See how to go live** when the
+runtime names where to go. A refused switch shows the runtime's own message.
 
 - **Tenant admins only,** both ways: anyone else gets
   `403 permission-denied`.
