@@ -4,6 +4,7 @@
 import type { CorrectedComparisonSummary } from './corrected-dispatcher.js';
 import type { Promotion } from './live-version-binding.js';
 import type {
+  ProposedChange,
   StoredSuggestedChange,
   SuggestedChangeDrafter,
   SuggestedChangeMaker,
@@ -52,10 +53,17 @@ export const SUGGESTED_CHANGE_STATUSES: readonly SuggestedChangeStatus[] = [
  * expired, or the project's version or policy changed before it was
  * approved.
  */
-export interface SuggestedChangeNote {
-  readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
-  readonly promotionId: string;
-}
+export type SuggestedChangeNote =
+  | {
+      readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
+      readonly promotionId: string;
+    }
+  /**
+   * A deploy's suggested change: what its project runs (`version`) isn't
+   * running to be checked against, and has no finished run on the same
+   * cases, so its check has no `now`.
+   */
+  | { readonly kind: 'not-running'; readonly version: string };
 
 /** What a finished comparison says about the candidate, on the suggested change's objective. */
 export interface SuggestedChangeEvaluationOutcome {
@@ -294,7 +302,10 @@ function decisionsOf(
 }
 
 const PROMOTION_NOTE: Readonly<
-  Record<'refused' | 'rejected' | 'expired' | 'superseded', SuggestedChangeNote['kind']>
+  Record<
+    'refused' | 'rejected' | 'expired' | 'superseded',
+    Exclude<SuggestedChangeNote['kind'], 'not-running'>
+  >
 > = {
   refused: 'gate-refused',
   rejected: 'rejected',
@@ -385,6 +396,19 @@ export function suggestedChangeMaker(suggestedChange: {
     return { kind: 'improve-run', improveRunId: drafter.improveRunId };
   }
   return { kind: 'service', id: drafter.kind };
+}
+
+/**
+ * A suggested change's block change, with its tier. `undefined` for a
+ * deploy card (`tier: 'code'`), which changes the whole version.
+ */
+export function blockChangeOf(suggestedChange: {
+  readonly tier: StoredSuggestedChange['tier'];
+  readonly change: StoredSuggestedChange['change'];
+}): ProposedChange | undefined {
+  const { tier, change } = suggestedChange;
+  if (tier === 'code' || !('blockId' in change)) return undefined;
+  return { tier, change } as ProposedChange;
 }
 
 /** The calls on a suggested change, and the statuses each starts from. */

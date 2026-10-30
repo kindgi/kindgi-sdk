@@ -31,6 +31,7 @@ import type {
   LiveScope,
   ProjectId,
   RecordedSecretScope,
+  Semver,
   SigningKeyId,
   TenantId,
   Timestamp,
@@ -54,10 +55,14 @@ import type {
   PromotedToolSecretScopes,
   Promotion,
   RunHandlerBinding,
+  TestRunBinding,
+  TestSetFreezeBinding,
   TokenResolver,
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 import { environmentOrders } from './support/environment-orders.js';
+import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
 import { noLatest } from './support/latest.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
@@ -428,6 +433,8 @@ function harness(
     readonly itemRows?: readonly ItemRow[];
     /** Wire a flow pin binding (`flowPinBinding`), so `makeLive` pins the carried flows; the flows named fail their write. */
     readonly flowPins?: { readonly errorOn?: readonly string[] };
+    /** Wire suggested changes (`cardBindings`): the carried agent runs `pinned` in S2. */
+    readonly cards?: { readonly pinned: string };
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -485,10 +492,14 @@ function harness(
   };
   const grants = opts.grants;
   const live =
-    opts.live === true
+    opts.live === true || opts.cards !== undefined
       ? livePins({ gated: opts.gated, errorOn: opts.errorOn, gate: opts.gate })
       : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
+  const cards =
+    opts.cards !== undefined && live !== undefined
+      ? cardBindings(opts.cards.pinned, live)
+      : undefined;
   const flowPins = flowPinBinding(opts.flowPins);
   const app = createApp({
     ...createStubAppBindings(),
@@ -520,12 +531,13 @@ function harness(
     agentRegistry: {
       // The gate reads the carried version; without it, nothing does.
       getVersion: async ({ agentId, version }: { agentId: string; version: string }) =>
-        opts.gate === true ? { id: agentId, version } : null,
+        opts.gate === true || cards !== undefined ? { id: agentId, version } : null,
       listVersions: async () => ({ data: versions.rows }),
     } as never,
     secretsBinding: secretsBinding as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
     ...(live !== undefined && { agentReleases: live.releases }),
+    ...cards?.bindings,
     ...flowPins.bindings,
     ...(items !== undefined && { itemProjects: items }),
     ...(opts.suspended !== undefined && {
@@ -585,6 +597,48 @@ function harness(
         resolveContext: { caller: 'dispatch' },
       }),
     call,
+    /** The suggested changes stored so far (none without `cards`). */
+    cardsNow: () => [...(cards?.supervisor.rows.values() ?? [])],
+  };
+}
+
+/**
+ * Suggested changes wired, for the cards a promotion makes in its target:
+ * the carried agent runs `pinned` in S2 until a make-live pins another
+ * (`live`'s pins). S2's test set has no cases yet, so a card is made
+ * unchecked.
+ */
+function cardBindings(pinned: string, live: ReturnType<typeof livePins>) {
+  const supervisor = inMemorySuggestedChanges();
+  const testSetFreeze: TestSetFreezeBinding = {
+    freezeTestSet: async ({ agentId, projectId }) => ({
+      testSetId: `agent:${agentId}:${projectId}`,
+      testSetVersion: '1.0.0',
+      cases: [],
+    }),
+  };
+  const releases: AgentReleaseBindings = {
+    ...live.releases,
+    live: {
+      resolve: async ({ projectId }) =>
+        projectId === S2
+          ? {
+              version: (live.pinned.at(-1)?.version ?? pinned) as Semver,
+              scope: { kind: 'project', projectId: S2 },
+            }
+          : null,
+      list: async () => [],
+    },
+  };
+  return {
+    supervisor,
+    bindings: {
+      supervisor,
+      blockRegistry: inMemoryBlocks(),
+      testRunBinding: {} as TestRunBinding,
+      testSetFreeze,
+      agentReleases: releases,
+    },
   };
 }
 
@@ -1429,5 +1483,34 @@ describe('making the carried flows the ones in use in the target (makeLive)', ()
     expect(moved.status).toBe(201);
     expect(moved.body.pinnedFlows).toBeUndefined();
     expect(plain.flowPinned).toEqual([]);
+  });
+});
+
+describe('the cards a promotion makes in the target', () => {
+  const AGENT = 'acme.matcher';
+
+  test("a target pinned to another version gets a card for each carried agent version, made by the target's new deployment", async () => {
+    const h = harness({ cards: { pinned: '0.9.0' }, secrets: [`project:${S2}:ACME_TOKEN`] });
+    const res = await h.promote('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const cards = h.cardsNow();
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      agentId: AGENT,
+      fromVersion: '0.9.0',
+      scope: { kind: 'project', projectId: S2 },
+      tier: 'code',
+      change: { deploymentId: res.body.deployment.deploymentId },
+      madeBy: { kind: 'deploy', deploymentId: res.body.deployment.deploymentId },
+      candidate: { agentVersion: '1.0.0' },
+    });
+    expect(res.body.deployment.deploymentId).not.toBe('dep-s1');
+  });
+
+  test('made live in the same promotion, the target runs it: no card', async () => {
+    const h = harness({ cards: { pinned: '0.9.0' }, secrets: [`project:${S2}:ACME_TOKEN`] });
+    const res = await h.makeLive('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(h.cardsNow()).toHaveLength(0);
   });
 });

@@ -18,6 +18,9 @@ version and the one it's built on, on the same test cases. The new versions
 serve nothing until you pin the suggested change, and a pinned suggested
 change is a pin like any other, which `kindgi agents rollback` puts back.
 
+A deploy makes suggested changes too, for its new code:
+[A deploy's suggested changes](#a-deploys-suggested-changes) says how.
+
 ## Before you start
 
 - **An agent that keeps its instructions or settings as data blocks,** as
@@ -347,6 +350,52 @@ again, pinned or added as Latest:
   its block, it isn't rebuilt: `details.rebuilding` is `false`, and it stays
   as it was. Withdraw it.
 
+## A deploy's suggested changes
+
+A deploy that registers a new agent version makes a suggested change for it
+in each project that runs a pinned other version of the agent. A project on
+Latest runs the new version at once, and gets none. With environment
+orders, the version reaches the next project when the deployment is
+promoted into it, and the suggested change is made then. A promotion that
+makes the version live there makes none.
+
+- `madeBy` is `deploy`, with the deployment and who deployed or promoted it.
+- Its one change is the code: `kind` is `code`, with the deployment and its
+  image digest.
+- Its version is the deploy's version, and it's never rebuilt. When the
+  project moves to another version first, pinning it is refused with
+  `409 suggested-change-out-of-date`, and `details.rebuilding` is `false`.
+  Withdraw it.
+
+Its check runs its version on the project's test set, as any other
+suggested change's does. What the project runs isn't run again: `now` is
+the newest finished run of that version on the same frozen cases, when there
+is one. When there's none, the check has no `now`, and its `note` says so:
+
+```json
+{
+  "id": "5e1a7c3b-2d4f-4b8e-9c61-0a7f3e2d1b58",
+  …
+  "madeBy": {
+    "kind": "deploy",
+    "deploymentId": "c41f8e2a-7b3d-4e19-a6c5-2d8f0b9e7a13",
+    "by": { "kind": "user", "id": "user-1" }
+  },
+  "builtOn": { "version": "1.0.0" },
+  "version": "1.1.0",
+  "changes": [
+    { "kind": "code", "deploymentId": "c41f8e2a-7b3d-4e19-a6c5-2d8f0b9e7a13", "imageDigest": "sha256:9f2c…" }
+  ],
+  "status": "ready",
+  "note": { "kind": "not-running", "version": "1.0.0" },
+  …
+}
+```
+
+When the project's test set has no cases yet, it's made without a check:
+it's `check-failed`, and `check` checks it once the set has cases. A deploy
+never fails because a suggested change couldn't be made.
+
 ## Withdraw it
 
 A withdrawal closes a suggested change while it's `checking`,
@@ -388,8 +437,8 @@ pnpm exec kindgi suggested-changes get <suggested-change-id>
   so a page can hold fewer than `--limit`. `--cursor` reads the next page,
   from `nextCursor`.
 - `--table` prints a table with the columns ID, AGENT (the agent and the
-  version it's built on), PROJECT, BLOCK (the block and the version it
-  changes), STATUS, CHECK and CREATED. CHECK says how its version did, then
+  version it's built on), PROJECT, CHANGE (the block and the version it
+  changes, or the deploy whose code it is), STATUS, CHECK and CREATED. CHECK says how its version did, then
   the version it's built on: `25/27 (now 23/27)`. Before either has a
   score, it shows the check's `status`.
 - `get` shows the block's content before and after, the check and the pin.

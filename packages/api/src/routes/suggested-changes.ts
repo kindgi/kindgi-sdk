@@ -29,9 +29,11 @@ import {
   SUGGESTED_CHANGE_STATUSES,
   type SuggestedChangeSide,
   type SuggestedChangeStatus,
+  blockChangeOf,
   suggestedChangeMaker,
 } from '../suggested-change-status.js';
 import type {
+  CodeChange,
   ProposedChange,
   StoredSuggestedChange,
   SuggestedChangeMaker,
@@ -483,18 +485,21 @@ export function suggestedChangesRouter(
 }
 
 /**
- * What an audit event names of a suggested change: its id, agent, block,
- * versions and who or what made it — never its content, its why or its
- * check's answers.
+ * What an audit event names of a suggested change: its id, agent, block
+ * (or, for a deploy card, its deployment), versions and who or what made
+ * it — never its content, its why or its check's answers.
  */
 function auditDoc(p: StoredSuggestedChange): Readonly<Record<string, unknown>> {
+  const block = blockChangeOf(p);
   return {
     suggestedChangeId: p.id as unknown as string,
     agentId: p.agentId as unknown as string,
     builtOn: p.builtOnVersion ?? p.fromVersion,
     ...(p.candidate !== undefined && { version: p.candidate.agentVersion }),
-    blockId: p.change.blockId,
-    ...(p.candidate !== undefined && { blockVersion: p.candidate.blockVersion }),
+    ...(block === undefined
+      ? { deploymentId: (p.change as CodeChange).deploymentId }
+      : { blockId: block.change.blockId }),
+    ...(p.candidate?.blockVersion !== undefined && { blockVersion: p.candidate.blockVersion }),
     madeBy: suggestedChangeMaker(p),
   };
 }
@@ -517,12 +522,17 @@ function actorWire(by: string): PromotionActor {
     : { kind: 'service', id: by };
 }
 
-/** The content of the block version a suggested change changes; `undefined` when it's gone. */
+/**
+ * The content of the block version a suggested change changes; `undefined`
+ * when it's gone, or for a deploy card, which changes no one block.
+ */
 async function blockBefore(
   blocks: BlockRegistryBinding,
   p: StoredSuggestedChange,
 ): Promise<ProposedChange['change']['content'] | undefined> {
-  const { blockId, fromVersion } = p.change;
+  const changed = blockChangeOf(p);
+  if (changed === undefined) return undefined;
+  const { blockId, fromVersion } = changed.change;
   const block = await blocks.getVersion({ tenantId: p.tenantId, blockId, version: fromVersion });
   if (block === null) return undefined;
   return block.kind === 'settings'
@@ -530,12 +540,42 @@ async function blockBefore(
     : { template: block.content.template as string };
 }
 
+/**
+ * Its one change on the wire: the block, from and to, with the content
+ * before and after on `GET` of one; or a deploy card's code.
+ */
+function changeWire(p: StoredSuggestedChange, before?: ProposedChange['change']['content']) {
+  const block = blockChangeOf(p);
+  if (block === undefined) {
+    const { deploymentId, imageDigest } = p.change as CodeChange;
+    return {
+      kind: 'code' as const,
+      deploymentId,
+      ...(imageDigest !== undefined && { imageDigest }),
+    };
+  }
+  const { blockId, fromVersion, content } = block.change;
+  return {
+    kind: 'block' as const,
+    blockId,
+    from: fromVersion,
+    ...(p.candidate?.blockVersion !== undefined && { to: p.candidate.blockVersion }),
+    ...(before !== undefined && { before, after: content }),
+  };
+}
+
 /** The first line of why (no closing stop), cut to fit, then the block's change. */
 function titleOf(p: StoredSuggestedChange): string {
   const line = (p.why.split('\n')[0] ?? '').trim().replace(/[.:;,!?]+$/, '');
   const cut = line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH).trimEnd()}…` : line;
-  const to = p.candidate === undefined ? 'a new version' : `v${p.candidate.blockVersion}`;
-  return `${cut}: ${p.change.blockId} v${p.change.fromVersion} → ${to}`;
+  const block = blockChangeOf(p);
+  if (block === undefined) {
+    const to = p.candidate === undefined ? 'a new version' : `v${p.candidate.agentVersion}`;
+    return `${cut}: v${p.builtOnVersion ?? p.fromVersion} → ${to}`;
+  }
+  const to =
+    p.candidate?.blockVersion === undefined ? 'a new version' : `v${p.candidate.blockVersion}`;
+  return `${cut}: ${block.change.blockId} v${block.change.fromVersion} → ${to}`;
 }
 
 /** A US-dollar amount per conversation: at most four decimals, no trailing zeros. */
@@ -607,15 +647,7 @@ export function serialize(
       ...(p.rebuiltAt !== undefined && { rebuiltAt: p.rebuiltAt }),
     },
     ...(version !== undefined && { version }),
-    changes: [
-      {
-        kind: 'block' as const,
-        blockId: p.change.blockId,
-        from: p.change.fromVersion,
-        ...(p.candidate !== undefined && { to: p.candidate.blockVersion }),
-        ...(before !== undefined && { before, after: p.change.content }),
-      },
-    ],
+    changes: [changeWire(p, before)],
     why: p.why,
     fixes: p.evidence?.fixes ?? [],
     check: checkWire(p, f),

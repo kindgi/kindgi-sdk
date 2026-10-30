@@ -43,7 +43,15 @@ import { ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { verifyEd25519 } from '@kindgi/crypto';
 import type { Scope } from '@kindgi/platform';
-import type { LiveScope, PinScope, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
+import type {
+  AgentId,
+  LiveScope,
+  PinScope,
+  ProjectId,
+  Semver,
+  TenantId,
+  ToolId,
+} from '@kindgi/types';
 
 import { callerIdentity } from '../caller.js';
 import {
@@ -83,7 +91,7 @@ import {
   requestPromotion,
 } from './agent-releases.js';
 import { deniedBy, refused } from './denied.js';
-import type { DeploymentsRouterBindings } from './deployments.js';
+import { type DeploymentsRouterBindings, makeDeployCards } from './deployments.js';
 import { pinWriteFailure } from './pinned-versions.js';
 import { scopeResourceRef } from './scope-params.js';
 
@@ -422,8 +430,10 @@ export function mountDeploymentPromotions(
 /**
  * After the move commits: record it, and — when `makeLive` was asked — pin
  * every carried agent live in the target and every carried flow there
- * (`makeCarriedLive`), adding `live` and `pinnedFlows` to the answer.
- * Answers the promotion either way.
+ * (`makeCarriedLive`), adding `live` and `pinnedFlows` to the answer. Then
+ * the suggested-change cards the moved agent versions make in the target
+ * (`makeDeployCards`): none where a pin was just made for them. Answers
+ * the promotion either way.
  */
 async function finishPromotion(
   c: Context<AppEnv>,
@@ -434,12 +444,26 @@ async function finishPromotion(
   carried: readonly CarriedVersion[],
   body: PromotionBody,
 ): Promise<Response> {
-  if (result.created || carried.length > 0) {
-    await auditPromotion(c, bindings, plan, result, carried, body.reason);
+  const moved = result.created || carried.length > 0;
+  if (moved) await auditPromotion(c, bindings, plan, result, carried, body.reason);
+  const made =
+    body.makeLive === true
+      ? await makeCarriedLive(c, bindings, authorizer, plan, result, body.reason)
+      : {};
+  if (made instanceof Response) return made;
+  if (moved) {
+    await makeDeployCards(c, bindings, {
+      tenantId: plan.source.tenantId,
+      projectId: plan.toProjectId,
+      deploymentId: result.deployment.deploymentId,
+      imageDigest: plan.source.imageDigest,
+      by: actorOf(c),
+      agents: result.moved.agents
+        .filter(versioned)
+        .map((a) => ({ agentId: a.id as AgentId, version: a.version as Semver })),
+    });
   }
-  if (body.makeLive !== true) return promotionAnswer(c, result);
-  const made = await makeCarriedLive(c, bindings, authorizer, plan, result, body.reason);
-  return made instanceof Response ? made : promotionAnswer(c, { ...result, ...made });
+  return promotionAnswer(c, { ...result, ...made });
 }
 
 /** A moved agent or flow with its version: the ones `makeLive` pins. */

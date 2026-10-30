@@ -268,8 +268,17 @@ function testRunFake(agents: AgentRegistryBinding) {
     async get({ testRunId }) {
       return runs.get(testRunId as unknown as string) ?? null;
     },
-    async list() {
-      return { data: [] };
+    // Newest first, as the store lists them; every run is in the project.
+    async list({ filter }) {
+      const data = [...runs.values()]
+        .reverse()
+        .filter(
+          (r) =>
+            (filter?.testSetId === undefined || r.testSetId === filter.testSetId) &&
+            (filter?.status === undefined || r.status === filter.status) &&
+            (filter?.agentId === undefined || r.agentRef?.agentId === filter.agentId),
+        );
+      return { data };
     },
     async cancel({ testRunId }) {
       const run = runs.get(testRunId as unknown as string);
@@ -1850,6 +1859,234 @@ describe('if the project moves first: a suggested change is rebuilt on what it r
     expect(res.body.error.code).toBe('suggested-change-out-of-date');
     expect(res.body.error.details.rebuilding).toBe(false);
     expect(res.body.error.message).toContain('already has this change');
+  });
+});
+
+describe('the cards a deploy makes (madeBy: deploy)', () => {
+  const DEPLOYMENT = 'dep-0042';
+  const DIGEST = `sha256:${'a'.repeat(64)}`;
+  const BY = { kind: 'user', id: 'user-1' } as const;
+
+  /** `version` of the agent, as a deploy registers it: 1.0.0's definition under the new number. */
+  async function registered(h: Harness, version: string) {
+    const got = await h.agents.getVersion({
+      tenantId,
+      agentId: AGENT as AgentId,
+      version: '1.0.0' as Semver,
+    });
+    if (got === null) throw new Error('no 1.0.0');
+    const { projectId: _in, ...agent } = got;
+    await h.agents.publish({
+      tenantId,
+      projectId,
+      agent: { ...agent, version } as unknown as Agent,
+      madeFor: 'latest',
+      enqueueTuples: () => [],
+    });
+  }
+
+  /** The service a deploy makes its cards with, as the app wires it; `readOnly`: a pack's registry. */
+  function cardsOf(h: Harness, opts: { readOnly?: boolean; freezes?: boolean } = {}) {
+    return createSuggestedChangeService({
+      store: h.suggestedChanges,
+      agents:
+        opts.readOnly === true
+          ? { ...h.agents, readOnly: { reason: 'The pack files are the source.' } }
+          : h.agents,
+      blocks: h.blocks,
+      testRuns: h.testRuns.binding,
+      releases: h.releases.releases,
+      ...(opts.freezes !== false && { testSets: h.freeze.binding }),
+    });
+  }
+
+  /** A deploy that registered `version`, in the agent's project. */
+  const deploy = (h: Harness, version = '1.1.0', service = cardsOf(h)) =>
+    service.fromDeploy({
+      tenantId,
+      projectId,
+      deploymentId: DEPLOYMENT,
+      imageDigest: DIGEST,
+      by: BY,
+      agents: [{ agentId: AGENT as AgentId, version: version as Semver }],
+    });
+
+  /** A finished run of what the project runs, on the frozen cases (`testSetVersion` unless given). */
+  async function ranBefore(h: Harness, testSetVersion = FROZEN.testSetVersion) {
+    const run = await h.testRuns.binding.start({
+      tenantId,
+      projectId,
+      testSetId: FROZEN.testSetId,
+      testSetVersion,
+      agentRef: { agentId: AGENT as AgentId, version: '1.0.0' as Semver },
+    });
+    if (run.kind !== 'ok') throw new Error(run.kind);
+    await h.testRuns.finish(run.testRunId as unknown as string, { delta: 0 });
+    return run.testRunId as unknown as string;
+  }
+
+  /** A pinned project, a deploy of 1.1.0, and its card's check finished: ready. */
+  async function readyCard(opts: { ranBefore?: boolean } = {}) {
+    const h = await harness();
+    h.releases.pin(PROJECT, '1.0.0');
+    const now = opts.ranBefore === true ? await ranBefore(h) : undefined;
+    await registered(h, '1.1.0');
+    const out = await deploy(h);
+    const id = out.made[0]?.id as unknown as string;
+    const card = (await h.call('GET', `/v1/suggested-changes/${id}`)).body;
+    await h.testRuns.finish(card.check.with.testRunId, { delta: 0.1 });
+    return { ...h, id, now };
+  }
+
+  test("a pinned project gets a card for the deploy's version, checked as that version; with no run of what it runs, it says that version isn't running", async () => {
+    const h = await harness();
+    h.releases.pin(PROJECT, '1.0.0');
+    // A run of what it runs on other cases isn't the same check.
+    await ranBefore(h, '1.0.6');
+    await registered(h, '1.1.0');
+    const out = await deploy(h);
+    expect(out.failed).toEqual([]);
+    expect(out.made).toHaveLength(1);
+    const id = out.made[0]?.id as unknown as string;
+    // Only the deploy's version runs: what the project runs is 1.0.0, its own code.
+    expect(h.testRuns.started.at(-1)).toMatchObject({
+      testSetId: FROZEN.testSetId,
+      testSetVersion: FROZEN.testSetVersion,
+      agentRef: { agentId: AGENT, version: '1.1.0' },
+    });
+    expect(h.testRuns.started).toHaveLength(2);
+    const card = (await h.call('GET', `/v1/suggested-changes/${id}`)).body;
+    expect(card).toMatchObject({
+      projectId,
+      title: 'New code from a deploy: v1.0.0 → v1.1.0',
+      madeBy: { kind: 'deploy', deploymentId: DEPLOYMENT },
+      builtOn: { version: '1.0.0' },
+      version: '1.1.0',
+      changes: [{ kind: 'code', deploymentId: DEPLOYMENT, imageDigest: DIGEST }],
+      why: 'New code from a deploy',
+      fixes: [],
+      status: 'checking',
+    });
+    expect(card.check.now).toBeUndefined();
+    await h.testRuns.finish(card.check.with.testRunId, { delta: 0.1 });
+    const ready = (await h.call('GET', `/v1/suggested-changes/${id}`)).body;
+    expect(ready).toMatchObject({
+      status: 'ready',
+      note: { kind: 'not-running', version: '1.0.0' },
+    });
+  });
+
+  test("with a finished run of what the project runs on the same cases, that run is the card's now", async () => {
+    const h = await readyCard({ ranBefore: true });
+    const card = (await h.call('GET', `/v1/suggested-changes/${h.id}`)).body;
+    expect(card.status).toBe('ready');
+    expect(card.note).toBeUndefined();
+    expect(card.check.now.testRunId).toBe(h.now);
+    // Nothing ran again for it.
+    expect(h.testRuns.started).toHaveLength(2);
+  });
+
+  test('a project on Latest runs the new version at once, and gets none', async () => {
+    const h = await harness();
+    await registered(h, '1.1.0');
+    expect(await deploy(h)).toEqual({ made: [], failed: [] });
+    expect(h.suggestedChanges.rows.size).toBe(0);
+    expect(h.testRuns.started).toHaveLength(0);
+  });
+
+  test('a project pinned to the version already gets none', async () => {
+    const h = await harness();
+    await registered(h, '1.1.0');
+    h.releases.pin(PROJECT, '1.1.0');
+    expect(await deploy(h)).toEqual({ made: [], failed: [] });
+    expect(h.suggestedChanges.rows.size).toBe(0);
+  });
+
+  test('the same deploy again is the same card, and checks nothing more', async () => {
+    const h = await harness();
+    h.releases.pin(PROJECT, '1.0.0');
+    await registered(h, '1.1.0');
+    const first = await deploy(h);
+    const again = await deploy(h);
+    expect(again.made.map((c) => c.id)).toEqual(first.made.map((c) => c.id));
+    expect(h.suggestedChanges.rows.size).toBe(1);
+    expect(h.testRuns.started).toHaveLength(1);
+  });
+
+  test("with no cases in the project's test set yet, the card is made unchecked, and checking it waits for cases", async () => {
+    const h = await harness({ cases: 0 });
+    h.releases.pin(PROJECT, '1.0.0');
+    await registered(h, '1.1.0');
+    const out = await deploy(h);
+    expect(out.made).toHaveLength(1);
+    expect(h.testRuns.started).toHaveLength(0);
+    const id = out.made[0]?.id as unknown as string;
+    const card = (await h.call('GET', `/v1/suggested-changes/${id}`)).body;
+    expect(card).toMatchObject({ status: 'check-failed', version: '1.1.0' });
+    const check = await h.call('POST', `/v1/suggested-changes/${id}/check`, {});
+    expect(check.status, JSON.stringify(check.body)).toBe(409);
+    expect(check.body.error.code).toBe('suggested-change-nothing-to-check');
+  });
+
+  test("a version the deploy didn't leave active is named in failed, and the deploy's other cards are still made", async () => {
+    const h = await harness({ unregisteredVersions: ['1.1.0'] });
+    h.releases.pin(PROJECT, '1.0.0');
+    await registered(h, '1.1.0');
+    await registered(h, '1.2.0');
+    const out = await cardsOf(h).fromDeploy({
+      tenantId,
+      projectId,
+      deploymentId: DEPLOYMENT,
+      by: BY,
+      agents: [
+        { agentId: AGENT as AgentId, version: '1.1.0' as Semver },
+        { agentId: AGENT as AgentId, version: '1.2.0' as Semver },
+      ],
+    });
+    expect(out.failed).toEqual([
+      { agentId: AGENT, message: expect.stringContaining('no active version 1.1.0') },
+    ]);
+    expect(out.made.map((c) => c.candidate?.agentVersion)).toEqual(['1.2.0']);
+    // Named by no digest: the change has none.
+    expect(out.made[0]?.change).toEqual({ deploymentId: DEPLOYMENT });
+  });
+
+  test("none where cards can't be made or checked: a read-only registry, or a runtime that freezes no test set", async () => {
+    const h = await harness();
+    h.releases.pin(PROJECT, '1.0.0');
+    await registered(h, '1.1.0');
+    expect(await deploy(h, '1.1.0', cardsOf(h, { readOnly: true }))).toEqual({
+      made: [],
+      failed: [],
+    });
+    expect(await deploy(h, '1.1.0', cardsOf(h, { freezes: false }))).toEqual({
+      made: [],
+      failed: [],
+    });
+    expect(h.suggestedChanges.rows.size).toBe(0);
+  });
+
+  test("pinning a deploy's card pins the deploy's version for its project", async () => {
+    const h = await readyCard();
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body).toMatchObject({ status: 'pinned', pinned: { version: '1.1.0' } });
+    expect(h.releases.pins.find((p) => p.agentId === AGENT)?.version).toBe('1.1.0');
+  });
+
+  test("a deploy's card is never rebuilt: once its project moves, pinning it is refused, with no rebuild", async () => {
+    const h = await readyCard();
+    await registered(h, '1.0.5');
+    h.releases.pin(PROJECT, '1.0.5');
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'suggested-change-out-of-date',
+      details: { builtOn: '1.0.0', runs: '1.0.5', rebuilding: false },
+    });
+    const card = (await h.call('GET', `/v1/suggested-changes/${h.id}`)).body;
+    expect(card).toMatchObject({ status: 'ready', builtOn: { version: '1.0.0' } });
+    expect(card.builtOn.rebuiltAt).toBeUndefined();
   });
 });
 

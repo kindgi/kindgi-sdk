@@ -1060,6 +1060,7 @@ export type {
   ReplayMemoryErasuresResult,
 } from './memory-erasure-binding.js';
 export type {
+  CodeChange,
   CreateSuggestedChangeInput,
   CreateSuggestedChangeOutcome,
   GetSuggestedChangeInput,
@@ -1080,8 +1081,10 @@ export type {
   ProposedChange,
   RecordSuggestedChangeInput,
   RecordSuggestedChangeOutcome,
+  StoredChange,
   StoredSuggestedChange,
   StoredSuggestedChangePage,
+  StoredSuggestedChangeTier,
   SupervisorBinding,
   SupervisorObservationPage,
   SupervisorQueryObservationsInput,
@@ -1118,6 +1121,8 @@ export {
   suggestedChangeNotFound,
 } from './suggested-change-service.js';
 export type {
+  DeployCardsInput,
+  DeployCardsOutcome,
   DraftSuggestedChangeInput,
   EvaluateSuggestedChangeInput,
   RescoreSuggestedChangeInput,

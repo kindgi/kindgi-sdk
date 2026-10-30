@@ -4619,16 +4619,18 @@ class SuggestedChangeBlockContent(BaseModel):
 
 class SuggestedChangeChange(BaseModel):
     """
-    One change the suggested change makes: a new version of a block its project's version pins. `from` is the block version what it's built on pins, and `to` the one it published (absent until it made one). `GET /v1/suggested-changes/{suggestedChangeId}` adds `from`'s content (`before`) and the new content (`after`).
+    One change the suggested change makes. `block`: a new version of a block its project's version pins (`blockId`). `from` is the block version what it's built on pins, and `to` the one it published (absent until it made one). `GET /v1/suggested-changes/{suggestedChangeId}` adds `from`'s content (`before`) and the new content (`after`). `code`: a deploy's new agent version, whole (`deploymentId`, and `imageDigest` when the deploy named its image by digest), with no content before and after.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["block"] | str, _open.OPEN]
-    block_id: Annotated[str, Field(alias="blockId")]
-    from_: Annotated[str, Field(alias="from")]
+    kind: Annotated[Literal["block", "code"] | str, _open.OPEN]
+    block_id: Annotated[str | None, Field(alias="blockId")] = None
+    deployment_id: Annotated[str | None, Field(alias="deploymentId")] = None
+    image_digest: Annotated[str | None, Field(alias="imageDigest")] = None
+    from_: Annotated[str | None, Field(alias="from")] = None
     to: str | None = None
     before: SuggestedChangeBlockContent | None = None
     after: SuggestedChangeBlockContent | None = None
@@ -4678,15 +4680,19 @@ class SuggestedChangeCheck(BaseModel):
 
 class SuggestedChangeNote(BaseModel):
     """
-    Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion.
+    Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion. Or, on a deploy's suggested change, `not-running`: the version its project runs (`version`) isn't running to be checked against, and has no finished run on the same cases, so its check has no `now`.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["gate-refused", "rejected", "expired", "superseded"] | str, _open.OPEN]
-    promotion_id: Annotated[str, Field(alias="promotionId")]
+    kind: Annotated[
+        Literal["gate-refused", "rejected", "expired", "superseded", "not-running"] | str,
+        _open.OPEN,
+    ]
+    promotion_id: Annotated[str | None, Field(alias="promotionId")] = None
+    version: str | None = None
 
 
 class BuiltOn(BaseModel):

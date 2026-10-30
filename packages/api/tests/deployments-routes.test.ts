@@ -50,6 +50,8 @@ import type {
   SecretRecord,
   SecretVersionRecord,
   SigningKeyBinding as SigningKeyRegistryBinding,
+  TestRunBinding,
+  TestSetFreezeBinding,
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
@@ -57,6 +59,7 @@ import { sameGuardrailDefinition } from '../src/routes/deployments.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
 import { toolPinsBinding } from './support/tool-pins.js';
 
 /**
@@ -1302,7 +1305,9 @@ describe('POST /v1/deployments — happy path', () => {
       primitives: DeploymentPrimitiveCounts;
     };
     // The route mints it, a UUID, before the pack's blocks are published.
-    expect(body.deploymentId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(body.deploymentId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
     expect(body.artifactVersion).toBe('20260920.1');
     expect(body.imageRef).toBe(fixture.imageRef);
     expect(body.primitives.tools).toBe(1);
@@ -7868,7 +7873,10 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     // naming the deploy that published them, and nothing new is audited.
     const later = await deploy(pack([REPLY, STYLE], '20261020.2'));
     expect(later.status, JSON.stringify(later.body)).toBe(201);
-    expect((await held('acme.reply', '1.0.0'))?.source).toEqual({ kind: 'deploy', id: deploymentId });
+    expect((await held('acme.reply', '1.0.0'))?.source).toEqual({
+      kind: 'deploy',
+      id: deploymentId,
+    });
     expect(events('block-version-published')).toHaveLength(2);
   });
 
@@ -8152,5 +8160,109 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     };
     expect(doc.info['x-kindgi-capabilities']).toContain('deploy-publishes-pack-blocks');
     expect(doc.info.version).toBe('0.1.0');
+  });
+});
+
+// ---------------- the cards a deploy makes ----------------
+
+describe('POST /v1/deployments — a pinned project gets a suggested change for each agent version the deploy registered', () => {
+  /**
+   * An app with suggested changes, in which `acme.matcher` runs `pinned`
+   * in the deploy's project (Latest when `null`); its test set freezes to
+   * no cases yet, so a card is made unchecked. `freezeThrows`: making one
+   * fails.
+   */
+  function withCards(pack: SignedDeploy, pinned: string | null, freezeThrows = false) {
+    const supervisor = inMemorySuggestedChanges();
+    const releases = {
+      live: {
+        resolve: async ({ agentId, projectId }: LiveResolveInput) =>
+          pinned !== null && agentId === 'acme.matcher' && projectId === DEFAULT_PROJECT_ID
+            ? { version: pinned as Semver, scope: { kind: 'project' as const, projectId } }
+            : null,
+        list: async () => [],
+      },
+      // Latest is the version the deploy registered.
+      latest: {
+        latest: async () => ({ version: '1.4.0' as Semver, since: '2026-10-11T00:00:00.000Z' }),
+        byProject: async () => [],
+      },
+      promotions: {},
+    } as unknown as AgentReleaseBindings;
+    const testSetFreeze: TestSetFreezeBinding = {
+      async freezeTestSet({ agentId, projectId }) {
+        if (freezeThrows) throw new Error('the test set store is down');
+        return { testSetId: `agent:${agentId}:${projectId}`, testSetVersion: '1.0.0', cases: [] };
+      },
+    };
+    const { app } = makeApp({
+      toolRegistry: makeVersionedToolRegistry(),
+      agentRegistry: makeVersionedAgentRegistry(),
+      flowRegistry: makeVersionedFlowRegistry(),
+      extra: {
+        supervisor,
+        agentReleases: releases,
+        blockRegistry: inMemoryBlocks(),
+        testRunBinding: {} as TestRunBinding,
+        testSetFreeze,
+      },
+      extraTrust: [
+        { keyId: KEY_ID, tenantId, publicKey: Buffer.from(pack.publicKeyRaw).toString('base64') },
+      ],
+      extraImages: [{ imageRef: pack.imageRef, digest: pack.digest, indexBytes: pack.indexBytes }],
+    });
+    const deploy = async () => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(pack.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { supervisor, deploy };
+  }
+
+  const pack = () =>
+    pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '2.0.0' });
+
+  test("a project pinned to another version: a card for the deploy's version, made by the deploy", async () => {
+    const p = pack();
+    const h = withCards(p, '1.3.0');
+    const res = await h.deploy();
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const cards = [...h.supervisor.rows.values()];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      agentId: 'acme.matcher',
+      fromVersion: '1.3.0',
+      scope: { kind: 'project', projectId: DEFAULT_PROJECT_ID },
+      tier: 'code',
+      change: { deploymentId: res.body.deploymentId, imageDigest: p.digest },
+      madeBy: { kind: 'deploy', deploymentId: res.body.deploymentId },
+      candidate: { agentVersion: '1.4.0' },
+    });
+  });
+
+  test('a project on Latest, or pinned to the version, gets none; nor does a redeploy that registered nothing', async () => {
+    for (const pinned of [null, '1.4.0']) {
+      const h = withCards(pack(), pinned);
+      const res = await h.deploy();
+      expect(res.status, `${pinned} ${JSON.stringify(res.body)}`).toBe(201);
+      expect(h.supervisor.rows.size).toBe(0);
+    }
+    const h = withCards(pack(), '1.3.0');
+    expect((await h.deploy()).status).toBe(201);
+    h.supervisor.rows.clear();
+    expect((await h.deploy()).status).toBe(200);
+    expect(h.supervisor.rows.size).toBe(0);
+  });
+
+  test("a card whose check can't start never fails the deploy: it's made unchecked", async () => {
+    const h = withCards(pack(), '1.3.0', true);
+    const res = await h.deploy();
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const cards = [...h.supervisor.rows.values()];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.evaluation).toBeUndefined();
   });
 });
