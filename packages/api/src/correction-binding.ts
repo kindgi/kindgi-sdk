@@ -93,6 +93,14 @@ export interface CorrectionRegistryBinding {
   /** One case of the agent's test set, retired or not, or `null` when it has none by that id. */
   getCase(input: TestCaseGetInput): Promise<TestCase | null>;
   /**
+   * The stored copies of these runs, each as a correction's `get` answers
+   * its `run`: what a frozen test set's cases are built from, a hand case's
+   * included. A run with no copy in the tenant is left out. An erased run's
+   * copy comes back with its words cleared. At most `RUN_COPIES_MAX` ids;
+   * more is the caller's mistake, and throws a `RangeError`.
+   */
+  runCopies(input: RunCopiesInput): Promise<readonly CorrectedRunCopy[]>;
+  /**
    * Add a case by hand. It's stored as a correction is, but it has no
    * status, is never sorted, and nothing that counts corrections counts it.
    */
@@ -630,6 +638,15 @@ export interface CorrectionCounts {
   readonly fixed: number;
   readonly wontFix: number;
   readonly removed: number;
+}
+
+/** The most run ids one `runCopies` call takes: one page of `listCases`. */
+export const RUN_COPIES_MAX = 100;
+
+/** At most `RUN_COPIES_MAX` ids. */
+export interface RunCopiesInput {
+  readonly tenantId: TenantId;
+  readonly runIds: readonly string[];
 }
 
 /** At most 500 ids. */

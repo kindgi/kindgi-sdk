@@ -10,6 +10,7 @@ import {
   type CorrectionRegistryBinding,
   type CorrectionWithCopies,
   type CorrectorGroup,
+  RUN_COPIES_MAX,
   type TestCase,
   type TestCaseExpect,
   type TestCaseRetired,
@@ -28,6 +29,7 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
   const corrections: Correction[] = [];
   const copies = new Map<string, CorrectedRunCopy>();
   const copyProjects = new Map<string, ProjectId>();
+  const copyTenants = new Map<string, string>();
   const handCases: { tenantId: string; agentId: string; testCase: TestCase }[] = [];
   const retirements = new Map<string, TestCaseRetired>();
   let seq = 0;
@@ -38,7 +40,9 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
     data: rows.slice(0, limit),
     hasMore: rows.length > limit,
   });
-  const keepCopy = (input: Pick<CorrectionRecordInput, 'runId' | 'run' | 'projectId'>) => {
+  const keepCopy = (
+    input: Pick<CorrectionRecordInput, 'tenantId' | 'runId' | 'run' | 'projectId'>,
+  ) => {
     if (copies.has(input.runId)) return;
     copies.set(input.runId, {
       runId: input.runId,
@@ -50,6 +54,7 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
       capturedAt: now(),
     });
     copyProjects.set(input.runId, input.projectId);
+    copyTenants.set(input.runId, input.tenantId as unknown as string);
   };
   const withRetirement = (testCase: TestCase): TestCase => {
     const retired = retirements.get(testCase.id);
@@ -346,6 +351,18 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
     },
     async getCase(input) {
       return casesOf(input.tenantId, input.agentId).find((k) => k.id === input.caseId) ?? null;
+    },
+    async runCopies(input) {
+      if (input.runIds.length > RUN_COPIES_MAX) {
+        throw new RangeError(`runCopies takes at most ${RUN_COPIES_MAX} run ids`);
+      }
+      return input.runIds.flatMap((runId) => {
+        const copy = copies.get(runId);
+        return copy !== undefined &&
+          copyTenants.get(runId) === (input.tenantId as unknown as string)
+          ? [copy]
+          : [];
+      });
     },
     async addCase(input) {
       keepCopy(input);

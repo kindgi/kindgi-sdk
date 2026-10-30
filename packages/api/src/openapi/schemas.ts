@@ -6107,11 +6107,16 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
         },
       },
     },
+    expect: {
+      $ref: '#/components/schemas/TestCaseExpect',
+      description:
+        "What the case expects of a run, as the agent's test set lists it. Set on a frozen case of an agent's test set, from its own correction or hand case, which also fill `items` and `corrections`. A grader reads it when it's present, and `items` and `corrections` otherwise.",
+    },
     erased: {
       type: 'boolean',
       const: true,
       description:
-        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and test runs leave it out (counted as `erased`).",
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` and `expect` gone, and test runs leave it out (counted as `erased`).",
     },
   },
 };

@@ -5,6 +5,7 @@ import type { Cursor, TenantId } from '@kindgi/types';
 
 import type { CorrectedItem, CorrectedRunContext, CorrectedSubject } from './correction-binding.js';
 import type { ExpectedDecisions } from './expected-decisions.js';
+import type { TestCaseExpect } from './test-case-binding.js';
 
 /**
  * Caller-plugged storage for the cases of a test-set version, kept
@@ -96,18 +97,34 @@ export interface CorrectedEvalCase {
    */
   readonly corrections?: readonly TestCaseExpectedDecisions[];
   /**
+   * What the case expects of a run, as the agent's test set lists it: set
+   * on a frozen case of an agent's test set, from its own correction or
+   * hand case, which also fill `items` and `corrections`. A grader reads it
+   * when it's present, and `items` and `corrections` otherwise.
+   */
+  readonly expect?: TestCaseExpect;
+  /**
    * An erasure cleared this case (a person's words were erased): its
-   * `input`, `output` and `context` are gone, its items empty and its
-   * corrections dropped. Test runs leave it out and count it (`erased`).
+   * `input`, `output` and `context` are gone, its items empty, and its
+   * corrections and `expect` dropped. Test runs leave it out and count it
+   * (`erased`).
    */
   readonly erased?: true;
 }
+
+/**
+ * A case to store, with the run it was copied from when its id isn't the
+ * run's (a frozen case is named for its correction, and one run can have
+ * several). The store keeps `runId` for an erasure to find the case by its
+ * run, and never answers it on a read.
+ */
+export type EvalCaseToStore = CorrectedEvalCase & { readonly runId?: string };
 
 export interface EvalCasePutInput {
   readonly tenantId: TenantId;
   readonly testSetId: string;
   readonly version: string;
-  readonly cases: readonly CorrectedEvalCase[];
+  readonly cases: readonly EvalCaseToStore[];
 }
 
 export interface EvalCaseListInput {
