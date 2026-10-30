@@ -523,6 +523,7 @@ export type {
   AgentGetVersionInput,
   AgentListInput,
   AgentListVersionsInput,
+  AgentOwner,
   AgentPage,
   AgentPublishInput,
   AgentPublishOutcome,
@@ -530,6 +531,8 @@ export type {
   AgentVersionRecord,
   AgentReinstateVersionInput,
   AgentReinstateVersionOutcome,
+  AgentSetOwnerInput,
+  AgentSetOwnerOutcome,
   AgentUnregisterInput,
   AgentUnregisterOutcome,
 } from './agent-binding.js';

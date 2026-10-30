@@ -3756,6 +3756,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'put',
+    honoPath: '/v1/agents/:agentId/owner',
+    openapiPath: '/v1/agents/{agentId}/owner',
+    operationId: 'agents.setOwner',
+    summary: "Set an agent's owner",
+    description:
+      "One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam],
+    requestBody: { required: true, schema: ref('SetAgentOwnerBody') },
+    responses: {
+      '200': { description: 'The owner is set.', schema: ref('SetAgentOwnerResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('The body is not `{ "userId": "…" }`.'),
+      '404': ErrorResponse(
+        'No agent with that id under this tenant (`agent-not-found`), or no person with that id in it (`identity-user-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "`registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source).",
+      ),
+      '501': ErrorResponse(
+        "The runtime's agent store doesn't keep an owner (`agent-owner-unsupported`).",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/agents/:agentId/versions/:version/unregister',
     openapiPath: '/v1/agents/{agentId}/versions/{version}/unregister',

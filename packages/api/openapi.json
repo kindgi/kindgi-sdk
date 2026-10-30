@@ -460,6 +460,7 @@
           "identity-user-unregistered": 409,
           "identity-user-not-invited": 409,
           "person-grants-unsupported": 501,
+          "agent-owner-unsupported": 501,
           "permissions-unsupported": 501,
           "agent-version-live": 409,
           "flow-version-pinned": 409,
@@ -7420,6 +7421,10 @@
             "type": "string",
             "pattern": "^sha256:[0-9a-f]{64}$",
             "description": "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/AgentOwner",
+            "description": "`GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`)."
           }
         }
       },
@@ -7812,6 +7817,54 @@
                 }
               }
             }
+          }
+        }
+      },
+      "AgentOwner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId"
+        ],
+        "description": "The person the agent's corrections go to when they need its owner. Until one is set, those go to everyone who may publish the agent.",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "description": "The person's display name, when the runtime's directory has one."
+          }
+        }
+      },
+      "SetAgentOwnerBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The new owner's user id."
+          }
+        }
+      },
+      "SetAgentOwnerResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "owner"
+        ],
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/AgentOwner"
           }
         }
       },
@@ -35426,6 +35479,124 @@
             "description": "Semver of the agent version."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/owner": {
+      "put": {
+        "operationId": "agents.setOwner",
+        "summary": "Set an agent's owner",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The owner is set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAgentOwnerResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not `{ \"userId\": \"…\" }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No agent with that id under this tenant (`agent-not-found`), or no person with that id in it (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime's agent store doesn't keep an owner (`agent-owner-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAgentOwnerBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

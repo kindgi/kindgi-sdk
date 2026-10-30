@@ -223,6 +223,9 @@ OPERATIONS: dict[str, Operation] = {
     "agents.getVersion": Operation(
         "agents.getVersion", "GET", "/v1/agents/{agentId}/versions/{version}", "json", False
     ),
+    "agents.setOwner": Operation(
+        "agents.setOwner", "PUT", "/v1/agents/{agentId}/owner", "json", False
+    ),
     "agents.unregister": Operation(
         "agents.unregister",
         "POST",
@@ -3259,6 +3262,29 @@ class AgentsResource:
             query={},
             headers={},
             response=_models.Agent,
+            timeout=timeout,
+        )
+
+    def set_owner(
+        self,
+        agent_id: str | UUID,
+        body: _models.SetAgentOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SetAgentOwnerResult:
+        """Set an agent's owner. `PUT /v1/agents/{agentId}/owner`
+
+        One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.setOwner"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            body=_body(_models.SetAgentOwnerBody, body, fields),
+            response=_models.SetAgentOwnerResult,
             timeout=timeout,
         )
 
@@ -13006,6 +13032,29 @@ class AsyncAgentsResource:
             query={},
             headers={},
             response=_models.Agent,
+            timeout=timeout,
+        )
+
+    async def set_owner(
+        self,
+        agent_id: str | UUID,
+        body: _models.SetAgentOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SetAgentOwnerResult:
+        """Set an agent's owner. `PUT /v1/agents/{agentId}/owner`
+
+        One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.setOwner"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            body=_body(_models.SetAgentOwnerBody, body, fields),
+            response=_models.SetAgentOwnerResult,
             timeout=timeout,
         )
 

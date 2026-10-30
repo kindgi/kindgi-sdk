@@ -3093,6 +3093,42 @@ class PublishAgentResult(BaseModel):
     """
 
 
+class AgentOwner(BaseModel):
+    """
+    The person the agent's corrections go to when they need its owner. Until one is set, those go to everyone who may publish the agent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    name: str | None = None
+    """
+    The person's display name, when the runtime's directory has one.
+    """
+
+
+class SetAgentOwnerBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    """
+    The new owner's user id.
+    """
+
+
+class SetAgentOwnerResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    owner: AgentOwner
+
+
 class UnregisterAgentResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -14523,6 +14559,10 @@ class Agent(BaseModel):
     ] = None
     """
     Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
+    """
+    owner: AgentOwner | None = None
+    """
+    `GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).
     """
 
 

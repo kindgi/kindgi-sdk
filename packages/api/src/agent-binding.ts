@@ -4,7 +4,7 @@
 import type { Agent, AgentId } from '@kindgi/agents';
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, LiveScope, ProjectId, Semver, TenantId } from '@kindgi/types';
+import type { Cursor, LiveScope, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import type { RegistryReadOnly } from './registry-read-only.js';
 
@@ -108,6 +108,14 @@ export interface AgentRegistryBinding {
    * published.
    */
   reinstateVersion(input: AgentReinstateVersionInput): Promise<AgentReinstateVersionOutcome>;
+  /**
+   * Sets the agent's owner (`AgentOwner`), replacing the one before. The
+   * owner is the agent's, not a version's: every version reads it.
+   * `{ kind: 'not-found' }` when the agent was never published. Optional:
+   * without it, `PUT /v1/agents/:id/owner` answers 501
+   * `agent-owner-unsupported`.
+   */
+  setOwner?(input: AgentSetOwnerInput): Promise<AgentSetOwnerOutcome>;
 }
 
 /**
@@ -134,7 +142,22 @@ export type AgentVersionRecord = Agent & {
    * promoted build.
    */
   readonly madeInProjectId?: ProjectId;
+  /** The agent's owner, the same on every version. Absent until one is set. */
+  readonly owner?: AgentOwner;
 };
+
+/**
+ * The person an agent's corrections go to when they need its owner: one
+ * per agent, set by an admin of its project. Until one is set, those go to
+ * everyone who may publish the agent.
+ */
+export interface AgentOwner {
+  readonly userId: UserId;
+  /** The id of the caller that set it, a person's or a service's; absent without one. */
+  readonly setBy?: string;
+  /** ISO-8601. */
+  readonly setAt: string;
+}
 
 export interface AgentListInput {
   readonly tenantId: TenantId;
@@ -241,6 +264,18 @@ export interface AgentReinstateVersionInput {
   readonly agentId: AgentId;
   readonly version: Semver;
 }
+
+export interface AgentSetOwnerInput {
+  readonly tenantId: TenantId;
+  readonly agentId: AgentId;
+  readonly userId: UserId;
+  /** The caller's id, a person's or a service's; absent on a runtime without sign-in. */
+  readonly setBy?: string;
+}
+
+export type AgentSetOwnerOutcome =
+  | { readonly kind: 'set'; readonly owner: AgentOwner }
+  | { readonly kind: 'not-found' };
 
 export interface AgentPage {
   readonly data: readonly AgentVersionRecord[];

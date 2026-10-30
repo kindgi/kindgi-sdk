@@ -3465,6 +3465,11 @@ export const AgentSchema: JsonSchema = {
       description:
         "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.",
     },
+    owner: {
+      $ref: '#/components/schemas/AgentOwner',
+      description:
+        "`GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).",
+    },
   },
 };
 
@@ -3648,6 +3653,40 @@ export const PublishAgentResultSchema: JsonSchema = {
         properties: { code: { type: 'string' }, message: { type: 'string' } },
       },
     },
+  },
+};
+
+export const AgentOwnerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId'],
+  description:
+    "The person the agent's corrections go to when they need its owner. Until one is set, those go to everyone who may publish the agent.",
+  properties: {
+    userId: { type: 'string', minLength: 1 },
+    name: {
+      type: 'string',
+      description: "The person's display name, when the runtime's directory has one.",
+    },
+  },
+};
+
+export const SetAgentOwnerBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId'],
+  properties: {
+    userId: { type: 'string', minLength: 1, description: "The new owner's user id." },
+  },
+};
+
+export const SetAgentOwnerResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'owner'],
+  properties: {
+    agentId: { type: 'string' },
+    owner: { $ref: '#/components/schemas/AgentOwner' },
   },
 };
 
@@ -16184,6 +16223,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FlowVersionOverrides', FlowVersionOverridesSchema],
   ['PublishAgentBody', PublishAgentBodySchema],
   ['PublishAgentResult', PublishAgentResultSchema],
+  ['AgentOwner', AgentOwnerSchema],
+  ['SetAgentOwnerBody', SetAgentOwnerBodySchema],
+  ['SetAgentOwnerResult', SetAgentOwnerResultSchema],
   ['UnregisterAgentResult', UnregisterAgentResultSchema],
   ['ReinstateAgentVersionResult', ReinstateAgentVersionResultSchema],
   ['AgentCollectionPage', AgentCollectionPageSchema],

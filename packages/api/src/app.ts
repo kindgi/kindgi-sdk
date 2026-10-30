@@ -1773,6 +1773,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemRights,
         itemServing,
         input.pinnedVersions,
+        input.identityDirectory,
       ),
     );
   }

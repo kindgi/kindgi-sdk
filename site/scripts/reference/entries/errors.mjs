@@ -2482,6 +2482,11 @@ export const ERROR_ENTRIES = {
       "The runtime runs without an authorization store, so it can't read or change a person's grants.",
     details: [],
   },
+  'agent-owner-unsupported': {
+    description:
+      "The runtime's agent store doesn't keep an owner, so an agent's owner can't be set. Nothing changed.",
+    details: [],
+  },
   'permissions-unsupported': {
     description:
       "The runtime runs without an authorization store, so it can't say what the caller may do. Read whoami's `tenantAdmin` and `reviewerRole` instead.",
