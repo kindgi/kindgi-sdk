@@ -40,7 +40,7 @@ import type {
 } from '@kindgi/types';
 
 import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
-import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
+import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentReleaseBindings,
   CarriedVersion,
@@ -612,7 +612,7 @@ function cardBindings(pinned: string, live: ReturnType<typeof livePins>) {
   const supervisor = inMemorySuggestedChanges();
   const testSetFreeze: TestSetFreezeBinding = {
     freezeTestSet: async ({ agentId, projectId }) => ({
-      testSetId: `agent:${agentId}:${projectId}`,
+      testSetId: agentTestSetId(agentId, projectId),
       testSetVersion: '1.0.0',
       cases: [],
     }),

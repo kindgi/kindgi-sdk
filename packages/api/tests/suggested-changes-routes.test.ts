@@ -1316,8 +1316,10 @@ describe('POST /v1/suggested-changes', () => {
 });
 
 describe("a suggested change's check", () => {
-  test("is on the agent's test set in its project: agent:<agentId>:<projectId>", () => {
-    expect(agentTestSetId(AGENT as AgentId, projectId)).toBe(`agent:${AGENT}:${projectId}`);
+  test("is on the agent's test set in its project: agent.<agentId>.<projectId>, with no ':' (an authorization object's id can't hold one)", () => {
+    const id = agentTestSetId(AGENT as AgentId, projectId);
+    expect(id).toBe(`agent.${AGENT}.${projectId}`);
+    expect(id).not.toContain(':');
   });
 
   test('is ready once both runs finish, and shows how each did and what newly fails', async () => {

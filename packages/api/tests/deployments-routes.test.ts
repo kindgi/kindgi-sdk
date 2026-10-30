@@ -30,7 +30,7 @@ import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
+import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
@@ -8192,7 +8192,11 @@ describe('POST /v1/deployments — a pinned project gets a suggested change for 
     const testSetFreeze: TestSetFreezeBinding = {
       async freezeTestSet({ agentId, projectId }) {
         if (freezeThrows) throw new Error('the test set store is down');
-        return { testSetId: `agent:${agentId}:${projectId}`, testSetVersion: '1.0.0', cases: [] };
+        return {
+          testSetId: agentTestSetId(agentId, projectId),
+          testSetVersion: '1.0.0',
+          cases: [],
+        };
       },
     };
     const { app } = makeApp({
