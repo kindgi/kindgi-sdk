@@ -3070,7 +3070,7 @@ export const LicenseUsageSchema: JsonSchema = {
     runs: {
       type: 'integer',
       minimum: 0,
-      description: 'Runs started in the period: not dry runs, replays, evals or child runs.',
+      description: 'Runs started in the period: not dry runs, replays, test runs or child runs.',
     },
     people: {
       type: 'integer',

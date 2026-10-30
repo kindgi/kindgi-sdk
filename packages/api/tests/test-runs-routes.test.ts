@@ -13,7 +13,6 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import { createApp } from '../src/index.js';
 import type {
   EvalGrader,
-  EvalSubjectInvoker,
   ItemReference,
   ReferenceScopeBinding,
   RunHandlerBinding,
@@ -22,6 +21,7 @@ import type {
   TestRunPage,
   TestRunStatus,
   TestRunSubjectInvokeOutcome,
+  TestRunSubjectInvoker,
   TestSet,
   TestSetKind,
   TestSetRegistryBinding,
@@ -164,7 +164,7 @@ async function seedTestSet(
  * the pass path; toggles a `mismatch` field on other cases so we
  * can exercise the fail path.
  */
-function makeStubSubject(behavior: 'pass' | 'fail' | 'mixed' = 'pass'): EvalSubjectInvoker {
+function makeStubSubject(behavior: 'pass' | 'fail' | 'mixed' = 'pass'): TestRunSubjectInvoker {
   let calls = 0;
   return {
     async invoke({ input }): Promise<{ output: unknown }> {
@@ -214,7 +214,7 @@ function makeApp(
   options: {
     behavior?: 'pass' | 'fail' | 'mixed';
     kinds?: readonly TestSetKind[];
-    subject?: EvalSubjectInvoker;
+    subject?: TestRunSubjectInvoker;
     /** With authorization on: what the caller holds, as `<action> <type>:<id>`. */
     grants?: readonly string[];
     projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
@@ -466,7 +466,7 @@ describe("API — test-runs start: the version it runs must be the project's to 
   /** A subject that counts its cases, so a refused start is seen to run none. */
   const counting = () => {
     const calls = { n: 0 };
-    const subject: EvalSubjectInvoker = {
+    const subject: TestRunSubjectInvoker = {
       async invoke({ input }) {
         calls.n += 1;
         return { output: (input as { expected: unknown }).expected };
@@ -681,7 +681,7 @@ describe('API — test-runs and a suspended project', () => {
   /** The second case's start is refused (`refused`), the others answer what they expect. */
   const refusingSecond = (refused: TestRunSubjectInvokeOutcome) => {
     const calls = { n: 0 };
-    const subject: EvalSubjectInvoker = {
+    const subject: TestRunSubjectInvoker = {
       async invoke({ input }) {
         calls.n += 1;
         if (calls.n === 2) return refused;
@@ -753,7 +753,7 @@ describe('API — test-runs and a suspended project', () => {
 describe('API — test-runs start (dryRun preview)', () => {
   test('dryRun: true returns preview envelope without invoking subject', async () => {
     let subjectCalls = 0;
-    const trackingSubject: EvalSubjectInvoker = {
+    const trackingSubject: TestRunSubjectInvoker = {
       async invoke() {
         subjectCalls += 1;
         return { output: 'never called' };
@@ -1018,7 +1018,7 @@ describe('API — test-runs cancel', () => {
     const gate = new Promise<void>((res) => {
       released = res;
     });
-    const slowSubject: EvalSubjectInvoker = {
+    const slowSubject: TestRunSubjectInvoker = {
       async invoke({ input, abortSignal }) {
         // First case: block until either aborted or explicitly released.
         await Promise.race([

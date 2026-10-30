@@ -111,7 +111,7 @@ export interface TestRunSubjectInvokeOutcome {
  * `RunHandlerBinding.invokeAgent` / `invokeFlow` (the same surface
  * `/v1/runs` uses); tests pass a synchronous stub.
  */
-export interface EvalSubjectInvoker {
+export interface TestRunSubjectInvoker {
   invoke(input: TestRunSubjectInvokeInput): Promise<TestRunSubjectInvokeOutcome>;
 }
 
@@ -146,7 +146,7 @@ export interface DispatchContext {
   readonly target: AgentRef | FlowRef;
   readonly dryRun: boolean;
   readonly abortSignal: AbortSignal;
-  readonly subject: EvalSubjectInvoker;
+  readonly subject: TestRunSubjectInvoker;
   /** The test run's project. */
   readonly projectId?: ProjectId;
   /** A comparison test run's baseline, reads and repetitions. */
@@ -313,7 +313,7 @@ function extractExpected(c: EvalCase): unknown {
 
 export interface InProcessTestRunBindingOptions {
   readonly testSetRegistry: TestSetRegistryBinding;
-  readonly subject: EvalSubjectInvoker;
+  readonly subject: TestRunSubjectInvoker;
   readonly dispatchers: Partial<Record<TestSetKind, TestRunDispatcher>>;
   /**
    * Optional clock override — tests inject a monotonic stub so

@@ -843,7 +843,7 @@ export type {
   TestRunDispatcher,
   TestRunSubjectInvokeInput,
   TestRunSubjectInvokeOutcome,
-  EvalSubjectInvoker,
+  TestRunSubjectInvoker,
   InProcessTestRunBindingOptions,
 } from './test-run-dispatcher.js';
 export {

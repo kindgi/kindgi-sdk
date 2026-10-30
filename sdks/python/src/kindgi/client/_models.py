@@ -1996,7 +1996,7 @@ class LicenseUsage(BaseModel):
     """
     runs: Annotated[int, Field(ge=0)]
     """
-    Runs started in the period: not dry runs, replays, evals or child runs.
+    Runs started in the period: not dry runs, replays, test runs or child runs.
     """
     people: Annotated[int, Field(ge=0)]
     """
