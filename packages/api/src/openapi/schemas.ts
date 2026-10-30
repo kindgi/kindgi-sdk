@@ -5875,8 +5875,7 @@ export const TestCaseSchema: JsonSchema = {
     updatedAt: {
       type: 'string',
       format: 'date-time',
-      description:
-        "When the case last changed: its `addedAt` until it's retired or an erasure clears its words.",
+      description: "When the case last changed: its `addedAt` until it's retired.",
     },
     retired: {
       $ref: '#/components/schemas/TestCaseRetired',

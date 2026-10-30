@@ -78,7 +78,7 @@ export interface TestCase {
   /** Who made the correction, or added the case. */
   readonly addedBy: CorrectionMadeBy;
   readonly addedAt: string;
-  /** When the case last changed: its `addedAt` until it's retired or an erasure clears its words. */
+  /** When the case last changed: its `addedAt` until it's retired. */
   readonly updatedAt: string;
   readonly retired?: TestCaseRetired;
 }

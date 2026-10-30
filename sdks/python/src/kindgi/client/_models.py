@@ -2669,7 +2669,7 @@ class TestCase(BaseModel):
     added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     """
-    When the case last changed: its `addedAt` until it's retired or an erasure clears its words.
+    When the case last changed: its `addedAt` until it's retired.
     """
     retired: TestCaseRetired | None = None
     """
