@@ -95,8 +95,8 @@ export interface CorrectionRegistryBinding {
   /**
    * The stored copies of these runs, each as a correction's `get` answers
    * its `run`: what a frozen test set's cases are built from, a hand case's
-   * included. A run with no copy in the tenant is left out. An erased run's
-   * copy comes back with its words cleared. At most `RUN_COPIES_MAX` ids;
+   * included. A run with no copy in the tenant is left out, and so is an
+   * erased run's: its case is frozen `erased`. At most `RUN_COPIES_MAX` ids;
    * more is the caller's mistake, and throws a `RangeError`.
    */
   runCopies(input: RunCopiesInput): Promise<readonly CorrectedRunCopy[]>;

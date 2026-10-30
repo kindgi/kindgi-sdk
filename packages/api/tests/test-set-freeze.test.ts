@@ -406,6 +406,55 @@ describe('createTestSetFreeze', () => {
     expect(await h.run()).toMatchObject({ testSetVersion: '1.0.1', cases: [{ caseId: c.id }] });
   });
 
+  test("an erased run's case is frozen erased, whatever its correction said", async () => {
+    const h = harness();
+    const erased = await h.corrected({ decisions: 'right' });
+    const kept = await h.corrected(WRONG_ANSWER);
+    h.store.eraseRun({ tenantId, runId: erased.runId });
+    expect(await h.store.runCopies({ tenantId, runIds: [erased.runId, kept.runId] })).toMatchObject(
+      [{ runId: kept.runId }],
+    );
+    expect((await h.run()).cases).toEqual([
+      { caseId: erased.id, correctionId: erased.id },
+      { caseId: kept.id, correctionId: kept.id },
+    ]);
+    expect(await h.stored('1.0.0')).toEqual([
+      {
+        caseId: erased.id,
+        subject: { kind: 'agent', id: agentId, version: '1.2.0' },
+        input: null,
+        output: null,
+        items: [],
+        erased: true,
+      },
+      expect.objectContaining({ caseId: kept.id, input: { ask: 'refund order 41?' } }),
+    ]);
+  });
+
+  test('a version another freeze published, with no cases stored, is frozen past', async () => {
+    const h = harness();
+    const c = await h.corrected(WRONG_ANSWER);
+    const putCases = h.cases.putCases;
+    h.cases.putCases = async () => {
+      throw new Error('the store is down');
+    };
+    await expect(h.run()).rejects.toThrow('the store is down');
+    h.cases.putCases = putCases;
+    // This freeze looks before 1.0.0 is published, and publishes after.
+    const { get, listVersions } = h.testSets.registry;
+    let looked = false;
+    h.testSets.registry.get = async (input) => (looked ? get(input) : null);
+    h.testSets.registry.listVersions = async (input) => {
+      if (looked) return listVersions(input);
+      looked = true;
+      return { data: [] };
+    };
+    expect(await h.run()).toMatchObject({ testSetVersion: '1.0.1', cases: [{ caseId: c.id }] });
+    expect(await h.stored('1.0.1')).toMatchObject([
+      { caseId: c.id, input: { ask: 'refund order 41?' } },
+    ]);
+  });
+
   test("the in-memory store's run copies: at most 100 ids, the tenant's only", async () => {
     const h = harness();
     const c = await h.corrected(WRONG_ANSWER);

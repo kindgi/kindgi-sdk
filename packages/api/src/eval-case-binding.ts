@@ -90,8 +90,8 @@ export interface CorrectedEvalCase {
   /** The output that was corrected. */
   readonly output: unknown;
   /**
-   * The segment path its run was started with (empty: none). Set on a
-   * frozen case when its run's copy has it.
+   * The segment path its run was started with, coarse to fine (empty:
+   * none). Set on a frozen case when its run's copy has it.
    */
   readonly segments?: readonly ScopeSegment[];
   readonly items: readonly CorrectedItemSummary[];

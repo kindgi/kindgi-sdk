@@ -23,13 +23,18 @@ import {
  * In-memory `CorrectionRegistryBinding` honouring supersede, one run copy per
  * run, a change that applies only from the status and sorting it expects, and
  * the agent's test set: its correction cases, hand cases and retirements.
+ * `eraseRun` erases a run as the runtime's erasure does: its copy's words
+ * are cleared, and `runCopies` leaves it out.
  */
-export function inMemoryCorrections(): CorrectionRegistryBinding {
+export function inMemoryCorrections(): CorrectionRegistryBinding & {
+  eraseRun(input: { tenantId: string; runId: string }): void;
+} {
   const groups: CorrectorGroup[] = [];
   const corrections: Correction[] = [];
   const copies = new Map<string, CorrectedRunCopy>();
   const copyProjects = new Map<string, ProjectId>();
   const copyTenants = new Map<string, string>();
+  const erasedRuns = new Set<string>();
   const handCases: { tenantId: string; agentId: string; testCase: TestCase }[] = [];
   const retirements = new Map<string, TestCaseRetired>();
   let seq = 0;
@@ -359,10 +364,18 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
       return input.runIds.flatMap((runId) => {
         const copy = copies.get(runId);
         return copy !== undefined &&
+          !erasedRuns.has(runId) &&
           copyTenants.get(runId) === (input.tenantId as unknown as string)
           ? [copy]
           : [];
       });
+    },
+    eraseRun({ tenantId, runId }) {
+      const copy = copies.get(runId);
+      if (copy === undefined || copyTenants.get(runId) !== tenantId) return;
+      const { context: _context, segments: _segments, ...kept } = copy;
+      copies.set(runId, { ...kept, input: null, output: null });
+      erasedRuns.add(runId);
     },
     async addCase(input) {
       keepCopy(input);

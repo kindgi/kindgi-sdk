@@ -44,8 +44,9 @@ export interface CreateTestSetFreezeOptions {
  * - Its cases are the project's active cases of the agent's test set,
  *   oldest added first: each a copy of its run, with what it expects
  *   (`expect`, and the same in `items` and `corrections` for a grader that
- *   reads those). A case whose run's copy is gone is frozen `erased`, with
- *   no words: test runs leave it out and count it.
+ *   reads those). A case whose run's copy is gone, or whose run was
+ *   erased, is frozen `erased`, with no words: test runs leave it out and
+ *   count it.
  * - A new version is made only when the cases changed since the newest: a
  *   hash of their ids and `updatedAt` decides, kept in the version's
  *   `spec`. Else the newest is answered again.
@@ -65,11 +66,8 @@ export function createTestSetFreeze(options: CreateTestSetFreezeOptions): TestSe
       const fingerprint = fingerprintOf(live);
 
       const newest = await newestVersion(testSets, tenantId, testSetId);
-      if (newest !== null) {
-        assertAgentsOwn(newest, agentId, projectId);
-        if (newest.spec.fingerprint === fingerprint && (await hasCases(cases, newest, live))) {
-          return frozen(testSetId, newest.version, live);
-        }
+      if (newest !== null && (await answersAgain(newest, input, fingerprint, cases, live))) {
+        return frozen(testSetId, newest.version, live);
       }
 
       const copies = await runCopiesOf(corrections, tenantId, live);
@@ -94,8 +92,7 @@ export function createTestSetFreeze(options: CreateTestSetFreezeOptions): TestSe
       if (outcome.kind === 'already-registered') {
         // An unregistered version holds the number, or another freeze took it.
         const again = await newestVersion(testSets, tenantId, testSetId);
-        if (again !== null && again.spec.fingerprint === fingerprint) {
-          assertAgentsOwn(again, agentId, projectId);
+        if (again !== null && (await answersAgain(again, input, fingerprint, cases, live))) {
           return frozen(testSetId, again.version, live);
         }
         version = nextVersion(await highestVersion(testSets, tenantId, testSetId));
@@ -203,6 +200,22 @@ function assertAgentsOwn(record: TestSetRecord, agentId: AgentId, projectId: Pro
       `Test set ${record.id} isn't agent ${agentId as unknown as string}'s test set in project ${projectId as unknown as string}: its version ${record.version} doesn't name them. Nothing was frozen.`,
     );
   }
+}
+
+/**
+ * Whether the test set's newest version is answered again: it was made for
+ * these cases, and has them. It throws when the version isn't this agent's
+ * in this project.
+ */
+async function answersAgain(
+  newest: TestSetRecord,
+  input: FreezeTestSetInput,
+  fingerprint: string,
+  cases: EvalCaseStoreBinding,
+  live: readonly TestCase[],
+): Promise<boolean> {
+  assertAgentsOwn(newest, input.agentId, input.projectId);
+  return newest.spec.fingerprint === fingerprint && (await hasCases(cases, newest, live));
 }
 
 /** A version made for these cases has them, unless storing them failed after it was published. */
