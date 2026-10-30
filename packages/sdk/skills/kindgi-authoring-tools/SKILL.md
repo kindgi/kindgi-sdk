@@ -99,7 +99,7 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc — every field on `DefineToolSpec` / `ToolManifest`
   documents purpose, when to set it, and gotchas.
-- API reference: https://docs.kindgi.com/v0.2/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
+- API reference: https://docs.kindgi.com/v0.3/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
 - Common patterns: check the `sample` template (`kindgi init
   --template=sample`) for working examples of both authoring modes.
 
