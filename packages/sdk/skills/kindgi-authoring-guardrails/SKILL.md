@@ -18,7 +18,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.0"
+version: "0.4.1"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -181,17 +181,18 @@ How the pack tooling reads this file:
 - The **indexer** (`packages/handler-runtime/src/kindgi-index.ts`)
   recognises a guardrail by a default export with a `kind` and an
   `action` object carrying `on-violation`. It records `id`, `name`,
-  `kind`, `action`, `severity`, `scope`, `at`, `sees`, `budget`, `sandbox` /
-  `limits` / `network`, and the check: its id (`check` may be the check
+  `kind`, `action`, `severity`, `scope`, `at`, `sees`, `budget`,
+  `judgeCapabilities`, `sandbox` / `limits` / `network`, and the check: its id (`check` may be the check
   id as a string, or the check object), its points (`checkPoints`, for a
   check the module ships) and its config schema (from the check's
   `configZod`, `configSchema` or `configJsonSchema`, or a top-level
   `configZod` / `configSchema`), and the declaration's `config` — what
-  the check runs with. It does not record `description` or
-  `judgeCapabilities`. It checks `config` (none counts as `{}`) against
+  the check runs with. It does not record `description`. It checks `config` (none counts as `{}`) against
   the config schema: a config that doesn't fit, or a required field with
   no default left out, is a file error naming where, and `kindgi build`
-  refuses the pack. It also refuses an `at` it doesn't know, a malformed
+  refuses the pack. It also refuses an `llm-judge` guardrail with no
+  `judgeCapabilities` (the runtime would refuse it on every turn), an
+  `at` it doesn't know, a malformed
   `scope.tools` or `points`, what a point can't do in the deploy's paths
   and words (`guardrail <id>: /action/on-violation: "escalate" is
   recorded at the final answer only, not at "before-tool"`, and
@@ -505,7 +506,7 @@ ready for the stricter enforcement.
 - Type surface: hover any `@kindgi/sdk/define` export for full JSDoc;
   `Guardrail`, `validateGuardrail` and the built-in checks are in
   `@kindgi/guardrails`.
-- API reference: https://docs.kindgi.com/v0.2/reference/typescript/sdk/kindgi/sdk/define/
+- API reference: https://docs.kindgi.com/v0.3/reference/typescript/sdk/kindgi/sdk/define/
 - Built-in check implementations: `packages/guardrails/src/checks.ts`.
 
 ## When the framework itself is the problem

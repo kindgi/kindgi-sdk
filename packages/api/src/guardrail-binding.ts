@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
-import type { CodeArtifactRef, Guardrail } from '@kindgi/guardrails';
+import type { CodeArtifactRef, Guardrail, GuardrailPoint } from '@kindgi/guardrails';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, GuardrailId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
@@ -72,12 +72,13 @@ export interface GuardrailRegistryBinding {
   outcomes?(input: GuardrailOutcomesInput): Promise<GuardrailOutcomes>;
   /**
    * Optional. Give a guardrail what a new deploy of the same pack derived
-   * for it: where its check's code is now (`codeArtifactRef`) and that
-   * check's config schema (`configSchema`). What its author declares
-   * doesn't change: a deploy keeps a guardrail only when that's equal.
-   * Without it, a kept guardrail keeps what its first deploy derived (the
-   * pointer is metadata, as pack code runs by check name; the config
-   * schema is what a config is checked against).
+   * for it: where its check's code is now (`codeArtifactRef`), that
+   * check's config schema (`configSchema`) and the points it runs at
+   * (`checkPoints`). What its author declares doesn't change: a deploy
+   * keeps a guardrail only when that's equal. Without it, a kept guardrail
+   * keeps what its first deploy derived (the pointer is metadata, as pack
+   * code runs by check name; the config schema is what a config is checked
+   * against; the points are where a runtime runs the check).
    */
   refreshDeployedFields?(input: GuardrailRefreshInput): Promise<RegistryRefreshOutcome>;
 }
@@ -90,6 +91,11 @@ export interface GuardrailRefreshInput {
   /** The check's config schema now; `null` for none. */
   readonly configSchema: Readonly<Record<string, unknown>> | null;
   /**
+   * The points the check runs at now (`GuardrailRegisterInput.checkPoints`);
+   * `null` for none (a built-in check, whose points are the runtime's).
+   */
+  readonly checkPoints: readonly GuardrailPoint[] | null;
+  /**
    * Compare-and-set: refresh only while the guardrail still holds these
    * (`null`: none), else answer `{ refreshed: false }` and change nothing.
    * A deploy's rollback passes what it wrote, so it never undoes a refresh
@@ -98,6 +104,7 @@ export interface GuardrailRefreshInput {
   readonly expected?: {
     readonly codeArtifactRef: CodeArtifactRef | null;
     readonly configSchema: Readonly<Record<string, unknown>> | null;
+    readonly checkPoints: readonly GuardrailPoint[] | null;
   };
 }
 
@@ -202,6 +209,16 @@ export interface GuardrailRegisterInput {
   readonly projectId: ProjectId;
   readonly guardrail: Guardrail;
   /**
+   * The points the guardrail's check runs at, when the deployed pack
+   * ships that check: the index's `checkPoints`, else the final answer
+   * only. Only the deploy route passes them. The register route
+   * (`POST /v1/guardrails`) never does, so a guardrail registered over
+   * the API can't widen a pack check's points. The registry keeps them
+   * beside the guardrail and gives them back (`GuardrailRecord.checkPoints`),
+   * and a runtime builds the pack check's points from them.
+   */
+  readonly checkPoints?: readonly GuardrailPoint[];
+  /**
    * REQUIRED. Called inside the binding's write tx after row insert,
    * receiving the business `guardrailId`. Returns tuples for the tx.
    * See `AgentPublishInput.enqueueTuples` for the design rationale.
@@ -220,12 +237,21 @@ export interface GuardrailPage {
 }
 
 /**
- * A guardrail as the registry reads it (`get`, `list`): the spec, and
- * its project when the store records it.
+ * A guardrail as the registry reads it (`get`, `list`): the spec, its
+ * project when the store records it, and its pack check's points when a
+ * deploy gave them.
  */
 export type GuardrailRecord = Guardrail & {
   /** The guardrail's project, when the store records it. */
   readonly projectId?: ProjectId;
+  /**
+   * The points its pack check runs at, as the deploy that registered or
+   * last kept it gave them (`GuardrailRegisterInput.checkPoints`). Absent:
+   * registered over the API, naming a built-in check, or registered by a
+   * deploy from before the registry kept them. A runtime runs a pack check
+   * whose guardrails give none at the final answer only.
+   */
+  readonly checkPoints?: readonly GuardrailPoint[];
 };
 
 export type GuardrailRegisterOutcome =
