@@ -338,7 +338,7 @@ export function correctionsRouter(
       // An item more than one project serves: the change is in the
       // correction's project, so it takes the right there, never the item's
       // (item-rights.ts, rule 3). An agent's `publish` is its project's
-      // `write`, as proposals take it.
+      // `write`, as suggested changes take it.
       const projects = await itemRights?.multi(c, kind, id);
       if (itemRights !== undefined && projects !== undefined) {
         const refused = await itemRights.on(c, read.projectId, 'write');

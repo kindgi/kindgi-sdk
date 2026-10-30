@@ -958,9 +958,10 @@ export interface CreateAppInput {
    */
   readonly evalRunBinding?: EvalRunBinding;
   /**
-   * Optional. Mounts corrections, yes or no with an optional reason about
-   * one item of a run's output (`/v1/corrections`), and the corrector groups
-   * they're recorded under, each with a weight (`/v1/corrector-groups`).
+   * Optional. Mounts corrections, whether a run's decisions, answer and
+   * items were right and where each stands (`/v1/corrections`), and the
+   * corrector groups they're recorded under, each with a weight
+   * (`/v1/corrector-groups`).
    * Caller-plugged: the API package doesn't own their storage.
    */
   readonly correctionRegistry?: CorrectionRegistryBinding;

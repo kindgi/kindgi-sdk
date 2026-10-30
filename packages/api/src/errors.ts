@@ -252,7 +252,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
   'eval-run-not-rescorable': 409,
-  // Corrections (yes/no on a run's output items) and corrector groups.
+  // Corrections (whether a run's decisions, answer and items were right) and corrector groups.
   'correction-not-found': 404,
   'correction-status-change-not-allowed': 409,
   'corrector-group-not-found': 404,

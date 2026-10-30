@@ -120,7 +120,7 @@
     },
     {
       "name": "corrections",
-      "description": "Corrections: yes or no, with an optional reason, about one item of a finished run's output, optionally recorded under a corrector group (list, get, create, unregister). Each correction keeps copies of what was judged (the run's input and output, and the item) so they outlive the run's own retention. Who judged comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, item key, caller and participant: correcting again supersedes the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`."
+      "description": "Corrections: whether a finished run's decisions, answer and items were right, what it should have called or said, and why, with where each correction stands and who it's sorted to (create, list, get, change, remove, counts). Each correction keeps copies of the run's input and output so they outlive the run's own retention, and may be recorded under a corrector group. Who corrected comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, caller and participant: correcting again replaces the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`."
     },
     {
       "name": "corrector-groups",
