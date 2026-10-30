@@ -424,6 +424,8 @@ class Guardrail:
     sandbox: str | None = None
     limits: Mapping[str, Any] | None = None
     network: Mapping[str, Any] | None = None
+    judge_capabilities: Mapping[str, Any] | None = None
+    """An `llm-judge` guardrail's judge: what its model is routed by (wire keys)."""
     module: str = ""
     _config_adapter: TypeAdapter[Any] | None = field(default=None, repr=False)
 
@@ -456,6 +458,7 @@ def guardrail(
     sandbox: str | None = None,
     limits: Mapping[str, Any] | None = None,
     network: Mapping[str, Any] | None = None,
+    judge_capabilities: Mapping[str, Any] | None = None,
 ) -> Callable[[CheckFn], Guardrail]:
     """Declare a guardrail and its check: `(config, trace) -> CheckResult | dict | bool`.
 
@@ -470,6 +473,9 @@ def guardrail(
     model's aliases); it is checked against the config type here. Without it
     the check gets `{}` — its defaults. The config type comes from the check's
     first annotation or `config_type=`.
+    A `kind="llm-judge"` guardrail is judged by a model, with its `config` (`{"rubric": ...}`),
+    and its check is never called. `judge_capabilities=` is what that model is routed by
+    (`{"needs": [{"feature": "structured-output"}]}`); an llm-judge guardrail needs it.
     """
     annotation_scope = _caller_locals()
 
@@ -492,6 +498,12 @@ def guardrail(
         )
         if not isinstance(resolved_action.get("on-violation"), str):
             raise DefinitionError(f'{where}: action needs a string "on-violation"')
+        if kind == "llm-judge" and judge_capabilities is None:
+            raise DefinitionError(
+                f'{where} is kind "llm-judge" with no judge_capabilities=: name what its judge'
+                " model is routed by"
+                ' (judge_capabilities={"needs": [{"feature": "structured-output"}]})'
+            )
         params = _positional_params(check, where)
         if len(params) != 2:
             raise DefinitionError(
@@ -527,6 +539,7 @@ def guardrail(
             sandbox=sandbox,
             limits=limits,
             network=network,
+            judge_capabilities=None if judge_capabilities is None else dict(judge_capabilities),
             module=check.__module__,
             _config_adapter=adapter,
         )

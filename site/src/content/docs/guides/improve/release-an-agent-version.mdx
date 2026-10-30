@@ -377,8 +377,7 @@ do.
 ## Unpin
 
 `kindgi agents unpin` removes a scope's own pinned version. Its runs then use
-the scope above, or the latest version when nothing above is pinned. To go
-back to an earlier version, pin it again:
+the scope above, or the latest version when nothing above is pinned:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -410,6 +409,11 @@ uv run kindgi agents unpin acme.order-desk --tenant --reason="Back to the latest
 
 </TabItem>
 </Tabs>
+
+To go back to an earlier version, pin it again. On a self-hosted runtime with
+one pack service, that version runs only while your pack still has the tool
+versions it locked
+([A self-hosted runtime runs what your pack has](../../agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
 
 Every request to pin a version and every unpin is kept, with who
 asked and why.
