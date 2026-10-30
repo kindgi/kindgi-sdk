@@ -437,7 +437,7 @@ Suggested changes are authorized on their agent: `read` to see one.
 | `rejected` | The reviewer rejected it. |
 | `expired` | The approval expired undecided. |
 | `superseded` | Approved after the scope's live version or policy changed. |
-| `rolled-back` | Only on an older suggested change rolled back by its own `rollback`, which is removed. A rollback today goes through the agent's live routes and leaves it `pinned`. |
+| `rolled-back` | Only on an older suggested change rolled back by its own `rollback`, which is removed. Going back is a pin of an earlier version, through the agent's pin routes, and leaves it `pinned`. |
 | `withdrawn` | Withdrawn. |
 
 From your app, the clients have the same calls: `suggestedChanges.create`, `list`,
