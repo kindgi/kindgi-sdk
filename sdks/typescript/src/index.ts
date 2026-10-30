@@ -296,7 +296,7 @@ export type {
   TokensClient,
 } from './resources/tokens.js';
 export { followRun, subscribeToRun } from './run-follow.js';
-export { comparisonOf } from './resources/eval-runs.js';
+export { comparisonOf } from './resources/test-runs.js';
 export type {
   AgentHighestVersion,
   AgentProject,
@@ -556,20 +556,20 @@ export type {
   UnregisterBlockResult,
 } from './resources/blocks.js';
 export type {
-  EvalRunEvent,
-  EvalRunPage,
+  TestRunEvent,
+  TestRunPage,
   ComparisonCandidate,
   ComparisonCaseResult,
   ComparisonMetric,
-  EvalRunRecord,
-  EvalRunsClient,
+  TestRunRecord,
+  TestRunsClient,
   CorrectedComparisonResult,
   CorrectedComparisonSummary,
-  ListEvalRunsFilter,
-  StartEvalRunInput,
-  StartEvalRunOptions,
-  StartEvalRunOutcome,
-} from './resources/eval-runs.js';
+  ListTestRunsFilter,
+  StartTestRunInput,
+  StartTestRunOptions,
+  StartTestRunOutcome,
+} from './resources/test-runs.js';
 export type {
   ListProvidersFilter,
   Provider,

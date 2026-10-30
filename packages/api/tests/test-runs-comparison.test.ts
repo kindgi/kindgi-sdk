@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `POST /v1/test-sets/{testSetId}/runs` for a test set: a comparison eval run. */
+/** `POST /v1/test-sets/{testSetId}/runs` for a test set: a comparison test run. */
 
 import { randomUUID } from 'node:crypto';
 
@@ -14,8 +14,8 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import type {
   AgentRegistryBinding,
   CorrectedComparisonSummary,
-  EvalRun,
-  EvalRunBinding,
+  TestRun,
+  TestRunBinding,
   FlowRegistryBinding,
   RunHandlerBinding,
   TestSet,
@@ -26,7 +26,7 @@ import type {
 import {
   createApp,
   createCorrectedDispatcher,
-  createInProcessEvalRunBinding,
+  createInProcessTestRunBinding,
 } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
@@ -82,7 +82,7 @@ async function setup() {
     get: async ({ testSetId }: { testSetId: string }) =>
       testSetId === testSet.id ? testSet : null,
   } as unknown as TestSetRegistryBinding;
-  const binding = createInProcessEvalRunBinding({
+  const binding = createInProcessTestRunBinding({
     testSetRegistry: registry,
     subject: {
       invoke: async () => ({
@@ -97,7 +97,7 @@ async function setup() {
     resolveToken,
     runHandler,
     testSetRegistry: registry,
-    evalRunBinding: binding,
+    testRunBinding: binding,
   });
   const start = (body: Record<string, unknown>) =>
     app.request(`/v1/test-sets/${testSet.id}/runs`, {
@@ -112,16 +112,16 @@ async function setup() {
   return { app, binding, start };
 }
 
-async function settled(binding: EvalRunBinding, runId: string): Promise<EvalRun> {
+async function settled(binding: TestRunBinding, testRunId: string): Promise<TestRun> {
   for (let i = 0; i < 200; i++) {
-    const run = await binding.get({ tenantId, runId: runId as RunId });
+    const run = await binding.get({ tenantId, testRunId: testRunId as RunId });
     if (run !== null && run.status !== 'running') return run;
     await new Promise((r) => setTimeout(r, 5));
   }
   throw new Error('the run did not settle');
 }
 
-describe('a comparison eval run over the API', () => {
+describe('a comparison test run over the API', () => {
   test('starts with its settings, keeps them on the run, and ends with the summary', async () => {
     const { app, binding, start } = await setup();
     const res = await start({
@@ -131,8 +131,8 @@ describe('a comparison eval run over the API', () => {
       groupWeights: 'experts-only',
     });
     expect(res.status).toBe(201);
-    const { runId } = (await res.json()) as { runId: string };
-    const run = await settled(binding, runId);
+    const { testRunId } = (await res.json()) as { testRunId: string };
+    const run = await settled(binding, testRunId);
     expect(run.status).toBe('completed');
     const summary = (run.result as { summary: CorrectedComparisonSummary }).summary;
     expect(summary).toMatchObject({
@@ -143,7 +143,7 @@ describe('a comparison eval run over the API', () => {
       groupWeights: 'experts-only',
     });
 
-    const got = await app.request(`/v1/eval-runs/${runId}`, {
+    const got = await app.request(`/v1/test-runs/${testRunId}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(((await got.json()) as Record<string, unknown>).comparison).toEqual({
@@ -157,8 +157,8 @@ describe('a comparison eval run over the API', () => {
 
   test('without settings, the defaults run and nothing is recorded on the run', async () => {
     const { binding, start } = await setup();
-    const { runId } = (await (await start({})).json()) as { runId: string };
-    const run = await settled(binding, runId);
+    const { testRunId } = (await (await start({})).json()) as { testRunId: string };
+    const run = await settled(binding, testRunId);
     expect(run.comparison).toBeUndefined();
     expect((run.result as { summary: CorrectedComparisonSummary }).summary).toMatchObject({
       reads: 'recorded',
@@ -277,7 +277,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
         testSetId === flowTestSet.id ? flowTestSet : null,
     } as unknown as TestSetRegistryBinding;
     const invoked: Record<string, unknown>[] = [];
-    const binding = createInProcessEvalRunBinding({
+    const binding = createInProcessTestRunBinding({
       testSetRegistry: registry,
       subject: {
         invoke: async (input) => {
@@ -292,7 +292,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
       resolveToken,
       runHandler,
       testSetRegistry: registry,
-      evalRunBinding: binding,
+      testRunBinding: binding,
       flowRegistry: {
         getVersion: async ({ flowId, version }: { flowId: string; version: string }) =>
           flowId === flow.id && version === flow.version ? flow : null,
@@ -329,8 +329,8 @@ describe('a flow candidate with some of its agents or tools at other versions', 
     };
     const res = await start({ versions });
     expect(res.status, JSON.stringify(await res.clone().json())).toBe(201);
-    const { runId } = (await res.json()) as { runId: string };
-    const run = await settled(binding, runId);
+    const { testRunId } = (await res.json()) as { testRunId: string };
+    const run = await settled(binding, testRunId);
     expect(run.comparison?.versions).toEqual(versions);
     expect(invoked[0]?.versions).toEqual(versions);
     const summary = (run.result as { summary: CorrectedComparisonSummary }).summary;
@@ -344,8 +344,8 @@ describe('a flow candidate with some of its agents or tools at other versions', 
 
   test('without them, a flow replay is the flow version as published', async () => {
     const { binding, start, invoked } = await setupFlow();
-    const { runId } = (await (await start({})).json()) as { runId: string };
-    const run = await settled(binding, runId);
+    const { testRunId } = (await (await start({})).json()) as { testRunId: string };
+    const run = await settled(binding, testRunId);
     expect(invoked[0]?.versions).toBeUndefined();
     expect((run.result as { summary: CorrectedComparisonSummary }).summary.candidate).toEqual({
       kind: 'flow',
@@ -415,10 +415,10 @@ describe('a flow candidate with some of its agents or tools at other versions', 
 
   test('versions naming nothing are no versions', async () => {
     const { binding, start } = await setupFlow();
-    const { runId } = (await (await start({ versions: { agents: {} } })).json()) as {
-      runId: string;
+    const { testRunId } = (await (await start({ versions: { agents: {} } })).json()) as {
+      testRunId: string;
     };
-    const run = await settled(binding, runId);
+    const run = await settled(binding, testRunId);
     expect(run.comparison).toBeUndefined();
   });
 });
@@ -461,8 +461,8 @@ describe('rescoring a comparison over the API: correct the new answers, then res
     } as unknown as TestSetRegistryBinding;
     const corrections = inMemoryCorrections();
     let invoked = 0;
-    const ref: { binding?: EvalRunBinding } = {};
-    const binding = createInProcessEvalRunBinding({
+    const ref: { binding?: TestRunBinding } = {};
+    const binding = createInProcessTestRunBinding({
       testSetRegistry: registry,
       subject: {
         invoke: async () => {
@@ -479,7 +479,7 @@ describe('rescoring a comparison over the API: correct the new answers, then res
               getRun: async (_t, runId) =>
                 (runId as unknown as string) === 'replay-1' ? { output: changed } : null,
             },
-            evalRuns: { get: (input) => (ref.binding as EvalRunBinding).get(input) },
+            testRuns: { get: (input) => (ref.binding as TestRunBinding).get(input) },
           }),
         }),
       },
@@ -490,7 +490,7 @@ describe('rescoring a comparison over the API: correct the new answers, then res
       resolveToken,
       runHandler,
       testSetRegistry: registry,
-      evalRunBinding: binding,
+      testRunBinding: binding,
     });
     const post = (path: string, body: unknown = {}) =>
       app.request(path, {
@@ -502,7 +502,10 @@ describe('rescoring a comparison over the API: correct the new answers, then res
       projectId: randomUUID(),
       agentRef: { agentId: 'acme.agent', version: '2.0.0' },
     });
-    const first = await settled(binding, ((await started.json()) as { runId: string }).runId);
+    const first = await settled(
+      binding,
+      ((await started.json()) as { testRunId: string }).testRunId,
+    );
     return { post, binding, corrections, first, invoked: () => invoked };
   }
 
@@ -524,13 +527,16 @@ describe('rescoring a comparison over the API: correct the new answers, then res
       verdict: 'yes',
       assertedBy: { kind: 'user', id: 'lead' },
     });
-    const res = await h.post(`/v1/eval-runs/${h.first.runId}/rescore`);
+    const res = await h.post(`/v1/test-runs/${h.first.testRunId}/rescore`);
     expect(res.status).toBe(201);
-    const second = await settled(h.binding, ((await res.json()) as { runId: string }).runId);
+    const second = await settled(
+      h.binding,
+      ((await res.json()) as { testRunId: string }).testRunId,
+    );
     expect(second.status).toBe('completed');
-    expect(second.comparison?.rescoreOf).toBe(h.first.runId);
+    expect(second.comparison?.rescoreOf).toBe(h.first.testRunId);
     const after = (second.result as { summary: CorrectedComparisonSummary }).summary;
-    expect(after.rescoreOf).toBe(h.first.runId);
+    expect(after.rescoreOf).toBe(h.first.testRunId);
     expect(after.metrics.weightedYesShare).toMatchObject({
       baseline: 0,
       candidate: 1,
@@ -539,23 +545,23 @@ describe('rescoring a comparison over the API: correct the new answers, then res
     });
     expect(h.invoked()).toBe(1);
     // The run rescored is as it was.
-    const firstAgain = await h.binding.get({ tenantId, runId: h.first.runId });
+    const firstAgain = await h.binding.get({ tenantId, testRunId: h.first.testRunId });
     expect(firstAgain?.result).toEqual(h.first.result);
   });
 
   test('only a completed comparison can be rescored; an unknown run is 404', async () => {
     const h = await rescoreSetup();
-    const second = await h.post(`/v1/eval-runs/${h.first.runId}/rescore`);
-    const id = ((await second.json()) as { runId: string }).runId;
+    const second = await h.post(`/v1/test-runs/${h.first.testRunId}/rescore`);
+    const id = ((await second.json()) as { testRunId: string }).testRunId;
     await settled(h.binding, id);
-    expect((await h.post(`/v1/eval-runs/${randomUUID()}/rescore`)).status).toBe(404);
+    expect((await h.post(`/v1/test-runs/${randomUUID()}/rescore`)).status).toBe(404);
     // A rescore of a rescore is fine (it's a completed comparison too).
-    expect((await h.post(`/v1/eval-runs/${id}/rescore`)).status).toBe(201);
+    expect((await h.post(`/v1/test-runs/${id}/rescore`)).status).toBe(201);
   });
 
   test("a runtime that can't read replays and their corrections again refuses it (400 dispatcher-input-invalid)", async () => {
     const h = await rescoreSetup(false);
-    const res = await h.post(`/v1/eval-runs/${h.first.runId}/rescore`);
+    const res = await h.post(`/v1/test-runs/${h.first.testRunId}/rescore`);
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe('dispatcher-input-invalid');

@@ -75,7 +75,7 @@ export interface NewestVisibleOfManyInput {
  * Where a version can run, by kind:
  * - an agent or a flow version: the project it was made in, and each
  *   project with a deployment that ships it and isn't retired;
- * - an test set version: the project it was made in, and every later
+ * - a test set version: the project it was made in, and every later
  *   environment of that project's order;
  * - a tool, guardrail or block, which agents pin: every project of the
  *   order of the project that owns it, and each version's own project.

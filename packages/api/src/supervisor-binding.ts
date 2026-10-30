@@ -26,11 +26,11 @@ import type {
  * settings values, or a new prompt template), for one live scope. The
  * API package runs its lifecycle from bindings that exist already:
  * evaluating publishes the block version and derives the agent version
- * (both serve nowhere until promoted) and starts a comparison eval run;
+ * (both serve nowhere until promoted) and starts a comparison test run;
  * requesting runs the scope's gated promotion. This binding only keeps
  * the rows: what was proposed, then each step's outcome, recorded with
  * a compare-and-set on `revision`. A suggested change's status is never stored:
- * the route derives it from the eval run and the promotion
+ * the route derives it from the test run and the promotion
  * (`suggestedChangeStatus`).
  *
  * `queryObservations` is the supervisor readback for `/v1/observations`
@@ -143,7 +143,7 @@ export type SuggestedChangeRule = 'better' | 'cheaper';
 
 /** The comparison a suggested change was evaluated with. */
 export interface SuggestedChangeEvaluationRef {
-  readonly evalRunId: string;
+  readonly testRunId: string;
   readonly testSetId: string;
   readonly objective: SuggestedChangeObjective;
   readonly startedAt: Timestamp;
@@ -155,7 +155,7 @@ export interface SuggestedChangeEvaluationRef {
    * model-settings block an improvement pass suggests: no correction the
    * current version passes may fail, whichever the rule.
    */
-  readonly reference?: { readonly evalRunId: string };
+  readonly reference?: { readonly testRunId: string };
 }
 
 /** A suggested change as the binding stores it (no status: that's derived). */
@@ -180,7 +180,7 @@ export interface StoredSuggestedChange {
   readonly revision: number;
   readonly candidate?: SuggestedChangeCandidate;
   readonly evaluation?: SuggestedChangeEvaluationRef;
-  /** The promotion its request made (the latest, after a re-request). */
+  /** The promotion its pin made (the latest, after a re-pin). */
   readonly promotionId?: string;
   readonly rolledBack?: {
     readonly at: Timestamp;
@@ -237,10 +237,6 @@ export type SuggestedChangeStep =
   | { readonly kind: 'candidate'; readonly candidate: SuggestedChangeCandidate }
   | { readonly kind: 'evaluation'; readonly evaluation: SuggestedChangeEvaluationRef }
   | { readonly kind: 'promotion'; readonly promotionId: string }
-  | {
-      readonly kind: 'rolled-back';
-      readonly rolledBack: NonNullable<StoredSuggestedChange['rolledBack']>;
-    }
   | {
       readonly kind: 'withdrawn';
       readonly withdrawn: NonNullable<StoredSuggestedChange['withdrawn']>;

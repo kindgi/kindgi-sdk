@@ -1235,7 +1235,7 @@ function invokeFromBody(
  * single-run responses carry it, lists only with `?include=output`
  * (outputs can be large). Child runs carry their parent's run + node;
  * an agent's turns, the agent, its version and the conversation; a
- * replay run, the run it replays and its eval run.
+ * replay run, the run it replays and its test run.
  */
 function serializeRun(
   row: KernelRunRecord,
@@ -1270,7 +1270,7 @@ function serializeRun(
       },
     }),
     ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
-    ...(row.evalRunId != null && { evalRunId: row.evalRunId }),
+    ...(row.testRunId != null && { testRunId: row.testRunId }),
     ...(row.trigger !== undefined && {
       trigger: {
         triggerId: row.trigger.triggerId as unknown as string,
@@ -1374,7 +1374,7 @@ function listRunsInput(input: {
     ...(filter.topLevelOnly && { topLevelOnly: true }),
     ...(filter.agentId !== undefined && { agentId: filter.agentId }),
     replays: filter.replays,
-    ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+    ...(filter.testRunId !== undefined && { testRunId: filter.testRunId }),
     ...(filter.triggerId !== undefined && { triggerId: filter.triggerId }),
     ...(filter.statuses !== undefined && { statuses: filter.statuses }),
     ...(filter.createdAfter !== undefined && { createdAfter: filter.createdAfter }),
@@ -1390,7 +1390,7 @@ interface RunListFilter {
   readonly topLevelOnly: boolean;
   readonly agentId?: string;
   readonly replays: 'exclude' | 'include' | 'only';
-  readonly evalRunId?: string;
+  readonly testRunId?: string;
   readonly triggerId?: TriggerId;
   readonly statuses?: readonly RunStatus[];
   readonly createdAfter?: Timestamp;
@@ -1501,7 +1501,7 @@ function parseRunNarrowing(
 /**
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
  * agent's turns), `?replays=exclude|include|only` (default `exclude`),
- * `?evalRunId=` (one eval run's replays; implies they are included),
+ * `?testRunId=` (one test run's replays; implies they are included),
  * `?triggerId=` (the runs a trigger started), `?include=output`, and the
  * narrowing in `parseRunNarrowing`.
  */
@@ -1509,7 +1509,7 @@ function parseRunListFilter(
   query: Readonly<Record<string, string>>,
   status?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, replays, evalRunId, triggerId, include } = query;
+  const { parentRunId, topLevel, agentId, replays, testRunId, triggerId, include } = query;
   if (triggerId !== undefined && !UUID_RE.test(triggerId)) {
     return { kind: 'err', message: '`triggerId` must be a trigger id (a UUID)' };
   }
@@ -1534,11 +1534,11 @@ function parseRunListFilter(
   ) {
     return { kind: 'err', message: '`replays` must be `exclude`, `include` or `only`' };
   }
-  if (evalRunId !== undefined && evalRunId.trim() === '') {
-    return { kind: 'err', message: '`evalRunId` must not be empty' };
+  if (testRunId !== undefined && testRunId.trim() === '') {
+    return { kind: 'err', message: '`testRunId` must not be empty' };
   }
-  if (evalRunId !== undefined && replays === 'exclude') {
-    return { kind: 'err', message: '`evalRunId` and `replays=exclude` cannot be combined' };
+  if (testRunId !== undefined && replays === 'exclude') {
+    return { kind: 'err', message: '`testRunId` and `replays=exclude` cannot be combined' };
   }
   const includes = include === undefined ? [] : include.split(',').map((i) => i.trim());
   const unknown = includes.filter((i) => i !== 'output');
@@ -1554,8 +1554,8 @@ function parseRunListFilter(
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       ...(agentId !== undefined && { agentId }),
-      replays: replays ?? (evalRunId !== undefined ? 'include' : 'exclude'),
-      ...(evalRunId !== undefined && { evalRunId }),
+      replays: replays ?? (testRunId !== undefined ? 'include' : 'exclude'),
+      ...(testRunId !== undefined && { testRunId }),
       ...(triggerId !== undefined && { triggerId: triggerId as TriggerId }),
       includeOutput: includes.includes('output'),
     },

@@ -829,30 +829,30 @@ export type {
   TestSetUnregisterInput,
   TestSetUnregisterOutcome,
 } from './test-set-binding.js';
-export { EVAL_RUN_STATUSES } from './eval-run-binding.js';
+export { TEST_RUN_STATUSES } from './test-run-binding.js';
 export type {
   AgentRef,
   EvalBaseline,
   EvalGroupWeights,
   EvalComparison,
   EvalReads,
-  EvalRun,
-  EvalRunBinding,
-  EvalRunCancelInput,
-  EvalRunCancelOutcome,
-  EvalRunFilter,
-  EvalRunGetInput,
-  EvalRunListInput,
-  EvalRunPage,
-  EvalRunStartInput,
-  EvalRunStartOutcome,
-  EvalRunStatus,
+  TestRun,
+  TestRunBinding,
+  TestRunCancelInput,
+  TestRunCancelOutcome,
+  TestRunFilter,
+  TestRunGetInput,
+  TestRunListInput,
+  TestRunPage,
+  TestRunStartInput,
+  TestRunStartOutcome,
+  TestRunStatus,
   FlowRef,
-} from './eval-run-binding.js';
+} from './test-run-binding.js';
 export {
   createAccuracyDispatcher,
-  createInProcessEvalRunBinding,
-} from './eval-run-dispatcher.js';
+  createInProcessTestRunBinding,
+} from './test-run-dispatcher.js';
 export type {
   AccuracyDispatcherOptions,
   DispatchContext,
@@ -861,12 +861,12 @@ export type {
   EvalGrader,
   EvalGraderInput,
   EvalGraderOutcome,
-  EvalRunDispatcher,
-  EvalRunSubjectInvokeInput,
-  EvalRunSubjectInvokeOutcome,
+  TestRunDispatcher,
+  TestRunSubjectInvokeInput,
+  TestRunSubjectInvokeOutcome,
   EvalSubjectInvoker,
-  InProcessEvalRunBindingOptions,
-} from './eval-run-dispatcher.js';
+  InProcessTestRunBindingOptions,
+} from './test-run-dispatcher.js';
 export {
   DEFAULT_COMPARISON,
   RESCORE_UNSUPPORTED,
@@ -1072,7 +1072,7 @@ export {
   serializePass,
 } from './routes/improvement-passes.js';
 export { sampleCases } from './eval-sample.js';
-export type { EvalOverrides, EvalSample } from './eval-run-binding.js';
+export type { EvalOverrides, EvalSample } from './test-run-binding.js';
 export {
   DRAFTED_SUGGESTED_CHANGE_APPROVAL,
   createSuggestedChangeService,

@@ -252,7 +252,7 @@ stops on it, and 1 when it couldn't ask:
 | Command | 0 | 3 | 1 |
 |---|---|---|---|
 | `kindgi promote --from --to`, and with `--check` | it moved, or would | never | a value the build needs isn't set in the target, or an error |
-| `kindgi eval-runs start --wait` | the run completed | it failed or was cancelled | it's still running after 30 minutes, or an error |
+| `kindgi test-runs start --wait` | the run completed | it failed or was cancelled | it's still running after 30 minutes, or an error |
 | `kindgi agents promote --wait` | the version is Pinned | the release gate policy refused it, its approval was rejected or expired, the request was superseded, or the wait ran out | an error, or 3 reads of the promotion in a row failed |
 | `kindgi promote --make-live --wait` | every version it carries is Pinned | one isn't | an error, or 3 reads of a promotion in a row failed |
 
@@ -343,14 +343,14 @@ jobs:
           KINDGI_API_TOKEN: ${{ secrets.KINDGI_PROMOTE_KEY }}
           VERSION: ${{ steps.promoted.outputs.version }}
         run: |
-          pnpm exec kindgi eval-runs start "$TEST_SET" --project="$PROD_PROJECT" --agent="$AGENT" --agent-version="$VERSION" --wait > run.json
+          pnpm exec kindgi test-runs start "$TEST_SET" --project="$PROD_PROJECT" --agent="$AGENT" --agent-version="$VERSION" --wait > run.json
           echo "run=$(jq -r .runId run.json)" >> "$GITHUB_OUTPUT"
       - if: steps.promoted.outputs.version != ''
         env:
           KINDGI_API_TOKEN: ${{ secrets.KINDGI_PROMOTE_KEY }}
           VERSION: ${{ steps.promoted.outputs.version }}
           RUN: ${{ steps.tested.outputs.run }}
-        run: pnpm exec kindgi agents promote "$AGENT" "$VERSION" --project="$PROD_PROJECT" --eval-run="$RUN" --reason="${{ github.sha }} passed its test cases" --wait=1h
+        run: pnpm exec kindgi agents promote "$AGENT" "$VERSION" --project="$PROD_PROJECT" --test-run="$RUN" --reason="${{ github.sha }} passed its test cases" --wait=1h
 ```
 
 ### Make the new version Pinned in prod
@@ -360,14 +360,14 @@ The last three steps of `promote-prod` do it for one agent:
 1. **`promote` moves the build to prod.** `jq` reads, from its JSON, the
    version of `acme.order-desk` the build ships. When the build carries it
    unchanged, the next two steps skip.
-2. **`eval-runs start --wait` runs the test cases on that version in prod.**
+2. **`test-runs start --wait` runs the test cases on that version in prod.**
    The job stops when the run fails, and `jq` reads its id.
 3. **`agents promote --wait` asks prod's release gate policy,** with that
    run. When the policy asks for an approval, the step prints the approval's
    id and the command that approves it, then waits for a reviewer, up to an
    hour. It exits 0 once the version is Pinned.
 
-- **A step that waits ends before the CI system ends it.** `eval-runs start
+- **A step that waits ends before the CI system ends it.** `test-runs start
   --wait` waits up to 30 minutes, and exits 1 when the run is still going
   then. `agents promote --wait=1h` waits up to an hour: when it runs out, it
   exits 3, and when 3 reads of the promotion in a row fail, it exits 1.
@@ -385,7 +385,7 @@ The last three steps of `promote-prod` do it for one agent:
 [Gate a release](../../guides/evals/release-an-agent-version/#gate-a-release)
 has what a release gate policy checks, and how a reviewer approves.
 [`kindgi agents`](../../reference/cli/agents/) and
-[`kindgi eval-runs`](../../reference/cli/eval-runs/) have every flag.
+[`kindgi test-runs`](../../reference/cli/test-runs/) have every flag.
 
 ## Versions in git
 

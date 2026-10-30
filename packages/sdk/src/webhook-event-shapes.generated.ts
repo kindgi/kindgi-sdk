@@ -462,7 +462,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                     },
                   },
                   optional: {
-                    evalRunId: {
+                    testRunId: {
                       kind: 'string',
                       format: 'uuid',
                     },

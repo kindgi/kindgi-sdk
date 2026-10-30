@@ -9,7 +9,7 @@ import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
  * Caller-plugged surface for the evaluation-harness test set catalog —
  * part of the admin control plane. Registry-only: publish + read; run
  * execution + per-kind grader dispatch are out of scope (see
- * `EvalRunBinding`). Graders — an eval-judge adapter, the HITL bridge,
+ * `TestRunBinding`). Graders — an eval-judge adapter, the HITL bridge,
  * a sandboxed handler — consume test set definitions from this store at
  * their own boundary.
  *
@@ -70,7 +70,7 @@ export interface TestSetRegistryBinding {
    * before calling — the binding receives a well-formed `TestSet`.
    * Bindings MAY reject with `already-registered` when the same
    * `(testSetId, version)` is re-published; the route maps that to `409`.
-   * A version of an test set whose versions live in another project is
+   * A version of a test set whose versions live in another project is
    * `project-mismatch` (test sets never move between projects; `409 test-set-project-mismatch`).
    */
   publish(input: TestSetPublishInput): Promise<TestSetPublishOutcome>;
@@ -288,7 +288,7 @@ export type TestSetPublishOutcome =
     }
   | {
       /**
-       * The test set's versions live in another project: an test set belongs to
+       * The test set's versions live in another project: a test set belongs to
        * the project its first version was published into, and never
        * moves. Nothing is written (the route answers `409 test-set-project-mismatch`).
        */

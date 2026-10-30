@@ -32,7 +32,7 @@ import {
   makeEnvironmentOrdersClient,
 } from './resources/environment-orders.js';
 import { type EnvironmentsClient, makeEnvironmentsClient } from './resources/environments.js';
-import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.js';
+import { type TestRunsClient, makeTestRunsClient } from './resources/test-runs.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
 import {
   type ExportSigningKeysClient,
@@ -154,7 +154,7 @@ export interface KindgiClient {
   readonly testSets: TestSetsClient;
   /** Data blocks: versioned prompts and settings an agent version pins. */
   readonly blocks: BlocksClient;
-  readonly evalRuns: EvalRunsClient;
+  readonly testRuns: TestRunsClient;
   readonly corrections: CorrectionsClient;
   readonly correctorGroups: CorrectorGroupsClient;
   // Identity
@@ -251,7 +251,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     audit: makeAuditClient(transport),
     testSets: makeTestSetsClient(transport),
     blocks: makeBlocksClient(transport),
-    evalRuns: makeEvalRunsClient(transport),
+    testRuns: makeTestRunsClient(transport),
     corrections: makeCorrectionsClient(transport),
     correctorGroups: makeCorrectorGroupsClient(transport),
     users: makeUsersClient(transport),

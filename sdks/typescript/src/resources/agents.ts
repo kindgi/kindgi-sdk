@@ -194,7 +194,7 @@ export interface AgentPromotionsClient {
    * first; into a later environment, promote a build that ships one.
    *
    * With a gate policy for the scope, the promotion is checked first,
-   * against the comparison named by `evalRunId`. The answer's `status`
+   * against the comparison named by `testRunId`. The answer's `status`
    * says what happened: `promoted`, or `pending-approval` (a reviewer
    * must approve it; `approvalId`). A refusal throws a `KindgiApiError`
    * whose `error.serverCode` is `gate-failed`, with `promotionId`,
@@ -242,8 +242,8 @@ export interface PromoteInput {
   readonly version: string;
   readonly scope: LiveScope;
   readonly reason?: string;
-  /** The eval run behind the decision, kept on the record. */
-  readonly evalRunId?: string;
+  /** The test run behind the decision, kept on the record. */
+  readonly testRunId?: string;
 }
 
 export interface RollbackLiveInput {

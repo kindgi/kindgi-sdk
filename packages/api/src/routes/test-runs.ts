@@ -13,15 +13,15 @@ import { statusFor, toWireError } from '../errors.js';
 import { rescoreRefusal, rescoreStart } from '../eval-rescore.js';
 import {
   type AgentRef,
-  EVAL_RUN_STATUSES,
+  TEST_RUN_STATUSES,
   type EvalComparison,
-  type EvalRun,
-  type EvalRunBinding,
-  type EvalRunFilter,
-  type EvalRunStartOutcome,
-  type EvalRunStatus,
+  type TestRun,
+  type TestRunBinding,
+  type TestRunFilter,
+  type TestRunStartOutcome,
+  type TestRunStatus,
   type FlowRef,
-} from '../eval-run-binding.js';
+} from '../test-run-binding.js';
 import { type ItemRights, filterOwned, ownProject, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -40,7 +40,7 @@ import { formatSseFrame, pause, readingOf } from './sse.js';
 import { parseTimeInput } from './time-input.js';
 
 /**
- * Eval-run resource routes — data-plane surface for the evaluation
+ * Test-run resource routes — data-plane surface for the evaluation
  * harness. Follows `/v1/runs/*` structurally: `start` +
  * `get` + `list` + `cancel` + `events` (SSE). The registry surface
  * (`/v1/test-sets/*`) resolves test set definitions; this
@@ -49,7 +49,7 @@ import { parseTimeInput } from './time-input.js';
  * The `start` route is anchored at `/v1/test-sets/:testSetId/runs`
  * because the test set is the durable definition and the caller supplies
  * an agent/flow to *evaluate against* — not a run body. Read routes
- * live under a sibling `/v1/eval-runs/*` for uniform pagination /
+ * live under a sibling `/v1/test-runs/*` for uniform pagination /
  * filter shape across the resource.
  *
  * SSE is a lightweight projection over the binding's `get` — per-case
@@ -61,11 +61,11 @@ import { parseTimeInput } from './time-input.js';
  * With an authorizer (T243 A): starting a run needs `write` on the
  * project it lands in and `execute` on what it evaluates (the agent or
  * flow), on top of the test-sets router's own check on the test set. An
- * eval run is read through its test set: `read` on the test set to list, get or
+ * test run is read through its test set: `read` on the test set to list, get or
  * follow it, `write` to cancel it. A run that isn't there is still the
  * handler's 404.
  */
-export interface EvalRunsRouters {
+export interface TestRunsRouters {
   readonly start: Hono<AppEnv>;
   readonly readback: Hono<AppEnv>;
 }
@@ -75,14 +75,14 @@ export interface EvalRunsRouters {
  * against the flow version at start (without it, they're applied as
  * given).
  */
-export function evalRunsRouters(
-  binding: EvalRunBinding,
+export function testRunsRouters(
+  binding: TestRunBinding,
   versionsCheck?: FlowVersionsCheck,
   overridesCheck?: SettingsOverridesCheck,
   authorizer?: Authorizer,
-  /** What an eval run's project may run (`reference-scope.ts`); absent → as named. */
+  /** What a test run's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
-  /** Whether a project is suspended: no eval run starts in one. Absent: no check. */
+  /** Whether a project is suspended: no test run starts in one. Absent: no check. */
   projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
   /**
    * Rights on a test set, agent or flow more than one project serves
@@ -92,7 +92,7 @@ export function evalRunsRouters(
    * has one project.
    */
   itemRights?: ItemRights,
-): EvalRunsRouters {
+): TestRunsRouters {
   return {
     start: startRouter(
       binding,
@@ -165,7 +165,7 @@ async function overridesRefusal(
 }
 
 function startRouter(
-  binding: EvalRunBinding,
+  binding: TestRunBinding,
   versionsCheck?: FlowVersionsCheck,
   overridesCheck?: SettingsOverridesCheck,
   authorizer?: Authorizer,
@@ -260,7 +260,7 @@ function startRouter(
           {
             code: 'project-suspended',
             message:
-              "The project is suspended, so nothing new runs in it until it's restored; the eval run wasn't started",
+              "The project is suspended, so nothing new runs in it until it's restored; the test run wasn't started",
           },
           requestId,
         ),
@@ -292,11 +292,11 @@ function startRouter(
   return r;
 }
 
-/** A started eval run's answer: 201 with its id, or why it didn't start. */
+/** A started test run's answer: 201 with its id, or why it didn't start. */
 function startAnswer(
   c: Context<AppEnv>,
   requestId: string,
-  outcome: EvalRunStartOutcome,
+  outcome: TestRunStartOutcome,
 ): Response {
   if (outcome.kind === 'test-set-not-found') {
     c.status(statusFor('test-set-not-found') as never);
@@ -317,7 +317,7 @@ function startAnswer(
       toWireError(
         {
           code: 'dispatcher-not-registered',
-          message: `No eval-run dispatcher registered for kind "${outcome.evalKind}". This kind is registry-only today.`,
+          message: `No test-run dispatcher registered for kind "${outcome.evalKind}". This kind is registry-only today.`,
           evalKind: outcome.evalKind,
         },
         requestId,
@@ -357,15 +357,15 @@ function startAnswer(
 
   c.status(201);
   return c.json({
-    runId: outcome.runId as unknown as string,
+    testRunId: outcome.testRunId as unknown as string,
     ...(outcome.dryRunPreview !== undefined && { dryRunPreview: outcome.dryRunPreview }),
   });
 }
 
-// ---------- /v1/eval-runs/* (readback + cancel + SSE) ----------
+// ---------- /v1/test-runs/* (readback + cancel + SSE) ----------
 
 function readbackRouter(
-  binding: EvalRunBinding,
+  binding: TestRunBinding,
   authorizer?: Authorizer,
   itemRights?: ItemRights,
 ): Hono<AppEnv> {
@@ -382,7 +382,7 @@ function readbackRouter(
   ): Promise<Response | undefined> => {
     if (authorizer === undefined) return undefined;
     const tenantId = c.get('tenantId') as TenantId;
-    const run = await binding.get({ tenantId, runId: c.req.param('runId') as RunId });
+    const run = await binding.get({ tenantId, testRunId: c.req.param('testRunId') as RunId });
     if (run === null) return undefined;
     const own = await ownProject(
       c,
@@ -404,25 +404,25 @@ function readbackRouter(
 
     const cursorRaw = c.req.query('cursor');
     const statusRaw = c.req.query('status');
-    if (statusRaw !== undefined && statusRaw.length > 0 && !isEvalRunStatus(statusRaw)) {
+    if (statusRaw !== undefined && statusRaw.length > 0 && !isTestRunStatus(statusRaw)) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
           {
             code: 'bad-input',
-            message: `Unknown status "${statusRaw}". Expected one of: ${EVAL_RUN_STATUSES.join(', ')}.`,
+            message: `Unknown status "${statusRaw}". Expected one of: ${TEST_RUN_STATUSES.join(', ')}.`,
           },
           requestId,
         ),
       );
     }
-    const filter: EvalRunFilter = {};
+    const filter: TestRunFilter = {};
     const testSetIdRaw = c.req.query('testSetId');
     if (testSetIdRaw !== undefined && testSetIdRaw.length > 0) {
       (filter as { testSetId?: string }).testSetId = testSetIdRaw;
     }
     if (statusRaw !== undefined && statusRaw.length > 0) {
-      (filter as { status?: EvalRunStatus }).status = statusRaw as EvalRunStatus;
+      (filter as { status?: TestRunStatus }).status = statusRaw as TestRunStatus;
     }
     const agentIdRaw = c.req.query('agentId');
     if (agentIdRaw !== undefined && agentIdRaw.length > 0) {
@@ -473,58 +473,61 @@ function readbackRouter(
             todayRef: (run) => ref('test_set', run.testSetId),
           });
     return c.json({
-      data: visible.map(serializeEvalRun),
+      data: visible.map(serializeTestRun),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
 
-  // ---------- GET /:runId ----------
-  r.get('/:runId', async (c) => {
+  // ---------- GET /:testRunId ----------
+  r.get('/:testRunId', async (c) => {
     const refused = await onRunTestSet(c, 'read');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const runId = c.req.param('runId') as RunId;
+    const testRunId = c.req.param('testRunId') as RunId;
 
-    const run = await binding.get({ tenantId, runId });
+    const run = await binding.get({ tenantId, testRunId });
     if (run === null) {
-      c.status(statusFor('eval-run-not-found') as never);
+      c.status(statusFor('test-run-not-found') as never);
       return c.json(
         toWireError(
-          { code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId },
+          { code: 'test-run-not-found', message: `No test run with id ${testRunId}`, testRunId },
           requestId,
         ),
       );
     }
-    return c.json(serializeEvalRun(run));
+    return c.json(serializeTestRun(run));
   });
 
-  // ---------- POST /:runId/rescore ----------
-  // A new comparison eval run of the same test set version, candidate and
+  // ---------- POST /:testRunId/rescore ----------
+  // A new comparison test run of the same test set version, candidate and
   // settings that replays nothing: it scores the run's replays again, with
   // what people corrected on them since. The run rescored stays as it was.
-  r.post('/:runId/rescore', async (c) => {
+  r.post('/:testRunId/rescore', async (c) => {
     const refused = await onRunTestSet(c, 'admin', 'execute');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const runId = c.req.param('runId') as RunId;
-    const run = await binding.get({ tenantId, runId });
+    const testRunId = c.req.param('testRunId') as RunId;
+    const run = await binding.get({ tenantId, testRunId });
     if (run === null) {
-      c.status(statusFor('eval-run-not-found') as never);
+      c.status(statusFor('test-run-not-found') as never);
       return c.json(
         toWireError(
-          { code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId },
+          { code: 'test-run-not-found', message: `No test run with id ${testRunId}`, testRunId },
           requestId,
         ),
       );
     }
     const notRescorable = rescoreRefusal(run);
     if (notRescorable !== undefined) {
-      c.status(statusFor('eval-run-not-rescorable') as never);
+      c.status(statusFor('test-run-not-rescorable') as never);
       return c.json(
-        toWireError({ code: 'eval-run-not-rescorable', message: notRescorable, runId }, requestId),
+        toWireError(
+          { code: 'test-run-not-rescorable', message: notRescorable, testRunId },
+          requestId,
+        ),
       );
     }
     const body = (await c.req.json().catch(() => ({}))) as { projectId?: unknown } | null;
@@ -551,32 +554,32 @@ function readbackRouter(
     return startAnswer(c, requestId, await binding.start(rescoreStart(run, projectId)));
   });
 
-  // ---------- POST /:runId/cancel ----------
-  r.post('/:runId/cancel', async (c) => {
+  // ---------- POST /:testRunId/cancel ----------
+  r.post('/:testRunId/cancel', async (c) => {
     const refused = await onRunTestSet(c, 'write', 'execute');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const runId = c.req.param('runId') as RunId;
+    const testRunId = c.req.param('testRunId') as RunId;
 
-    const outcome = await binding.cancel({ tenantId, runId });
+    const outcome = await binding.cancel({ tenantId, testRunId });
     if (outcome.kind === 'not-found') {
-      c.status(statusFor('eval-run-not-found') as never);
+      c.status(statusFor('test-run-not-found') as never);
       return c.json(
         toWireError(
-          { code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId },
+          { code: 'test-run-not-found', message: `No test run with id ${testRunId}`, testRunId },
           requestId,
         ),
       );
     }
     if (outcome.kind === 'already-terminal') {
-      c.status(statusFor('eval-run-already-terminal') as never);
+      c.status(statusFor('test-run-already-terminal') as never);
       return c.json(
         toWireError(
           {
-            code: 'eval-run-already-terminal',
-            message: `Cannot cancel eval run ${runId}: already ${outcome.status}`,
-            runId,
+            code: 'test-run-already-terminal',
+            message: `Cannot cancel test run ${testRunId}: already ${outcome.status}`,
+            testRunId,
             status: outcome.status,
           },
           requestId,
@@ -585,30 +588,30 @@ function readbackRouter(
     }
 
     // Re-read to return the freshest wire shape.
-    const reloaded = await binding.get({ tenantId, runId });
+    const reloaded = await binding.get({ tenantId, testRunId });
     if (reloaded === null) {
       // Very unlikely: cancel succeeded but the row vanished. Return
       // a minimal wire shape rather than 500 — the caller has the
-      // runId and status intent already.
-      return c.json({ runId: runId as unknown as string, cancelled: true });
+      // testRunId and status intent already.
+      return c.json({ testRunId: testRunId as unknown as string, cancelled: true });
     }
-    return c.json(serializeEvalRun(reloaded));
+    return c.json(serializeTestRun(reloaded));
   });
 
-  // ---------- GET /:runId/events (SSE) ----------
-  r.get('/:runId/events', async (c) => {
+  // ---------- GET /:testRunId/events (SSE) ----------
+  r.get('/:testRunId/events', async (c) => {
     const refused = await onRunTestSet(c, 'read');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const runId = c.req.param('runId') as RunId;
+    const testRunId = c.req.param('testRunId') as RunId;
 
-    const initial = await binding.get({ tenantId, runId });
+    const initial = await binding.get({ tenantId, testRunId });
     if (initial === null) {
-      c.status(statusFor('eval-run-not-found') as never);
+      c.status(statusFor('test-run-not-found') as never);
       return c.json(
         toWireError(
-          { code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId },
+          { code: 'test-run-not-found', message: `No test run with id ${testRunId}`, testRunId },
           requestId,
         ),
       );
@@ -650,16 +653,16 @@ function readbackRouter(
         let lastEmittedCaseIndex = -1;
         let terminalEmitted = false;
         const emit = async (): Promise<{ terminal: boolean }> => {
-          const snapshot = await binding.get({ tenantId, runId });
+          const snapshot = await binding.get({ tenantId, testRunId });
           if (snapshot === null) {
             controller.enqueue(
               encoder.encode(
                 formatSseFrame({
-                  id: `${runId}:error`,
+                  id: `${testRunId}:error`,
                   event: 'error',
                   data: {
-                    code: 'eval-run-not-found',
-                    message: `eval run ${runId} disappeared`,
+                    code: 'test-run-not-found',
+                    message: `test run ${testRunId} disappeared`,
                     requestId,
                   },
                 }),
@@ -674,29 +677,29 @@ function readbackRouter(
             controller.enqueue(
               encoder.encode(
                 formatSseFrame({
-                  id: `${runId}:case:${i}`,
-                  event: entry.pass === false ? 'eval-run.case-failed' : 'eval-run.case-completed',
-                  data: { runId, caseIndex: i, ...entry },
+                  id: `${testRunId}:case:${i}`,
+                  event: entry.pass === false ? 'test-run.case-failed' : 'test-run.case-completed',
+                  data: { testRunId, caseIndex: i, ...entry },
                 }),
               ),
             );
             lastEmittedCaseIndex = i;
           }
-          if (isTerminalEvalRun(snapshot.status) && !terminalEmitted) {
+          if (isTerminalTestRun(snapshot.status) && !terminalEmitted) {
             terminalEmitted = true;
             const wireKind =
               snapshot.status === 'completed'
-                ? 'eval-run.completed'
+                ? 'test-run.completed'
                 : snapshot.status === 'failed'
-                  ? 'eval-run.failed'
-                  : 'eval-run.cancelled';
+                  ? 'test-run.failed'
+                  : 'test-run.cancelled';
             controller.enqueue(
               encoder.encode(
                 formatSseFrame({
-                  id: `${runId}:terminal`,
+                  id: `${testRunId}:terminal`,
                   event: wireKind,
                   data: {
-                    runId,
+                    testRunId,
                     status: snapshot.status,
                     ...(snapshot.result !== undefined && { result: snapshot.result }),
                     ...(snapshot.error !== undefined && { error: snapshot.error }),
@@ -745,9 +748,9 @@ function readbackRouter(
 
 // ---------- helpers ----------
 
-function serializeEvalRun(run: EvalRun): Record<string, unknown> {
+function serializeTestRun(run: TestRun): Record<string, unknown> {
   return {
-    runId: run.runId as unknown as string,
+    testRunId: run.testRunId as unknown as string,
     tenantId: run.tenantId as unknown as string,
     ...(run.projectId !== undefined && { projectId: run.projectId as unknown as string }),
     testSetId: run.testSetId,
@@ -778,11 +781,11 @@ function serializeEvalRun(run: EvalRun): Record<string, unknown> {
   };
 }
 
-function isEvalRunStatus(value: string): value is EvalRunStatus {
-  return (EVAL_RUN_STATUSES as readonly string[]).includes(value);
+function isTestRunStatus(value: string): value is TestRunStatus {
+  return (TEST_RUN_STATUSES as readonly string[]).includes(value);
 }
 
-function isTerminalEvalRun(status: EvalRunStatus): boolean {
+function isTerminalTestRun(status: TestRunStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 

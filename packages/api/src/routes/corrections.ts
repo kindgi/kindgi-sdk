@@ -687,7 +687,7 @@ function parseExpectedCall(call: unknown): ExpectedCall | string {
   if (Object.keys(cc.args).length > MAX_CORRECTION_ARGS) {
     return `a correction call's args hold at most ${MAX_CORRECTION_ARGS} fields.`;
   }
-  // A value is copied onto the correction, the case and every eval run's
+  // A value is copied onto the correction, the case and every test run's
   // differences, so cap each call's args by their canonical size.
   if (canonical(cc.args).length > MAX_CORRECTION_ARGS_SIZE) {
     return `a correction call's args are at most ${MAX_CORRECTION_ARGS_SIZE} characters.`;

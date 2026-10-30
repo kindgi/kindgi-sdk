@@ -116,7 +116,7 @@ interface Entry {
 const supervised = () => ({
   agentRegistry: absent(),
   blockRegistry: absent(),
-  evalRunBinding: absent(),
+  testRunBinding: absent(),
   agentReleases: { gatePolicies: absent(), live: absent(), promotions: absent() },
 });
 
@@ -195,11 +195,11 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'eval runs',
-    path: '/v1/eval-runs',
+    name: 'test runs',
+    path: '/v1/test-runs',
     bindings: () => {
       const l = page('list', () => ({ testSetId: 'hid-testSet' }));
-      return { bindings: { evalRunBinding: l.binding }, received: l.received };
+      return { bindings: { testRunBinding: l.binding }, received: l.received };
     },
   },
   {

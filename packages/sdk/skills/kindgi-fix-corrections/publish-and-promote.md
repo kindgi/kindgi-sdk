@@ -33,7 +33,7 @@ If the person keeps test cases built from the corrected runs, try the new
 version on them first:
 
 ```sh
-kindgi eval-runs start <test-set-id> --project=<project-id> \
+kindgi test-runs start <test-set-id> --project=<project-id> \
   --agent=acme-store.refunds --agent-version=1.0.4 --wait
 ```
 

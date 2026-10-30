@@ -249,9 +249,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'test-set-not-found': 404,
   'test-set-already-registered': 409,
   'test-set-project-mismatch': 409,
-  // Admin plane — eval-run dispatch.
-  'eval-run-not-found': 404,
-  'eval-run-not-rescorable': 409,
+  // Admin plane — test-run dispatch.
+  'test-run-not-found': 404,
+  'test-run-not-rescorable': 409,
   // Corrections (yes/no on a run's output items) and corrector groups.
   'correction-not-found': 404,
   'corrector-group-not-found': 404,
@@ -337,7 +337,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'authz-store-delete-failed': 502,
   /** A runtime whose tenants binding doesn't purge. */
   'tenant-purge-unsupported': 501,
-  /** A deployment, eval run or improvement pass whose project, or pack, is suspended. */
+  /** A deployment, test run or improvement pass whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
   /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */
@@ -435,7 +435,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'guardrail-outcomes-not-supported': 501,
   // The live-version binding can't list the pins that cover a project.
   'pinned-versions-not-supported': 501,
-  'eval-run-already-terminal': 409,
+  'test-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,
   // Interop plane — MCP endpoint registry.

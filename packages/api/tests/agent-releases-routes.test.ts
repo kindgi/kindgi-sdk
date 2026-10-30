@@ -316,7 +316,7 @@ describe('POST /v1/agents/:agentId/promotions', () => {
         version: '1.1.0',
         scope: { kind: 'org', orgId: ORG },
         reason: 'eval passed',
-        evalRunId: 'run-7',
+        testRunId: 'run-7',
       }),
     );
     expect(res.status).toBe(201);
@@ -341,7 +341,7 @@ describe('POST /v1/agents/:agentId/promotions', () => {
           scope: { kind: 'org', orgId: ORG },
           requestedBy: { kind: 'user', id: userId },
           reason: 'eval passed',
-          evalRunId: 'run-7',
+          testRunId: 'run-7',
         },
       },
     ]);

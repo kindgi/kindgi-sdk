@@ -23,7 +23,7 @@ import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   CreateAppInput,
-  EvalRunBinding,
+  TestRunBinding,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   IdentityDirectoryBinding,
@@ -232,14 +232,14 @@ describe('publish / register bodies — every body the route accepts validates',
     expect(validateAgainst('PublishTestSetBody', body)).toEqual([]);
   });
 
-  test('StartEvalRunBody', async () => {
+  test('StartTestRunBody', async () => {
     const body = { projectId, agentRef: { agentId: 'acme.drafting', version: '1.0.0' } };
-    const evalRunBinding = {
+    const testRunBinding = {
       start: async () => ({ kind: 'ok', runId: randomUUID() }),
-    } as unknown as EvalRunBinding;
-    expect(await post({ evalRunBinding }, '/v1/test-sets/acme.drafting-accuracy/runs', body)).toBe(
+    } as unknown as TestRunBinding;
+    expect(await post({ testRunBinding }, '/v1/test-sets/acme.drafting-accuracy/runs', body)).toBe(
       201,
     );
-    expect(validateAgainst('StartEvalRunBody', body)).toEqual([]);
+    expect(validateAgainst('StartTestRunBody', body)).toEqual([]);
   });
 });

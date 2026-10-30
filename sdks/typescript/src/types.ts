@@ -490,7 +490,7 @@ export interface SuggestedChange {
   };
   /** Its comparison, and what it found on the objective metric. */
   readonly evaluation?: {
-    readonly evalRunId: string;
+    readonly testRunId: string;
     readonly testSetId: string;
     readonly objective: SuggestedChangeObjective;
     readonly startedAt: import('@kindgi/types').Timestamp;

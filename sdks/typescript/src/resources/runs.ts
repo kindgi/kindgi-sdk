@@ -276,10 +276,10 @@ export interface ListRunsFilter {
   readonly topLevel?: boolean;
   /** Only this agent's turns, at any version (turns from before 0.1.3 don't name their agent). */
   readonly agentId?: AgentId | string;
-  /** Replay runs (an eval run re-running a past run): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them. */
+  /** Replay runs (a test run re-running a past run): `exclude` (the default) leaves them out, `include` lists them too, `only` lists just them. */
   readonly replays?: 'exclude' | 'include' | 'only';
-  /** Only the replay runs of this eval run (implies replays are included). */
-  readonly evalRunId?: string;
+  /** Only the replay runs of this test run (implies replays are included). */
+  readonly testRunId?: string;
   /** Only the runs this trigger started. */
   readonly triggerId?: string;
   /** Only runs in this status, or in any of these (e.g. `['failed', 'cancelled']`). */
@@ -664,7 +664,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.topLevel !== undefined && { topLevel: String(filter.topLevel) }),
           ...(filter?.agentId !== undefined && { agentId: filter.agentId as string }),
           ...(filter?.replays !== undefined && { replays: filter.replays }),
-          ...(filter?.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+          ...(filter?.testRunId !== undefined && { testRunId: filter.testRunId }),
           ...(filter?.triggerId !== undefined && { triggerId: filter.triggerId }),
           ...(filter?.status !== undefined && {
             status: typeof filter.status === 'string' ? [filter.status] : [...filter.status],

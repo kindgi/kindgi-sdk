@@ -6,7 +6,7 @@
  * 8601 with a time and a zone, or Postgres's `timestamptz` text, naming a
  * real calendar time. Before, each route checked with `Date.parse` (or
  * `new Date`), which took `"Oct 9"`, a date with no time and a time with no
- * zone; eval runs' `from` / `to` weren't checked at all. Each such value
+ * zone; test runs' `from` / `to` weren't checked at all. Each such value
  * reached a binding's `::timestamptz` or named another instant.
  */
 
@@ -104,7 +104,7 @@ const app = createApp({
   signingKeyRegistry: unreachable,
   imageRegistry: unreachable,
   exportSigning: unreachable,
-  evalRunBinding: unreachable,
+  testRunBinding: unreachable,
   secretsBinding: unreachable,
 });
 
@@ -212,7 +212,7 @@ const INPUTS: ReadonlyArray<
       },
     ],
   ],
-  ['eval runs `to`', 'to', (v) => ['GET', `/v1/eval-runs?to=${q(v)}`]],
+  ['test runs `to`', 'to', (v) => ['GET', `/v1/test-runs?to=${q(v)}`]],
 ];
 
 describe('every time input answers 400 to a time the rule refuses', () => {

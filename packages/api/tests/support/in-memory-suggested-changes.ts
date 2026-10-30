@@ -82,9 +82,6 @@ export function inMemorySuggestedChanges(): SupervisorBinding & {
         case 'promotion':
           next = { ...base, promotionId: step.promotionId };
           break;
-        case 'rolled-back':
-          next = { ...base, rolledBack: step.rolledBack };
-          break;
         case 'withdrawn':
           next = { ...base, withdrawn: step.withdrawn };
           break;

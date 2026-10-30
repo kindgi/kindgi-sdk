@@ -97,7 +97,7 @@ const list: LeafCommand = {
 const show: LeafCommand = {
   kind: 'leaf',
   name: 'show',
-  description: 'Show an test set: its latest version, or the one named by `--test-set-version`.',
+  description: 'Show a test set: its latest version, or the one named by `--test-set-version`.',
   usage: 'kindgi test-sets show <test-set-id> [--test-set-version=<semver>]',
   optionSpec: {
     'test-set-version': {

@@ -8,7 +8,7 @@ import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, LiveScope, SuggestedChangeId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { EvalComparison } from '../eval-run-binding.js';
+import type { EvalComparison } from '../test-run-binding.js';
 import { type ItemRights, liveScopeCheck, widthRefusal, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
@@ -278,7 +278,7 @@ export function suggestedChangesRouter(
 
   // ---------- POST /:suggestedChangeId/rescore ----------
   // The latest evaluation scored again, with what people corrected on its
-  // replays since; the new eval run becomes the suggested change's evaluation.
+  // replays since; the new test run becomes the suggested change's evaluation.
   r.post('/:suggestedChangeId/rescore', async (c) => {
     const ready = await prepare(c, 'publish');
     if (ready instanceof Response) return ready;
@@ -361,7 +361,7 @@ function evaluationWire(
   // The reference run it's held to stays the runtime's: what it found is
   // `costUsd` and `decisions`.
   const recorded = {
-    evalRunId: stored.evalRunId,
+    testRunId: stored.testRunId,
     testSetId: stored.testSetId,
     objective: stored.objective,
     startedAt: stored.startedAt,

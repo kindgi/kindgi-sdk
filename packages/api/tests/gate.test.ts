@@ -34,7 +34,7 @@ function metric(overrides: Partial<ComparisonMetric> = {}): ComparisonMetric {
 
 function summary(overrides: Partial<CorrectedComparisonSummary> = {}): CorrectedComparisonSummary {
   return {
-    evalRunId: 'eval-1',
+    testRunId: 'eval-1',
     status: 'completed',
     completedAt: '2026-10-06T10:00:00.000Z',
     testSet: { id: 'acme.drafting-set', version: '1.0.0' },
@@ -103,7 +103,7 @@ describe('the comparison', () => {
       { summary: null },
     );
     expect(r.passed).toBe(false);
-    expect(check(r, 'comparison.required')?.message).toContain('`evalRunId`');
+    expect(check(r, 'comparison.required')?.message).toContain('`testRunId`');
   });
 
   test('approvals alone need no comparison', () => {

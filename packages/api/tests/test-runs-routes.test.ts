@@ -14,11 +14,11 @@ import { createApp } from '../src/index.js';
 import type {
   EvalGrader,
   EvalKind,
-  EvalRun,
-  EvalRunBinding,
-  EvalRunPage,
-  EvalRunStatus,
-  EvalRunSubjectInvokeOutcome,
+  TestRun,
+  TestRunBinding,
+  TestRunPage,
+  TestRunStatus,
+  TestRunSubjectInvokeOutcome,
   EvalSubjectInvoker,
   ItemReference,
   ReferenceScopeBinding,
@@ -27,13 +27,13 @@ import type {
   TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
-import { createAccuracyDispatcher, createInProcessEvalRunBinding } from '../src/index.js';
+import { createAccuracyDispatcher, createInProcessTestRunBinding } from '../src/index.js';
 
 /**
- * Eval-run route tests. The registry + run binding are
+ * Test-run route tests. The registry + run binding are
  * both caller-plugged. The registry uses the same in-memory pattern
  * as `test-sets-routes.test.ts`; the run binding uses the reference
- * `createInProcessEvalRunBinding` with a synthetic subject invoker
+ * `createInProcessTestRunBinding` with a synthetic subject invoker
  * and a deterministic grader. Covers start (accuracy happy path,
  * dryRun, unknown test set, both/neither ref, idempotency replay,
  * dispatcher-not-registered for the other five kinds), list (filter
@@ -42,13 +42,13 @@ import { createAccuracyDispatcher, createInProcessEvalRunBinding } from '../src/
  */
 
 const tenantId = randomUUID() as TenantId;
-// The eval-run start body carries `projectId` (content-scope anchor).
+// The test-run start body carries `projectId` (content-scope anchor).
 // The in-process reference binding doesn't validate against a real
 // `projects` table (no storage) — any non-empty string satisfies the
-// route's parser; the storage adapter (the Postgres eval-run registry adapter, `eval-run-registry-
+// route's parser; the storage adapter (the Postgres test-run registry adapter, `test-run-registry-
 // postgres`) is the one that surfaces `project-not-found` via FK.
 const TEST_PROJECT_ID = randomUUID();
-const TOKEN = 'eval-runs-token-abc';
+const TOKEN = 'test-runs-token-abc';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN) return { tenantId };
@@ -207,7 +207,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 interface AppSetup {
   readonly app: ReturnType<typeof createApp>;
   readonly registry: TestSetRegistryBinding;
-  readonly binding: EvalRunBinding;
+  readonly binding: TestRunBinding;
 }
 
 function makeApp(
@@ -228,7 +228,7 @@ function makeApp(
   if (kinds.includes('accuracy')) {
     dispatchers.accuracy = createAccuracyDispatcher({ grader: eqGrader });
   }
-  const binding = createInProcessEvalRunBinding({
+  const binding = createInProcessTestRunBinding({
     testSetRegistry: registry,
     subject,
     dispatchers,
@@ -238,7 +238,7 @@ function makeApp(
     resolveToken: options.grants === undefined ? resolveToken : resolveUserToken,
     runHandler,
     testSetRegistry: registry,
-    evalRunBinding: binding,
+    testRunBinding: binding,
     ...(options.grants !== undefined && { authz: grantsAuthz(options.grants) }),
     ...(options.projectSuspended !== undefined && { projectSuspended: options.projectSuspended }),
     ...(options.referenceScope !== undefined && { referenceScope: options.referenceScope }),
@@ -271,20 +271,20 @@ function grantsAuthz(grants: readonly string[]) {
 }
 
 async function waitForRun(
-  binding: EvalRunBinding,
-  runId: string,
-  predicate: (r: EvalRun) => boolean,
+  binding: TestRunBinding,
+  testRunId: string,
+  predicate: (r: TestRun) => boolean,
   timeoutMs = 2_000,
-): Promise<EvalRun> {
+): Promise<TestRun> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const run = await binding.get({ tenantId, runId: runId as never });
+    const run = await binding.get({ tenantId, testRunId: testRunId as never });
     if (run !== null && predicate(run)) return run;
     await new Promise((r) => setTimeout(r, 5));
   }
-  const final = await binding.get({ tenantId, runId: runId as never });
+  const final = await binding.get({ tenantId, testRunId: testRunId as never });
   throw new Error(
-    `Timed out waiting for run ${runId}; last status=${final?.status ?? 'null'} result=${JSON.stringify(final?.result)}`,
+    `Timed out waiting for run ${testRunId}; last status=${final?.status ?? 'null'} result=${JSON.stringify(final?.result)}`,
   );
 }
 
@@ -298,7 +298,7 @@ const accuracySpec: Readonly<Record<string, unknown>> = {
   grader: { adapterId: 'stub:eq' },
 };
 
-describe('API — eval-runs start: who may start one', () => {
+describe('API — test-runs start: who may start one', () => {
   // An editor of the project (write on it, execute on the agent and on the
   // test set) runs the test set: the improve loop's step. Starting a run
   // doesn't change the test set, so it doesn't need admin on it.
@@ -390,8 +390,8 @@ describe('API — eval-runs start: who may start one', () => {
   });
 });
 
-describe('API — eval-runs start (accuracy happy path)', () => {
-  test('POST /v1/test-sets/:testSetId/runs → 201, runId; run completes with aggregate result', async () => {
+describe('API — test-runs start (accuracy happy path)', () => {
+  test('POST /v1/test-sets/:testSetId/runs → 201, testRunId; run completes with aggregate result', async () => {
     const { app, registry, binding } = makeApp({ behavior: 'pass' });
     await seedTestSet(registry, { id: 'acme.accuracy', kind: 'accuracy', spec: accuracySpec });
 
@@ -404,10 +404,10 @@ describe('API — eval-runs start (accuracy happy path)', () => {
       }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { runId: string };
-    expect(body.runId).toMatch(/^[0-9a-f-]{36}$/);
+    const body = (await res.json()) as { testRunId: string };
+    expect(body.testRunId).toMatch(/^[0-9a-f-]{36}$/);
 
-    const final = await waitForRun(binding, body.runId, (r) => r.status === 'completed');
+    const final = await waitForRun(binding, body.testRunId, (r) => r.status === 'completed');
     expect(final.status).toBe('completed');
     expect(final.testSetId).toBe('acme.accuracy');
     expect(final.testSetVersion).toBe('1.0.0');
@@ -438,15 +438,15 @@ describe('API — eval-runs start (accuracy happy path)', () => {
       }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { runId: string };
-    const final = await waitForRun(binding, body.runId, (r) => r.status === 'completed');
+    const body = (await res.json()) as { testRunId: string };
+    const final = await waitForRun(binding, body.testRunId, (r) => r.status === 'completed');
     const result = final.result as { passCount: number; totalCount: number };
     expect(result.passCount).toBe(1);
     expect(result.totalCount).toBe(2);
   });
 });
 
-describe("API — eval-runs start: the version it runs must be the project's to reach", () => {
+describe("API — test-runs start: the version it runs must be the project's to reach", () => {
   /** Reaches every item but `unreached` (`<kind>:<id>@<version>`, `@` alone for the item by its id); records each question. */
   const reach = (
     unreached: readonly string[],
@@ -661,7 +661,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
   });
 });
 
-describe('API — eval-runs and a suspended project', () => {
+describe('API — test-runs and a suspended project', () => {
   const threeCases: Readonly<Record<string, unknown>> = {
     ...accuracySpec,
     cases: [
@@ -679,7 +679,7 @@ describe('API — eval-runs and a suspended project', () => {
       }),
     });
   /** The second case's start is refused (`refused`), the others answer what they expect. */
-  const refusingSecond = (refused: EvalRunSubjectInvokeOutcome) => {
+  const refusingSecond = (refused: TestRunSubjectInvokeOutcome) => {
     const calls = { n: 0 };
     const subject: EvalSubjectInvoker = {
       async invoke({ input }) {
@@ -721,14 +721,14 @@ describe('API — eval-runs and a suspended project', () => {
     const { app, registry, binding } = makeApp({ subject });
     await seedTestSet(registry, { id: 'acme.halted', kind: 'accuracy', spec: threeCases });
     const res = await start(app, 'acme.halted');
-    const { runId } = (await res.json()) as { runId: string };
-    const final = await waitForRun(binding, runId, (r) => r.status === 'cancelled');
+    const { testRunId } = (await res.json()) as { testRunId: string };
+    const final = await waitForRun(binding, testRunId, (r) => r.status === 'cancelled');
     expect(final.cancelReason).toBe('project-suspended');
     expect(final.error).toBeUndefined();
     expect(calls.n).toBe(2);
     expect(final.result).toMatchObject({ passCount: 1, totalCount: 3, cancelled: true });
     expect((final.result as { perCase: unknown[] }).perCase).toHaveLength(1);
-    const read = await app.request(`/v1/eval-runs/${runId}`, {
+    const read = await app.request(`/v1/test-runs/${testRunId}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(await read.json()).toMatchObject({
@@ -742,15 +742,15 @@ describe('API — eval-runs and a suspended project', () => {
     const { app, registry, binding } = makeApp({ subject });
     await seedTestSet(registry, { id: 'acme.errored', kind: 'accuracy', spec: threeCases });
     const res = await start(app, 'acme.errored');
-    const { runId } = (await res.json()) as { runId: string };
-    const final = await waitForRun(binding, runId, (r) => r.status === 'completed');
+    const { testRunId } = (await res.json()) as { testRunId: string };
+    const final = await waitForRun(binding, testRunId, (r) => r.status === 'completed');
     expect(final.cancelReason).toBeUndefined();
     expect(calls.n).toBe(3);
     expect(final.result).toMatchObject({ passCount: 2, totalCount: 3 });
   });
 });
 
-describe('API — eval-runs start (dryRun preview)', () => {
+describe('API — test-runs start (dryRun preview)', () => {
   test('dryRun: true returns preview envelope without invoking subject', async () => {
     let subjectCalls = 0;
     const trackingSubject: EvalSubjectInvoker = {
@@ -772,8 +772,8 @@ describe('API — eval-runs start (dryRun preview)', () => {
       }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { runId: string };
-    const final = await waitForRun(binding, body.runId, (r) => r.status === 'completed');
+    const body = (await res.json()) as { testRunId: string };
+    const final = await waitForRun(binding, body.testRunId, (r) => r.status === 'completed');
     expect(final.dryRun).toBe(true);
     const result = final.result as { dryRun: boolean; totalCount: number; preview: unknown[] };
     expect(result.dryRun).toBe(true);
@@ -783,7 +783,7 @@ describe('API — eval-runs start (dryRun preview)', () => {
   });
 });
 
-describe('API — eval-runs start validation', () => {
+describe('API — test-runs start validation', () => {
   test('unknown test set → 404 test-set-not-found', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/test-sets/nope/runs', {
@@ -854,7 +854,7 @@ describe('API — eval-runs start validation', () => {
   });
 });
 
-describe('API — eval-runs start: kind-not-yet-dispatchable', () => {
+describe('API — test-runs start: kind-not-yet-dispatchable', () => {
   const otherKinds: readonly EvalKind[] = [
     'pairwise',
     'regression',
@@ -882,8 +882,8 @@ describe('API — eval-runs start: kind-not-yet-dispatchable', () => {
   }
 });
 
-describe('API — eval-runs idempotency', () => {
-  test('same Idempotency-Key replays original 201 + runId', async () => {
+describe('API — test-runs idempotency', () => {
+  test('same Idempotency-Key replays original 201 + testRunId', async () => {
     const { app, registry } = makeApp();
     await seedTestSet(registry, { id: 'acme.idem', kind: 'accuracy', spec: accuracySpec });
     const key = randomUUID();
@@ -901,7 +901,7 @@ describe('API — eval-runs idempotency', () => {
       body,
     });
     expect(first.status).toBe(201);
-    const firstBody = (await first.json()) as { runId: string };
+    const firstBody = (await first.json()) as { testRunId: string };
 
     const second = await app.request('/v1/test-sets/acme.idem/runs', {
       method: 'POST',
@@ -914,12 +914,12 @@ describe('API — eval-runs idempotency', () => {
     });
     expect(second.status).toBe(201);
     expect(second.headers.get('X-Idempotent-Replay')).toBe('true');
-    const secondBody = (await second.json()) as { runId: string };
-    expect(secondBody.runId).toBe(firstBody.runId);
+    const secondBody = (await second.json()) as { testRunId: string };
+    expect(secondBody.testRunId).toBe(firstBody.testRunId);
   });
 });
 
-describe('API — eval-runs list + filter', () => {
+describe('API — test-runs list + filter', () => {
   test('list happy path + testSetId filter + status filter matrix', async () => {
     const { app, registry, binding } = makeApp();
     await seedTestSet(registry, { id: 'a.one', kind: 'accuracy', spec: accuracySpec });
@@ -934,36 +934,36 @@ describe('API — eval-runs list + filter', () => {
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: startBody,
     });
-    const { runId: id1 } = (await r1.json()) as { runId: string };
+    const { testRunId: id1 } = (await r1.json()) as { testRunId: string };
     const r2 = await app.request('/v1/test-sets/a.two/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: startBody,
     });
-    const { runId: id2 } = (await r2.json()) as { runId: string };
+    const { testRunId: id2 } = (await r2.json()) as { testRunId: string };
     await waitForRun(binding, id1, (r) => r.status === 'completed');
     await waitForRun(binding, id2, (r) => r.status === 'completed');
 
-    const all = await app.request('/v1/eval-runs', {
+    const all = await app.request('/v1/test-runs', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
-    const allBody = (await all.json()) as { data: EvalRun[]; hasMore: boolean };
-    const ids = new Set(allBody.data.map((r) => r.runId as unknown as string));
+    const allBody = (await all.json()) as { data: TestRun[]; hasMore: boolean };
+    const ids = new Set(allBody.data.map((r) => r.testRunId as unknown as string));
     expect(ids.has(id1)).toBe(true);
     expect(ids.has(id2)).toBe(true);
 
-    const filtered = await app.request('/v1/eval-runs?testSetId=a.one', {
+    const filtered = await app.request('/v1/test-runs?testSetId=a.one', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
-    const filteredBody = (await filtered.json()) as { data: EvalRun[] };
+    const filteredBody = (await filtered.json()) as { data: TestRun[] };
     expect(filteredBody.data.map((r) => r.testSetId)).toEqual(['a.one']);
 
-    const status = await app.request('/v1/eval-runs?status=completed', {
+    const status = await app.request('/v1/test-runs?status=completed', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(status.status).toBe(200);
 
-    const bad = await app.request('/v1/eval-runs?status=not-a-status', {
+    const bad = await app.request('/v1/test-runs?status=not-a-status', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(bad.status).toBe(400);
@@ -972,8 +972,8 @@ describe('API — eval-runs list + filter', () => {
   });
 });
 
-describe('API — eval-runs get', () => {
-  test('GET /v1/eval-runs/:runId returns the run row', async () => {
+describe('API — test-runs get', () => {
+  test('GET /v1/test-runs/:testRunId returns the run row', async () => {
     const { app, registry, binding } = makeApp();
     await seedTestSet(registry, { id: 'acme.get', kind: 'accuracy', spec: accuracySpec });
     const start = await app.request('/v1/test-sets/acme.get/runs', {
@@ -984,31 +984,35 @@ describe('API — eval-runs get', () => {
         agentRef: { agentId: 'acme.drafting' },
       }),
     });
-    const { runId } = (await start.json()) as { runId: string };
-    await waitForRun(binding, runId, (r) => r.status === 'completed');
+    const { testRunId } = (await start.json()) as { testRunId: string };
+    await waitForRun(binding, testRunId, (r) => r.status === 'completed');
 
-    const res = await app.request(`/v1/eval-runs/${runId}`, {
+    const res = await app.request(`/v1/test-runs/${testRunId}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { runId: string; testSetId: string; status: EvalRunStatus };
-    expect(body.runId).toBe(runId);
+    const body = (await res.json()) as {
+      testRunId: string;
+      testSetId: string;
+      status: TestRunStatus;
+    };
+    expect(body.testRunId).toBe(testRunId);
     expect(body.testSetId).toBe('acme.get');
     expect(body.status).toBe('completed');
   });
 
-  test('GET /v1/eval-runs/:runId unknown → 404 eval-run-not-found', async () => {
+  test('GET /v1/test-runs/:testRunId unknown → 404 test-run-not-found', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-runs/00000000-0000-0000-0000-000000000000', {
+    const res = await app.request('/v1/test-runs/00000000-0000-0000-0000-000000000000', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('eval-run-not-found');
+    expect(body.error.code).toBe('test-run-not-found');
   });
 });
 
-describe('API — eval-runs cancel', () => {
+describe('API — test-runs cancel', () => {
   test('cancel roundtrip on a slow run flips status to cancelled', async () => {
     let released: (() => void) | undefined;
     const gate = new Promise<void>((res) => {
@@ -1037,23 +1041,23 @@ describe('API — eval-runs cancel', () => {
         agentRef: { agentId: 'acme.drafting' },
       }),
     });
-    const { runId } = (await start.json()) as { runId: string };
-    await waitForRun(binding, runId, (r) => r.status === 'running');
+    const { testRunId } = (await start.json()) as { testRunId: string };
+    await waitForRun(binding, testRunId, (r) => r.status === 'running');
 
-    const cancel = await app.request(`/v1/eval-runs/${runId}/cancel`, {
+    const cancel = await app.request(`/v1/test-runs/${testRunId}/cancel`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(cancel.status).toBe(200);
-    const cancelBody = (await cancel.json()) as { status: EvalRunStatus };
+    const cancelBody = (await cancel.json()) as { status: TestRunStatus };
     expect(cancelBody.status).toBe('cancelled');
 
     released?.();
-    const final = await waitForRun(binding, runId, (r) => r.status === 'cancelled');
+    const final = await waitForRun(binding, testRunId, (r) => r.status === 'cancelled');
     expect(final.status).toBe('cancelled');
   });
 
-  test('cancel already-terminal → 409 eval-run-already-terminal', async () => {
+  test('cancel already-terminal → 409 test-run-already-terminal', async () => {
     const { app, registry, binding } = makeApp();
     await seedTestSet(registry, { id: 'acme.term', kind: 'accuracy', spec: accuracySpec });
     const start = await app.request('/v1/test-sets/acme.term/runs', {
@@ -1064,31 +1068,31 @@ describe('API — eval-runs cancel', () => {
         agentRef: { agentId: 'acme.drafting' },
       }),
     });
-    const { runId } = (await start.json()) as { runId: string };
-    await waitForRun(binding, runId, (r) => r.status === 'completed');
+    const { testRunId } = (await start.json()) as { testRunId: string };
+    await waitForRun(binding, testRunId, (r) => r.status === 'completed');
 
-    const cancel = await app.request(`/v1/eval-runs/${runId}/cancel`, {
+    const cancel = await app.request(`/v1/test-runs/${testRunId}/cancel`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(cancel.status).toBe(409);
     const body = (await cancel.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('eval-run-already-terminal');
+    expect(body.error.code).toBe('test-run-already-terminal');
   });
 
-  test('cancel unknown runId → 404 eval-run-not-found', async () => {
+  test('cancel unknown testRunId → 404 test-run-not-found', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-runs/00000000-0000-0000-0000-000000000000/cancel', {
+    const res = await app.request('/v1/test-runs/00000000-0000-0000-0000-000000000000/cancel', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('eval-run-not-found');
+    expect(body.error.code).toBe('test-run-not-found');
   });
 });
 
-describe('API — eval-runs SSE events', () => {
+describe('API — test-runs SSE events', () => {
   async function readAllSse(body: ReadableStream<Uint8Array>): Promise<string> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
@@ -1136,10 +1140,10 @@ describe('API — eval-runs SSE events', () => {
         agentRef: { agentId: 'acme.drafting' },
       }),
     });
-    const { runId } = (await start.json()) as { runId: string };
-    await waitForRun(binding, runId, (r) => r.status === 'completed');
+    const { testRunId } = (await start.json()) as { testRunId: string };
+    await waitForRun(binding, testRunId, (r) => r.status === 'completed');
 
-    const stream = await app.request(`/v1/eval-runs/${runId}/events`, {
+    const stream = await app.request(`/v1/test-runs/${testRunId}/events`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(stream.status).toBe(200);
@@ -1148,34 +1152,34 @@ describe('API — eval-runs SSE events', () => {
     const frames = parseFrames(raw);
     const events = frames.map((f) => f.event);
     expect(events).toEqual([
-      'eval-run.case-completed',
-      'eval-run.case-completed',
-      'eval-run.completed',
+      'test-run.case-completed',
+      'test-run.case-completed',
+      'test-run.completed',
     ]);
     const terminal = frames[frames.length - 1]?.data as {
-      status: EvalRunStatus;
+      status: TestRunStatus;
       result: { passCount: number; totalCount: number };
     };
     expect(terminal.status).toBe('completed');
     expect(terminal.result.passCount).toBe(2);
   });
 
-  test('unknown runId → 404 eval-run-not-found', async () => {
+  test('unknown testRunId → 404 test-run-not-found', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-runs/00000000-0000-0000-0000-000000000000/events', {
+    const res = await app.request('/v1/test-runs/00000000-0000-0000-0000-000000000000/events', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('eval-run-not-found');
+    expect(body.error.code).toBe('test-run-not-found');
   });
 
   /** A run that stays running, one case in; each read of it counted. */
   function runningRunApp() {
     const counted = { reads: 0 };
-    const runId = randomUUID();
+    const testRunId = randomUUID();
     const running = {
-      runId,
+      testRunId,
       tenantId,
       testSetId: 'acme.sse',
       testSetVersion: '1.0.0',
@@ -1184,7 +1188,7 @@ describe('API — eval-runs SSE events', () => {
       dryRun: false,
       startedAt: '2026-10-16T00:00:00.000Z',
       result: { perCase: [{ pass: true }] },
-    } as unknown as EvalRun;
+    } as unknown as TestRun;
     let hold: { entered: () => void; released: Promise<void> } | undefined;
     /** Holds each read of the run until `release`; `waiting` resolves once one waits. */
     const holdReads = () => {
@@ -1197,27 +1201,27 @@ describe('API — eval-runs SSE events', () => {
       });
       return { waiting, release };
     };
-    const evalRunBinding = {
-      get: async ({ runId: id }: { runId: string }) => {
+    const testRunBinding = {
+      get: async ({ testRunId: id }: { testRunId: string }) => {
         counted.reads += 1;
         if (hold !== undefined) {
           hold.entered();
           await hold.released;
         }
-        return id === runId ? running : null;
+        return id === testRunId ? running : null;
       },
-    } as unknown as EvalRunBinding;
+    } as unknown as TestRunBinding;
     const app = createApp({
       ...createStubAppBindings(),
       resolveToken,
       runHandler,
-      evalRunBinding,
+      testRunBinding,
     });
     const call = (
       method: 'GET' | 'HEAD',
-      { id = runId, signal }: { id?: string; signal?: AbortSignal } = {},
+      { id = testRunId, signal }: { id?: string; signal?: AbortSignal } = {},
     ) =>
-      app.request(`/v1/eval-runs/${id}/events`, {
+      app.request(`/v1/test-runs/${id}/events`, {
         method,
         headers: { authorization: `Bearer ${TOKEN}`, 'x-request-id': 'req-events' },
         ...(signal !== undefined && { signal }),
@@ -1233,7 +1237,7 @@ describe('API — eval-runs SSE events', () => {
       expect(res.status).toBe(200);
       const reader = (res.body as ReadableStream<Uint8Array>).getReader();
       const first = await reader.read();
-      expect(new TextDecoder().decode(first.value)).toContain('event: eval-run.case-completed');
+      expect(new TextDecoder().decode(first.value)).toContain('event: test-run.case-completed');
       await vi.advanceTimersByTimeAsync(1_000);
       const polled = counted.reads;
       // It polls while it's read: the route's read, the stream's first, then one every 100 ms.
@@ -1324,8 +1328,8 @@ describe('API — eval-runs SSE events', () => {
   });
 });
 
-describe('API — eval-runs surface unmounted when no binding supplied', () => {
-  test('no `evalRunBinding` → routes 404 at Hono level', async () => {
+describe('API — test-runs surface unmounted when no binding supplied', () => {
+  test('no `testRunBinding` → routes 404 at Hono level', async () => {
     const registry = makeInMemoryRegistry();
     const app = createApp({
       ...createStubAppBindings(),
@@ -1341,7 +1345,7 @@ describe('API — eval-runs surface unmounted when no binding supplied', () => {
     });
     expect(start.status).toBe(404);
 
-    const list = await app.request('/v1/eval-runs', {
+    const list = await app.request('/v1/test-runs', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(list.status).toBe(404);
@@ -1351,15 +1355,15 @@ describe('API — eval-runs surface unmounted when no binding supplied', () => {
 // Silences a spurious "unused" warning for the Cursor type import when
 // the type only participates via structural equality in test bindings.
 void 0 as unknown as Cursor;
-void 0 as unknown as EvalRunPage;
+void 0 as unknown as TestRunPage;
 
 // -------------------- scope filter --------------------
 
-describe('API — eval-runs scope filter', () => {
+describe('API — test-runs scope filter', () => {
   function makeSpy() {
     const { registry, binding: inner } = makeApp();
-    let lastListInput: Parameters<EvalRunBinding['list']>[0] | null = null;
-    const spy: EvalRunBinding = {
+    let lastListInput: Parameters<TestRunBinding['list']>[0] | null = null;
+    const spy: TestRunBinding = {
       ...inner,
       async list(input) {
         lastListInput = input;
@@ -1371,7 +1375,7 @@ describe('API — eval-runs scope filter', () => {
       resolveToken,
       runHandler,
       testSetRegistry: registry,
-      evalRunBinding: spy,
+      testRunBinding: spy,
     });
     return { app, getLastInput: (): typeof lastListInput => lastListInput };
   }
@@ -1379,7 +1383,7 @@ describe('API — eval-runs scope filter', () => {
   test('?scopeKind=project&scopeId=<uuid> → binding receives project scope', async () => {
     const { app, getLastInput } = makeSpy();
     const projectId = randomUUID();
-    const res = await app.request(`/v1/eval-runs?scopeKind=project&scopeId=${projectId}`, {
+    const res = await app.request(`/v1/test-runs?scopeKind=project&scopeId=${projectId}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -1389,7 +1393,7 @@ describe('API — eval-runs scope filter', () => {
   test('?scopeKind=org&scopeId=<uuid> → binding receives org scope', async () => {
     const { app, getLastInput } = makeSpy();
     const orgId = randomUUID();
-    const res = await app.request(`/v1/eval-runs?scopeKind=org&scopeId=${orgId}`, {
+    const res = await app.request(`/v1/test-runs?scopeKind=org&scopeId=${orgId}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -1398,7 +1402,7 @@ describe('API — eval-runs scope filter', () => {
 
   test('no scope params → binding receives scope=undefined', async () => {
     const { app, getLastInput } = makeSpy();
-    const res = await app.request('/v1/eval-runs', {
+    const res = await app.request('/v1/test-runs', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -1407,7 +1411,7 @@ describe('API — eval-runs scope filter', () => {
 
   test('?scopeKind=tenant&scopeId=<uuid> → 400 scope-invalid', async () => {
     const { app } = makeSpy();
-    const res = await app.request(`/v1/eval-runs?scopeKind=tenant&scopeId=${randomUUID()}`, {
+    const res = await app.request(`/v1/test-runs?scopeKind=tenant&scopeId=${randomUUID()}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(400);

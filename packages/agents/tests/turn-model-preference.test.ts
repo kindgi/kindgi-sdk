@@ -81,7 +81,7 @@ function turn(
       tenantId,
       conversationId: 'conv-1',
       agent: r.value,
-      ...(overrides !== undefined && { replay: { of: 'run-1', evalRunId: 'eval-1' } }),
+      ...(overrides !== undefined && { replay: { of: 'run-1', testRunId: 'eval-1' } }),
     },
     bindings: {
       toolRegistry: createToolRegistry([]),

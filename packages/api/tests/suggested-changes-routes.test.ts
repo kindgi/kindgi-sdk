@@ -5,8 +5,8 @@
  * suggested changes (`/v1/suggested-changes`): a hand-written change to one
  * data block an agent version pins, evaluated as a real (inert) agent
  * version on a test set, then promoted for its scope through the gate.
- * The status is derived from the suggested change's eval run and promotion. The
- * stores are in memory; promotions and eval runs are fakes that record
+ * The status is derived from the suggested change's test run and promotion. The
+ * stores are in memory; promotions and test runs are fakes that record
  * what they're asked.
  */
 
@@ -48,9 +48,9 @@ import type {
   CorrectedComparisonSummary,
   CorrectionRegistryBinding,
   EstimateImprovementPassInput,
-  EvalRun,
-  EvalRunBinding,
-  EvalRunStartInput,
+  TestRun,
+  TestRunBinding,
+  TestRunStartInput,
   GatePolicy,
   GatePolicySpec,
   ImprovementPass,
@@ -181,7 +181,7 @@ function summary(
     ...(metric.spread !== undefined && { spread: metric.spread }),
   };
   return {
-    evalRunId: 'set later',
+    testRunId: 'set later',
     status: 'completed',
     completedAt: NOW,
     testSet: { id: 'acme.scoring-judged', version: '1.0.0' },
@@ -200,18 +200,18 @@ function summary(
   };
 }
 
-/** Eval runs: `start` records its input; a test finishes a run with `finish`. */
-function evalRunFake(agents: AgentRegistryBinding) {
-  const runs = new Map<string, EvalRun>();
-  const started: EvalRunStartInput[] = [];
-  const binding: EvalRunBinding = {
+/** Test runs: `start` records its input; a test finishes a run with `finish`. */
+function testRunFake(agents: AgentRegistryBinding) {
+  const runs = new Map<string, TestRun>();
+  const started: TestRunStartInput[] = [];
+  const binding: TestRunBinding = {
     async start(input) {
       started.push(input);
       const runId = randomUUID() as RunId;
       runs.set(runId as unknown as string, {
-        runId,
+        testRunId: runId,
         tenantId: input.tenantId,
-        // The eval run records the agent's project. A drafter's approval resolves
+        // The test run records the agent's project. A drafter's approval resolves
         // to the suggested change's SCOPE, not this — set equal to the segment's project
         // here, so only a tenant-scoped test tells the two apart.
         projectId,
@@ -224,10 +224,10 @@ function evalRunFake(agents: AgentRegistryBinding) {
         dryRun: false,
         startedAt: NOW,
       });
-      return { kind: 'ok', runId };
+      return { kind: 'ok', testRunId: runId };
     },
-    async get({ runId }) {
-      return runs.get(runId as unknown as string) ?? null;
+    async get({ testRunId }) {
+      return runs.get(testRunId as unknown as string) ?? null;
     },
     async list() {
       return { data: [] };
@@ -270,7 +270,7 @@ function evalRunFake(agents: AgentRegistryBinding) {
       ...run,
       status: 'completed',
       completedAt: NOW,
-      result: { summary: { ...s, ...outcome.more, evalRunId: runId } },
+      result: { summary: { ...s, ...outcome.more, testRunId: runId } },
     });
   };
   return { binding, started, finish, runs };
@@ -360,7 +360,7 @@ function releasesFake(agents: AgentRegistryBinding) {
           fromVersion: before?.version ?? null,
           toVersion: input.version,
           requestedBy: input.requestedBy,
-          ...(input.evalRunId !== undefined && { evalRunId: input.evalRunId }),
+          ...(input.testRunId !== undefined && { testRunId: input.testRunId }),
           status,
           policy: input.gate.policy,
           checks: input.gate.checks,
@@ -639,7 +639,7 @@ async function harness(
     madeFor: 'latest',
     enqueueTuples: () => [],
   });
-  const evalRuns = evalRunFake(agents);
+  const testRuns = testRunFake(agents);
   const releases = releasesFake(agents);
   const suggestedChanges = inMemorySuggestedChanges();
   const grants = opts.grants;
@@ -672,7 +672,7 @@ async function harness(
           ? { ...agents, readOnly: TAKES_CANDIDATES }
           : agents,
     blockRegistry: blocks,
-    evalRunBinding: evalRuns.binding,
+    testRunBinding: testRuns.binding,
     agentReleases: releases.releases,
     supervisor: suggestedChanges,
     ...(opts.passes !== undefined && { improvementPasses: opts.passes }),
@@ -708,7 +708,7 @@ async function harness(
       body: (await res.json()) as Record<string, any>,
     };
   };
-  return { call, agents, blocks, evalRuns, releases, suggestedChanges };
+  return { call, agents, blocks, testRuns, releases, suggestedChanges };
 }
 
 const DRAFT = {
@@ -762,7 +762,7 @@ async function evaluated(
     testSetId: 'acme.scoring-judged',
   });
   expect(res.status, JSON.stringify(res.body)).toBe(202);
-  await h.evalRuns.finish(res.body.evaluation.evalRunId, { delta });
+  await h.testRuns.finish(res.body.evaluation.testRunId, { delta });
   return h;
 }
 
@@ -853,7 +853,7 @@ describe('POST /v1/suggested-changes', () => {
 
 describe('POST /v1/suggested-changes/:id/evaluate', () => {
   test('without a tenant-wide live version it refuses (409 suggested-change-needs-pin) and publishes nothing', async () => {
-    const { call, blocks, evalRuns } = await harness();
+    const { call, blocks, testRuns } = await harness();
     const created = await call('POST', '/v1/suggested-changes', DRAFT);
     const res = await call('POST', `/v1/suggested-changes/${created.body.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
@@ -864,11 +864,11 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
     expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toEqual([
       `${WEIGHTS}@1.0.0`,
     ]);
-    expect(evalRuns.started).toHaveLength(0);
+    expect(testRuns.started).toHaveLength(0);
   });
 
   test('with a read-only agent registry (kindgi dev) it refuses (409 registry-read-only) and publishes nothing', async () => {
-    const { call, releases, blocks, evalRuns } = await harness({ readOnly: true });
+    const { call, releases, blocks, testRuns } = await harness({ readOnly: true });
     releases.pin({ kind: 'tenant' }, '1.0.0');
     const created = await call('POST', '/v1/suggested-changes', DRAFT);
     expect(created.status).toBe(201);
@@ -881,11 +881,11 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
       message: 'The pack files are the source: change them instead.',
     });
     expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toHaveLength(1);
-    expect(evalRuns.started).toHaveLength(0);
+    expect(testRuns.started).toHaveLength(0);
   });
 
   test('publishes the block version, derives the agent version for the suggested change, and starts the comparison', async () => {
-    const { call, id, blocks, agents, evalRuns } = await drafted();
+    const { call, id, blocks, agents, testRuns } = await drafted();
     const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
       repetitions: 3,
@@ -915,7 +915,7 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
     });
     expect(res.body.candidate.pinsDigest).toBe(derived?.pinsDigest);
 
-    expect(evalRuns.started).toEqual([
+    expect(testRuns.started).toEqual([
       expect.objectContaining({
         projectId,
         testSetId: 'acme.scoring-judged',
@@ -930,7 +930,7 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
     // The agent lives in prod (`projectId`), last of the order.
     const staging1 = randomUUID() as ProjectId;
     const staging2 = randomUUID() as ProjectId;
-    const { call, id, blocks, agents, evalRuns } = await drafted({
+    const { call, id, blocks, agents, testRuns } = await drafted({
       orders: [[staging1, staging2, projectId]],
     });
     const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
@@ -946,11 +946,11 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
     });
     expect(derived?.projectId).toBe(projectId);
     expect(derived?.madeInProjectId).toBe(staging1);
-    expect(evalRuns.started).toEqual([expect.objectContaining({ projectId: staging1 })]);
+    expect(testRuns.started).toEqual([expect.objectContaining({ projectId: staging1 })]);
   });
 
   test("model settings that aren't are refused (400) before the block version is written", async () => {
-    const { call, releases, blocks, agents, evalRuns } = await harness({ modelSettings: true });
+    const { call, releases, blocks, agents, testRuns } = await harness({ modelSettings: true });
     releases.pin({ kind: 'tenant' }, '1.0.0');
     const created = await call('POST', '/v1/suggested-changes', {
       ...DRAFT,
@@ -969,11 +969,11 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
     expect(
       await agents.getVersion({ tenantId, agentId: AGENT as never, version: '1.0.1' as Semver }),
     ).toBeNull();
-    expect(evalRuns.started).toHaveLength(0);
+    expect(testRuns.started).toHaveLength(0);
   });
 
   test('model settings that name the model the agent version names too are refused (400) before the block version is written', async () => {
-    const { call, releases, blocks, agents, evalRuns } = await harness({
+    const { call, releases, blocks, agents, testRuns } = await harness({
       modelSettings: true,
       preferredModel: 'claude-sonnet-5-5',
     });
@@ -1006,11 +1006,11 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
     expect(
       await agents.getVersion({ tenantId, agentId: AGENT as never, version: '1.0.1' as Semver }),
     ).toBeNull();
-    expect(evalRuns.started).toHaveLength(0);
+    expect(testRuns.started).toHaveLength(0);
   });
 
   test("its schemas' compiles count against the tenant's budget, first ones included: refused, nothing is stored", async () => {
-    const { call, id, blocks, agents, evalRuns } = await drafted();
+    const { call, id, blocks, agents, testRuns } = await drafted();
     const evaluate = () =>
       call('POST', `/v1/suggested-changes/${id}/evaluate`, { testSetId: 'acme.scoring-judged' });
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
@@ -1022,7 +1022,7 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
       expect(
         await agents.getVersion({ tenantId, agentId: AGENT as never, version: '1.0.1' as Semver }),
       ).toBeNull();
-      expect(evalRuns.started).toHaveLength(0);
+      expect(testRuns.started).toHaveLength(0);
     } finally {
       restore();
     }
@@ -1035,11 +1035,11 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
     [{ delta: 0.1, spread: 0.2 }, 'not-better', false],
     [{ delta: null }, 'not-better', false],
   ] as const)('a finished comparison with %j is %s', async (metric, status, better) => {
-    const { call, id, evalRuns } = await drafted();
+    const { call, id, testRuns } = await drafted();
     const started = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
-    await evalRuns.finish(started.body.evaluation.evalRunId, metric);
+    await testRuns.finish(started.body.evaluation.testRunId, metric);
     const res = await call('GET', `/v1/suggested-changes/${id}`);
     expect(res.body.status).toBe(status);
     expect(res.body.evaluation).toMatchObject({
@@ -1050,11 +1050,11 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
   });
 
   test('a failed comparison is evaluation-failed; evaluating again reuses the candidate', async () => {
-    const { call, id, evalRuns, blocks } = await drafted();
+    const { call, id, testRuns, blocks } = await drafted();
     const first = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
-    await evalRuns.finish(first.body.evaluation.evalRunId, 'failed');
+    await testRuns.finish(first.body.evaluation.testRunId, 'failed');
     expect((await call('GET', `/v1/suggested-changes/${id}`)).body.status).toBe(
       'evaluation-failed',
     );
@@ -1064,9 +1064,9 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
     });
     expect(again.status).toBe(202);
     expect(again.body.candidate.agentVersion).toBe('1.0.1');
-    expect(again.body.evaluation.evalRunId).not.toBe(first.body.evaluation.evalRunId);
+    expect(again.body.evaluation.testRunId).not.toBe(first.body.evaluation.testRunId);
     expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toHaveLength(2);
-    expect(evalRuns.started).toHaveLength(2);
+    expect(testRuns.started).toHaveLength(2);
   });
 
   test('while evaluating, evaluate again is 409 suggested-change-invalid-state-transition', async () => {
@@ -1112,26 +1112,26 @@ describe('POST /v1/suggested-changes/:id/evaluate', () => {
 
 describe('POST /v1/suggested-changes/:id/rescore', () => {
   test("after people correct the new answers: the same replays scored again become the suggested change's evaluation", async () => {
-    const { call, id, evalRuns } = await drafted();
+    const { call, id, testRuns } = await drafted();
     const first = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
       repetitions: 3,
     });
-    const firstRunId = first.body.evaluation.evalRunId as string;
+    const firstRunId = first.body.evaluation.testRunId as string;
     // Every answer changed, so nothing measured the candidate.
-    await evalRuns.finish(firstRunId, { delta: null });
+    await testRuns.finish(firstRunId, { delta: null });
     expect((await call('GET', `/v1/suggested-changes/${id}`)).body.status).toBe('not-better');
 
     const res = await call('POST', `/v1/suggested-changes/${id}/rescore`);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body.status).toBe('evaluating');
-    const rescoreRunId = res.body.evaluation.evalRunId as string;
+    const rescoreRunId = res.body.evaluation.testRunId as string;
     expect(rescoreRunId).not.toBe(firstRunId);
     expect(res.body.evaluation).toMatchObject({
       testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
     });
-    expect(evalRuns.started[1]).toEqual({
+    expect(testRuns.started[1]).toEqual({
       tenantId,
       projectId,
       testSetId: 'acme.scoring-judged',
@@ -1141,16 +1141,16 @@ describe('POST /v1/suggested-changes/:id/rescore', () => {
       comparison: expect.objectContaining({ repetitions: 3, rescoreOf: firstRunId }),
     });
 
-    await evalRuns.finish(rescoreRunId, { delta: 0.2 });
+    await testRuns.finish(rescoreRunId, { delta: 0.2 });
     expect((await call('GET', `/v1/suggested-changes/${id}`)).body.status).toBe('evaluated');
     // The run rescored stays as it was.
-    expect(evalRuns.runs.get(firstRunId)?.result).toMatchObject({
+    expect(testRuns.runs.get(firstRunId)?.result).toMatchObject({
       summary: { metrics: { weightedYesShare: { delta: null } } },
     });
   });
 
   test('only after a completed evaluation: a draft, an evaluating or a failed one is 409', async () => {
-    const { call, id, evalRuns } = await drafted();
+    const { call, id, testRuns } = await drafted();
     const draft = await call('POST', `/v1/suggested-changes/${id}/rescore`);
     expect(draft.status).toBe(409);
     expect(draft.body.error).toMatchObject({
@@ -1162,23 +1162,23 @@ describe('POST /v1/suggested-changes/:id/rescore', () => {
     });
     const evaluating = await call('POST', `/v1/suggested-changes/${id}/rescore`);
     expect(evaluating.body.error).toMatchObject({ details: { status: 'evaluating' } });
-    await evalRuns.finish(started.body.evaluation.evalRunId, 'failed');
+    await testRuns.finish(started.body.evaluation.testRunId, 'failed');
     const failed = await call('POST', `/v1/suggested-changes/${id}/rescore`);
     expect(failed.status).toBe(409);
     expect(failed.body.error).toMatchObject({ details: { status: 'evaluation-failed' } });
-    expect(evalRuns.started).toHaveLength(1);
+    expect(testRuns.started).toHaveLength(1);
   });
 
-  test('a latest evaluation that is no comparison of a test set is 409 eval-run-not-rescorable', async () => {
+  test('a latest evaluation that is no comparison of a test set is 409 test-run-not-rescorable', async () => {
     const h = await evaluated(0.1);
     const suggestedChange = await h.call('GET', `/v1/suggested-changes/${h.id}`);
-    const runId = suggestedChange.body.evaluation.evalRunId as string;
-    const run = h.evalRuns.runs.get(runId);
+    const runId = suggestedChange.body.evaluation.testRunId as string;
+    const run = h.testRuns.runs.get(runId);
     if (run === undefined) throw new Error('no run');
-    h.evalRuns.runs.set(runId, { ...run, kind: 'accuracy' });
+    h.testRuns.runs.set(runId, { ...run, kind: 'accuracy' });
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatchObject({ code: 'eval-run-not-rescorable' });
+    expect(res.body.error).toMatchObject({ code: 'test-run-not-rescorable' });
   });
 
   test('it takes no fields: the test set and settings are the latest evaluation’s (400)', async () => {
@@ -1188,7 +1188,7 @@ describe('POST /v1/suggested-changes/:id/rescore', () => {
     });
     expect(res.status).toBe(400);
     expect(res.body.error.message).toContain('`testSetId`');
-    expect(h.evalRuns.started).toHaveLength(1);
+    expect(h.testRuns.started).toHaveLength(1);
   });
 });
 
@@ -1370,7 +1370,7 @@ describe('an agent an environment order carries: a tenant- or org-wide change sp
 
 describe('GET /v1/suggested-changes', () => {
   test('lists newest first with derived statuses; filters by status and agent', async () => {
-    const { call, id, evalRuns } = await drafted();
+    const { call, id, testRuns } = await drafted();
     const second = await call('POST', '/v1/suggested-changes', {
       ...DRAFT,
       change: { blockId: WEIGHTS, content: { values: { recency: 0.4, fit: 0.6 } } },
@@ -1378,7 +1378,7 @@ describe('GET /v1/suggested-changes', () => {
     const started = await call('POST', `/v1/suggested-changes/${second.body.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
-    await evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0.2 });
+    await testRuns.finish(started.body.evaluation.testRunId, { delta: 0.2 });
 
     const all = await call('GET', '/v1/suggested-changes');
     expect(all.body.data.map((p: { id: string }) => p.id)).toEqual([second.body.id, id]);
@@ -1425,7 +1425,7 @@ describe('authorization on the agent', () => {
     const started = await h.call('POST', `/v1/suggested-changes/${h.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
-    await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0.1 });
+    await h.testRuns.finish(started.body.evaluation.testRunId, { delta: 0.1 });
     const request = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(request.status).toBe(403);
     expect(request.body.error.message).toContain('promote');
@@ -1437,12 +1437,12 @@ describe('authorization on the agent', () => {
     const started = await h.call('POST', `/v1/suggested-changes/${h.id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
-    await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0 });
+    await h.testRuns.finish(started.body.evaluation.testRunId, { delta: 0 });
     grants.pop(); // read only, from here on
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.status).toBe(403);
     expect(res.body.error.message).toContain('publish');
-    expect(h.evalRuns.started).toHaveLength(1);
+    expect(h.testRuns.started).toHaveLength(1);
   });
 
   test('withdrawing needs publish, as drafting does', async () => {
@@ -1463,7 +1463,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
-      evalRuns: h.evalRuns.binding,
+      testRuns: h.testRuns.binding,
       releases: h.releases.releases,
     });
     const drafted = await service.draft({
@@ -1491,7 +1491,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
-      evalRuns: h.evalRuns.binding,
+      testRuns: h.testRuns.binding,
       releases: h.releases.releases,
     });
     const actor = { kind: 'service' as const, id: 'improvement-pass' };
@@ -1515,8 +1515,8 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       actor,
     });
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
-    const runId = evaluated.value.evaluation?.evalRunId as string;
-    await h.evalRuns.finish(runId, { delta: 0.2 });
+    const runId = evaluated.value.evaluation?.testRunId as string;
+    await h.testRuns.finish(runId, { delta: 0.2 });
     const requested = await service.pin({ tenantId, suggestedChange: evaluated.value, actor });
     if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
     expect(requested.value.promotion).toMatchObject({
@@ -1570,7 +1570,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
    * An authorizer that allows `read` only for the given `userId → resources`
    * grants, and records the checks it was asked — so a test can assert the
    * count asked whether each reviewer may read the approval's resource, and
-   * that it asked about the RIGHT one (the scope's, not the eval run's).
+   * that it asked about the RIGHT one (the scope's, not the test run's).
    */
   function authzReads(grants: Record<string, readonly ResourceRef[]>): {
     binding: AuthzCheckBinding;
@@ -1617,7 +1617,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
-      evalRuns: h.evalRuns.binding,
+      testRuns: h.testRuns.binding,
       releases: h.releases.releases,
       reviewers,
       ...(authz !== undefined && { authz }),
@@ -1642,8 +1642,8 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       actor,
     });
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
-    const runId = evaluated.value.evaluation?.evalRunId as string;
-    await h.evalRuns.finish(runId, { delta: 0.2 });
+    const runId = evaluated.value.evaluation?.testRunId as string;
+    await h.testRuns.finish(runId, { delta: 0.2 });
     const requested = await service.pin({ tenantId, suggestedChange: evaluated.value, actor });
     if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
     const request = h.releases.calls.find((c) => c.method === 'request')?.input as {
@@ -1763,8 +1763,8 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     expect(authz.checks).toContainEqual({ userId: 'u-bob', action: 'read', resource: tenantRef });
   });
 
-  test("a tenant-scoped drafter asks the tenant, not the eval run's project", async () => {
-    // u-bob may read the eval run's project but not the tenant. Resolving the
+  test("a tenant-scoped drafter asks the tenant, not the test run's project", async () => {
+    // u-bob may read the test run's project but not the tenant. Resolving the
     // count to the run's project (the bug) would admit u-bob; resolving to the
     // tenant-scoped promotion's own resource does not.
     const authz = authzReads({ 'u-alice': [tenantRef], 'u-bob': [projectRef] });
@@ -1813,7 +1813,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
-      evalRuns: h.evalRuns.binding,
+      testRuns: h.testRuns.binding,
       releases: h.releases.releases,
       reviewers,
     });
@@ -1837,8 +1837,8 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       actor,
     });
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
-    const runId = evaluated.value.evaluation?.evalRunId as string;
-    await h.evalRuns.finish(runId, { delta: 0.2 });
+    const runId = evaluated.value.evaluation?.testRunId as string;
+    await h.testRuns.finish(runId, { delta: 0.2 });
     const requested = await service.pin({ tenantId, suggestedChange: evaluated.value, actor });
     if (requested.kind !== 'ok') throw new Error(JSON.stringify(requested.error));
     const request = h.releases.calls.find((c) => c.method === 'request')?.input as {
@@ -1954,7 +1954,7 @@ describe("a change held to the current version's replays (an improvement pass's 
       store: h.suggestedChanges,
       agents: h.agents,
       blocks: h.blocks,
-      evalRuns: h.evalRuns.binding,
+      testRuns: h.testRuns.binding,
       releases: h.releases.releases,
     });
     const drafted = await service.draft({
@@ -1969,25 +1969,25 @@ describe("a change held to the current version's replays (an improvement pass's 
       drafter: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
-    const reference = await h.evalRuns.binding.start({
+    const reference = await h.testRuns.binding.start({
       tenantId,
       projectId,
       testSetId: 'acme.scoring-judged',
       agentRef: { agentId: AGENT as never, version: '1.0.0' as Semver },
     });
     if (reference.kind !== 'ok') throw new Error(reference.kind);
-    const referenceId = reference.runId as unknown as string;
+    const referenceId = reference.testRunId as unknown as string;
     const evaluated = await service.evaluate({
       tenantId,
       suggestedChange: drafted.value.suggestedChange,
       testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
       actor: { kind: 'service', id: 'improvement-pass' },
-      against: { rule, reference: { evalRunId: referenceId } },
+      against: { rule, reference: { testRunId: referenceId } },
     });
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
     const id = evaluated.value.id as unknown as string;
-    const runId = evaluated.value.evaluation?.evalRunId as string;
+    const runId = evaluated.value.evaluation?.testRunId as string;
     /** What the service makes of it now. */
     const seen = async () => {
       const stored = h.suggestedChanges.rows.get(id);
@@ -2000,7 +2000,7 @@ describe("a change held to the current version's replays (an improvement pass's 
   test('no worse on the same cases, cheaper beyond the spread, every decision kept: evaluated, and the wire says why', async () => {
     const h = await held('cheaper');
     expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluating');
-    await h.evalRuns.finish(h.runId, {
+    await h.testRuns.finish(h.runId, {
       delta: 0,
       more: more(
         [
@@ -2013,11 +2013,11 @@ describe("a change held to the current version's replays (an improvement pass's 
     });
     // The candidate finished; the current version's replays it's held to haven't.
     expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluating');
-    await h.evalRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
+    await h.testRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
     const res = await h.call('GET', `/v1/suggested-changes/${h.id}`);
     expect(res.body.status).toBe('evaluated');
     expect(res.body.evaluation).toMatchObject({
-      evalRunId: h.runId,
+      testRunId: h.runId,
       rule: 'cheaper',
       runStatus: 'completed',
       better: false,
@@ -2139,15 +2139,15 @@ describe("a change held to the current version's replays (an improvement pass's 
     ],
   ] as const)('%s: not-better (%s)', async (_what, candidate, reference, notKept) => {
     const h = await held('cheaper');
-    await h.evalRuns.finish(h.runId, candidate);
-    await h.evalRuns.finish(h.referenceId, reference);
+    await h.testRuns.finish(h.runId, candidate);
+    await h.testRuns.finish(h.referenceId, reference);
     expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('not-better');
     expect((await h.seen()).evaluation).toMatchObject({ kept: false, notKept });
   });
 
   test('worse within the spread is no worse', async () => {
     const h = await held('cheaper');
-    await h.evalRuns.finish(h.runId, {
+    await h.testRuns.finish(h.runId, {
       delta: -0.04,
       more: more(
         [
@@ -2157,27 +2157,27 @@ describe("a change held to the current version's replays (an improvement pass's 
         { candidate: 0.26, cases: 12 },
       ),
     });
-    await h.evalRuns.finish(h.referenceId, { delta: 0, spread: 0.05, more: CURRENT });
+    await h.testRuns.finish(h.referenceId, { delta: 0, spread: 0.05, more: CURRENT });
     expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluated');
   });
 
   test('under `better` it must beat the recorded outputs as well as keep every decision', async () => {
     const kept = await held('better');
-    await kept.evalRuns.finish(kept.runId, {
+    await kept.testRuns.finish(kept.runId, {
       delta: 0.1,
       more: more([
         ['j1', true],
         ['j2', true],
       ]),
     });
-    await kept.evalRuns.finish(kept.referenceId, { delta: 0, more: CURRENT });
+    await kept.testRuns.finish(kept.referenceId, { delta: 0, more: CURRENT });
     expect((await kept.call('GET', `/v1/suggested-changes/${kept.id}`)).body).toMatchObject({
       status: 'evaluated',
       evaluation: { rule: 'better', decisions: { checked: 3, held: 2, broken: 0, stillWrong: 1 } },
     });
 
     const same = await held('better');
-    await same.evalRuns.finish(same.runId, {
+    await same.testRuns.finish(same.runId, {
       delta: 0,
       more: more(
         [
@@ -2187,7 +2187,7 @@ describe("a change held to the current version's replays (an improvement pass's 
         { candidate: 0.1, cases: 12 },
       ),
     });
-    await same.evalRuns.finish(same.referenceId, { delta: 0, more: CURRENT });
+    await same.testRuns.finish(same.referenceId, { delta: 0, more: CURRENT });
     expect((await same.call('GET', `/v1/suggested-changes/${same.id}`)).body.status).toBe(
       'not-better',
     );
@@ -2196,15 +2196,15 @@ describe("a change held to the current version's replays (an improvement pass's 
 
   test('a reference run that failed, or that is gone, is evaluation-failed', async () => {
     const failed = await held('cheaper');
-    await failed.evalRuns.finish(failed.runId, { delta: 0, more: CURRENT });
-    await failed.evalRuns.finish(failed.referenceId, 'failed');
+    await failed.testRuns.finish(failed.runId, { delta: 0, more: CURRENT });
+    await failed.testRuns.finish(failed.referenceId, 'failed');
     expect((await failed.call('GET', `/v1/suggested-changes/${failed.id}`)).body.status).toBe(
       'evaluation-failed',
     );
 
     const gone = await held('cheaper');
-    await gone.evalRuns.finish(gone.runId, { delta: 0, more: CURRENT });
-    gone.evalRuns.runs.delete(gone.referenceId);
+    await gone.testRuns.finish(gone.runId, { delta: 0, more: CURRENT });
+    gone.testRuns.runs.delete(gone.referenceId);
     expect((await gone.call('GET', `/v1/suggested-changes/${gone.id}`)).body.status).toBe(
       'evaluation-failed',
     );
@@ -2212,14 +2212,14 @@ describe("a change held to the current version's replays (an improvement pass's 
 
   test('a rescore scores both again and keeps holding the candidate to the current version', async () => {
     const h = await held('cheaper');
-    await h.evalRuns.finish(h.runId, { delta: null, more: more([['j1', true]]) });
-    await h.evalRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
+    await h.testRuns.finish(h.runId, { delta: null, more: more([['j1', true]]) });
+    await h.testRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
     expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('not-better');
 
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body.evaluation).toMatchObject({ rule: 'cheaper' });
-    const [candidate, reference] = h.evalRuns.started.slice(-2);
+    const [candidate, reference] = h.testRuns.started.slice(-2);
     expect(candidate).toMatchObject({
       agentRef: { agentId: AGENT, version: '1.0.1' },
       comparison: { rescoreOf: h.runId },
@@ -2229,11 +2229,11 @@ describe("a change held to the current version's replays (an improvement pass's 
       comparison: { rescoreOf: h.referenceId },
     });
     const stored = h.suggestedChanges.rows.get(h.id)?.evaluation;
-    const rescoredReference = stored?.reference?.evalRunId as string;
-    expect(stored).toMatchObject({ rule: 'cheaper', evalRunId: res.body.evaluation.evalRunId });
+    const rescoredReference = stored?.reference?.testRunId as string;
+    expect(stored).toMatchObject({ rule: 'cheaper', testRunId: res.body.evaluation.testRunId });
     expect(rescoredReference).not.toBe(h.referenceId);
 
-    await h.evalRuns.finish(res.body.evaluation.evalRunId, {
+    await h.testRuns.finish(res.body.evaluation.testRunId, {
       delta: 0,
       more: more(
         [
@@ -2244,42 +2244,42 @@ describe("a change held to the current version's replays (an improvement pass's 
       ),
     });
     expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluating');
-    await h.evalRuns.finish(rescoredReference, { delta: 0, more: CURRENT });
+    await h.testRuns.finish(rescoredReference, { delta: 0, more: CURRENT });
     expect((await h.call('GET', `/v1/suggested-changes/${h.id}`)).body.status).toBe('evaluated');
   });
 
   test('a rescore whose reference run is no comparison of a test set is refused, and starts nothing', async () => {
     const h = await held('cheaper');
-    await h.evalRuns.finish(h.runId, { delta: 0, more: CURRENT });
-    await h.evalRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
-    const run = h.evalRuns.runs.get(h.referenceId);
+    await h.testRuns.finish(h.runId, { delta: 0, more: CURRENT });
+    await h.testRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
+    const run = h.testRuns.runs.get(h.referenceId);
     if (run === undefined) throw new Error('no run');
-    h.evalRuns.runs.set(h.referenceId, { ...run, kind: 'accuracy' });
-    const before = h.evalRuns.started.length;
+    h.testRuns.runs.set(h.referenceId, { ...run, kind: 'accuracy' });
+    const before = h.testRuns.started.length;
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatchObject({ code: 'eval-run-not-rescorable' });
-    expect(h.evalRuns.started).toHaveLength(before);
+    expect(res.body.error).toMatchObject({ code: 'test-run-not-rescorable' });
+    expect(h.testRuns.started).toHaveLength(before);
   });
   test("a rescore whose reference can't start cancels the candidate's and records nothing", async () => {
     const h = await held('cheaper');
-    await h.evalRuns.finish(h.runId, { delta: 0, more: CURRENT });
-    await h.evalRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
+    await h.testRuns.finish(h.runId, { delta: 0, more: CURRENT });
+    await h.testRuns.finish(h.referenceId, { delta: 0, more: CURRENT });
     const before = h.suggestedChanges.rows.get(h.id);
-    const start = h.evalRuns.binding.start;
-    h.evalRuns.binding.start = async (input) =>
+    const start = h.testRuns.binding.start;
+    h.testRuns.binding.start = async (input) =>
       input.comparison?.rescoreOf === h.referenceId
         ? { kind: 'test-set-not-found', testSetId: input.testSetId }
         : start(input);
     const cancelled: string[] = [];
-    h.evalRuns.binding.cancel = async ({ runId }) => {
-      cancelled.push(runId as unknown as string);
+    h.testRuns.binding.cancel = async ({ testRunId }) => {
+      cancelled.push(testRunId as unknown as string);
       return { kind: 'ok' };
     };
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/rescore`);
     expect(res.body.error).toMatchObject({ code: 'test-set-not-found' });
-    const rescored = [...h.evalRuns.runs.values()].find((r) => r.comparison?.rescoreOf === h.runId);
-    expect(cancelled).toEqual([rescored?.runId]);
+    const rescored = [...h.testRuns.runs.values()].find((r) => r.comparison?.rescoreOf === h.runId);
+    expect(cancelled).toEqual([rescored?.testRunId]);
     expect(h.suggestedChanges.rows.get(h.id)).toEqual(before);
   });
 });
@@ -2326,15 +2326,15 @@ describe("what a suggested change names must be in its agent's project's reach",
     expect(suggestedChanges.rows.size).toBe(0);
   });
 
-  test('evaluating on a test set out of reach is refused, and starts no eval run', async () => {
+  test('evaluating on a test set out of reach is refused, and starts no test run', async () => {
     const out = new Set<string>();
-    const { call, id, evalRuns } = await drafted({ referenceScope: reach(out) });
+    const { call, id, testRuns } = await drafted({ referenceScope: reach(out) });
     out.add('acme.scoring-judged');
     const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(refused(res)).toEqual(['/testSetId test-set acme.scoring-judged']);
-    expect(evalRuns.started).toEqual([]);
+    expect(testRuns.started).toEqual([]);
   });
 
   test("requesting asks it too: a scope that no longer reaches the agent isn't promoted", async () => {
@@ -2848,7 +2848,7 @@ describe('improvement passes', () => {
       { path: '/template', message: 'it names "acme.export", which the agent doesn\'t use' },
     ];
     const comparisons = [
-      { role: 'reference', part: 'search', evalRunId: randomUUID(), score: 0.5 },
+      { role: 'reference', part: 'search', testRunId: randomUUID(), score: 0.5 },
       {
         role: 'candidate',
         part: 'search',
@@ -3305,7 +3305,7 @@ describe('an agent an order carries from its project to prod', () => {
       testSetId: 'acme.scoring-judged',
     });
     expect(started.status, JSON.stringify(started.body)).toBe(202);
-    await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0.1 });
+    await h.testRuns.finish(started.body.evaluation.testRunId, { delta: 0.1 });
     return h;
   }
 
@@ -3485,17 +3485,17 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject(NARROWER);
-    expect(h.evalRuns.started).toEqual([]);
+    expect(h.testRuns.started).toEqual([]);
   });
 
   test('an evaluation publishes the block version, derives its agent version, and starts the comparison (202)', async () => {
-    const { call, id, evalRuns } = await drafted({ readOnly: 'takes-candidates' });
+    const { call, id, testRuns } = await drafted({ readOnly: 'takes-candidates' });
     const res = await call('POST', `/v1/suggested-changes/${id}/evaluate`, {
       testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body.candidate).toMatchObject({ agentVersion: '1.0.1', blockVersion: '1.0.1' });
-    expect(evalRuns.started).toHaveLength(1);
+    expect(testRuns.started).toHaveLength(1);
   });
 });
 
@@ -3619,7 +3619,7 @@ describe("a pass started by hand works in one project: the one named, else its s
     expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId]);
   });
 
-  test("a project other than the version's needs write there, as the pass's eval runs do", async () => {
+  test("a project other than the version's needs write there, as the pass's test runs do", async () => {
     const grants = [`read project:${projectId}`, `write project:${projectId}`];
     const h = await improver({ grants });
     const denied = await h.improve({ scope: PROD_SEGMENT, testSetId: PROD_SET });

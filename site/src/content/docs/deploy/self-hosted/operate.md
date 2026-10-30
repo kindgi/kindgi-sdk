@@ -771,7 +771,7 @@ and what's different after:
   sessions. A project admin adds a member by email
   (`POST /v1/projects/<id>/memberships` with `email`), and a project admin's
   member key can manage that project's members.
-- **A project editor can start an eval run** (try a version on the test
+- **A project editor can start a test run** (try a version on the test
   cases); it took a project admin. Unregistering or reinstating a version
   of the test cases still does.
 - **The cost aggregate counts only what you may read.** Across projects (no

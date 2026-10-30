@@ -232,7 +232,7 @@ const RunReplaysQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Replay runs (an eval run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them.',
+    'Replay runs (a test run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them.',
   schema: { type: 'string', enum: ['exclude', 'include', 'only'], default: 'exclude' },
 };
 
@@ -245,12 +245,12 @@ const ConversationReplaysQueryParam: ParameterSpec = {
   schema: { type: 'string', enum: ['exclude', 'include', 'only'], default: 'exclude' },
 };
 
-const RunEvalRunIdQueryParam: ParameterSpec = {
-  name: 'evalRunId',
+const RunTestRunIdQueryParam: ParameterSpec = {
+  name: 'testRunId',
   in: 'query',
   required: false,
   description:
-    'Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`.',
+    'Only the replay runs of this test run. Implies replays are included; cannot be combined with `replays=exclude`.',
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -1271,17 +1271,17 @@ const BlockNameFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-// Admin plane — eval-run data plane.
+// Admin plane — test-run data plane.
 
-const EvalRunIdPathParam: ParameterSpec = {
-  name: 'runId',
+const TestRunIdPathParam: ParameterSpec = {
+  name: 'testRunId',
   in: 'path',
   required: true,
-  description: 'EvalRunId — opaque branded UUID.',
+  description: 'TestRunId — opaque branded UUID.',
   schema: { type: 'string', format: 'uuid' },
 };
 
-const EvalRunTestSetIdFilterQueryParam: ParameterSpec = {
+const TestRunTestSetIdFilterQueryParam: ParameterSpec = {
   name: 'testSetId',
   in: 'query',
   required: false,
@@ -1289,15 +1289,15 @@ const EvalRunTestSetIdFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-const EvalRunStatusFilterQueryParam: ParameterSpec = {
+const TestRunStatusFilterQueryParam: ParameterSpec = {
   name: 'status',
   in: 'query',
   required: false,
-  description: 'Filter to a single EvalRunStatus.',
-  schema: { $ref: '#/components/schemas/EvalRunStatus' },
+  description: 'Filter to a single TestRunStatus.',
+  schema: { $ref: '#/components/schemas/TestRunStatus' },
 };
 
-const EvalRunAgentIdFilterQueryParam: ParameterSpec = {
+const TestRunAgentIdFilterQueryParam: ParameterSpec = {
   name: 'agentId',
   in: 'query',
   required: false,
@@ -1305,7 +1305,7 @@ const EvalRunAgentIdFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-const EvalRunFlowIdFilterQueryParam: ParameterSpec = {
+const TestRunFlowIdFilterQueryParam: ParameterSpec = {
   name: 'flowId',
   in: 'query',
   required: false,
@@ -1313,7 +1313,7 @@ const EvalRunFlowIdFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-const EvalRunFromFilterQueryParam: ParameterSpec = {
+const TestRunFromFilterQueryParam: ParameterSpec = {
   name: 'from',
   in: 'query',
   required: false,
@@ -1321,7 +1321,7 @@ const EvalRunFromFilterQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'date-time' },
 };
 
-const EvalRunToFilterQueryParam: ParameterSpec = {
+const TestRunToFilterQueryParam: ParameterSpec = {
   name: 'to',
   in: 'query',
   required: false,
@@ -1970,7 +1970,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       TopLevelQueryParam,
       RunAgentIdQueryParam,
       RunReplaysQueryParam,
-      RunEvalRunIdQueryParam,
+      RunTestRunIdQueryParam,
       RunTriggerIdQueryParam,
       RunIncludeQueryParam,
       RunStatusQueryParam,
@@ -1993,7 +1993,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'runs.failures',
     summary: "A project's failed runs, grouped by cause and version",
     description:
-      "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
+      "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, test runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
     tags: ['runs'],
     security: 'bearer',
     parameters: [
@@ -3845,7 +3845,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.promotions.create',
     summary: 'Make a version live for a scope',
     description:
-      "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `evalRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+      "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `testRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
@@ -3861,7 +3861,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed request body. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse(
-        'The version is not registered, or was unregistered; or the eval run is not found.',
+        'The version is not registered, or was unregistered; or the test run is not found.',
       ),
       '409': ErrorResponse(
         "`nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `promotion-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
@@ -3893,9 +3893,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: "The gate's answer.", schema: ref('PromotionCheck') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "Malformed body, or the eval run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+        "Malformed body, or the test run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
-      '404': ErrorResponse('The version, the agent or the eval run is not found.'),
+      '404': ErrorResponse('The version, the agent or the test run is not found.'),
       '409': ErrorResponse(
         '`nothing-runs-in-scope` or `project-suspended`, as `POST …/promotions` answers: no version of the agent runs in the scope yet.',
       ),
@@ -5067,7 +5067,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.improve',
     summary: 'Start an improvement pass',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5163,7 +5163,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.evaluate',
     summary: 'Compare a suggested change on a test set',
     description:
-      "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
+      "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
@@ -5188,7 +5188,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.rescore',
     summary: "Rescore a suggested change's latest evaluation",
     description:
-      "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+      "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
@@ -5199,7 +5199,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No such suggested change, or its candidate version is unregistered (`agent-version-not-found`).',
       ),
       '409': ErrorResponse(
-        "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
+        "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `test-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
       ),
     },
   },
@@ -6570,7 +6570,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/test-sets/:testSetId',
     openapiPath: '/v1/test-sets/{testSetId}',
     operationId: 'testSets.get',
-    summary: 'Fetch an test set (latest version)',
+    summary: 'Fetch a test set (latest version)',
     description: NEWEST_VISIBLE_DESCRIPTION,
     tags: ['test-sets'],
     security: 'bearer',
@@ -6587,7 +6587,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/test-sets/:testSetId/versions',
     openapiPath: '/v1/test-sets/{testSetId}/versions',
     operationId: 'testSets.versions.list',
-    summary: 'List versions of an test set',
+    summary: 'List versions of a test set',
     description:
       'Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.',
     tags: ['test-sets'],
@@ -6628,7 +6628,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/test-sets',
     openapiPath: '/v1/test-sets',
     operationId: 'testSets.publish',
-    summary: 'Publish an test set',
+    summary: 'Publish a test set',
     description:
       "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
     tags: ['test-sets'],
@@ -6697,7 +6697,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/test-sets/:testSetId/versions/:version/unregister',
     openapiPath: '/v1/test-sets/{testSetId}/versions/{version}/unregister',
     operationId: 'testSets.versions.unregister',
-    summary: 'Unregister an test set version',
+    summary: 'Unregister a test set version',
     tags: ['test-sets'],
     security: 'bearer',
     parameters: [TestSetIdPathParam, TestSetVersionPathParam, IdempotencyKeyParam],
@@ -6725,7 +6725,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
-  // ---------- eval runs (data plane) ----------
+  // ---------- test runs (data plane) ----------
   {
     method: 'get',
     honoPath: '/v1/blocks',
@@ -6878,16 +6878,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     method: 'post',
     honoPath: '/v1/test-sets/:testSetId/runs',
     openapiPath: '/v1/test-sets/{testSetId}/runs',
-    operationId: 'evalRuns.start',
-    summary: 'Start an eval run against a test set',
+    operationId: 'testRuns.start',
+    summary: 'Start a test run against a test set',
     description:
-      'Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.',
-    tags: ['eval-runs'],
+      'Dispatches a test run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.',
+    tags: ['test-runs'],
     security: 'bearer',
     parameters: [TestSetIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('StartEvalRunBody') },
+    requestBody: { required: true, schema: ref('StartTestRunBody') },
     responses: {
-      '201': { description: 'Eval run started.', schema: ref('StartEvalRunResult') },
+      '201': { description: 'Test run started.', schema: ref('StartTestRunResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
         "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the tenant; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Nothing runs.",
@@ -6896,114 +6896,114 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'No test set with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
       ),
       '409': ErrorResponse(
-        '`project-suspended`: the project is suspended, so no eval run starts in it. Or Idempotency-Key was reused with a different body.',
+        '`project-suspended`: the project is suspended, so no test run starts in it. Or Idempotency-Key was reused with a different body.',
       ),
       '422': ErrorResponse('No dispatcher registered for the test set kind.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-runs',
-    openapiPath: '/v1/eval-runs',
-    operationId: 'evalRuns.list',
-    summary: 'List eval runs',
+    honoPath: '/v1/test-runs',
+    openapiPath: '/v1/test-runs',
+    operationId: 'testRuns.list',
+    summary: 'List test runs',
     description:
       'Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.',
-    tags: ['eval-runs'],
+    tags: ['test-runs'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      EvalRunTestSetIdFilterQueryParam,
-      EvalRunStatusFilterQueryParam,
-      EvalRunAgentIdFilterQueryParam,
-      EvalRunFlowIdFilterQueryParam,
-      EvalRunFromFilterQueryParam,
-      EvalRunToFilterQueryParam,
+      TestRunTestSetIdFilterQueryParam,
+      TestRunStatusFilterQueryParam,
+      TestRunAgentIdFilterQueryParam,
+      TestRunFlowIdFilterQueryParam,
+      TestRunFromFilterQueryParam,
+      TestRunToFilterQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of eval runs.', schema: ref('EvalRunCollectionPage') },
+      '200': { description: 'Page of test runs.', schema: ref('TestRunCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter (unknown `status`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-runs/:runId',
-    openapiPath: '/v1/eval-runs/{runId}',
-    operationId: 'evalRuns.get',
-    summary: 'Fetch an eval run',
-    tags: ['eval-runs'],
+    honoPath: '/v1/test-runs/:testRunId',
+    openapiPath: '/v1/test-runs/{testRunId}',
+    operationId: 'testRuns.get',
+    summary: 'Fetch a test run',
+    tags: ['test-runs'],
     security: 'bearer',
-    parameters: [EvalRunIdPathParam],
+    parameters: [TestRunIdPathParam],
     responses: {
-      '200': { description: 'Eval run.', schema: ref('EvalRun') },
+      '200': { description: 'Test run.', schema: ref('TestRun') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '404': ErrorResponse('No test run with that id under this tenant.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-runs/:runId/cancel',
-    openapiPath: '/v1/eval-runs/{runId}/cancel',
-    operationId: 'evalRuns.cancel',
-    summary: 'Cancel an eval run',
+    honoPath: '/v1/test-runs/:testRunId/cancel',
+    openapiPath: '/v1/test-runs/{testRunId}/cancel',
+    operationId: 'testRuns.cancel',
+    summary: 'Cancel a test run',
     description: 'Best-effort cancel. Returns 409 when the run is already terminal.',
-    tags: ['eval-runs'],
+    tags: ['test-runs'],
     security: 'bearer',
-    parameters: [EvalRunIdPathParam],
+    parameters: [TestRunIdPathParam],
     responses: {
-      '200': { description: 'Cancel accepted.', schema: ref('EvalRun') },
+      '200': { description: 'Cancel accepted.', schema: ref('TestRun') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '404': ErrorResponse('No test run with that id under this tenant.'),
       '409': ErrorResponse('Run already terminal.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-runs/:runId/rescore',
-    openapiPath: '/v1/eval-runs/{runId}/rescore',
-    operationId: 'evalRuns.rescore',
-    summary: 'Rescore a comparison eval run',
+    honoPath: '/v1/test-runs/:testRunId/rescore',
+    openapiPath: '/v1/test-runs/{testRunId}/rescore',
+    operationId: 'testRuns.rescore',
+    summary: 'Rescore a comparison test run',
     description:
-      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.",
-    tags: ['eval-runs'],
+      "Starts a new comparison test run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.",
+    tags: ['test-runs'],
     security: 'bearer',
-    parameters: [EvalRunIdPathParam],
-    requestBody: { required: false, schema: ref('RescoreEvalRunBody') },
+    parameters: [TestRunIdPathParam],
+    requestBody: { required: false, schema: ref('RescoreTestRunBody') },
     responses: {
-      '201': { description: 'The rescore started.', schema: ref('StartEvalRunResult') },
+      '201': { description: 'The rescore started.', schema: ref('StartTestRunResult') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
         "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their corrections again).",
       ),
-      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '404': ErrorResponse('No test run with that id under this tenant.'),
       '409': ErrorResponse(
-        '`eval-run-not-rescorable`: only a completed comparison of a test set can be rescored.',
+        '`test-run-not-rescorable`: only a completed comparison of a test set can be rescored.',
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-runs/:runId/events',
-    openapiPath: '/v1/eval-runs/{runId}/events',
-    operationId: 'evalRuns.events',
-    summary: 'Stream eval-run events (SSE)',
+    honoPath: '/v1/test-runs/:testRunId/events',
+    openapiPath: '/v1/test-runs/{testRunId}/events',
+    operationId: 'testRuns.events',
+    summary: 'Stream test-run events (SSE)',
     description:
-      'Server-Sent Events. Per-case progress events (`eval-run.case-completed` / `eval-run.case-failed`) followed by a terminal event (`eval-run.completed` / `eval-run.failed` / `eval-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.',
-    tags: ['eval-runs'],
+      'Server-Sent Events. Per-case progress events (`test-run.case-completed` / `test-run.case-failed`) followed by a terminal event (`test-run.completed` / `test-run.failed` / `test-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.',
+    tags: ['test-runs'],
     security: 'bearer',
-    parameters: [EvalRunIdPathParam, LastEventIdParam],
+    parameters: [TestRunIdPathParam, LastEventIdParam],
     responses: {
       '200': {
         description: 'Server-Sent Event stream (`text/event-stream`).',
         contentType: 'text/event-stream',
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '404': ErrorResponse('No test run with that id under this tenant.'),
     },
   },
 

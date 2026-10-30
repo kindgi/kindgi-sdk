@@ -2,33 +2,33 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Eval runs — start + observe evaluation-test set executions.
+ * Test runs — start + observe evaluation-test set executions.
  *
- * @wire /v1/eval-runs/*  and  /v1/test-sets/:testSetId/runs
- *   (packages/api/src/routes/eval-runs.ts)
+ * @wire /v1/test-runs/*  and  /v1/test-sets/:testSetId/runs
+ *   (packages/api/src/routes/test-runs.ts)
  * @generated Wire shapes from `../generated/api.js`.
  */
 
 import type {
   CorrectedComparisonResult,
-  EvalRun,
-  EvalRunCollectionPage,
-  EvalRunStatus,
-  StartEvalRunBody,
-  StartEvalRunResult,
+  TestRun,
+  TestRunCollectionPage,
+  TestRunStatus,
+  StartTestRunBody,
+  StartTestRunResult,
 } from '../generated/api.js';
 import { readSse, unwrapSseData } from '../streaming.js';
 import type { Transport } from '../transport.js';
 
-export type EvalRunRecord = EvalRun;
-export type EvalRunPage = EvalRunCollectionPage;
+export type TestRunRecord = TestRun;
+export type TestRunPage = TestRunCollectionPage;
 /**
  * The run fields of `POST /v1/test-sets/:testSetId/runs` (exactly one of
  * `agentRef` / `flowRef`). The project the run belongs to travels as
- * `StartEvalRunOptions.projectId`.
+ * `StartTestRunOptions.projectId`.
  */
-export type StartEvalRunInput = Omit<StartEvalRunBody, 'projectId'>;
-export type StartEvalRunOutcome = StartEvalRunResult;
+export type StartTestRunInput = Omit<StartTestRunBody, 'projectId'>;
+export type StartTestRunOutcome = StartTestRunResult;
 export type {
   ComparisonCandidate,
   ComparisonCaseResult,
@@ -39,11 +39,11 @@ export type {
 
 /**
  * A comparison's result, typed from the OpenAPI `CorrectedComparisonResult`:
- * its summary and each case. `run` is a `corrections` eval run (a test set
- * compared with a version); `undefined` for another kind of eval run, a
+ * its summary and each case. `run` is a `corrections` test run (a test set
+ * compared with a version); `undefined` for another kind of test run, a
  * dry run, or one that hasn't finished.
  */
-export function comparisonOf(run: EvalRunRecord): CorrectedComparisonResult | undefined {
+export function comparisonOf(run: TestRunRecord): CorrectedComparisonResult | undefined {
   const result = run.result as Partial<CorrectedComparisonResult> | undefined;
   return run.kind === 'corrections' &&
     result?.summary !== undefined &&
@@ -52,17 +52,17 @@ export function comparisonOf(run: EvalRunRecord): CorrectedComparisonResult | un
     : undefined;
 }
 
-export interface StartEvalRunOptions {
-  /** Project the eval run belongs to. The route requires it. */
+export interface StartTestRunOptions {
+  /** Project the test run belongs to. The route requires it. */
   readonly projectId: string;
   readonly idempotencyKey?: string;
 }
 
-export interface ListEvalRunsFilter {
+export interface ListTestRunsFilter {
   readonly limit?: number;
   readonly cursor?: string;
   readonly testSetId?: string;
-  readonly status?: EvalRunStatus;
+  readonly status?: TestRunStatus;
   readonly agentId?: string;
 }
 
@@ -70,52 +70,55 @@ export interface ListEvalRunsFilter {
  * The wire declares the SSE frame payload as unknown — payloads are
  * dispatcher-defined. Callers narrow.
  */
-export type EvalRunEvent = unknown;
+export type TestRunEvent = unknown;
 
-export interface EvalRunsClient {
+export interface TestRunsClient {
   /**
-   * Start an test-set run against the current test set version, in a
+   * Start a test-set run against the current test set version, in a
    * project (`options.projectId`, sent next to the run fields in the
    * request body).
    * @wire POST /v1/test-sets/:testSetId/runs
    */
   start(
     testSetId: string,
-    input: StartEvalRunInput,
-    options: StartEvalRunOptions,
-  ): Promise<StartEvalRunOutcome>;
-  /** @wire GET /v1/eval-runs */
-  list(filter?: ListEvalRunsFilter): Promise<EvalRunPage>;
-  /** @wire GET /v1/eval-runs/:runId */
-  get(runId: string): Promise<EvalRunRecord>;
-  /** @wire POST /v1/eval-runs/:runId/cancel */
-  cancel(runId: string): Promise<EvalRunRecord>;
+    input: StartTestRunInput,
+    options: StartTestRunOptions,
+  ): Promise<StartTestRunOutcome>;
+  /** @wire GET /v1/test-runs */
+  list(filter?: ListTestRunsFilter): Promise<TestRunPage>;
+  /** @wire GET /v1/test-runs/:testRunId */
+  get(testRunId: string): Promise<TestRunRecord>;
+  /** @wire POST /v1/test-runs/:testRunId/cancel */
+  cancel(testRunId: string): Promise<TestRunRecord>;
   /**
-   * Rescore a completed comparison: a new eval run that replays nothing and
+   * Rescore a completed comparison: a new test run that replays nothing and
    * scores the run's replays again, with the corrections recorded on them
    * since. `projectId` only for a runtime that doesn't record the run's.
-   * @wire POST /v1/eval-runs/:runId/rescore
+   * @wire POST /v1/test-runs/:testRunId/rescore
    */
-  rescore(runId: string, options?: { readonly projectId?: string }): Promise<StartEvalRunOutcome>;
+  rescore(
+    testRunId: string,
+    options?: { readonly projectId?: string },
+  ): Promise<StartTestRunOutcome>;
   /**
    * SSE stream of dispatcher-emitted events.
-   * @wire GET /v1/eval-runs/:runId/events
+   * @wire GET /v1/test-runs/:testRunId/events
    */
   events(
-    runId: string,
+    testRunId: string,
     options?: {
       readonly signal?: AbortSignal;
       readonly initialBackoffMs?: number;
       readonly maxBackoffMs?: number;
     },
-  ): AsyncIterable<EvalRunEvent>;
+  ): AsyncIterable<TestRunEvent>;
 }
 
-export function makeEvalRunsClient(transport: Transport): EvalRunsClient {
+export function makeTestRunsClient(transport: Transport): TestRunsClient {
   const seg = (s: string): string => encodeURIComponent(s);
   return {
     async start(testSetId, input, options) {
-      return transport.request<StartEvalRunOutcome>({
+      return transport.request<StartTestRunOutcome>({
         method: 'POST',
         path: `/v1/test-sets/${seg(testSetId)}/runs`,
         body: { ...input, projectId: options.projectId },
@@ -123,9 +126,9 @@ export function makeEvalRunsClient(transport: Transport): EvalRunsClient {
       });
     },
     async list(filter) {
-      return transport.request<EvalRunPage>({
+      return transport.request<TestRunPage>({
         method: 'GET',
-        path: '/v1/eval-runs',
+        path: '/v1/test-runs',
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
@@ -135,28 +138,28 @@ export function makeEvalRunsClient(transport: Transport): EvalRunsClient {
         },
       });
     },
-    async get(runId) {
-      return transport.request<EvalRunRecord>({
+    async get(testRunId) {
+      return transport.request<TestRunRecord>({
         method: 'GET',
-        path: `/v1/eval-runs/${seg(runId)}`,
+        path: `/v1/test-runs/${seg(testRunId)}`,
       });
     },
-    async cancel(runId) {
-      return transport.request<EvalRunRecord>({
+    async cancel(testRunId) {
+      return transport.request<TestRunRecord>({
         method: 'POST',
-        path: `/v1/eval-runs/${seg(runId)}/cancel`,
+        path: `/v1/test-runs/${seg(testRunId)}/cancel`,
       });
     },
-    async rescore(runId, options) {
-      return transport.request<StartEvalRunOutcome>({
+    async rescore(testRunId, options) {
+      return transport.request<StartTestRunOutcome>({
         method: 'POST',
-        path: `/v1/eval-runs/${seg(runId)}/rescore`,
+        path: `/v1/test-runs/${seg(testRunId)}/rescore`,
         body: options?.projectId !== undefined ? { projectId: options.projectId } : {},
       });
     },
-    events(runId, options) {
-      const url = `${transport.apiUrl}/v1/eval-runs/${seg(runId)}/events`;
-      const source = readSse<EvalRunEvent>({
+    events(testRunId, options) {
+      const url = `${transport.apiUrl}/v1/test-runs/${seg(testRunId)}/events`;
+      const source = readSse<TestRunEvent>({
         url,
         headers: transport.authHeaders(),
         fetchImpl: transport.fetchImpl,

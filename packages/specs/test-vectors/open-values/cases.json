@@ -58,7 +58,7 @@
   {
     "name": "union-text",
     "description": "Text this client doesn't know, in a union of known text and objects.",
-    "operation": "evalRuns.start",
+    "operation": "testRuns.start",
     "args": ["acme.suite"],
     "body": {
       "projectId": "f531e37d-f29f-463c-81d2-ffad65e4d4e9",

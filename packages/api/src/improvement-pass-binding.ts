@@ -3,7 +3,7 @@
 
 import type { Cursor, LiveScope, ProjectId, TenantId, Timestamp } from '@kindgi/types';
 
-import type { EvalGroupWeights } from './eval-run-binding.js';
+import type { EvalGroupWeights } from './test-run-binding.js';
 import type { PromotionActor } from './live-version-binding.js';
 import type { SuggestedChangeObjective } from './supervisor-binding.js';
 
@@ -69,7 +69,7 @@ export interface StartImprovementPassInput {
   readonly tenantId: TenantId;
   /**
    * The project the pass works in: its test set is one the project
-   * reaches, and its eval runs run there. Absent when the agent store
+   * reaches, and its test runs run there. Absent when the agent store
    * records no projects.
    */
   readonly projectId?: ProjectId;
@@ -221,11 +221,11 @@ export interface ImprovementPass {
   readonly outcome?: ImprovementPassOutcome;
   /**
    * Why a `cancelled` pass stopped when nobody cancelled it: a comparison's
-   * eval run was cancelled for it (its `cancelReason`, e.g.
+   * test run was cancelled for it (its `cancelReason`, e.g.
    * `project-suspended`). Absent when it was cancelled.
    */
   readonly cancelReason?: string;
-  /** Its comparisons so far, each an eval run to open. */
+  /** Its comparisons so far, each a test run to open. */
   readonly comparisons?: readonly ImprovementPassComparison[];
   /** The `improve` schedule and fire that started it; absent for a pass a person started. */
   readonly trigger?: { readonly triggerId: string; readonly fireId: string };
@@ -237,7 +237,7 @@ export interface ImprovementPass {
 /** One comparison a pass ran: the version as it is, a candidate, or the suggested change's proof. */
 export interface ImprovementPassComparison {
   /** Absent until it started. */
-  readonly evalRunId?: string;
+  readonly testRunId?: string;
   /**
    * `reference`: the version as it is (on the hold-out part too for a
    * model-settings change: what its proof is held to); `candidate`: other

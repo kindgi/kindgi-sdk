@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 
 import type { CorrectedEvalCase } from './eval-case-binding.js';
-import type { EvalSample } from './eval-run-binding.js';
+import type { EvalSample } from './test-run-binding.js';
 
 /** Where a case falls in `[0, 1)` for a seed: the same for the same seed and case, always. */
 function position(seed: string, caseId: string): number {

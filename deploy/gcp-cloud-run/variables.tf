@@ -57,7 +57,7 @@ variable "server_public" {
 }
 
 variable "server_min_instances" {
-  description = "Minimum server instances. At least 1: runs started with wait:false, improvement passes and eval runs keep running after the response, and need an instance (and CPU) to finish on."
+  description = "Minimum server instances. At least 1: runs started with wait:false, improvement passes and test runs keep running after the response, and need an instance (and CPU) to finish on."
   type        = number
   default     = 1
 
