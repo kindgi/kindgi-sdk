@@ -157,6 +157,9 @@ env values or model keys. A run reads those when it runs. So:
 - **Several versions can wait** while one is pinned, and you can run any of
   them by its number:
   `kindgi runs start --agent=<agent-id> --agent-version=<version>`.
+  On a self-hosted runtime with one pack service, a version runs only while your
+  pack still has the tool versions it locked
+  ([A self-hosted runtime runs what your pack has](../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
 - **A value only a new version reads** can be set before you pin that
   version.
 - **Changing a value the pinned version reads** changes its runs from the

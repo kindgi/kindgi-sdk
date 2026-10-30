@@ -64,7 +64,7 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List runs (paginated).',
   usage:
-    'kindgi runs list [--agent=<agent-id>] [--trigger=<schedule-id>] [--replays=exclude|include|only] [--test-run=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi runs list [--agent=<agent-id>] [--trigger=<schedule-id>] [--replays=exclude|include|only] [--test-run=<test-run-id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     agent: {
       type: 'string',

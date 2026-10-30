@@ -307,6 +307,7 @@ def _guardrail_entry(guardrail: Guardrail, rel_path: str) -> dict[str, Any]:
             "checkModulePath": rel_path,
             "checkId": guardrail.check_id,
             "config": _dict(guardrail.config),
+            "judgeCapabilities": _dict(guardrail.judge_capabilities),
             "configSchema": guardrail.config_schema,
             "sandbox": guardrail.sandbox,
             "limits": _dict(guardrail.limits),

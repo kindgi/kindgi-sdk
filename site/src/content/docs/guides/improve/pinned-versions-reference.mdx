@@ -124,7 +124,9 @@ for the flow's project when a pin covers it, else the tool's newest.
 **An unpin** removes a scope's own pinned version, at once. No release
 gate checks it. Its runs then use a wider scope's pinned version, or the
 project's Latest when none is pinned. To go back to an earlier version, pin it
-again.
+again. On a self-hosted runtime with one pack service, that version runs only
+while your pack still has the tool versions it locked
+([A self-hosted runtime runs what your pack has](../../agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
 
 What a request to pin or unpin refuses:
 
@@ -325,7 +327,7 @@ Pin that scope in place, and pin the version again.
   count only experts' corrections (start it with "Count only experts"), so a
   correction anyone may give can't change what the release gate
   decides."
-- **Pin a version** has **Run on the test cases (optional)**, a
+- **Pin a version** has **Test run (optional)**, a
   finished run of the version on the test cases. One that counted only
   expert groups says "expert groups only". It runs the release gate's
   check before anything is recorded: "The release gate passes (release

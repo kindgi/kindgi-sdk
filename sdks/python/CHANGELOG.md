@@ -13,6 +13,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
+  judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
+  judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
+  refuses an `llm-judge` guardrail without it. Before, `@guardrail` had no way to name it,
+  and the runtime refused such a guardrail on every turn.
 - `kindgi`: **A judgment is now a correction.** This is a breaking rename, and
   no old name is kept. `client.judgments` is `client.corrections`, and
   `unregister` is `remove`, sync and async. The models follow: `Judgment` is

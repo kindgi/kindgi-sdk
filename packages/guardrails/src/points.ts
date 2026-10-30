@@ -34,6 +34,18 @@ export function checkPoints(check: Pick<RegisteredCheck, 'points'>): readonly Gu
   return check.points ?? DEFAULT_CHECK_POINTS;
 }
 
+/**
+ * The points a pack's check runs at as its pack index lists them (a
+ * guardrail entry's `checkPoints`): the ones this release knows, in
+ * `GUARDRAIL_POINTS` order, once each. None listed (an older CLI's
+ * index): the final answer only. A deploy gives them to the guardrail
+ * registry, and a runtime builds the pack check's points from them.
+ */
+export function indexedCheckPoints(value: unknown): readonly GuardrailPoint[] {
+  if (!Array.isArray(value)) return DEFAULT_CHECK_POINTS;
+  return GUARDRAIL_POINTS.filter((point) => value.includes(point));
+}
+
 /** Whether `value` is a point. */
 export function isGuardrailPoint(value: unknown): value is GuardrailPoint {
   return typeof value === 'string' && (GUARDRAIL_POINTS as readonly string[]).includes(value);

@@ -14,7 +14,7 @@ description: >
   not the agent.
 type: core
 library: "@kindgi/sdk"
-version: "0.2.0"
+version: "0.2.1"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:
@@ -91,7 +91,7 @@ One correction taken through all four steps:
 | "Never refund shipping", "final sale: no refund", "over 50 on a first order, ask a person" | a rule in **code** — the tool checks it every time; a cap sends the case to a tool that always asks | edit the tool and add a test (your language's `kindgi-authoring-tools`), then `kindgi deploy` |
 | "Our return window is 14 days, not 30" | a **setting** the owner can change | suggest a change to the settings block (Step 4) |
 | "Always have a person approve a refund" | an **approval rule** — a tenant policy that makes a tool always ask; it keys on the tool, not its arguments | a person sets it (the owner or the approver); point them to it, don't change it in code |
-| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test cases (`kindgi improve runs start`, the improve guide in `publish-and-pin.md`) |
+| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test cases (`kindgi improve runs start`, the Improve guide in `publish-and-pin.md`) |
 
 If a correction fits none of these, treat it as a code rule when it must
 hold every time, and as instructions when it's a matter of correction.

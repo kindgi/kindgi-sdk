@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.11"
+version: "0.4.12"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:

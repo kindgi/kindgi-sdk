@@ -2072,17 +2072,17 @@ export const CLI_EXAMPLES = {
   'test-runs cancel': [
     {
       purpose: 'Cancel a pending or running test run.',
-      line: 'kindgi test-runs cancel <run-id>',
+      line: 'kindgi test-runs cancel <test-run-id>',
     },
   ],
   'test-runs rescore': [
     {
       purpose: 'Rescore a completed run on the test cases and wait for the new run.',
-      line: 'kindgi test-runs rescore <run-id> --wait',
+      line: 'kindgi test-runs rescore <test-run-id> --wait',
     },
     {
       purpose: 'Rescore against a runtime that does not record the project on the run.',
-      line: 'kindgi test-runs rescore <run-id> --project=<project-id>',
+      line: 'kindgi test-runs rescore <test-run-id> --project=<project-id>',
     },
   ],
   'test-sets list': [

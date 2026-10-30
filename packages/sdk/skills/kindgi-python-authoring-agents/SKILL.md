@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.10"
+version: "0.1.11"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
