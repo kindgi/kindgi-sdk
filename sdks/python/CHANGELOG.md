@@ -91,8 +91,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `client.test_sets.build_from_corrections` is removed, with
   `BuildCorrectedTestSetBody`, `BuildCorrectedTestSetResult` and
   `CorrectorGroupId`. A `corrections` test set built before is still read by
-  id, but `client.test_sets.list` doesn't list it, and `kind="corrections"`
-  there is `400 bad-input`.
+  id, and `client.test_sets.list` lists it only with `kind="corrections"`,
+  as it does an agent's frozen versions.
 - `kindgi`: **A suggested change is made for one project, and checked on that
   project's test set.** This is a breaking change.
   - `client.suggested_changes.create` takes `agent_id`, `project_id`, `block`,
