@@ -62,7 +62,7 @@
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.3.0] [--from <version>] \
+#                [--to 0.3.1] [--from <version>] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
@@ -88,12 +88,12 @@
 #                      is written to. The export is one database, never an
 #                      instance backup.
 #   --to               The target runtime version, 0.2.0 or later (default
-#                      0.3.0). An rc such as 0.3.0-rc.0 works too, and so does
+#                      0.3.1). An rc such as 0.3.1-rc.0 works too, and so does
 #                      a server-only release such as 0.2.0.1: a server fix for
 #                      0.2.0, with no SDK release of its own. Earlier
 #                      releases aren't on registry.kindgi.com: for those, use
 #                      this script as of the @kindgi/sdk@0.1.10 tag. This
-#                      script knows the steps up to 0.3.0; for a later
+#                      script knows the steps up to 0.3.1; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
 #                      or, before that release is out, its newest
@@ -134,7 +134,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -842,6 +842,22 @@ EOT
      Then set seed_tenant_id in lower case, and apply.
 EOT
       ;;
+    0.3.1)
+      cat <<'EOT'
+   - First start runs no migrations. The steps are the packs': with 0.3.1's
+     kindgi CLI and SDK, rebuild and redeploy each pack that has guardrails.
+   - A guardrail at before-tool, after-tool or model-step: until its pack's
+     next deploy, it still can't run its check there
+     (check-point-unsupported), as in 0.3.0.
+   - An llm-judge guardrail a deploy before 0.3.1 registered still never
+     judges. Make sure the pack sets its judgeCapabilities, then
+       kindgi guardrails unregister <id>
+     and deploy the pack right after: until then, the guardrail doesn't
+     run. Without the unregister, the deploy is refused with 409
+     guardrail-already-registered. The same goes for a guardrail whose at
+     or sees changed while an earlier deploy kept the old ones.
+EOT
+      ;;
   esac
 }
 
@@ -883,6 +899,11 @@ EOT
      change makes the module read the instance's CAs during the apply, so
      the plan shows the server's KINDGI_DATABASE_SERVER_CA as known after
      apply. It's still the instance's CAs.
+EOT
+      ;;
+    0.3.1)
+      cat <<'EOT'
+   - 0.3.1 doesn't change the module.
 EOT
       ;;
   esac
