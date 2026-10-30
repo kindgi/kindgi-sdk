@@ -33,7 +33,6 @@ import {
 } from './resources/environment-orders.js';
 import { type EnvironmentsClient, makeEnvironmentsClient } from './resources/environments.js';
 import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.js';
-import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-suites.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
 import {
   type ExportSigningKeysClient,
@@ -78,6 +77,7 @@ import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-
 import { type SystemTenantsClient, makeSystemTenantsClient } from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
+import { type TestSetsClient, makeTestSetsClient } from './resources/test-sets.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
 import { type ToolsClient, makeToolsClient } from './resources/tools.js';
 import {
@@ -145,7 +145,7 @@ export interface KindgiClient {
   readonly deployments: DeploymentsClient;
   readonly compliance: ComplianceClient;
   readonly audit: AuditResourceClient;
-  readonly evalSuites: EvalSuitesClient;
+  readonly testSets: TestSetsClient;
   /** Data blocks: versioned prompts and settings an agent version pins. */
   readonly blocks: BlocksClient;
   readonly evalRuns: EvalRunsClient;
@@ -242,7 +242,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     deployments: makeDeploymentsClient(transport),
     compliance: makeComplianceClient(transport),
     audit: makeAuditClient(transport),
-    evalSuites: makeEvalSuitesClient(transport),
+    testSets: makeTestSetsClient(transport),
     blocks: makeBlocksClient(transport),
     evalRuns: makeEvalRunsClient(transport),
     corrections: makeCorrectionsClient(transport),

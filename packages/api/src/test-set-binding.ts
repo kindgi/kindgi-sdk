@@ -6,11 +6,11 @@ import type { Scope } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 /**
- * Caller-plugged surface for the evaluation-harness suite catalog —
+ * Caller-plugged surface for the evaluation-harness test set catalog —
  * part of the admin control plane. Registry-only: publish + read; run
  * execution + per-kind grader dispatch are out of scope (see
  * `EvalRunBinding`). Graders — an eval-judge adapter, the HITL bridge,
- * a sandboxed handler — consume suite definitions from this store at
+ * a sandboxed handler — consume test set definitions from this store at
  * their own boundary.
  *
  * Mirrors `PolicyRegistryBinding` 1:1 — same versioned-CRUD shape,
@@ -26,36 +26,36 @@ import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
  * `id@version`, ISO timestamps). The API layer only validates that a
  * cursor round-trips as a string; it never inspects the payload.
  */
-export interface EvalSuiteRegistryBinding {
+export interface TestSetRegistryBinding {
   /**
-   * Cursor-paginated list of eval suites (latest version per id, sorted
-   * by suite id ascending). Optional filters:
-   * - `evalKind` narrows to suites of a single kind (exact match).
-   * - `nameFilter` is a prefix match on the suite id — dotted
+   * Cursor-paginated list of test sets (latest version per id, sorted
+   * by test set id ascending). Optional filters:
+   * - `evalKind` narrows to test sets of a single kind (exact match).
+   * - `nameFilter` is a prefix match on the test set id — dotted
    *   namespaces are the natural filter shape (`acme.accuracy`).
    */
-  list(input: EvalSuiteListInput): Promise<EvalSuitePage>;
+  list(input: TestSetListInput): Promise<TestSetPage>;
   /**
-   * Latest version of the given suite id, or `null` if unknown. The
-   * route surfaces `null` as `404 eval-suite-not-found`.
+   * Latest version of the given test set id, or `null` if unknown. The
+   * route surfaces `null` as `404 test-set-not-found`.
    */
-  get(input: EvalSuiteGetInput): Promise<EvalSuiteRecord | null>;
+  get(input: TestSetGetInput): Promise<TestSetRecord | null>;
   /**
-   * Specific `(suiteId, version)` lookup, or `null` if unknown.
+   * Specific `(testSetId, version)` lookup, or `null` if unknown.
    * Returns tombstoned versions too (provenance paths).
    */
-  getVersion(input: EvalSuiteGetVersionInput): Promise<EvalSuiteRecord | null>;
+  getVersion(input: TestSetGetVersionInput): Promise<TestSetRecord | null>;
   /**
    * Head-row existence probe. Lets GET distinguish 410 gone from
    * 404 not-found.
    */
-  headExists(input: EvalSuiteGetInput): Promise<boolean>;
+  headExists(input: TestSetGetInput): Promise<boolean>;
   /**
-   * Cursor-paginated list of versions for a specific suite id. Sort
+   * Cursor-paginated list of versions for a specific test set id. Sort
    * order is binding-defined (for example ascending semver). Returns an empty page (no error) when the id
    * is unknown — the route flips that to `404` via a prior `get`.
    */
-  listVersions(input: EvalSuiteListVersionsInput): Promise<EvalSuitePage>;
+  listVersions(input: TestSetListVersionsInput): Promise<TestSetPage>;
   /**
    * Whether `cursor` is one this binding issued for `list` (`'versions'`:
    * a `listVersions` page's `nextCursor`). Optional: without it, the route passes any
@@ -65,29 +65,27 @@ export interface EvalSuiteRegistryBinding {
    */
   issuedCursor?(list: 'versions', cursor: Cursor): boolean;
   /**
-   * Publish a validated eval-suite definition. The API route validates
+   * Publish a validated test-set definition. The API route validates
    * the wire shape (id / tenantId / semver version / kind / spec object)
-   * before calling — the binding receives a well-formed `EvalSuite`.
+   * before calling — the binding receives a well-formed `TestSet`.
    * Bindings MAY reject with `already-registered` when the same
-   * `(suiteId, version)` is re-published; the route maps that to `409`.
-   * A version of an eval suite whose versions live in another project is
-   * `project-mismatch` (suites never move between projects; `409 eval-suite-project-mismatch`).
+   * `(testSetId, version)` is re-published; the route maps that to `409`.
+   * A version of an test set whose versions live in another project is
+   * `project-mismatch` (test sets never move between projects; `409 test-set-project-mismatch`).
    */
-  publish(input: EvalSuitePublishInput): Promise<EvalSuitePublishOutcome>;
+  publish(input: TestSetPublishInput): Promise<TestSetPublishOutcome>;
   /**
-   * Soft-tombstone a specific `(suiteId, version)`. When this leaves
-   * NO active versions, the suite has no latest version — derived
+   * Soft-tombstone a specific `(testSetId, version)`. When this leaves
+   * NO active versions, the test set has no latest version — derived
    * "retired" state (GET returns 410 gone). Publish reactivates.
    */
-  unregister(input: EvalSuiteUnregisterInput): Promise<EvalSuiteUnregisterOutcome>;
+  unregister(input: TestSetUnregisterInput): Promise<TestSetUnregisterOutcome>;
   /**
-   * Un-tombstone a specific `(suiteId, version)`. Recomputes the
-   * suite's latest version. Restores bytes verbatim (semver hygiene).
+   * Un-tombstone a specific `(testSetId, version)`. Recomputes the
+   * test set's latest version. Restores bytes verbatim (semver hygiene).
    * Idempotent.
    */
-  reinstateVersion(
-    input: EvalSuiteReinstateVersionInput,
-  ): Promise<EvalSuiteReinstateVersionOutcome>;
+  reinstateVersion(input: TestSetReinstateVersionInput): Promise<TestSetReinstateVersionOutcome>;
 }
 
 /**
@@ -100,7 +98,7 @@ export interface EvalSuiteRegistryBinding {
  * - `pairwise` — A/B comparisons between two agent/flow versions.
  * - `regression` — compare against a stored baseline run.
  * - `human-review` — delegates rubric grading to HITL reviewers.
- * - `benchmark` — reference to a standardized suite (name + version).
+ * - `benchmark` — reference to a standardized test set (name + version).
  * - `custom` — caller-supplied evaluator handler.
  */
 export const EVAL_KINDS = [
@@ -111,12 +109,12 @@ export const EVAL_KINDS = [
   'benchmark',
   'custom',
   /** Built from corrections of past runs: cases are copies of corrected runs (`EvalCaseStoreBinding`). */
-  'judged',
+  'corrections',
 ] as const;
 export type EvalKind = (typeof EVAL_KINDS)[number];
 
 /**
- * Wire shape for a single evaluation suite. `spec` is a JSON object
+ * Wire shape for a single test set. `spec` is a JSON object
  * whose shape is dictated by `kind` — the registry treats it as opaque
  * JSON so new kinds can extend the catalog without touching this file.
  * Runtime consumers (the eval-judge adapter for `accuracy` / `pairwise`
@@ -126,7 +124,7 @@ export type EvalKind = (typeof EVAL_KINDS)[number];
  * Case data lives IN `spec` (not stored separately) — small enough at
  * registry scale.
  */
-export interface EvalSuite {
+export interface TestSet {
   readonly id: string;
   readonly tenantId: TenantId;
   readonly version: string;
@@ -135,13 +133,13 @@ export interface EvalSuite {
   readonly spec: Readonly<Record<string, unknown>>;
 }
 
-export interface EvalSuiteListInput {
+export interface TestSetListInput {
   readonly tenantId: TenantId;
   readonly limit: number;
   readonly cursor?: Cursor;
-  /** Exact match on `EvalSuite.kind`. Undefined = no filter. */
+  /** Exact match on `TestSet.kind`. Undefined = no filter. */
   readonly evalKind?: EvalKind;
-  /** Prefix match on `EvalSuite.id`. Undefined = no filter. */
+  /** Prefix match on `TestSet.id`. Undefined = no filter. */
   readonly nameFilter?: string;
   /**
    * Narrow the list to a specific scope. Absent = no scope narrow
@@ -176,30 +174,30 @@ export interface EvalSuiteListInput {
   readonly includeRetired?: boolean;
 }
 
-export interface EvalSuiteGetInput {
+export interface TestSetGetInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
 }
 
-export interface EvalSuiteGetVersionInput {
+export interface TestSetGetVersionInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly version: string;
 }
 
-export interface EvalSuiteListVersionsInput {
+export interface TestSetListVersionsInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly limit: number;
   readonly cursor?: Cursor;
   /** `true` lists unregistered versions too, each with `unregisteredAt`. Default: active only. */
   readonly includeTombstoned?: boolean;
 }
 
-export interface EvalSuitePublishInput {
+export interface TestSetPublishInput {
   readonly tenantId: TenantId;
   /**
-   * Project the eval suite is published into. REQUIRED. Callers that
+   * Project the test set is published into. REQUIRED. Callers that
    * don't naturally know a projectId
    * resolve the tenant's Default via
    * `projectBinding.getDefault(tenantId)` at THEIR layer and thread
@@ -207,38 +205,38 @@ export interface EvalSuitePublishInput {
    * back to Default.
    */
   readonly projectId: ProjectId;
-  readonly suite: EvalSuite;
+  readonly testSet: TestSet;
   /**
    * REQUIRED. Called inside the binding's write tx after row insert,
-   * receiving the business `suiteId`. Returns tuples for the same tx.
+   * receiving the business `testSetId`. Returns tuples for the same tx.
    * See `AgentPublishInput.enqueueTuples` for the design rationale.
    */
   readonly enqueueTuples: TupleEnqueueHook;
 }
 
-export interface EvalSuiteUnregisterInput {
+export interface TestSetUnregisterInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly version: string;
 }
 
-export interface EvalSuiteReinstateVersionInput {
+export interface TestSetReinstateVersionInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly version: string;
 }
 
-export interface EvalSuitePage {
-  readonly data: readonly EvalSuiteRecord[];
+export interface TestSetPage {
+  readonly data: readonly TestSetRecord[];
   readonly nextCursor?: Cursor;
 }
 
 /**
  * A test set version as the registry reads it (`get`, `getVersion`,
- * `list`, `listVersions`): the suite, and its project when the store
+ * `list`, `listVersions`): the test set, and its project when the store
  * records it.
  */
-export type EvalSuiteRecord = EvalSuite & {
+export type TestSetRecord = TestSet & {
   /**
    * The test set's project, when the store records it: test sets never
    * move between projects, so every version reads the same one. In a
@@ -262,15 +260,15 @@ export type EvalSuiteRecord = EvalSuite & {
   readonly unregisteredAt?: string;
 };
 
-export type EvalSuitePublishOutcome =
+export type TestSetPublishOutcome =
   | {
       readonly kind: 'ok';
-      readonly suiteId: string;
+      readonly testSetId: string;
       readonly version: string;
     }
   | {
       readonly kind: 'already-registered';
-      readonly suiteId: string;
+      readonly testSetId: string;
       readonly version: string;
     }
   | {
@@ -284,36 +282,36 @@ export type EvalSuitePublishOutcome =
        * time (a SQL store typically from its foreign-key violation).
        */
       readonly kind: 'project-not-found';
-      readonly suiteId: string;
+      readonly testSetId: string;
       readonly version: string;
       readonly projectId: ProjectId;
     }
   | {
       /**
-       * The eval suite's versions live in another project: an eval suite belongs to
+       * The test set's versions live in another project: an test set belongs to
        * the project its first version was published into, and never
-       * moves. Nothing is written (the route answers `409 eval-suite-project-mismatch`).
+       * moves. Nothing is written (the route answers `409 test-set-project-mismatch`).
        */
       readonly kind: 'project-mismatch';
-      readonly suiteId: string;
+      readonly testSetId: string;
       readonly version: string;
-      /** The project the eval suite belongs to. */
+      /** The project the test set belongs to. */
       readonly projectId: ProjectId;
     };
 
-export type EvalSuiteUnregisterOutcome = {
+export type TestSetUnregisterOutcome = {
   readonly unregistered: boolean;
 };
 
-export type EvalSuiteReinstateVersionOutcome =
+export type TestSetReinstateVersionOutcome =
   | {
       readonly kind: 'ok';
-      readonly suiteId: string;
+      readonly testSetId: string;
       readonly version: string;
       readonly wasTombstoned: boolean;
     }
   | {
       readonly kind: 'not-found';
-      readonly suiteId: string;
+      readonly testSetId: string;
       readonly version: string;
     };

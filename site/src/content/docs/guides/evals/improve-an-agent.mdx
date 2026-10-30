@@ -315,7 +315,7 @@ In the API and the clients, they're `tiers: ["prompt"]`, `model` and
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/proposals/improve" \
   -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
-  -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"suiteId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
+  -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"testSetId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
 ```
 
 - `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API token.

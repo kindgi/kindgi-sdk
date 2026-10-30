@@ -32,7 +32,7 @@ import { scopeQuery } from './agents.js';
  *   change: { blockId: 'acme.scoring-weights', content: { values: { recency: 0.4, fit: 0.6 } } },
  *   hypothesis: 'Recent filings matter more for this company',
  * });
- * await client.proposals.evaluate(p.id, { suiteId: 'acme.scoring-judged' });
+ * await client.proposals.evaluate(p.id, { testSetId: 'acme.scoring-judged' });
  * // …once `status` is `evaluated`:
  * await client.proposals.request(p.id);
  * ```
@@ -133,7 +133,7 @@ export interface ImproveInput {
   readonly projectId?: string;
   readonly scope: LiveScope;
   /** The test set to search and prove on. */
-  readonly suiteId: string;
+  readonly testSetId: string;
   /** `['settings']` (the default): tunable settings values; `['prompt']`: drafted templates (needs `model`). */
   readonly tiers?: readonly ('settings' | 'prompt')[];
   readonly objective?: ProposalObjective;
@@ -184,8 +184,8 @@ export interface CreateProposalInput {
 }
 
 export interface EvaluateProposalInput {
-  /** The test set: a judged eval suite. */
-  readonly suiteId: string;
+  /** The test set: a corrections test set. */
+  readonly testSetId: string;
   /** Default `weightedYesShare`. */
   readonly objective?: ProposalObjective;
   readonly reads?: 'recorded' | 'live';

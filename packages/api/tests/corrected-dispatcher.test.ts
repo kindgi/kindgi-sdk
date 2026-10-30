@@ -15,7 +15,7 @@ import type {
   EvalComparison,
   EvalRunSubjectInvokeInput,
   EvalRunSubjectInvokeOutcome,
-  EvalSuite,
+  TestSet,
 } from '../src/index.js';
 import {
   DEFAULT_COMPARISON,
@@ -105,23 +105,23 @@ async function compare(options: {
   const cases = inMemoryCaseStore();
   await cases.putCases({
     tenantId,
-    suiteId: 'acme.set',
+    testSetId: 'acme.set',
     version: '1.0.0',
     cases: options.cases ?? [caseA, caseB],
   });
   const invoked: EvalRunSubjectInvokeInput[] = [];
   const progress: unknown[] = [];
-  const suite: EvalSuite = {
+  const testSet: TestSet = {
     id: 'acme.set',
     tenantId,
     version: '1.0.0',
-    kind: 'judged',
+    kind: 'corrections',
     spec: { source: 'corrections', projectId: 'p-judged', caseCount: 2 },
   };
   const ctx: DispatchContext = {
     tenantId,
     runId: 'eval-1' as RunId,
-    suite,
+    testSet,
     target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
     dryRun: options.dryRun === true,
     abortSignal: new AbortController().signal,
@@ -190,7 +190,7 @@ describe('a comparison eval run', () => {
     expect(summary).toMatchObject({
       evalRunId: 'eval-1',
       status: 'completed',
-      suite: { id: 'acme.set', version: '1.0.0' },
+      testSet: { id: 'acme.set', version: '1.0.0' },
       candidate: { agentId: 'acme.agent', version: '2.0.0' },
       baseline: {
         kind: 'recorded',
@@ -495,21 +495,21 @@ describe('groupWeights (T200)', () => {
 
 describe('what a comparison takes', () => {
   const dispatcher = createCorrectedDispatcher({ cases: inMemoryCaseStore() });
-  const suite = { spec: { caseCount: 3 } } as unknown as EvalSuite;
+  const testSet = { spec: { caseCount: 3 } } as unknown as TestSet;
   const agent = { agentId: 'acme.agent' as never, version: '2.0.0' as never };
 
   test.each([
     [
       'a flow without a version',
-      suite,
+      testSet,
       { flowId: 'acme.flow' },
       undefined,
       '`flowRef.version` is required',
     ],
-    ['no version', suite, { agentId: 'acme.agent' }, undefined, '`agentRef.version` is required'],
+    ['no version', testSet, { agentId: 'acme.agent' }, undefined, '`agentRef.version` is required'],
     [
       'a version baseline',
-      suite,
+      testSet,
       agent,
       { ...DEFAULT_COMPARISON, baseline: { agentId: 'acme.agent', version: '1.0.0' } },
       "Only `baseline: 'recorded'` runs today",
@@ -517,7 +517,7 @@ describe('what a comparison takes', () => {
     ['an empty set', { spec: { caseCount: 0 } }, agent, undefined, 'no cases'],
     [
       'versions for an agent',
-      suite,
+      testSet,
       agent,
       { ...DEFAULT_COMPARISON, versions: { agents: { 'acme.helper': '1.0.0' } } },
       'it needs `flowRef`',
@@ -529,7 +529,7 @@ describe('what a comparison takes', () => {
   });
 
   test('a version of an agent, against the recording, is fine', () => {
-    expect(dispatcher.validate?.(suite, agent)).toEqual({ kind: 'ok' });
+    expect(dispatcher.validate?.(testSet, agent)).toEqual({ kind: 'ok' });
   });
 });
 
@@ -568,7 +568,7 @@ describe('a comparison of a flow version', () => {
     const cases = inMemoryCaseStore();
     await cases.putCases({
       tenantId,
-      suiteId: 'acme.flows',
+      testSetId: 'acme.flows',
       version: '1.0.0',
       cases: [
         flowCase('run-f1', [{ id: 'm1' }, { id: 'm2' }]),
@@ -579,11 +579,11 @@ describe('a comparison of a flow version', () => {
     const out = await createCorrectedDispatcher({ cases }).dispatch({
       tenantId,
       runId: 'eval-f' as RunId,
-      suite: {
+      testSet: {
         id: 'acme.flows',
         tenantId,
         version: '1.0.0',
-        kind: 'judged',
+        kind: 'corrections',
         spec: { caseCount: 2 },
       },
       target: { flowId: 'acme.intake' as never, version: '1.1.0' as never },
@@ -712,7 +712,7 @@ describe('a rescore: the replays scored again, with what people corrected on the
     const cases = inMemoryCaseStore();
     await cases.putCases({
       tenantId,
-      suiteId: 'acme.set',
+      testSetId: 'acme.set',
       version: '1.0.0',
       cases: [caseA, caseB],
     });
@@ -724,11 +724,11 @@ describe('a rescore: the replays scored again, with what people corrected on the
     const ctx: DispatchContext = {
       tenantId,
       runId: 'eval-2' as RunId,
-      suite: {
+      testSet: {
         id: 'acme.set',
         tenantId,
         version: '1.0.0',
-        kind: 'judged',
+        kind: 'corrections',
         spec: { source: 'corrections', projectId: 'p-judged', caseCount: 2 },
       },
       target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
@@ -751,9 +751,9 @@ describe('a rescore: the replays scored again, with what people corrected on the
         get: async () => ({
           runId: 'eval-1' as RunId,
           tenantId,
-          suiteId: 'acme.set',
-          suiteVersion: '1.0.0',
-          kind: 'judged',
+          testSetId: 'acme.set',
+          testSetVersion: '1.0.0',
+          kind: 'corrections',
           status: 'completed',
           dryRun: false,
           startedAt: '2026-10-09T00:00:00.000Z' as never,
@@ -860,15 +860,15 @@ describe('a rescore: the replays scored again, with what people corrected on the
 
   test("a runtime that can't read replays and their corrections again refuses a rescore", () => {
     const plain = createCorrectedDispatcher({ cases: inMemoryCaseStore() });
-    const suite = { spec: { caseCount: 1 } } as unknown as EvalSuite;
+    const testSet = { spec: { caseCount: 1 } } as unknown as TestSet;
     const target = { agentId: 'acme.agent', version: '2.0.0' } as never;
-    expect(plain.validate?.(suite, target, { ...DEFAULT_COMPARISON, rescoreOf: 'eval-1' })).toEqual(
-      {
-        kind: 'err',
-        message: RESCORE_UNSUPPORTED,
-      },
-    );
-    expect(plain.validate?.(suite, target, DEFAULT_COMPARISON)).toEqual({ kind: 'ok' });
+    expect(
+      plain.validate?.(testSet, target, { ...DEFAULT_COMPARISON, rescoreOf: 'eval-1' }),
+    ).toEqual({
+      kind: 'err',
+      message: RESCORE_UNSUPPORTED,
+    });
+    expect(plain.validate?.(testSet, target, DEFAULT_COMPARISON)).toEqual({ kind: 'ok' });
   });
 });
 

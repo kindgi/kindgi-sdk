@@ -101,7 +101,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-erased': 410,
   'flow-gone': 410,
   'policy-gone': 410,
-  'eval-suite-gone': 410,
+  'test-set-gone': 410,
   'tool-gone': 410,
   'tool-already-registered': 409,
   'tool-project-mismatch': 409,
@@ -242,13 +242,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'policy-scope-changed': 409,
   /** A retention policy that keeps its domain's rows longer than the server's limit allows (`retentionLimits`), or holds them. */
   'retention-over-limit': 400,
-  // Admin plane — eval suites.
+  // Admin plane — test sets.
   'block-not-found': 404,
   'block-already-registered': 409,
   'block-project-mismatch': 409,
-  'eval-suite-not-found': 404,
-  'eval-suite-already-registered': 409,
-  'eval-suite-project-mismatch': 409,
+  'test-set-not-found': 404,
+  'test-set-already-registered': 409,
+  'test-set-project-mismatch': 409,
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
   'eval-run-not-rescorable': 409,

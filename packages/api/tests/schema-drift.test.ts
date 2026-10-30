@@ -34,7 +34,6 @@ import {
   AgentSchema,
   CodeArtifactRefSchema,
   ComplianceEvidenceSchema,
-  EvalSuiteSchema,
   FlowSchema,
   GuardrailSchema,
   HttpAuthSpecSchema,
@@ -44,6 +43,7 @@ import {
   NetworkPolicySchema,
   RuntimeLimitsSchema,
   SandboxModeSchema,
+  TestSetSchema,
   ToolSchema,
   ToolSecretRefSchema,
   ToolSpecSchema,
@@ -96,11 +96,12 @@ describe('OpenAPI ↔ specs drift — aligned pairs (required[] identical)', () 
     );
   });
 
-  test('EvalSuite', async () => {
+  test('TestSet', async () => {
+    // The spec file keeps its old name until the schemas are renamed.
     assertRequiredIdentical(
       'eval-suite',
       await loadSpec('eval-suite'),
-      EvalSuiteSchema as JsonSchemaLike,
+      TestSetSchema as JsonSchemaLike,
     );
   });
 

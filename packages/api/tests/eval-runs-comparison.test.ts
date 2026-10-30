@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `POST /v1/eval-suites/{suiteId}/runs` for a test set: a comparison eval run. */
+/** `POST /v1/test-sets/{testSetId}/runs` for a test set: a comparison eval run. */
 
 import { randomUUID } from 'node:crypto';
 
@@ -16,10 +16,10 @@ import type {
   CorrectedComparisonSummary,
   EvalRun,
   EvalRunBinding,
-  EvalSuite,
-  EvalSuiteRegistryBinding,
   FlowRegistryBinding,
   RunHandlerBinding,
+  TestSet,
+  TestSetRegistryBinding,
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
@@ -44,11 +44,11 @@ const runHandler = {
   resumeRun: unused,
 } as unknown as RunHandlerBinding;
 
-const suite: EvalSuite = {
+const testSet: TestSet = {
   id: 'acme.set',
   tenantId,
   version: '1.0.0',
-  kind: 'judged',
+  kind: 'corrections',
   spec: { source: 'corrections', caseCount: 1 },
 };
 
@@ -56,8 +56,8 @@ async function setup() {
   const cases = inMemoryCaseStore();
   await cases.putCases({
     tenantId,
-    suiteId: suite.id,
-    version: suite.version,
+    testSetId: testSet.id,
+    version: testSet.version,
     cases: [
       {
         caseId: 'case-1',
@@ -79,27 +79,28 @@ async function setup() {
     ],
   });
   const registry = {
-    get: async ({ suiteId }: { suiteId: string }) => (suiteId === suite.id ? suite : null),
-  } as unknown as EvalSuiteRegistryBinding;
+    get: async ({ testSetId }: { testSetId: string }) =>
+      testSetId === testSet.id ? testSet : null,
+  } as unknown as TestSetRegistryBinding;
   const binding = createInProcessEvalRunBinding({
-    suiteRegistry: registry,
+    testSetRegistry: registry,
     subject: {
       invoke: async () => ({
         output: { appended: [{ role: 'agent', content: 'Hi.' }] },
         runId: 'replay-1' as RunId,
       }),
     },
-    dispatchers: { judged: createCorrectedDispatcher({ cases }) },
+    dispatchers: { corrections: createCorrectedDispatcher({ cases }) },
   });
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
-    evalSuiteRegistry: registry,
+    testSetRegistry: registry,
     evalRunBinding: binding,
   });
   const start = (body: Record<string, unknown>) =>
-    app.request(`/v1/eval-suites/${suite.id}/runs`, {
+    app.request(`/v1/test-sets/${testSet.id}/runs`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -228,7 +229,7 @@ describe('a comparison eval run over the API', () => {
 });
 
 describe('a flow candidate with some of its agents or tools at other versions', () => {
-  const flowSuite: EvalSuite = { ...suite, id: 'acme.flow-set' };
+  const flowTestSet: TestSet = { ...testSet, id: 'acme.flow-set' };
   const flow = {
     id: 'acme.flow',
     version: '1.0.0',
@@ -249,8 +250,8 @@ describe('a flow candidate with some of its agents or tools at other versions', 
     const cases = inMemoryCaseStore();
     await cases.putCases({
       tenantId,
-      suiteId: flowSuite.id,
-      version: flowSuite.version,
+      testSetId: flowTestSet.id,
+      version: flowTestSet.version,
       cases: [
         {
           caseId: 'case-f',
@@ -272,25 +273,25 @@ describe('a flow candidate with some of its agents or tools at other versions', 
       ],
     });
     const registry = {
-      get: async ({ suiteId }: { suiteId: string }) =>
-        suiteId === flowSuite.id ? flowSuite : null,
-    } as unknown as EvalSuiteRegistryBinding;
+      get: async ({ testSetId }: { testSetId: string }) =>
+        testSetId === flowTestSet.id ? flowTestSet : null,
+    } as unknown as TestSetRegistryBinding;
     const invoked: Record<string, unknown>[] = [];
     const binding = createInProcessEvalRunBinding({
-      suiteRegistry: registry,
+      testSetRegistry: registry,
       subject: {
         invoke: async (input) => {
           invoked.push(input as unknown as Record<string, unknown>);
           return { output: { reply: 'Hi.' }, runId: 'replay-f' as RunId };
         },
       },
-      dispatchers: { judged: createCorrectedDispatcher({ cases }) },
+      dispatchers: { corrections: createCorrectedDispatcher({ cases }) },
     });
     const app = createApp({
       ...createStubAppBindings(),
       resolveToken,
       runHandler,
-      evalSuiteRegistry: registry,
+      testSetRegistry: registry,
       evalRunBinding: binding,
       flowRegistry: {
         getVersion: async ({ flowId, version }: { flowId: string; version: string }) =>
@@ -308,7 +309,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
       } as unknown as ToolRegistryBinding,
     });
     const start = (body: Record<string, unknown>) =>
-      app.request(`/v1/eval-suites/${flowSuite.id}/runs`, {
+      app.request(`/v1/test-sets/${flowTestSet.id}/runs`, {
         method: 'POST',
         headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -430,8 +431,8 @@ describe('rescoring a comparison over the API: correct the new answers, then res
     const cases = inMemoryCaseStore();
     await cases.putCases({
       tenantId,
-      suiteId: suite.id,
-      version: suite.version,
+      testSetId: testSet.id,
+      version: testSet.version,
       cases: [
         {
           caseId: 'case-1',
@@ -453,15 +454,16 @@ describe('rescoring a comparison over the API: correct the new answers, then res
       ],
     });
     const registry = {
-      get: async ({ suiteId }: { suiteId: string }) => (suiteId === suite.id ? suite : null),
-      getVersion: async ({ suiteId, version }: { suiteId: string; version: string }) =>
-        suiteId === suite.id && version === suite.version ? suite : null,
-    } as unknown as EvalSuiteRegistryBinding;
+      get: async ({ testSetId }: { testSetId: string }) =>
+        testSetId === testSet.id ? testSet : null,
+      getVersion: async ({ testSetId, version }: { testSetId: string; version: string }) =>
+        testSetId === testSet.id && version === testSet.version ? testSet : null,
+    } as unknown as TestSetRegistryBinding;
     const corrections = inMemoryCorrections();
     let invoked = 0;
     const ref: { binding?: EvalRunBinding } = {};
     const binding = createInProcessEvalRunBinding({
-      suiteRegistry: registry,
+      testSetRegistry: registry,
       subject: {
         invoke: async () => {
           invoked += 1;
@@ -469,7 +471,7 @@ describe('rescoring a comparison over the API: correct the new answers, then res
         },
       },
       dispatchers: {
-        judged: createCorrectedDispatcher({
+        corrections: createCorrectedDispatcher({
           cases,
           ...(rescorable && {
             corrections,
@@ -487,7 +489,7 @@ describe('rescoring a comparison over the API: correct the new answers, then res
       ...createStubAppBindings(),
       resolveToken,
       runHandler,
-      evalSuiteRegistry: registry,
+      testSetRegistry: registry,
       evalRunBinding: binding,
     });
     const post = (path: string, body: unknown = {}) =>
@@ -496,7 +498,7 @@ describe('rescoring a comparison over the API: correct the new answers, then res
         headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-    const started = await post(`/v1/eval-suites/${suite.id}/runs`, {
+    const started = await post(`/v1/test-sets/${testSet.id}/runs`, {
       projectId: randomUUID(),
       agentRef: { agentId: 'acme.agent', version: '2.0.0' },
     });

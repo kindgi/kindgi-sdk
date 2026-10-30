@@ -153,7 +153,7 @@ export interface DraftProposalInput {
 export interface EvaluateProposalInput {
   readonly tenantId: TenantId;
   readonly proposal: StoredProposal;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly objective: ProposalObjective;
   readonly comparison?: EvalComparison;
   /**
@@ -665,17 +665,17 @@ export function createProposalService(deps: ProposalServiceDeps) {
         });
       }
       // It runs where it was made (in an environment order, the first
-      // environment), and the suite must be that project's to reach
+      // environment), and the test set must be that project's to reach
       // (`reference-scope.ts`).
       const runIn = version.madeInProjectId ?? version.projectId;
-      const suiteOutOfScope = await referencesOutOfScope(deps.referenceScope, tenantId, runIn, [
-        { path: '/suiteId', kind: 'suite', id: input.suiteId },
+      const testSetOutOfScope = await referencesOutOfScope(deps.referenceScope, tenantId, runIn, [
+        { path: '/testSetId', kind: 'test-set', id: input.testSetId },
       ]);
-      if (suiteOutOfScope !== undefined) return err({ ...suiteOutOfScope });
+      if (testSetOutOfScope !== undefined) return err({ ...testSetOutOfScope });
       const started = await deps.evalRuns.start({
         tenantId,
         projectId: runIn,
-        suiteId: input.suiteId,
+        testSetId: input.testSetId,
         agentRef: { agentId: proposal.agentId, version: candidate.agentVersion as Semver },
         correlationId: `proposal:${proposal.id as unknown as string}`,
         ...(input.comparison !== undefined && { comparison: input.comparison }),
@@ -685,7 +685,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         kind: 'evaluation',
         evaluation: {
           evalRunId: started.runId as unknown as string,
-          suiteId: input.suiteId,
+          testSetId: input.testSetId,
           objective: input.objective,
           startedAt: new Date().toISOString() as Timestamp,
           ...(input.against !== undefined && {
@@ -729,7 +729,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         kind: 'evaluation',
         evaluation: {
           evalRunId: evalRunId as string,
-          suiteId: latest.suiteId,
+          testSetId: latest.testSetId,
           objective: latest.objective,
           startedAt: new Date().toISOString() as Timestamp,
           ...(latest.rule !== undefined && { rule: latest.rule }),
@@ -929,11 +929,11 @@ function modelSettingsRefusal(
 
 function startError(outcome: Exclude<EvalRunStartOutcome, { kind: 'ok' }>): ProposalServiceError {
   switch (outcome.kind) {
-    case 'suite-not-found':
+    case 'test-set-not-found':
       return {
-        code: 'eval-suite-not-found',
-        message: `No eval suite registered with id "${outcome.suiteId}"`,
-        suiteId: outcome.suiteId,
+        code: 'test-set-not-found',
+        message: `No test set registered with id "${outcome.testSetId}"`,
+        testSetId: outcome.testSetId,
       };
     case 'dispatcher-not-registered':
       return {

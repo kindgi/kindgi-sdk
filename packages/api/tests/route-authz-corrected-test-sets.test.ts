@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Building a test set from corrections, with authorization on. Under a suite
- * id never registered there's no suite to check yet: the build needs
- * `admin` on the project it names, the project the new suite belongs to.
- * Under an existing suite (a tombstoned one included), the suite is checked
- * first, as for anything else under a suite id.
+ * Building a test set from corrections, with authorization on. Under a test set
+ * id never registered there's no test set to check yet: the build needs
+ * `admin` on the project it names, the project the new test set belongs to.
+ * Under an existing test set (a tombstoned one included), the test set is checked
+ * first, as for anything else under a test set id.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -19,16 +19,16 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
-  EvalSuite,
-  EvalSuiteRegistryBinding,
   RunHandlerBinding,
+  TestSet,
+  TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
 
 const tenantId = randomUUID() as TenantId;
-const TOKEN = 'route-authz-corrected-suites';
+const TOKEN = 'route-authz-corrected-test-sets';
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
 const P = randomUUID() as ProjectId;
@@ -36,24 +36,24 @@ const Q = randomUUID();
 const EXISTING = 'acme.existing';
 const GONE = 'acme.gone';
 const NEW = 'acme.new';
-const build = (suiteId: string) => `/v1/eval-suites/${suiteId}/versions/from-corrections`;
+const build = (testSetId: string) => `/v1/test-sets/${testSetId}/versions/from-corrections`;
 const body = { version: '2.0.0', projectId: P, agentId: 'acme.matcher' };
 
-/** A registry with a suite in project Q and a tombstoned one, both with head rows. */
-function suites(): EvalSuiteRegistryBinding & { readonly published: EvalSuite[] } {
+/** A registry with a test set in project Q and a tombstoned one, both with head rows. */
+function testSets(): TestSetRegistryBinding & { readonly published: TestSet[] } {
   const heads = new Set([EXISTING, GONE]);
-  const published: EvalSuite[] = [];
+  const published: TestSet[] = [];
   return {
     published,
-    async headExists({ suiteId }: { suiteId: string }) {
-      return heads.has(suiteId);
+    async headExists({ testSetId }: { testSetId: string }) {
+      return heads.has(testSetId);
     },
-    async publish({ suite }: { suite: EvalSuite }) {
-      published.push(suite);
-      heads.add(suite.id);
-      return { kind: 'ok', suiteId: suite.id, version: suite.version };
+    async publish({ testSet }: { testSet: TestSet }) {
+      published.push(testSet);
+      heads.add(testSet.id);
+      return { kind: 'ok', testSetId: testSet.id, version: testSet.version };
     },
-  } as unknown as EvalSuiteRegistryBinding & { readonly published: EvalSuite[] };
+  } as unknown as TestSetRegistryBinding & { readonly published: TestSet[] };
 }
 
 async function harness(grants: readonly string[], { authzOn = true } = {}) {
@@ -83,13 +83,13 @@ async function harness(grants: readonly string[], { authzOn = true } = {}) {
     sortedTo: 'improve',
     sorted: { by: { kind: 'rule' }, at: '2026-10-01T00:00:00.000Z' },
   });
-  const registry = suites();
+  const registry = testSets();
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     correctionRegistry: corrections,
-    evalSuiteRegistry: registry,
+    testSetRegistry: registry,
     evalCaseStore: inMemoryCaseStore(),
     ...(authzOn && {
       authz: {
@@ -112,12 +112,17 @@ async function harness(grants: readonly string[], { authzOn = true } = {}) {
   return { call, asked, published: registry.published };
 }
 
-describe('a test set under a suite id never registered', () => {
-  test('admin on the project it names builds it; the suite, not there yet, is never asked', async () => {
+describe('a test set under a test set id never registered', () => {
+  test('admin on the project it names builds it; the test set, not there yet, is never asked', async () => {
     const h = await harness([`admin project:${P}`]);
     const r = await h.call('POST', build(NEW), body);
     expect(r.status, JSON.stringify(r.body)).toBe(201);
-    expect(r.body).toMatchObject({ suiteId: NEW, version: '2.0.0', kind: 'judged', caseCount: 1 });
+    expect(r.body).toMatchObject({
+      testSetId: NEW,
+      version: '2.0.0',
+      kind: 'corrections',
+      caseCount: 1,
+    });
     expect(h.asked).toEqual([`admin project:${P}`]);
     expect(h.published.map((s) => s.id)).toEqual([NEW]);
   });
@@ -131,40 +136,40 @@ describe('a test set under a suite id never registered', () => {
     expect(h.published).toEqual([]);
   });
 
-  test('anything else under that id still checks the suite', async () => {
+  test('anything else under that id still checks the test set', async () => {
     const h = await harness([`admin project:${P}`]);
-    expect((await h.call('POST', `/v1/eval-suites/${NEW}/versions/1.0.0/unregister`)).status).toBe(
+    expect((await h.call('POST', `/v1/test-sets/${NEW}/versions/1.0.0/unregister`)).status).toBe(
       403,
     );
-    expect((await h.call('GET', `/v1/eval-suites/${NEW}/versions/1.0.0/cases`)).status).toBe(403);
-    expect(h.asked).toEqual([`admin eval_suite:${NEW}`, `read eval_suite:${NEW}`]);
+    expect((await h.call('GET', `/v1/test-sets/${NEW}/versions/1.0.0/cases`)).status).toBe(403);
+    expect(h.asked).toEqual([`admin test_set:${NEW}`, `read test_set:${NEW}`]);
   });
 });
 
-describe('a test set under an existing suite', () => {
-  test('the suite is checked first: admin on the named project alone is refused', async () => {
+describe('a test set under an existing test set', () => {
+  test('the test set is checked first: admin on the named project alone is refused', async () => {
     const h = await harness([`admin project:${P}`]);
     expect((await h.call('POST', build(EXISTING), body)).status).toBe(403);
-    expect(h.asked).toEqual([`admin eval_suite:${EXISTING}`]);
+    expect(h.asked).toEqual([`admin test_set:${EXISTING}`]);
     expect(h.published).toEqual([]);
   });
 
-  test('admin on the suite and on the project: a new version', async () => {
-    const h = await harness([`admin eval_suite:${EXISTING}`, `admin project:${P}`]);
+  test('admin on the test set and on the project: a new version', async () => {
+    const h = await harness([`admin test_set:${EXISTING}`, `admin project:${P}`]);
     const r = await h.call('POST', build(EXISTING), body);
     expect(r.status, JSON.stringify(r.body)).toBe(201);
-    expect(h.asked).toEqual([`admin eval_suite:${EXISTING}`, `admin project:${P}`]);
+    expect(h.asked).toEqual([`admin test_set:${EXISTING}`, `admin project:${P}`]);
   });
 
-  test('a tombstoned suite id is still checked on the suite', async () => {
+  test('a tombstoned test set id is still checked on the test set', async () => {
     const h = await harness([`admin project:${P}`]);
     expect((await h.call('POST', build(GONE), body)).status).toBe(403);
-    expect(h.asked).toEqual([`admin eval_suite:${GONE}`]);
+    expect(h.asked).toEqual([`admin test_set:${GONE}`]);
     expect(h.published).toEqual([]);
   });
 });
 
-test('with authorization off, a new suite builds as before', async () => {
+test('with authorization off, a new test set builds as before', async () => {
   const h = await harness([], { authzOn: false });
   expect((await h.call('POST', build(NEW), body)).status).toBe(201);
   expect(h.asked).toEqual([]);

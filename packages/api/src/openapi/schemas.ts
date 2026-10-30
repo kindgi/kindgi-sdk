@@ -24,7 +24,7 @@
  *      shape. Includes request/response bodies, collection pages,
  *      pagination envelopes, discriminated error responses, patch
  *      bodies. Some entries are byte-equal MIRRORS of a `@kindgi/specs` shape
- *      (Agent, Flow, Guardrail, EvalSuite, ComplianceEvidence).
+ *      (Agent, Flow, Guardrail, TestSet, ComplianceEvidence).
  *      Others are LEGITIMATE WIRE-SIDE VARIANTS — e.g. ProvenanceRecord
  *      wraps the DAG in a `dag` field for future-extensibility; Policy
  *      uses a `kind + spec` discriminant broader than the original
@@ -46,7 +46,7 @@
  * HOW WE PREVENT SILENT DRIFT:
  *   For shapes that appear in BOTH sources, `packages/api/tests/
  *   schema-drift.test.ts` asserts `required[]` matches on aligned
- *   pairs (Agent, ComplianceEvidence, EvalSuite, Flow, Guardrail) and
+ *   pairs (Agent, ComplianceEvidence, TestSet, Flow, Guardrail) and
  *   documents legitimate divergences (Capability, Policy, Provenance,
  *   Tool). Wire-only shapes (Register bodies, CollectionPage, etc.)
  *   live only here and have no `@kindgi/specs` counterpart.
@@ -584,7 +584,7 @@ export const GateCheckSchema: JsonSchema = {
     name: {
       type: 'string',
       description:
-        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.',
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.',
     },
     passed: { type: 'boolean' },
     message: {
@@ -651,7 +651,7 @@ export const GatePolicySpecSchema: JsonSchema = {
       additionalProperties: false,
       properties: {
         maxAgeHours: { type: 'number', exclusiveMinimum: 0 },
-        suite: {
+        testSet: {
           type: 'object',
           additionalProperties: false,
           required: ['id'],
@@ -5774,7 +5774,7 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
   additionalProperties: false,
   required: ['caseId', 'subject', 'input', 'output', 'items'],
   description:
-    "One case of a `judged` eval suite: a copy of a corrected run with its items' corrections summed up.",
+    "One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up.",
   properties: {
     caseId: { type: 'string', description: "The corrected run's id." },
     subject: { $ref: '#/components/schemas/CorrectedSubject' },
@@ -5830,7 +5830,7 @@ export const CorrectedEvalCaseCollectionPageSchema: JsonSchema = {
   },
 };
 
-export const BuildCorrectedSuiteBodySchema: JsonSchema = {
+export const BuildCorrectedTestSetBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['version', 'projectId'],
@@ -5871,14 +5871,14 @@ export const BuildCorrectedSuiteBodySchema: JsonSchema = {
   },
 };
 
-export const BuildCorrectedSuiteResultSchema: JsonSchema = {
+export const BuildCorrectedTestSetResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId', 'version', 'kind', 'caseCount', 'truncated'],
+  required: ['testSetId', 'version', 'kind', 'caseCount', 'truncated'],
   properties: {
-    suiteId: { type: 'string' },
+    testSetId: { type: 'string' },
     version: { type: 'string' },
-    kind: { type: 'string', enum: ['judged'] },
+    kind: { type: 'string', enum: ['corrections'] },
     caseCount: { type: 'integer', minimum: 0 },
     truncated: {
       type: 'boolean',
@@ -6674,12 +6674,12 @@ export const ProposalCandidateSchema: JsonSchema = {
 export const ProposalEvaluationSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['evalRunId', 'suiteId', 'objective', 'startedAt'],
+  required: ['evalRunId', 'testSetId', 'objective', 'startedAt'],
   description:
     "The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
   properties: {
     evalRunId: { type: 'string', format: 'uuid' },
-    suiteId: { type: 'string', description: 'The test set (a judged eval suite).' },
+    testSetId: { type: 'string', description: 'The test set (a corrections test set).' },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
     startedAt: { type: 'string', format: 'date-time' },
     runStatus: {
@@ -6892,7 +6892,7 @@ export const ImprovementPassSchema: JsonSchema = {
     'agentId',
     'fromVersion',
     'scope',
-    'suiteId',
+    'testSetId',
     'tiers',
     'objective',
     'budget',
@@ -6908,7 +6908,7 @@ export const ImprovementPassSchema: JsonSchema = {
     agentId: { type: 'string' },
     fromVersion: { type: 'string', description: 'The version whose settings it tunes.' },
     scope: { $ref: '#/components/schemas/LiveScope' },
-    suiteId: { type: 'string', description: 'The test set it searches and proves on.' },
+    testSetId: { type: 'string', description: 'The test set it searches and proves on.' },
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
     groupWeights: {
@@ -7003,7 +7003,7 @@ export const ImprovementPassCollectionPageSchema: JsonSchema = {
 export const ImproveBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['agentId', 'scope', 'suiteId'],
+  required: ['agentId', 'scope', 'testSetId'],
   description: 'Start an improvement pass.',
   properties: {
     agentId: { type: 'string' },
@@ -7015,13 +7015,13 @@ export const ImproveBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
+        "The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
     },
     scope: { $ref: '#/components/schemas/LiveScope' },
-    suiteId: {
+    testSetId: {
       type: 'string',
       description:
-        'The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.',
+        'The test set (a corrections test set). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.',
     },
     tiers: {
       type: 'array',
@@ -7149,9 +7149,9 @@ export const EvaluateProposalBodySchema: JsonSchema = {
     "Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId'],
+  required: ['testSetId'],
   properties: {
-    suiteId: { type: 'string', description: 'The test set: a judged eval suite.' },
+    testSetId: { type: 'string', description: 'The test set: a corrections test set.' },
     objective: {
       type: 'string',
       enum: ['weightedYesShare', 'weightedPrecisionAtK'],
@@ -9048,7 +9048,7 @@ export const RetentionSweepResultSchema: JsonSchema = {
   },
 };
 
-// ---------------- eval suites (admin plane) ----------------
+// ---------------- test sets (admin plane) ----------------
 
 /**
  * Closed set of eval kinds the framework knows about. Extended
@@ -9057,11 +9057,19 @@ export const RetentionSweepResultSchema: JsonSchema = {
  */
 export const EvalKindSchema: JsonSchema = {
   type: 'string',
-  enum: ['accuracy', 'pairwise', 'regression', 'human-review', 'benchmark', 'custom', 'judged'],
+  enum: [
+    'accuracy',
+    'pairwise',
+    'regression',
+    'human-review',
+    'benchmark',
+    'custom',
+    'corrections',
+  ],
 };
 
 /**
- * Wire shape for a single evaluation suite. `spec` is a JSON object
+ * Wire shape for a single test set. `spec` is a JSON object
  * whose shape is dictated by `kind` — the registry treats it as opaque
  * JSON so new kinds can extend the catalog without breaking existing
  * readers. Runtime consumers deserialize `spec` against their own
@@ -9069,7 +9077,7 @@ export const EvalKindSchema: JsonSchema = {
  * `regression`, HITL bridge for `human-review`, sandbox handler for
  * `custom`).
  */
-export const EvalSuiteSchema: JsonSchema = {
+export const TestSetSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'tenantId', 'version', 'kind', 'spec'],
@@ -9082,7 +9090,7 @@ export const EvalSuiteSchema: JsonSchema = {
     version: {
       type: 'string',
       pattern: '^\\d+\\.\\d+\\.\\d+$',
-      description: 'Semver — publishing a modified suite produces a new version.',
+      description: 'Semver — publishing a modified testSet produces a new version.',
     },
     kind: { $ref: '#/components/schemas/EvalKind' },
     description: { type: 'string' },
@@ -9090,32 +9098,32 @@ export const EvalSuiteSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.',
+        'Kind-specific testSet body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.',
     },
     unregisteredAt: {
       type: 'string',
       format: 'date-time',
       description:
-        'Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it.',
+        'Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/test-sets?includeRetired=true` lists it.',
     },
   },
 };
 
-export const EvalSuiteCollectionPageSchema: JsonSchema = {
+export const TestSetCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
     data: {
       type: 'array',
-      items: { $ref: '#/components/schemas/EvalSuite' },
+      items: { $ref: '#/components/schemas/TestSet' },
     },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
   },
 };
 
-export const PublishEvalSuiteBodySchema: JsonSchema = {
+export const PublishTestSetBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version', 'kind', 'spec', 'projectId'],
@@ -9135,33 +9143,33 @@ export const PublishEvalSuiteBodySchema: JsonSchema = {
   },
 };
 
-export const PublishEvalSuiteResultSchema: JsonSchema = {
+export const PublishTestSetResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId', 'version'],
+  required: ['testSetId', 'version'],
   properties: {
-    suiteId: { type: 'string' },
+    testSetId: { type: 'string' },
     version: { type: 'string' },
   },
 };
 
-export const UnregisterEvalSuiteResultSchema: JsonSchema = {
+export const UnregisterTestSetResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId', 'version', 'unregistered'],
+  required: ['testSetId', 'version', 'unregistered'],
   properties: {
-    suiteId: { type: 'string' },
+    testSetId: { type: 'string' },
     version: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
   },
 };
 
-export const ReinstateEvalSuiteVersionResultSchema: JsonSchema = {
+export const ReinstateTestSetVersionResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId', 'version', 'wasTombstoned'],
+  required: ['testSetId', 'version', 'wasTombstoned'],
   properties: {
-    suiteId: { type: 'string' },
+    testSetId: { type: 'string' },
     version: { type: 'string' },
     wasTombstoned: { type: 'boolean' },
   },
@@ -9407,7 +9415,7 @@ export const EvalComparisonSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['baseline', 'reads', 'repetitions', 'k'],
-  description: "A comparison eval run's settings (a `judged` suite).",
+  description: "A comparison eval run's settings (a `corrections` test set).",
   properties: {
     baseline: { $ref: '#/components/schemas/EvalBaseline' },
     reads: {
@@ -9435,7 +9443,7 @@ export const EvalComparisonSchema: JsonSchema = {
   },
 };
 
-// ---------------- comparison results (a `judged` eval run's `result`) ----------------
+// ---------------- comparison results (a `corrections` eval run's `result`) ----------------
 
 const nullableNumber = { type: ['number', 'null'] } as const;
 
@@ -9533,7 +9541,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
     'evalRunId',
     'status',
     'completedAt',
-    'suite',
+    'testSet',
     'candidate',
     'baseline',
     'scope',
@@ -9551,7 +9559,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
     evalRunId: { type: 'string' },
     status: { type: 'string', enum: ['completed', 'partial', 'failed'] },
     completedAt: { type: 'string', format: 'date-time' },
-    suite: {
+    testSet: {
       type: 'object',
       additionalProperties: false,
       required: ['id', 'version'],
@@ -9954,7 +9962,7 @@ export const RescoreEvalRunBodySchema: JsonSchema = {
 
 export const CorrectedComparisonResultSchema: JsonSchema = {
   description:
-    "A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
+    "A comparison's `result` (a `corrections` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
   type: 'object',
   additionalProperties: false,
   required: ['summary', 'perCase'],
@@ -9970,8 +9978,8 @@ export const EvalRunSchema: JsonSchema = {
   required: [
     'runId',
     'tenantId',
-    'suiteId',
-    'suiteVersion',
+    'testSetId',
+    'testSetVersion',
     'kind',
     'status',
     'dryRun',
@@ -9986,8 +9994,8 @@ export const EvalRunSchema: JsonSchema = {
       description:
         'The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.',
     },
-    suiteId: { type: 'string' },
-    suiteVersion: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
+    testSetId: { type: 'string' },
+    testSetVersion: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     kind: { $ref: '#/components/schemas/EvalKind' },
     agentRef: { $ref: '#/components/schemas/EvalRunAgentRef' },
     flowRef: { $ref: '#/components/schemas/EvalRunFlowRef' },
@@ -9999,7 +10007,7 @@ export const EvalRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     cancelReason: {
@@ -10048,7 +10056,7 @@ export const StartEvalRunBodySchema: JsonSchema = {
     sample: { $ref: '#/components/schemas/EvalSample' },
   },
   description:
-    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
+    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
 };
 
 export const StartEvalRunResultSchema: JsonSchema = {
@@ -16467,8 +16475,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CorrectorGroupAssertableByView', CorrectorGroupAssertableByViewSchema],
   ['CorrectedEvalCase', CorrectedEvalCaseSchema],
   ['CorrectedEvalCaseCollectionPage', CorrectedEvalCaseCollectionPageSchema],
-  ['BuildCorrectedSuiteBody', BuildCorrectedSuiteBodySchema],
-  ['BuildCorrectedSuiteResult', BuildCorrectedSuiteResultSchema],
+  ['BuildCorrectedTestSetBody', BuildCorrectedTestSetBodySchema],
+  ['BuildCorrectedTestSetResult', BuildCorrectedTestSetResultSchema],
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
   ['AgentMemoryPolicy', AgentMemoryPolicySchema],
@@ -16681,12 +16689,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RetentionSweepDomainBody', RetentionSweepDomainBodySchema],
   ['RetentionSweepResult', RetentionSweepResultSchema],
   ['EvalKind', EvalKindSchema],
-  ['EvalSuite', EvalSuiteSchema],
-  ['EvalSuiteCollectionPage', EvalSuiteCollectionPageSchema],
-  ['PublishEvalSuiteBody', PublishEvalSuiteBodySchema],
-  ['PublishEvalSuiteResult', PublishEvalSuiteResultSchema],
-  ['UnregisterEvalSuiteResult', UnregisterEvalSuiteResultSchema],
-  ['ReinstateEvalSuiteVersionResult', ReinstateEvalSuiteVersionResultSchema],
+  ['TestSet', TestSetSchema],
+  ['TestSetCollectionPage', TestSetCollectionPageSchema],
+  ['PublishTestSetBody', PublishTestSetBodySchema],
+  ['PublishTestSetResult', PublishTestSetResultSchema],
+  ['UnregisterTestSetResult', UnregisterTestSetResultSchema],
+  ['ReinstateTestSetVersionResult', ReinstateTestSetVersionResultSchema],
   ['BlockKind', BlockKindSchema],
   ['PromptBlockContent', PromptBlockContentSchema],
   ['SettingsBlockContent', SettingsBlockContentSchema],

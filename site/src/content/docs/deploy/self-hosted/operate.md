@@ -180,7 +180,7 @@ What to check before you upgrade, and what's different after:
   runtime-only subpath `@kindgi/agents/migrations` now, with no alias.
 - **The API:**
   - A page cursor a list didn't issue answers `400 bad-input` on the
-    agents, flows, policies and eval-suites `/versions` lists and on an
+    agents, flows, policies and test-sets `/versions` lists and on an
     agent's go-live history, as it does on blocks' and tools' `/versions`.
   - When an admin ends someone's sessions, it shows on that person's
     sign-in history (`GET /v1/audit/sign-ins?userId=`), with `byUserId`
@@ -793,7 +793,7 @@ and what's different after:
 - **An agent, flow, tool or set of test cases stays in the project it was
   first published into.** Publishing a version of one under another project is
   refused with a `409` (`agent-project-mismatch`, `flow-…`, `tool-…`,
-  `eval-suite-project-mismatch`), even for an admin of both, and nothing is
+  `test-set-project-mismatch`), even for an admin of both, and nothing is
   written; 0.1.4 accepted it. A deploy that includes one is refused whole,
   even when it's unchanged. The refusal carries the id, not the other project
   ([Organize work by org and project](../../../guides/projects/organize-by-org-and-project/)).

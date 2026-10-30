@@ -68,7 +68,7 @@ export type InstallationId = Brand<string, 'InstallationId'>;
 
 /**
  * Which version a single read answers: `agents.get`, `flows.get`,
- * `tools.get`, `evalSuites.get` and `blocks.get`. An item more than one
+ * `tools.get`, `testSets.get` and `blocks.get`. An item more than one
  * project serves (an environment order carries it to later environments)
  * answers its newest active version that can run in a project the caller
  * reads.
@@ -493,7 +493,7 @@ export interface FixProposal {
   /** Its comparison, and what it found on the objective metric. */
   readonly evaluation?: {
     readonly evalRunId: string;
-    readonly suiteId: string;
+    readonly testSetId: string;
     readonly objective: ProposalObjective;
     readonly startedAt: import('@kindgi/types').Timestamp;
     readonly runStatus?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -1984,7 +1984,7 @@ export type RetentionDomain =
   | 'agent'
   | 'flow'
   | 'tool'
-  | 'eval_suite'
+  | 'test_set'
   | 'guardrail'
   | 'mcp_endpoint'
   | 'env'

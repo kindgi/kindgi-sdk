@@ -15,21 +15,21 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
-import type { EvalKind } from './eval-suite-binding.js';
+import type { EvalKind } from './test-set-binding.js';
 
 /**
  * Caller-plugged surface for the evaluation-run data plane — the
- * companion to the eval-suite registry that closes the loop by adding
+ * companion to the test-set registry that closes the loop by adding
  * *execution*.
  * Same pattern as every other admin binding: the API package does NOT
  * own persistence. Deployments wire this binding to a runtime that
- * dispatches per `EvalSuite.kind` (see `eval-run-dispatcher.ts` for
+ * dispatches per `TestSet.kind` (see `eval-run-dispatcher.ts` for
  * the reference accuracy dispatcher).
  *
  * The wire shape mirrors the run surface. A durable implementation can
  * make every `EvalRun` a specialized run (started with `runGraph`),
  * inheriting durability, replay, and cancel semantics while adding
- * eval-specific fields (`suiteId`, `suiteVersion`, `kind`, `result`);
+ * eval-specific fields (`testSetId`, `testSetVersion`, `kind`, `result`);
  * the in-process reference in `eval-run-dispatcher.ts` keeps runs in
  * memory.
  *
@@ -40,9 +40,9 @@ import type { EvalKind } from './eval-suite-binding.js';
  */
 export interface EvalRunBinding {
   /**
-   * Start a new eval run against a specific suite id (the dispatcher
-   * resolves the suite version internally — bindings MAY reject with
-   * `suite-not-found` when the suiteId is unknown for the tenant).
+   * Start a new eval run against a specific test set id (the dispatcher
+   * resolves the test set version internally — bindings MAY reject with
+   * `test-set-not-found` when the testSetId is unknown for the tenant).
    */
   start(input: EvalRunStartInput): Promise<EvalRunStartOutcome>;
   /**
@@ -103,8 +103,8 @@ export type EvalRunStatus = (typeof EVAL_RUN_STATUSES)[number];
 export interface EvalRun {
   readonly runId: RunId;
   readonly tenantId: TenantId;
-  readonly suiteId: string;
-  readonly suiteVersion: string;
+  readonly testSetId: string;
+  readonly testSetVersion: string;
   readonly kind: EvalKind;
   readonly agentRef?: AgentRef;
   readonly flowRef?: FlowRef;
@@ -129,7 +129,7 @@ export interface EvalRun {
 }
 
 export interface EvalRunFilter {
-  readonly suiteId?: string;
+  readonly testSetId?: string;
   readonly status?: EvalRunStatus;
   readonly agentId?: AgentId;
   readonly flowId?: FlowId;
@@ -195,7 +195,7 @@ export interface EvalComparison {
    * Rescore that comparison eval run instead of replaying: its replays'
    * outputs are scored again, with the corrections recorded on them since
    * (a changed answer corrected on the replay itself). Nothing runs; the run
-   * rescored stays as it was. Same suite version, candidate and sample.
+   * rescored stays as it was. Same test set version, candidate and sample.
    */
   readonly rescoreOf?: string;
 }
@@ -232,21 +232,21 @@ export interface EvalRunStartInput {
    * `project-not-found` outcome. No silent fallback to a tenant Default here.
    */
   readonly projectId: ProjectId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   /**
-   * The suite version to run (absent: the latest). A rescore names the
+   * The test set version to run (absent: the latest). A rescore names the
    * version the run it rescores ran, so the cases are the same. In a
    * tenant with environment orders, a run reaches the versions made in
    * its project or an earlier environment of its order: absent, the
    * latest of those; a named version made in a later environment reads
-   * as one the tenant doesn't have (`suite-not-found`).
+   * as one the tenant doesn't have (`test-set-not-found`).
    */
-  readonly suiteVersion?: string;
+  readonly testSetVersion?: string;
   readonly agentRef?: AgentRef;
   readonly flowRef?: FlowRef;
   readonly dryRun?: boolean;
   readonly correlationId?: string;
-  /** Set for a comparison eval run (a `judged` suite): its baseline, reads and repetitions. */
+  /** Set for a comparison eval run (a `corrections` test set): its baseline, reads and repetitions. */
   readonly comparison?: EvalComparison;
 }
 
@@ -260,7 +260,7 @@ export type EvalRunStartOutcome =
       readonly runId: RunId;
       readonly dryRunPreview?: Readonly<Record<string, unknown>>;
     }
-  | { readonly kind: 'suite-not-found'; readonly suiteId: string }
+  | { readonly kind: 'test-set-not-found'; readonly testSetId: string }
   | { readonly kind: 'dispatcher-not-registered'; readonly evalKind: EvalKind }
   | { readonly kind: 'dispatcher-input-invalid'; readonly message: string }
   | {

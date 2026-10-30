@@ -9,82 +9,82 @@ import { recordingFetch } from '../support/recording-fetch.js';
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
 
-const SAMPLE_SUITE = {
-  id: 'suite.x',
+const SAMPLE_TEST_SET = {
+  id: 'testSet.x',
   tenantId: '00000000-0000-4000-8000-000000000002',
   version: '1.0.0',
   kind: 'accuracy',
   spec: {},
 };
 
-/** A `POST /v1/eval-suites` body without its `projectId` (sent via options). */
+/** A `POST /v1/test-sets` body without its `projectId` (sent via options). */
 const PUBLISH_BODY = {
-  id: 'suite.x',
+  id: 'testSet.x',
   version: '1.0.0',
   kind: 'accuracy' as const,
   spec: {},
 };
 
-describe('eval-suites — wire round-trips', () => {
+describe('test-sets — wire round-trips', () => {
   it('publish/list/get + versions.{list,get,unregister,reinstate}', async () => {
     const stub = recordingFetch([
-      { status: 201, body: JSON.stringify({ suiteId: 'suite.x', version: '1.0.0' }) },
-      { status: 200, body: JSON.stringify({ data: [SAMPLE_SUITE], hasMore: false }) },
-      { status: 200, body: JSON.stringify(SAMPLE_SUITE) },
-      { status: 200, body: JSON.stringify({ data: [SAMPLE_SUITE], hasMore: false }) },
-      { status: 200, body: JSON.stringify(SAMPLE_SUITE) },
+      { status: 201, body: JSON.stringify({ testSetId: 'testSet.x', version: '1.0.0' }) },
+      { status: 200, body: JSON.stringify({ data: [SAMPLE_TEST_SET], hasMore: false }) },
+      { status: 200, body: JSON.stringify(SAMPLE_TEST_SET) },
+      { status: 200, body: JSON.stringify({ data: [SAMPLE_TEST_SET], hasMore: false }) },
+      { status: 200, body: JSON.stringify(SAMPLE_TEST_SET) },
       { status: 200, body: JSON.stringify({ unregistered: true }) },
       { status: 200, body: JSON.stringify({ reinstated: true }) },
     ]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
-    await client.evalSuites.publish(PUBLISH_BODY, { projectId: 'proj-1' });
-    await client.evalSuites.list({ kind: 'accuracy' });
-    await client.evalSuites.get('suite.x');
-    await client.evalSuites.versions.list('suite.x');
-    await client.evalSuites.versions.get('suite.x', '1.0.0');
-    await client.evalSuites.versions.unregister('suite.x', '1.0.0');
-    await client.evalSuites.versions.reinstate('suite.x', '1.0.0');
+    await client.testSets.publish(PUBLISH_BODY, { projectId: 'proj-1' });
+    await client.testSets.list({ kind: 'accuracy' });
+    await client.testSets.get('testSet.x');
+    await client.testSets.versions.list('testSet.x');
+    await client.testSets.versions.get('testSet.x', '1.0.0');
+    await client.testSets.versions.unregister('testSet.x', '1.0.0');
+    await client.testSets.versions.reinstate('testSet.x', '1.0.0');
     expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
-      'POST /v1/eval-suites',
-      'GET /v1/eval-suites',
-      'GET /v1/eval-suites/suite.x',
-      'GET /v1/eval-suites/suite.x/versions',
-      'GET /v1/eval-suites/suite.x/versions/1.0.0',
-      'POST /v1/eval-suites/suite.x/versions/1.0.0/unregister',
-      'POST /v1/eval-suites/suite.x/versions/1.0.0/reinstate',
+      'POST /v1/test-sets',
+      'GET /v1/test-sets',
+      'GET /v1/test-sets/testSet.x',
+      'GET /v1/test-sets/testSet.x/versions',
+      'GET /v1/test-sets/testSet.x/versions/1.0.0',
+      'POST /v1/test-sets/testSet.x/versions/1.0.0/unregister',
+      'POST /v1/test-sets/testSet.x/versions/1.0.0/reinstate',
     ]);
   });
 });
 
-describe('evalSuites.publish — projectId (POST /v1/eval-suites requires it)', () => {
-  it('sends options.projectId in the body next to the suite fields', async () => {
+describe('testSets.publish — projectId (POST /v1/test-sets requires it)', () => {
+  it('sends options.projectId in the body next to the test set fields', async () => {
     const stub = recordingFetch([
-      { status: 201, body: JSON.stringify({ suiteId: 'suite.x', version: '1.0.0' }) },
+      { status: 201, body: JSON.stringify({ testSetId: 'testSet.x', version: '1.0.0' }) },
     ]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
-    const suite = {
-      id: 'suite.x',
+    const testSet = {
+      id: 'testSet.x',
       version: '1.0.0',
       kind: 'accuracy' as const,
       description: 'Citation accuracy',
       spec: { cases: [] },
     };
 
-    await client.evalSuites.publish(suite, { projectId: 'proj-1', idempotencyKey: 'idem-s' });
+    await client.testSets.publish(testSet, { projectId: 'proj-1', idempotencyKey: 'idem-s' });
 
     const req = stub.calls[0]!;
-    expect(`${req.method} ${new URL(req.url).pathname}`).toBe('POST /v1/eval-suites');
+    expect(`${req.method} ${new URL(req.url).pathname}`).toBe('POST /v1/test-sets');
     expect(req.headers['idempotency-key']).toBe('idem-s');
-    expect(JSON.parse(req.body ?? '{}')).toEqual({ ...suite, projectId: 'proj-1' });
+    expect(JSON.parse(req.body ?? '{}')).toEqual({ ...testSet, projectId: 'proj-1' });
   });
 });
 
-describe('evalSuites.buildFromCorrections and listCases', () => {
+describe('testSets.buildFromCorrections and listCases', () => {
   it('POSTs the build body with the Idempotency-Key and returns the result', async () => {
     const result = {
-      suiteId: 'acme.matches',
+      testSetId: 'acme.matches',
       version: '1.0.0',
-      kind: 'judged',
+      kind: 'corrections',
       caseCount: 2,
       truncated: false,
     };
@@ -99,14 +99,14 @@ describe('evalSuites.buildFromCorrections and listCases', () => {
       minCorrections: 2,
     };
 
-    const out = await client.evalSuites.buildFromCorrections('acme.matches', body, {
+    const out = await client.testSets.buildFromCorrections('acme.matches', body, {
       idempotencyKey: 'idem-b',
     });
 
     expect(out).toEqual(result);
     const req = stub.calls[0]!;
     expect(`${req.method} ${new URL(req.url).pathname}`).toBe(
-      'POST /v1/eval-suites/acme.matches/versions/from-corrections',
+      'POST /v1/test-sets/acme.matches/versions/from-corrections',
     );
     expect(req.headers['idempotency-key']).toBe('idem-b');
     expect(JSON.parse(req.body ?? '{}')).toEqual(body);
@@ -117,7 +117,7 @@ describe('evalSuites.buildFromCorrections and listCases', () => {
     const stub = recordingFetch([{ status: 200, body: JSON.stringify(page) }]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
 
-    const out = await client.evalSuites.listCases('acme.matches', '1.0.0', {
+    const out = await client.testSets.listCases('acme.matches', '1.0.0', {
       limit: 10,
       cursor: 'c1',
     });
@@ -125,7 +125,7 @@ describe('evalSuites.buildFromCorrections and listCases', () => {
     expect(out).toEqual(page);
     const url = new URL(stub.calls[0]!.url);
     expect(stub.calls[0]!.method).toBe('GET');
-    expect(url.pathname).toBe('/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    expect(url.pathname).toBe('/v1/test-sets/acme.matches/versions/1.0.0/cases');
     expect(url.searchParams.get('limit')).toBe('10');
     expect(url.searchParams.get('cursor')).toBe('c1');
   });

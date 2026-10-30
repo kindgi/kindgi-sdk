@@ -12,7 +12,6 @@ import type { BlockRegistryBinding } from '../block-binding.js';
 import type { CorrectionRegistryBinding, CorrectorGroupScope } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalGroupWeights } from '../eval-run-binding.js';
-import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
 import {
   IMPROVE_SCHEDULE_DEFAULTS,
   type ImproveScheduleInput,
@@ -34,6 +33,7 @@ import {
 } from '../reference-scope.js';
 import { refusesCandidates, refusesScope } from '../registry-read-only.js';
 import type { ProposalObjective } from '../supervisor-binding.js';
+import type { TestSetRegistryBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, coordinatesOf } from './agent-releases.js';
 import { deniedBy } from './denied.js';
@@ -62,14 +62,14 @@ export interface ImproveDeps {
    */
   readonly correctorGroups?: Pick<CorrectionRegistryBinding, 'listGroups'>;
   /**
-   * Eval suites, to resolve the project a pass reads its corrections from: a
-   * judged suite's own `spec.projectId`, else the suite's recorded project.
+   * Test sets, to resolve the project a pass reads its corrections from: a
+   * corrections test set's own `spec.projectId`, else the test set's recorded project.
    * That's the project the `groupWeights` default keys off, not where the
-   * agent is made — the two differ when the suite is an earlier environment's.
-   * Absent, or the suite records no project: the default keys off the agent
+   * agent is made — the two differ when the test set is an earlier environment's.
+   * Absent, or the test set records no project: the default keys off the agent
    * version's project. Only `get` is used.
    */
-  readonly suites?: Pick<EvalSuiteRegistryBinding, 'get'>;
+  readonly testSets?: Pick<TestSetRegistryBinding, 'get'>;
 }
 
 /**
@@ -137,22 +137,24 @@ export async function projectHasExpertClass(
 
 /**
  * The project a pass reads its corrections from, which the `groupWeights`
- * default keys off: a judged suite's own `spec.projectId`, else the suite's
- * recorded project. Undefined when no suite binding is wired or the suite
+ * default keys off: a corrections test set's own `spec.projectId`, else the test set's
+ * recorded project. Undefined when no test set binding is wired or the test set
  * records no project — the caller then falls back to the agent version's
- * project. (The two differ when the suite is an earlier environment's.)
+ * project. (The two differ when the test set is an earlier environment's.)
  */
-async function suiteProjectId(
+async function testSetProjectId(
   deps: ImproveDeps,
   tenantId: TenantId,
-  suiteId: string,
+  testSetId: string,
 ): Promise<ProjectId | undefined> {
-  if (deps.suites === undefined) return undefined;
-  const suite = await deps.suites.get({ tenantId, suiteId });
-  if (suite === null) return undefined;
+  if (deps.testSets === undefined) return undefined;
+  const testSet = await deps.testSets.get({ tenantId, testSetId });
+  if (testSet === null) return undefined;
   const specProject =
-    suite.kind === 'judged' ? (suite.spec as { projectId?: ProjectId }).projectId : undefined;
-  return specProject ?? suite.projectId;
+    testSet.kind === 'corrections'
+      ? (testSet.spec as { projectId?: ProjectId }).projectId
+      : undefined;
+  return specProject ?? testSet.projectId;
 }
 
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
@@ -236,14 +238,14 @@ export function mountImproveRoute(
       });
     }
     // The `groupWeights` default keys off the project the pass READS its
-    // corrections from — its suite's project — not where the agent is made;
-    // the two differ when the suite is an earlier environment's. Only the
-    // default needs it, so skip the suite read when `groupWeights` is
+    // corrections from — its test set's project — not where the agent is made;
+    // the two differ when the test set is an earlier environment's. Only the
+    // default needs it, so skip the test set read when `groupWeights` is
     // explicit, or when no corrector-group registry is wired (the default is
     // fixed at `experts-only` either way).
     const readProjectId =
       parsed.groupWeights === undefined && deps.correctorGroups !== undefined
-        ? ((await suiteProjectId(deps, tenantId, parsed.suiteId)) ?? from.projectId)
+        ? ((await testSetProjectId(deps, tenantId, parsed.testSetId)) ?? from.projectId)
         : from.projectId;
     const pass = await deps.passes.start({
       tenantId,
@@ -251,7 +253,7 @@ export function mountImproveRoute(
       agentId: parsed.agentId,
       fromVersion: from.version as unknown as string,
       scope: parsed.scope,
-      suiteId: parsed.suiteId,
+      testSetId: parsed.testSetId,
       tiers: parsed.tiers,
       objective: parsed.objective,
       groupWeights: await resolveGroupWeights(
@@ -290,7 +292,7 @@ export function mountImproveRoute(
       agentId: parsed.agentId,
       fromVersion: resolved.from.version as string,
       scope: parsed.scope,
-      suiteId: parsed.suiteId,
+      testSetId: parsed.testSetId,
       tiers: parsed.tiers,
       ...(parsed.model !== undefined && { model: parsed.model }),
       ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
@@ -459,7 +461,7 @@ async function resolveImproveTarget(
  * The project a pass works in, as an improve schedule's (`schedules.ts`):
  * the one named, else the scope's, else the version's. A project or
  * segment scope must be in it; a project other than the version's needs
- * `write` there and must reach the version; it must reach the suite, and
+ * `write` there and must reach the version; it must reach the test set, and
  * the scope the agent. The project, or the refusal. Whether it's suspended
  * is `/improve`'s to ask, since the estimate starts nothing.
  */
@@ -485,7 +487,7 @@ async function passProject(
     if (refused !== undefined) return refused;
   }
   // The scope must reach the agent; then the pass's project must reach
-  // the version (when it isn't the version's own) and the suite
+  // the version (when it isn't the version's own) and the test set
   // (`reference-scope.ts`).
   const outOfScope =
     (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope)) ??
@@ -502,7 +504,7 @@ async function passProject(
                 },
               ]
             : []),
-          { path: '/suiteId', kind: 'suite', id: parsed.suiteId },
+          { path: '/testSetId', kind: 'test-set', id: parsed.testSetId },
         ]));
   if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
   return { projectId };
@@ -579,7 +581,7 @@ export function serializePass(p: ImprovementPass): Record<string, unknown> {
     agentId: p.agentId,
     fromVersion: p.fromVersion,
     scope: liveScopeToWire(p.scope),
-    suiteId: p.suiteId,
+    testSetId: p.testSetId,
     tiers: p.tiers,
     objective: p.objective,
     groupWeights: p.groupWeights,
@@ -608,7 +610,7 @@ interface ImproveBody {
   readonly fromVersion?: string;
   readonly projectId?: string;
   readonly scope: ImprovementPass['scope'];
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
   readonly groupWeights?: EvalGroupWeights;
@@ -682,7 +684,7 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
     'fromVersion',
     'projectId',
     'scope',
-    'suiteId',
+    'testSetId',
     'tiers',
     'objective',
     'groupWeights',
@@ -704,7 +706,7 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   }
   const scope = parseLiveScopeBody(b.scope);
   if (scope.kind === 'err') return scope.message;
-  if (!nonEmpty(b.suiteId)) return '`suiteId` is required: the test set to search and prove on';
+  if (!nonEmpty(b.testSetId)) return '`testSetId` is required: the test set to search and prove on';
   const options = parsePassOptions(b);
   if (typeof options === 'string') return options;
   return {
@@ -712,7 +714,7 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
     ...(typeof b.fromVersion === 'string' && { fromVersion: b.fromVersion }),
     ...(typeof b.projectId === 'string' && { projectId: b.projectId }),
     scope: scope.scope,
-    suiteId: b.suiteId,
+    testSetId: b.testSetId,
     ...options,
   };
 }

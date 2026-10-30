@@ -230,9 +230,9 @@ const evaluate: LeafCommand = {
   description:
     'Evaluate a suggested change on the test cases: a run on the test cases that tries the candidate against the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until made live, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The suggested change is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people corrected the new answers of its replay runs: the latest evaluation scored again, counting those corrections, on the same replays (no other flag). Needs `publish` on the agent.',
   usage:
-    'kindgi proposals evaluate <proposal-id> --test-set=<suite-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--wait]\n       kindgi proposals evaluate <proposal-id> --rescore [--wait]',
+    'kindgi proposals evaluate <proposal-id> --test-set=<test-set-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--wait]\n       kindgi proposals evaluate <proposal-id> --rescore [--wait]',
   optionSpec: {
-    'test-set': { type: 'string', description: 'The test cases: a judged eval suite, by id.' },
+    'test-set': { type: 'string', description: 'The test cases: a corrections test set, by id.' },
     objective: {
       type: 'string',
       description:
@@ -289,14 +289,14 @@ const evaluate: LeafCommand = {
         const started = await proposals.rescore(id, { ...idempotency(ctx) });
         return ctx.options.wait === true ? await follow() : started;
       }
-      const suiteId = required(ctx, 'test-set');
+      const testSetId = required(ctx, 'test-set');
       const objective = oneOfFlag(ctx, 'objective', OBJECTIVES);
       const reads = oneOfFlag(ctx, 'reads', READS);
       const groupWeights = oneOfFlag(ctx, 'group-weights', GROUP_WEIGHTS);
       const repetitions = integerFlag(ctx, 'repetitions');
       const k = integerFlag(ctx, 'k');
       const started = await proposals.evaluate(id, {
-        suiteId,
+        testSetId,
         ...(objective !== undefined && { objective }),
         ...(reads !== undefined && { reads }),
         ...(repetitions !== undefined && { repetitions }),
@@ -449,13 +449,13 @@ const improve: LeafCommand = {
   name: 'improve',
   description:
     "Ask the runtime to look for better values for the settings an agent version marks as what Improve may change — or, with `--tier=prompt`, have a model draft new instructions — for a scope, within a budget. It searches on part of the test cases and checks its best candidate on the cases it didn't learn from; if that candidate is better, it writes a suggested change, which a reviewer decides (`kindgi proposals request`). The Improve run works in one project: the test cases must be ones that project reaches, and its eval runs run there. With `--project`, it's that project; with `--tenant` or `--org`, `--pass-project`, else the agent version's. Answers at once with the Improve run; `--wait` waits for its outcome. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's.",
-  usage: `kindgi proposals improve --agent=<agent-id> ${SCOPE_USAGE} --test-set=<suite-id> [--pass-project=<project-id>] [--from-version=<semver>] [--tier=settings|prompt] [--objective=weightedYesShare|weightedPrecisionAtK] [--group-weights=as-recorded|experts-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
+  usage: `kindgi proposals improve --agent=<agent-id> ${SCOPE_USAGE} --test-set=<test-set-id> [--pass-project=<project-id>] [--from-version=<semver>] [--tier=settings|prompt] [--objective=weightedYesShare|weightedPrecisionAtK] [--group-weights=as-recorded|experts-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
     ...SCOPE_FLAGS,
     'test-set': {
       type: 'string',
-      description: 'The test cases (a judged suite) to search and check on, by id.',
+      description: 'The test cases (a corrections test set) to search and check on, by id.',
     },
     'pass-project': {
       type: 'string',
@@ -514,7 +514,7 @@ const improve: LeafCommand = {
     runSdk(ctx, 'proposals improve', async () => {
       const agentId = required(ctx, 'agent');
       const scope = scopeFrom(ctx, true);
-      const suiteId = required(ctx, 'test-set');
+      const testSetId = required(ctx, 'test-set');
       const fromVersion = stringFlag(ctx, 'from-version');
       const passProject = stringFlag(ctx, 'pass-project');
       const tier = oneOfFlag(ctx, 'tier', IMPROVE_TIERS);
@@ -529,7 +529,7 @@ const improve: LeafCommand = {
       const pass = await client.proposals.improve({
         agentId,
         scope,
-        suiteId,
+        testSetId,
         ...(passProject !== undefined && { projectId: passProject }),
         ...(fromVersion !== undefined && { fromVersion }),
         ...(tier !== undefined && { tiers: [tier] }),

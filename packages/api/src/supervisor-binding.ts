@@ -144,7 +144,7 @@ export type ProposalRule = 'better' | 'cheaper';
 /** The comparison a proposal was evaluated with. */
 export interface ProposalEvaluationRef {
   readonly evalRunId: string;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly objective: ProposalObjective;
   readonly startedAt: Timestamp;
   /** How the candidate is kept. Absent: `better`. */

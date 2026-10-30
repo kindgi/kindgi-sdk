@@ -943,21 +943,21 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
     status: 'none',
-    suite: 'none',
+    'test-set': 'none',
   },
   'eval-runs rescore': {
     project: 'none',
   },
-  'eval-suites list': {
+  'test-sets list': {
     cursor: 'none',
     kind: 'none',
     limit: '`25` (at most `100`)',
     project: 'none',
   },
-  'eval-suites show': {
-    'suite-version': 'the latest version',
+  'test-sets show': {
+    'test-set-version': 'the latest version',
   },
-  'eval-suites from-corrections': {
+  'test-sets from-corrections': {
     agent: 'required: one of `--agent`, `--flow`',
     'agent-version': 'none',
     group: 'none',
@@ -967,13 +967,13 @@ export const CLI_DEFAULTS = {
     project: 'required',
     segment: 'none',
     since: 'none',
-    'suite-version': 'required',
+    'test-set-version': 'required',
     until: 'none',
   },
-  'eval-suites cases': {
+  'test-sets cases': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    'suite-version': 'required',
+    'test-set-version': 'required',
   },
   'blocks list': {
     cursor: 'none',
@@ -2083,8 +2083,8 @@ export const CLI_EXAMPLES = {
   ],
   'eval-runs list': [
     {
-      purpose: 'List the newest eval runs of one suite.',
-      line: 'kindgi eval-runs list --suite=acme.article-picks',
+      purpose: 'List the newest eval runs of one test set.',
+      line: 'kindgi eval-runs list --test-set=acme.article-picks',
     },
     {
       purpose: 'List failed runs of an agent, ten at a time.',
@@ -2107,34 +2107,34 @@ export const CLI_EXAMPLES = {
       line: 'kindgi eval-runs rescore <run-id> --project=<project-id>',
     },
   ],
-  'eval-suites list': [
+  'test-sets list': [
     {
-      purpose: 'List the judged suites of a project.',
-      line: 'kindgi eval-suites list --project=<project-id> --kind=judged',
+      purpose: 'List the corrections test sets of a project.',
+      line: 'kindgi test-sets list --project=<project-id> --kind=corrections',
     },
     {
-      purpose: 'List suites including retired ones.',
-      line: 'kindgi eval-suites list --include-retired',
-    },
-  ],
-  'eval-suites show': [
-    {
-      purpose: "Show a suite's latest version.",
-      line: 'kindgi eval-suites show acme.article-picks',
-    },
-    {
-      purpose: 'Show one version of a suite.',
-      line: 'kindgi eval-suites show acme.article-picks --suite-version=1.0.0',
+      purpose: 'List testSets including retired ones.',
+      line: 'kindgi test-sets list --include-retired',
     },
   ],
-  'eval-suites cases': [
+  'test-sets show': [
+    {
+      purpose: "Show a test set's latest version.",
+      line: 'kindgi test-sets show acme.article-picks',
+    },
+    {
+      purpose: 'Show one version of a test set.',
+      line: 'kindgi test-sets show acme.article-picks --test-set-version=1.0.0',
+    },
+  ],
+  'test-sets cases': [
     {
       purpose: 'List the first page of the test cases.',
-      line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0',
+      line: 'kindgi test-sets cases acme.article-picks --test-set-version=1.0.0',
     },
     {
       purpose: 'Fetch the next page of cases.',
-      line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0 --limit=50 --cursor=<cursor>',
+      line: 'kindgi test-sets cases acme.article-picks --test-set-version=1.0.0 --limit=50 --cursor=<cursor>',
     },
   ],
   'blocks list': [

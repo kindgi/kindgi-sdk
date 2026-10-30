@@ -198,7 +198,7 @@ describe('kindgi proposals evaluate', () => {
         'evaluate',
         'prop-1',
         {
-          suiteId: 'acme.judged',
+          testSetId: 'acme.judged',
           objective: 'weightedPrecisionAtK',
           reads: 'live',
           repetitions: 3,
@@ -395,7 +395,7 @@ const PASS = {
   agentId: 'acme.scorer',
   fromVersion: '1.4.0',
   scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
-  suiteId: 'acme.judged',
+  testSetId: 'acme.judged',
   tiers: ['settings'],
   objective: 'weightedYesShare',
   budget: { maxCostUsd: 5, maxCandidates: 30 },
@@ -430,7 +430,7 @@ describe('kindgi proposals improve', () => {
         {
           agentId: 'acme.scorer',
           scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
-          suiteId: 'acme.judged',
+          testSetId: 'acme.judged',
           budget: { maxCostUsd: 2.5, maxCandidates: 12 },
         },
       ],
@@ -463,11 +463,11 @@ describe('kindgi proposals improve', () => {
         {
           agentId: 'acme.scorer',
           scope: { kind: 'tenant' },
-          suiteId: 'acme.prod-judged',
+          testSetId: 'acme.prod-judged',
           projectId: PROJECT,
         },
       ],
-      ['improve', { agentId: 'acme.scorer', scope: { kind: 'tenant' }, suiteId: 'acme.judged' }],
+      ['improve', { agentId: 'acme.scorer', scope: { kind: 'tenant' }, testSetId: 'acme.judged' }],
     ]);
   });
 
@@ -539,7 +539,7 @@ describe('kindgi proposals improve', () => {
         {
           agentId: 'acme.scorer',
           scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
-          suiteId: 'acme.judged',
+          testSetId: 'acme.judged',
           tiers: ['prompt'],
           groupWeights: 'as-recorded',
           model: { providerId: 'openai', model: 'gpt-4o' },

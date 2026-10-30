@@ -12,8 +12,8 @@ const API = 'https://api.example.com';
 const SAMPLE_EVAL_RUN = {
   runId: '00000000-0000-4000-8000-00000000e001',
   tenantId: '00000000-0000-4000-8000-000000000002',
-  suiteId: 'suite.x',
-  suiteVersion: '1.0.0',
+  testSetId: 'testSet.x',
+  testSetVersion: '1.0.0',
   kind: 'accuracy',
   agentRef: { agentId: 'acme.drafter', version: '1.0.0' },
   status: 'running',
@@ -31,15 +31,15 @@ describe('eval-runs — wire round-trips', () => {
     ]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     await client.evalRuns.start(
-      'suite.x',
+      'testSet.x',
       { agentRef: SAMPLE_EVAL_RUN.agentRef },
       { projectId: 'proj-1', idempotencyKey: 'idem-run' },
     );
-    await client.evalRuns.list({ suiteId: 'suite.x', status: 'running' });
+    await client.evalRuns.list({ testSetId: 'testSet.x', status: 'running' });
     await client.evalRuns.get(SAMPLE_EVAL_RUN.runId);
     await client.evalRuns.cancel(SAMPLE_EVAL_RUN.runId);
     expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
-      'POST /v1/eval-suites/suite.x/runs',
+      'POST /v1/test-sets/testSet.x/runs',
       'GET /v1/eval-runs',
       `GET /v1/eval-runs/${SAMPLE_EVAL_RUN.runId}`,
       `POST /v1/eval-runs/${SAMPLE_EVAL_RUN.runId}/cancel`,
@@ -48,7 +48,7 @@ describe('eval-runs — wire round-trips', () => {
   });
 });
 
-describe('evalRuns.start — projectId (POST /v1/eval-suites/:suiteId/runs requires it)', () => {
+describe('evalRuns.start — projectId (POST /v1/test-sets/:testSetId/runs requires it)', () => {
   it('sends options.projectId in the body next to the run fields', async () => {
     const stub = recordingFetch([
       { status: 201, body: JSON.stringify({ runId: '00000000-0000-4000-8000-00000000e001' }) },
@@ -56,13 +56,13 @@ describe('evalRuns.start — projectId (POST /v1/eval-suites/:suiteId/runs requi
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     const input = { agentRef: { agentId: 'acme.drafter', version: '1.0.0' }, dryRun: true };
 
-    await client.evalRuns.start('suite.x', input, {
+    await client.evalRuns.start('testSet.x', input, {
       projectId: 'proj-1',
       idempotencyKey: 'idem-run',
     });
 
     const req = stub.calls[0]!;
-    expect(`${req.method} ${new URL(req.url).pathname}`).toBe('POST /v1/eval-suites/suite.x/runs');
+    expect(`${req.method} ${new URL(req.url).pathname}`).toBe('POST /v1/test-sets/testSet.x/runs');
     expect(req.headers['idempotency-key']).toBe('idem-run');
     expect(JSON.parse(req.body ?? '{}')).toEqual({ ...input, projectId: 'proj-1' });
   });
@@ -74,7 +74,7 @@ const COMPARISON_RESULT = {
     evalRunId: 'er-1',
     status: 'completed',
     completedAt: '2026-10-06T08:00:00.000Z',
-    suite: {
+    testSet: {
       id: 'acme.set',
       version: '1.0.0',
     },
@@ -248,7 +248,7 @@ const COMPARISON_RESULT = {
 describe('comparisonOf', () => {
   const judged = {
     ...SAMPLE_EVAL_RUN,
-    kind: 'judged',
+    kind: 'corrections',
     status: 'completed',
     result: COMPARISON_RESULT,
   } as unknown as EvalRunRecord;

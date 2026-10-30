@@ -98,7 +98,7 @@ const app = createApp({
   memory: unreachable,
   memoryErasures: unreachable,
   correctionRegistry: unreachable,
-  evalSuiteRegistry: unreachable,
+  testSetRegistry: unreachable,
   evalCaseStore: unreachable,
   deploymentRegistry: unreachable,
   signingKeyRegistry: unreachable,
@@ -143,7 +143,7 @@ const INPUTS: ReadonlyArray<
     'since',
     (v) => [
       'POST',
-      '/v1/eval-suites/s-1/versions/from-corrections',
+      '/v1/test-sets/s-1/versions/from-corrections',
       { version: '1.0.0', projectId: randomUUID(), agentId: 'acme.desk-agent', since: v },
     ],
   ],

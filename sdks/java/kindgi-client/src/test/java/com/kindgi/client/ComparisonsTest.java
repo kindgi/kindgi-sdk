@@ -25,9 +25,9 @@ class ComparisonsTest {
       {
         "runId": "00000000-0000-4000-8000-00000000e001",
         "tenantId": "00000000-0000-4000-8000-000000000002",
-        "suiteId": "acme.set",
-        "suiteVersion": "1.0.0",
-        "kind": "judged",
+        "testSetId": "acme.set",
+        "testSetVersion": "1.0.0",
+        "kind": "corrections",
         "flowRef": { "flowId": "acme.intake", "version": "1.1.0" },
         "status": "completed",
         "dryRun": false,
@@ -37,7 +37,7 @@ class ComparisonsTest {
             "evalRunId": "er-1",
             "status": "completed",
             "completedAt": "2026-10-06T08:00:00.000Z",
-            "suite": { "id": "acme.set", "version": "1.0.0" },
+            "testSet": { "id": "acme.set", "version": "1.0.0" },
             "candidate": {
               "kind": "flow",
               "flowId": "acme.intake",
@@ -144,7 +144,7 @@ class ComparisonsTest {
   @Test
   void emptyForEachReasonOnItsOwn() {
     // Each run below trips exactly one of the four conditions in comparisonOf, so dropping any
-    // single guard would make this test fail — a non-judged kind, no result yet, a result with no
+    // single guard would make this test fail — a non-corrections kind, no result yet, a result with no
     // summary, and a result with no perCase list.
 
     // Another kind of run, but with the judged result kept — only the kind guard makes it empty.

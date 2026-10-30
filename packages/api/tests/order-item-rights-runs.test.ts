@@ -5,7 +5,7 @@
  * Running an item more than one project serves (an environment order
  * carries it from staging to prod), and what its runs leave behind. A run
  * in one of its projects needs that project's right alone: `call` for an
- * agent (its callers and editors), `execute` for a flow or a suite (its
+ * agent (its callers and editors), `execute` for a flow or a test set (its
  * executors and editors), and neither the item's own `execute` nor
  * `write` on the project it names. Unnamed, the run lands where the
  * runtime puts it (the conversation's project, else a project-scoped
@@ -48,7 +48,7 @@ const IN_STAGING = randomUUID();
 const IN_OTHER = randomUUID();
 
 function rows(): ItemRow[] {
-  return (['agent', 'flow', 'eval_suite'] as const).flatMap((kind): ItemRow[] => [
+  return (['agent', 'flow', 'test_set'] as const).flatMap((kind): ItemRow[] => [
     {
       kind,
       id: SERVED,
@@ -81,7 +81,7 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   solo: [
     `execute agent:${SOLO}`,
     `execute flow:${SOLO}`,
-    ...['read', 'write', 'admin', 'execute'].map((a) => `${a} eval_suite:${SOLO}` as Grant),
+    ...['read', 'write', 'admin', 'execute'].map((a) => `${a} test_set:${SOLO}` as Grant),
     ...on(OTHER, 'read', 'write'),
   ],
   /** Reads and runs evals in prod: execute and call there, write to file its results. */
@@ -96,9 +96,9 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   'event-prod': [`write flow:${SERVED}`, ...on(PROD, 'read', 'execute')],
   /** Reads both agents directly, as today. */
   'agent-reader': [`read agent:${SERVED}`, `read agent:${SOLO}`],
-  /** Today's rights on the suite: no longer enough for its runs in its projects. */
-  'suite-admin': ['read', 'write', 'admin', 'execute'].map(
-    (a) => `${a} eval_suite:${SERVED}` as Grant,
+  /** Today's rights on the test set: no longer enough for its runs in its projects. */
+  'test-set-admin': ['read', 'write', 'admin', 'execute'].map(
+    (a) => `${a} test_set:${SERVED}` as Grant,
   ),
   /** Every right on both items and every project: a start's checks show where it landed. */
   all: [
@@ -109,18 +109,18 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   ],
 };
 
-/** Eval runs: of `acme.desk`'s suite in prod and in staging, and of the one-project suite. */
+/** Eval runs: of `acme.desk`'s test set in prod and in staging, and of the one-project test set. */
 const EVAL_IN_PROD = randomUUID();
 const EVAL_IN_STAGING = randomUUID();
 const EVAL_SOLO = randomUUID();
-const evalRun = (runId: string, suiteId: string, projectId: ProjectId) => ({
+const evalRun = (runId: string, testSetId: string, projectId: ProjectId) => ({
   runId,
   tenantId,
   projectId,
-  suiteId,
-  suiteVersion: '1.0.0',
+  testSetId,
+  testSetVersion: '1.0.0',
   kind: 'agent',
-  agentRef: { agentId: suiteId },
+  agentRef: { agentId: testSetId },
   status: 'running',
   dryRun: false,
   startedAt: '2026-10-01T00:00:00.000Z',
@@ -201,17 +201,17 @@ function harness(opts: { served?: boolean; projects?: readonly ProjectId[] } = {
   /** Each eval run started, cancelled or rescored. */
   const evals: string[] = [];
   const evalRunBinding = {
-    async start(input: { suiteId: string; projectId: string }) {
-      evals.push(`start ${input.suiteId} in ${input.projectId}`);
-      return { kind: 'suite-not-found', suiteId: input.suiteId };
+    async start(input: { testSetId: string; projectId: string }) {
+      evals.push(`start ${input.testSetId} in ${input.projectId}`);
+      return { kind: 'test-set-not-found', testSetId: input.testSetId };
     },
     async get({ runId }: { runId: string }) {
       return EVAL_RUNS.find((r) => r.runId === runId) ?? null;
     },
-    async list({ filter }: { filter?: { suiteId?: string } }) {
+    async list({ filter }: { filter?: { testSetId?: string } }) {
       return {
         data: EVAL_RUNS.filter(
-          (r) => filter?.suiteId === undefined || r.suiteId === filter.suiteId,
+          (r) => filter?.testSetId === undefined || r.testSetId === filter.testSetId,
         ),
       };
     },
@@ -673,15 +673,15 @@ describe('conversations with an agent an order carries', () => {
   });
 });
 
-describe('eval runs of a suite an order carries', () => {
-  const start = (projectId: ProjectId, suiteId = SERVED) => ({
+describe('eval runs of a test set an order carries', () => {
+  const start = (projectId: ProjectId, testSetId = SERVED) => ({
     projectId,
-    agentRef: { agentId: suiteId },
+    agentRef: { agentId: testSetId },
   });
 
-  test('a prod member runs it in prod: execute there for the suite, call for the agent, write to file the results', async () => {
+  test('a prod member runs it in prod: execute there for the test set, call for the agent, write to file the results', async () => {
     const { call, evals } = harness();
-    const res = await call('prod-evals', 'POST', `/v1/eval-suites/${SERVED}/runs`, start(PROD));
+    const res = await call('prod-evals', 'POST', `/v1/test-sets/${SERVED}/runs`, start(PROD));
     expect(res.status, res.text).not.toBe(403);
     expect(res.asked).toEqual([
       `prod-evals execute project:${PROD}`,
@@ -691,12 +691,12 @@ describe('eval runs of a suite an order carries', () => {
     expect(evals).toEqual([`start ${SERVED} in ${PROD}`]);
   });
 
-  test("today's rights on the suite don't run it in its projects", async () => {
+  test("today's rights on the test set don't run it in its projects", async () => {
     const { call, evals } = harness();
-    const res = await call('suite-admin', 'POST', `/v1/eval-suites/${SERVED}/runs`, start(PROD));
+    const res = await call('test-set-admin', 'POST', `/v1/test-sets/${SERVED}/runs`, start(PROD));
     expect(res.status, res.text).toBe(403);
     expect(res.body.error.message).toContain(
-      `running eval suite "${SERVED}" in project ${PROD} needs executor or editor`,
+      `running test set "${SERVED}" in project ${PROD} needs executor or editor`,
     );
     expect(evals).toEqual([]);
   });
@@ -732,21 +732,21 @@ describe('eval runs of a suite an order carries', () => {
     expect(listed.body.data.map((r: { runId: string }) => r.runId)).toEqual([EVAL_IN_STAGING]);
   });
 
-  test("today's rights on the suite don't reach its runs in its projects", async () => {
+  test("today's rights on the test set don't reach its runs in its projects", async () => {
     const { call } = harness();
-    expect((await call('suite-admin', 'GET', `/v1/eval-runs/${EVAL_IN_PROD}`)).status).toBe(403);
-    expect((await call('suite-admin', 'GET', '/v1/eval-runs')).body.data).toEqual([]);
+    expect((await call('test-set-admin', 'GET', `/v1/eval-runs/${EVAL_IN_PROD}`)).status).toBe(403);
+    expect((await call('test-set-admin', 'GET', '/v1/eval-runs')).body.data).toEqual([]);
   });
 
-  test('a suite with one project: its runs are checked as before', async () => {
+  test('a test set with one project: its runs are checked as before', async () => {
     const withBinding = harness();
     const without = harness({ served: false });
     for (const [method, path, body] of [
-      ['POST', `/v1/eval-suites/${SOLO}/runs`, start(OTHER, SOLO)],
+      ['POST', `/v1/test-sets/${SOLO}/runs`, start(OTHER, SOLO)],
       ['GET', `/v1/eval-runs/${EVAL_SOLO}`, undefined],
       ['POST', `/v1/eval-runs/${EVAL_SOLO}/cancel`, undefined],
       ['POST', `/v1/eval-runs/${EVAL_SOLO}/rescore`, undefined],
-      ['GET', `/v1/eval-runs?suiteId=${SOLO}`, undefined],
+      ['GET', `/v1/eval-runs?testSetId=${SOLO}`, undefined],
     ] as const) {
       const a = await withBinding.call('solo', method, path, body);
       const b = await without.call('solo', method, path, body);

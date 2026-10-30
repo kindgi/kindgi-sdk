@@ -117,8 +117,8 @@ The transport makes one attempt per call and does not retry. Mutating calls acce
 | `deployments` | `/v1/deployments` | — |
 | `compliance` | `/v1/compliance` | — |
 | `audit` | `/v1/audit` | — |
-| `evalSuites` | `/v1/eval-suites` | — |
-| `evalRuns` | `/v1/eval-runs`, `/v1/eval-suites/{suiteId}/runs` | — |
+| `testSets` | `/v1/test-sets` | — |
+| `evalRuns` | `/v1/eval-runs`, `/v1/test-sets/{testSetId}/runs` | — |
 | `users` | `/v1/identity/users` | `create`, `update`, `deactivate`, `sessions.revoke` |
 | `identity` | `/v1/identity` | — |
 | `auth` | `/v1/auth` | — |

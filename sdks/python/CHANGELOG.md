@@ -29,6 +29,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `judge_class_id` is `corrector_group_id`, `class_weights` is `group_weights`
   (its value `restricted-only` is `experts-only`), and a correction's or a
   case item's `restricted` is `expert`.
+- `kindgi`: **Eval suites are now test sets.** This is a breaking rename, and no
+  old name is kept. `client.eval_suites` is `client.test_sets`, sync and async.
+  The models follow (`EvalSuite*` models are `TestSet*`), `suite_id` is
+  `test_set_id` and `suite_version` is `test_set_version`, and a test set's or
+  an eval run's kind `judged` is `corrections`. A release gate's
+  `comparison.suite` is `comparison.test_set`, and a comparison's summary says
+  `test_set`; their models are `GatePolicySpecComparisonTestSet` and
+  `CorrectedComparisonSummaryTestSet` (were `Suite` and `Suite1`).
 - `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
   tenant.** A run that names no flow version takes the version pinned for its
   project (the project's own pin, then its org's, then the tenant's), else the

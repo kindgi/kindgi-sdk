@@ -73,13 +73,13 @@ export function unknownSubcommandText(
 
 /**
  * Top-level words that name a real command spelled another way: `improve`
- * is `proposals improve`; `eval` is the `eval-runs` and `eval-suites`
+ * is `proposals improve`; `eval` is the `eval-runs` and `test-sets`
  * commands. Unlike a mistyped subcommand, these are nowhere near their real
  * names, so they are listed, not guessed by edit distance.
  */
 const NEAR_MISS_COMMAND: Readonly<Record<string, readonly string[]>> = {
   improve: ['proposals improve'],
-  eval: ['eval-runs', 'eval-suites'],
+  eval: ['eval-runs', 'test-sets'],
 };
 
 /** `"kindgi a"`, or `"kindgi a" or "kindgi b"`, or `"kindgi a", "kindgi b" or "kindgi c"`. */

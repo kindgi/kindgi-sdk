@@ -1204,38 +1204,38 @@ const RetentionDomainPathParam: ParameterSpec = {
   schema: { $ref: '#/components/schemas/RetentionDomain' },
 };
 
-// Admin plane — eval suites.
+// Admin plane — test sets.
 
-const EvalSuiteIdPathParam: ParameterSpec = {
-  name: 'suiteId',
+const TestSetIdPathParam: ParameterSpec = {
+  name: 'testSetId',
   in: 'path',
   required: true,
-  description: 'EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`).',
+  description: 'TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`).',
   schema: { type: 'string', minLength: 1 },
 };
 
-const EvalSuiteVersionPathParam: ParameterSpec = {
+const TestSetVersionPathParam: ParameterSpec = {
   name: 'version',
   in: 'path',
   required: true,
-  description: 'Semver version string of the eval suite (e.g. `1.2.0`).',
+  description: 'Semver version string of the test set (e.g. `1.2.0`).',
   schema: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
 };
 
-const EvalSuiteKindFilterQueryParam: ParameterSpec = {
+const TestSetKindFilterQueryParam: ParameterSpec = {
   name: 'kind',
   in: 'query',
   required: false,
   description:
-    'Filter to eval suites of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | judged`.',
+    'Filter to test sets of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | corrections`.',
   schema: { $ref: '#/components/schemas/EvalKind' },
 };
 
-const EvalSuiteNameFilterQueryParam: ParameterSpec = {
+const TestSetNameFilterQueryParam: ParameterSpec = {
   name: 'name',
   in: 'query',
   required: false,
-  description: 'Prefix match on `EvalSuite.id`. Dotted namespaces are the natural filter shape.',
+  description: 'Prefix match on `TestSet.id`. Dotted namespaces are the natural filter shape.',
   schema: { type: 'string' },
 };
 
@@ -1281,11 +1281,11 @@ const EvalRunIdPathParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
-const EvalRunSuiteIdFilterQueryParam: ParameterSpec = {
-  name: 'suiteId',
+const EvalRunTestSetIdFilterQueryParam: ParameterSpec = {
+  name: 'testSetId',
   in: 'query',
   required: false,
-  description: 'Filter to runs against a specific suite id.',
+  description: 'Filter to runs against a specific testSet id.',
   schema: { type: 'string' },
 };
 
@@ -6673,111 +6673,111 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
-  // ---------- eval suites (admin plane) ----------
+  // ---------- test sets (admin plane) ----------
   {
     method: 'get',
-    honoPath: '/v1/eval-suites',
-    openapiPath: '/v1/eval-suites',
-    operationId: 'evalSuites.list',
-    summary: 'List tenant eval suites',
+    honoPath: '/v1/test-sets',
+    openapiPath: '/v1/test-sets',
+    operationId: 'testSets.list',
+    summary: 'List tenant test sets',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
-    tags: ['eval-suites'],
+      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: testSet id ascending. Latest version per id. A retired testSet (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
+    tags: ['test-sets'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      EvalSuiteKindFilterQueryParam,
-      EvalSuiteNameFilterQueryParam,
+      TestSetKindFilterQueryParam,
+      TestSetNameFilterQueryParam,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
       IncludeRetiredQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of eval suites.', schema: ref('EvalSuiteCollectionPage') },
+      '200': { description: 'Page of test sets.', schema: ref('TestSetCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter (unknown `kind`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-suites/:suiteId',
-    openapiPath: '/v1/eval-suites/{suiteId}',
-    operationId: 'evalSuites.get',
-    summary: 'Fetch an eval suite (latest version)',
+    honoPath: '/v1/test-sets/:testSetId',
+    openapiPath: '/v1/test-sets/{testSetId}',
+    operationId: 'testSets.get',
+    summary: 'Fetch an test set (latest version)',
     description: NEWEST_VISIBLE_DESCRIPTION,
-    tags: ['eval-suites'],
+    tags: ['test-sets'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, ItemProjectQueryParam],
+    parameters: [TestSetIdPathParam, ItemProjectQueryParam],
     responses: {
-      '200': { description: 'Latest eval suite version.', schema: ref('EvalSuite') },
+      '200': { description: 'Latest test set version.', schema: ref('TestSet') },
       ...CommonAuthErrors,
       '400': ErrorResponse('`projectId` is not a project id (a UUID).'),
-      '404': ErrorResponse('No eval suite with that id under this tenant.'),
+      '404': ErrorResponse('No test set with that id under this tenant.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-suites/:suiteId/versions',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions',
-    operationId: 'evalSuites.versions.list',
-    summary: 'List versions of an eval suite',
+    honoPath: '/v1/test-sets/:testSetId/versions',
+    openapiPath: '/v1/test-sets/{testSetId}/versions',
+    operationId: 'testSets.versions.list',
+    summary: 'List versions of an test set',
     description:
-      'Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.',
-    tags: ['eval-suites'],
+      'Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired testSet (every version unregistered) answers too, with its versions to reinstate.',
+    tags: ['test-sets'],
     security: 'bearer',
     parameters: [
-      EvalSuiteIdPathParam,
+      TestSetIdPathParam,
       LimitQueryParam,
       CursorQueryParam,
       IncludeTombstonedQueryParam,
     ],
     responses: {
       '200': {
-        description: 'Page of eval suite versions.',
-        schema: ref('EvalSuiteCollectionPage'),
+        description: 'Page of test set versions.',
+        schema: ref('TestSetCollectionPage'),
       },
       '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval suite was ever registered with that id under this tenant.'),
+      '404': ErrorResponse('No test set was ever registered with that id under this tenant.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-suites/:suiteId/versions/:version',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}',
-    operationId: 'evalSuites.versions.get',
-    summary: 'Fetch a specific eval suite version',
-    tags: ['eval-suites'],
+    honoPath: '/v1/test-sets/:testSetId/versions/:version',
+    openapiPath: '/v1/test-sets/{testSetId}/versions/{version}',
+    operationId: 'testSets.versions.get',
+    summary: 'Fetch a specific test set version',
+    tags: ['test-sets'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, EvalSuiteVersionPathParam],
+    parameters: [TestSetIdPathParam, TestSetVersionPathParam],
     responses: {
-      '200': { description: 'Eval suite at that version.', schema: ref('EvalSuite') },
+      '200': { description: 'Test set at that version.', schema: ref('TestSet') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval suite at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No test set at that (id, version) under this tenant.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-suites',
-    openapiPath: '/v1/eval-suites',
-    operationId: 'evalSuites.publish',
-    summary: 'Publish an eval suite',
+    honoPath: '/v1/test-sets',
+    openapiPath: '/v1/test-sets',
+    operationId: 'testSets.publish',
+    summary: 'Publish an test set',
     description:
-      "Body is a full `EvalSuite` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(suiteId, version)` returns `409 eval-suite-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
-    tags: ['eval-suites'],
+      "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
+    tags: ['test-sets'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('PublishEvalSuiteBody') },
+    requestBody: { required: true, schema: ref('PublishTestSetBody') },
     responses: {
-      '201': { description: 'Eval suite published.', schema: ref('PublishEvalSuiteResult') },
+      '201': { description: 'Test set published.', schema: ref('PublishTestSetResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
       ),
       '409': ErrorResponse(
-        "`eval-suite-already-registered`: that (id, version) is taken. Or `eval-suite-project-mismatch`: the suite's versions live in another project (a suite belongs to the project its first version was published into and never moves; the message doesn't name the project).",
+        "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set's versions live in another project (a test set belongs to the project its first version was published into and never moves; the message doesn't name the project).",
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
@@ -6786,23 +6786,23 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-suites/:suiteId/versions/from-corrections',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/from-corrections',
-    operationId: 'evalSuites.buildFromCorrections',
+    honoPath: '/v1/test-sets/:testSetId/versions/from-corrections',
+    openapiPath: '/v1/test-sets/{testSetId}/versions/from-corrections',
+    operationId: 'testSets.buildFromCorrections',
     summary: 'Build a test set from corrections',
     description:
-      "Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
-    tags: ['eval-suites'],
+      "Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
+    tags: ['test-sets'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('BuildCorrectedSuiteBody') },
+    parameters: [TestSetIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('BuildCorrectedTestSetBody') },
     responses: {
-      '201': { description: 'Version published.', schema: ref('BuildCorrectedSuiteResult') },
+      '201': { description: 'Version published.', schema: ref('BuildCorrectedTestSetResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse("Malformed body; or `projectId` isn't a project id (a UUID)."),
       '403': ErrorResponse('`permission-denied`.'),
       '409': ErrorResponse(
-        "`eval-suite-already-registered`: that (id, version) is taken. Or `eval-suite-project-mismatch`: the suite belongs to another project than the body's `projectId` (suites never move).",
+        "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set belongs to another project than the body's `projectId` (testSets never move).",
       ),
       '501': ErrorResponse('`test-sets-not-supported`: this deployment cannot build test sets.'),
       '404': ErrorResponse(
@@ -6812,56 +6812,51 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
-    honoPath: '/v1/eval-suites/:suiteId/versions/:version/cases',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}/cases',
-    operationId: 'evalSuites.listCases',
-    summary: 'List the cases of a judged eval suite version',
+    honoPath: '/v1/test-sets/:testSetId/versions/:version/cases',
+    openapiPath: '/v1/test-sets/{testSetId}/versions/{version}/cases',
+    operationId: 'testSets.listCases',
+    summary: 'List the cases of a corrections test set version',
     description:
       'Cursor-paginated, in the order the cases were stored (newest corrected run first).',
-    tags: ['eval-suites'],
+    tags: ['test-sets'],
     security: 'bearer',
-    parameters: [
-      EvalSuiteIdPathParam,
-      EvalSuiteVersionPathParam,
-      LimitQueryParam,
-      CursorQueryParam,
-    ],
+    parameters: [TestSetIdPathParam, TestSetVersionPathParam, LimitQueryParam, CursorQueryParam],
     responses: {
       '200': { description: 'Page of cases.', schema: ref('CorrectedEvalCaseCollectionPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval suite with that id.'),
+      '404': ErrorResponse('No test set with that id.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-suites/:suiteId/versions/:version/unregister',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}/unregister',
-    operationId: 'evalSuites.versions.unregister',
-    summary: 'Unregister an eval suite version',
-    tags: ['eval-suites'],
+    honoPath: '/v1/test-sets/:testSetId/versions/:version/unregister',
+    openapiPath: '/v1/test-sets/{testSetId}/versions/{version}/unregister',
+    operationId: 'testSets.versions.unregister',
+    summary: 'Unregister an test set version',
+    tags: ['test-sets'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, EvalSuiteVersionPathParam, IdempotencyKeyParam],
+    parameters: [TestSetIdPathParam, TestSetVersionPathParam, IdempotencyKeyParam],
     responses: {
-      '200': { description: 'Unregistered.', schema: ref('UnregisterEvalSuiteResult') },
+      '200': { description: 'Unregistered.', schema: ref('UnregisterTestSetResult') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No eval suite at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No test set at that (id, version) under this tenant.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-suites/:suiteId/versions/:version/reinstate',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}/reinstate',
-    operationId: 'evalSuites.reinstateVersion',
-    summary: 'Reinstate a specific tombstoned eval suite version',
+    honoPath: '/v1/test-sets/:testSetId/versions/:version/reinstate',
+    openapiPath: '/v1/test-sets/{testSetId}/versions/{version}/reinstate',
+    operationId: 'testSets.reinstateVersion',
+    summary: 'Reinstate a specific tombstoned test set version',
     description:
-      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `suiteKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.',
-    tags: ['eval-suites'],
+      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `testSetKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.',
+    tags: ['test-sets'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, EvalSuiteVersionPathParam, IdempotencyKeyParam],
+    parameters: [TestSetIdPathParam, TestSetVersionPathParam, IdempotencyKeyParam],
     responses: {
-      '200': { description: 'Reinstated.', schema: ref('ReinstateEvalSuiteVersionResult') },
+      '200': { description: 'Reinstated.', schema: ref('ReinstateTestSetVersionResult') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No eval suite at that (id, version) under this tenant.'),
+      '404': ErrorResponse('No test set at that (id, version) under this tenant.'),
     },
   },
 
@@ -7016,29 +7011,29 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-suites/:suiteId/runs',
-    openapiPath: '/v1/eval-suites/{suiteId}/runs',
+    honoPath: '/v1/test-sets/:testSetId/runs',
+    openapiPath: '/v1/test-sets/{testSetId}/runs',
     operationId: 'evalRuns.start',
-    summary: 'Start an eval run against a suite',
+    summary: 'Start an eval run against a test set',
     description:
-      'Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.',
+      'Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.',
     tags: ['eval-runs'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
+    parameters: [TestSetIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('StartEvalRunBody') },
     responses: {
       '201': { description: 'Eval run started.', schema: ref('StartEvalRunResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the suite, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the tenant; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Nothing runs.",
+        "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the tenant; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Nothing runs.",
       ),
       '404': ErrorResponse(
-        'No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
+        'No test set with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
       ),
       '409': ErrorResponse(
         '`project-suspended`: the project is suspended, so no eval run starts in it. Or Idempotency-Key was reused with a different body.',
       ),
-      '422': ErrorResponse('No dispatcher registered for the suite kind.'),
+      '422': ErrorResponse('No dispatcher registered for the test set kind.'),
     },
   },
   {
@@ -7048,13 +7043,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalRuns.list',
     summary: 'List eval runs',
     description:
-      'Cursor-paginated. Filters: `?suiteId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.',
+      'Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.',
     tags: ['eval-runs'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      EvalRunSuiteIdFilterQueryParam,
+      EvalRunTestSetIdFilterQueryParam,
       EvalRunStatusFilterQueryParam,
       EvalRunAgentIdFilterQueryParam,
       EvalRunFlowIdFilterQueryParam,
@@ -7109,7 +7104,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalRuns.rescore',
     summary: 'Rescore a comparison eval run',
     description:
-      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
+      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's testSet and `write` on its project.",
     tags: ['eval-runs'],
     security: 'bearer',
     parameters: [EvalRunIdPathParam],
@@ -9421,7 +9416,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.expertQueue.list',
     summary: "The project's expert queue",
     description:
-      "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
+      "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `corrections` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
     tags: ['expert-queue'],
     security: 'bearer',
     parameters: [

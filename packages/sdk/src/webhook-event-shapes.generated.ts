@@ -328,7 +328,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                   },
                 },
               },
-              suiteId: {
+              testSetId: {
                 kind: 'string',
               },
               tiers: {

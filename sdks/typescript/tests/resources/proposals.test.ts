@@ -84,7 +84,7 @@ describe('client.proposals', () => {
   });
 
   it.each([
-    ['evaluate', { suiteId: 'acme.scoring-judged', repetitions: 3 }],
+    ['evaluate', { testSetId: 'acme.scoring-judged', repetitions: 3 }],
     ['request', { reason: 'acme wants recency' }],
     ['rollback', { reason: 'acme complained' }],
     ['withdraw', { reason: 'wrong segment' }],

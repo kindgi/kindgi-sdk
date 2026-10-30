@@ -105,34 +105,34 @@ corrected runs in a project:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi eval-suites from-corrections acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+pnpm exec kindgi test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi eval-suites from-corrections acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+uv run kindgi test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw eval-suites from-corrections acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+./kindgiw test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw eval-suites from-corrections acme.article-picks --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+./kindgiw test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
 ```
 
 </TabItem>
 </Tabs>
 
-- `acme.article-picks` is the test cases' id, and `--suite-version` their
+- `acme.article-picks` is the test cases' id, and `--test-set-version` their
   version.
 - `--project=<project-id>` is the project the runs are in, where
   `<project-id>` is its id.
@@ -142,9 +142,9 @@ It prints the test cases:
 
 ```json
 {
-  "suiteId": "acme.article-picks",
+  "testSetId": "acme.article-picks",
   "version": "1.0.0",
-  "kind": "judged",
+  "kind": "corrections",
   "caseCount": 3,
   "truncated": false
 }
@@ -169,14 +169,14 @@ const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the runni
 const projectId = process.argv[2];
 
 // Version 1.0.0 of the test set: copies of the agent's corrected runs.
-const built = await kindgi.evalSuites.buildFromCorrections('acme.article-picks', {
+const built = await kindgi.testSets.buildFromCorrections('acme.article-picks', {
   version: '1.0.0',
   projectId,
   agentId: 'acme-ops.article-picker',
 });
 console.log(`${built.caseCount} cases`);
 
-const cases = await kindgi.evalSuites.listCases('acme.article-picks', '1.0.0');
+const cases = await kindgi.testSets.listCases('acme.article-picks', '1.0.0');
 for (const c of cases.data) {
   console.log(c.input, c.items.map((item) => `${item.key} ${item.yes} yes, ${item.no} no`));
 }
@@ -202,7 +202,7 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 project_id = sys.argv[1]
 
 # Version 1.0.0 of the test set: copies of the agent's corrected runs.
-built = kindgi.eval_suites.build_from_corrections(
+built = kindgi.test_sets.build_from_corrections(
     "acme.article-picks",
     version="1.0.0",
     project_id=project_id,
@@ -210,7 +210,7 @@ built = kindgi.eval_suites.build_from_corrections(
 )
 print(f"{built.case_count} cases")
 
-cases = kindgi.eval_suites.list_cases("acme.article-picks", "1.0.0")
+cases = kindgi.test_sets.list_cases("acme.article-picks", "1.0.0")
 for case in cases.data:
     print(case.input, [f"{item.key} {item.yes} yes, {item.no} no" for item in case.items])
 ```
@@ -242,8 +242,8 @@ counts.
 - **Up to 1000 cases.** `truncated: true` says there were more: narrow the
   runs, or build several sets of test cases.
 - **Versions never change.** When more runs are corrected, build the next
-  version: the same id and a new `--suite-version`. A taken version is
-  refused: `Eval suite "acme.article-picks" version "1.0.0" is already registered.`
+  version: the same id and a new `--test-set-version`. A taken version is
+  refused: `Test set "acme.article-picks" version "1.0.0" is already registered.`
 - **Building test cases takes `admin` on the project.**
 
 ### Narrow it to a segment
@@ -255,7 +255,7 @@ Repeat it for a path, coarse to fine. In the clients, it's `segments`:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi eval-suites from-corrections acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+pnpm exec kindgi test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
   --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
 ```
 
@@ -263,7 +263,7 @@ pnpm exec kindgi eval-suites from-corrections acme.rank-acme-segment --suite-ver
 <TabItem label="Python">
 
 ```sh
-uv run kindgi eval-suites from-corrections acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+uv run kindgi test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
   --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
 ```
 
@@ -271,7 +271,7 @@ uv run kindgi eval-suites from-corrections acme.rank-acme-segment --suite-versio
 <TabItem label="Java">
 
 ```sh
-./kindgiw eval-suites from-corrections acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+./kindgiw test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
   --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
 ```
 
@@ -279,7 +279,7 @@ uv run kindgi eval-suites from-corrections acme.rank-acme-segment --suite-versio
 <TabItem label="Scala">
 
 ```sh
-./kindgiw eval-suites from-corrections acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+./kindgiw test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
   --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
 ```
 
@@ -290,9 +290,9 @@ uv run kindgi eval-suites from-corrections acme.rank-acme-segment --suite-versio
 
 ```json
 {
-  "suiteId": "acme.rank-acme-segment",
+  "testSetId": "acme.rank-acme-segment",
   "version": "1.0.0",
-  "kind": "judged",
+  "kind": "corrections",
   "caseCount": 20,
   "truncated": false
 }
@@ -310,28 +310,28 @@ To see what each case holds, list the cases:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi eval-suites cases acme.article-picks --suite-version=1.0.0
+pnpm exec kindgi test-sets cases acme.article-picks --test-set-version=1.0.0
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi eval-suites cases acme.article-picks --suite-version=1.0.0
+uv run kindgi test-sets cases acme.article-picks --test-set-version=1.0.0
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw eval-suites cases acme.article-picks --suite-version=1.0.0
+./kindgiw test-sets cases acme.article-picks --test-set-version=1.0.0
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw eval-suites cases acme.article-picks --suite-version=1.0.0
+./kindgiw test-sets cases acme.article-picks --test-set-version=1.0.0
 ```
 
 </TabItem>

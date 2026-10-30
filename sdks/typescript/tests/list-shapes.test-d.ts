@@ -93,11 +93,11 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('evalRuns.list', () => {
     expectTypeOf<Answer<KindgiClient['evalRuns']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('evalSuites.list', () => {
-    expectTypeOf<Answer<KindgiClient['evalSuites']['list']>>().toMatchTypeOf<WirePage>();
+  test('testSets.list', () => {
+    expectTypeOf<Answer<KindgiClient['testSets']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('evalSuites.listCases', () => {
-    expectTypeOf<Answer<KindgiClient['evalSuites']['listCases']>>().toMatchTypeOf<WirePage>();
+  test('testSets.listCases', () => {
+    expectTypeOf<Answer<KindgiClient['testSets']['listCases']>>().toMatchTypeOf<WirePage>();
   });
   test('gatePolicies.list', () => {
     expectTypeOf<Answer<KindgiClient['gatePolicies']['list']>>().toMatchTypeOf<WirePage>();
@@ -107,10 +107,8 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
       Answer<KindgiClient['gatePolicies']['versions']['list']>
     >().toMatchTypeOf<WirePage>();
   });
-  test('evalSuites.versions.list', () => {
-    expectTypeOf<
-      Answer<KindgiClient['evalSuites']['versions']['list']>
-    >().toMatchTypeOf<WirePage>();
+  test('testSets.versions.list', () => {
+    expectTypeOf<Answer<KindgiClient['testSets']['versions']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('events.query', () => {
     expectTypeOf<Answer<KindgiClient['events']['query']>>().toMatchTypeOf<WirePage>();

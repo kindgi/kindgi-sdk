@@ -671,7 +671,7 @@ Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(
 In one step, before it answers, their API keys are revoked, their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
-eval suite they made, and `admin` on an org they made (runtime 0.1.9 or
+test set they made, and `admin` on an org they made (runtime 0.1.9 or
 later). What they made stays. The tenant's admins still manage all of it,
 and an org's admins what's in their org; no one becomes its owner. The next
 request with Sam's key:

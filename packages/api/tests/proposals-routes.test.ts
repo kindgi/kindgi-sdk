@@ -37,7 +37,7 @@ import type {
   UserId,
 } from '@kindgi/types';
 
-import type { EvalSuiteRecord, EvalSuiteRegistryBinding } from '../src/eval-suite-binding.js';
+import type { TestSetRecord, TestSetRegistryBinding } from '../src/test-set-binding.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp, createProposalService } from '../src/index.js';
@@ -181,7 +181,7 @@ function summary(
     evalRunId: 'set later',
     status: 'completed',
     completedAt: NOW,
-    suite: { id: 'acme.scoring-judged', version: '1.0.0' },
+    testSet: { id: 'acme.scoring-judged', version: '1.0.0' },
     candidate: { kind: 'agent', ...candidate },
     baseline: { kind: 'recorded', versions: [{ agentId: AGENT, version: '1.0.0', cases: 12 }] },
     scope: { projectId },
@@ -212,9 +212,9 @@ function evalRunFake(agents: AgentRegistryBinding) {
         // to the proposal's SCOPE, not this — set equal to the segment's project
         // here, so only a tenant-scoped test tells the two apart.
         projectId,
-        suiteId: input.suiteId,
-        suiteVersion: '1.0.0',
-        kind: 'judged',
+        testSetId: input.testSetId,
+        testSetVersion: '1.0.0',
+        kind: 'corrections',
         ...(input.agentRef !== undefined && { agentRef: input.agentRef }),
         ...(input.comparison !== undefined && { comparison: input.comparison }),
         status: 'running',
@@ -467,7 +467,7 @@ function inMemoryPasses() {
         agentId: input.agentId,
         fromVersion: input.fromVersion,
         scope: input.scope,
-        suiteId: input.suiteId,
+        testSetId: input.testSetId,
         tiers: input.tiers,
         objective: input.objective,
         groupWeights: input.groupWeights,
@@ -528,12 +528,12 @@ async function harness(
     /** The projects that serve each item (an order carries it); absent: one each. */
     items?: ItemRow[];
     correctionRegistry?: CorrectionRegistryBinding;
-    /** The project the pass's suite reads corrections from. Default: the agent's project. */
-    suiteProjectId?: ProjectId;
-    /** A full suite record `evalSuites.get` returns (or `null` for a missing suite), overriding the default judged stub. */
-    suiteRecord?: EvalSuiteRecord | null;
-    /** When true, `evalSuites.get` throws — the route must not read the suite. */
-    suiteGetThrows?: boolean;
+    /** The project the pass's test set reads corrections from. Default: the agent's project. */
+    testSetProjectId?: ProjectId;
+    /** A full suite record `testSets.get` returns (or `null` for a missing suite), overriding the default corrections stub. */
+    testSetRecord?: TestSetRecord | null;
+    /** When true, `testSets.get` throws — the route must not read the test set. */
+    testSetGetThrows?: boolean;
     /** The key every call is made with: the person's unless given. */
     token?: string;
   } = {},
@@ -627,23 +627,24 @@ async function harness(
   const releases = releasesFake(agents);
   const proposals = inMemoryProposals();
   const grants = opts.grants;
-  // The improve route resolves the `groupWeights` default against the suite's
-  // project. The stub makes every suite a judged one in `suiteProjectId`
+  // The improve route resolves the `groupWeights` default against the test set's
+  // project. The stub makes every test set a corrections one in `testSetProjectId`
   // (default: the agent's project), so a pass reads from there.
-  const suiteProject = opts.suiteProjectId ?? projectId;
-  const evalSuites = {
-    get: async (input: { tenantId: TenantId; suiteId: string }) => {
-      if (opts.suiteGetThrows === true) throw new Error('the route must not read the suite here');
-      if (opts.suiteRecord !== undefined) return opts.suiteRecord;
+  const testSetProject = opts.testSetProjectId ?? projectId;
+  const testSets = {
+    get: async (input: { tenantId: TenantId; testSetId: string }) => {
+      if (opts.testSetGetThrows === true)
+        throw new Error('the route must not read the test set here');
+      if (opts.testSetRecord !== undefined) return opts.testSetRecord;
       return {
-        id: input.suiteId,
+        id: input.testSetId,
         tenantId: input.tenantId,
         version: '1.0.0',
-        kind: 'judged',
-        spec: { projectId: suiteProject },
-      } as unknown as EvalSuiteRecord;
+        kind: 'corrections',
+        spec: { projectId: testSetProject },
+      } as unknown as TestSetRecord;
     },
-  } as unknown as EvalSuiteRegistryBinding;
+  } as unknown as TestSetRegistryBinding;
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -664,7 +665,7 @@ async function harness(
     ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
     ...(opts.items !== undefined && { itemProjects: itemProjects(opts.items) }),
     ...(opts.correctionRegistry !== undefined && { correctionRegistry: opts.correctionRegistry }),
-    evalSuiteRegistry: evalSuites,
+    testSetRegistry: testSets,
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -742,7 +743,7 @@ async function evaluated(
 ) {
   const h = await drafted(opts);
   const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
-    suiteId: 'acme.scoring-judged',
+    testSetId: 'acme.scoring-judged',
   });
   expect(res.status, JSON.stringify(res.body)).toBe(202);
   await h.evalRuns.finish(res.body.evaluation.evalRunId, { delta });
@@ -839,7 +840,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     const { call, blocks, evalRuns } = await harness();
     const created = await call('POST', '/v1/proposals', DRAFT);
     const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('proposal-needs-pin');
@@ -856,7 +857,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     const created = await call('POST', '/v1/proposals', DRAFT);
     expect(created.status).toBe(201);
     const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({
@@ -870,7 +871,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   test('publishes the block version, derives the agent version for the proposal, and starts the comparison', async () => {
     const { call, id, blocks, agents, evalRuns } = await drafted();
     const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       repetitions: 3,
       groupWeights: 'experts-only',
     });
@@ -898,7 +899,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     expect(evalRuns.started).toEqual([
       expect.objectContaining({
         projectId,
-        suiteId: 'acme.scoring-judged',
+        testSetId: 'acme.scoring-judged',
         agentRef: { agentId: AGENT, version: '1.0.1' },
         correlationId: `proposal:${id}`,
         comparison: expect.objectContaining({ repetitions: 3, groupWeights: 'experts-only' }),
@@ -914,7 +915,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
       orders: [[staging1, staging2, projectId]],
     });
     const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body.candidate).toMatchObject({ agentVersion: '1.0.1', blockVersion: '1.0.1' });
@@ -938,7 +939,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(400);
     expect(res.body.error).toMatchObject({
@@ -967,7 +968,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const res = await call('POST', `/v1/proposals/${created.body.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(400);
     expect(res.body.error).toMatchObject({
@@ -992,7 +993,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   test("its schemas' compiles count against the tenant's budget, first ones included: refused, nothing is stored", async () => {
     const { call, id, blocks, agents, evalRuns } = await drafted();
     const evaluate = () =>
-      call('POST', `/v1/proposals/${id}/evaluate`, { suiteId: 'acme.scoring-judged' });
+      call('POST', `/v1/proposals/${id}/evaluate`, { testSetId: 'acme.scoring-judged' });
     const restore = overrideTenantInputBounds({ ...SELF_HOSTED_BOUNDS, schemaCompileBudgetMs: 0 });
     try {
       await expectCompileBudgetRefused(await evaluate());
@@ -1017,7 +1018,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   ] as const)('a finished comparison with %j is %s', async (metric, status, better) => {
     const { call, id, evalRuns } = await drafted();
     const started = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     await evalRuns.finish(started.body.evaluation.evalRunId, metric);
     const res = await call('GET', `/v1/proposals/${id}`);
@@ -1032,13 +1033,13 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   test('a failed comparison is evaluation-failed; evaluating again reuses the candidate', async () => {
     const { call, id, evalRuns, blocks } = await drafted();
     const first = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     await evalRuns.finish(first.body.evaluation.evalRunId, 'failed');
     expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('evaluation-failed');
 
     const again = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(again.status).toBe(202);
     expect(again.body.candidate.agentVersion).toBe('1.0.1');
@@ -1049,9 +1050,9 @@ describe('POST /v1/proposals/:id/evaluate', () => {
 
   test('while evaluating, evaluate again is 409 proposal-invalid-state-transition', async () => {
     const { call, id } = await drafted();
-    await call('POST', `/v1/proposals/${id}/evaluate`, { suiteId: 'acme.scoring-judged' });
+    await call('POST', `/v1/proposals/${id}/evaluate`, { testSetId: 'acme.scoring-judged' });
     const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject({
@@ -1064,7 +1065,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     const { call, id } = await drafted();
     for (const extra of [{ versions: { agents: { x: '1.0.0' } } }, { baseline: 'recorded' }]) {
       const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
-        suiteId: 'acme.scoring-judged',
+        testSetId: 'acme.scoring-judged',
         ...extra,
       });
       expect(res.status).toBe(400);
@@ -1079,7 +1080,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
       if (row !== undefined) proposals.rows.set(id, { ...row, revision: row.revision + 1 });
     };
     const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
     expect(res.body.error.message).toContain('changed while this ran');
@@ -1090,7 +1091,7 @@ describe('POST /v1/proposals/:id/rescore', () => {
   test("after people correct the new answers: the same replays scored again become the proposal's evaluation", async () => {
     const { call, id, evalRuns } = await drafted();
     const first = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       repetitions: 3,
     });
     const firstRunId = first.body.evaluation.evalRunId as string;
@@ -1104,14 +1105,14 @@ describe('POST /v1/proposals/:id/rescore', () => {
     const rescoreRunId = res.body.evaluation.evalRunId as string;
     expect(rescoreRunId).not.toBe(firstRunId);
     expect(res.body.evaluation).toMatchObject({
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
     });
     expect(evalRuns.started[1]).toEqual({
       tenantId,
       projectId,
-      suiteId: 'acme.scoring-judged',
-      suiteVersion: '1.0.0',
+      testSetId: 'acme.scoring-judged',
+      testSetVersion: '1.0.0',
       agentRef: { agentId: AGENT, version: '1.0.1' },
       correlationId: `proposal:${id}`,
       comparison: expect.objectContaining({ repetitions: 3, rescoreOf: firstRunId }),
@@ -1134,7 +1135,7 @@ describe('POST /v1/proposals/:id/rescore', () => {
       details: { status: 'draft' },
     });
     const started = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     const evaluating = await call('POST', `/v1/proposals/${id}/rescore`);
     expect(evaluating.body.error).toMatchObject({ details: { status: 'evaluating' } });
@@ -1160,10 +1161,10 @@ describe('POST /v1/proposals/:id/rescore', () => {
   test('it takes no fields: the test set and settings are the latest evaluation’s (400)', async () => {
     const h = await evaluated(0);
     const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`, {
-      suiteId: 'acme.other',
+      testSetId: 'acme.other',
     });
     expect(res.status).toBe(400);
-    expect(res.body.error.message).toContain('`suiteId`');
+    expect(res.body.error.message).toContain('`testSetId`');
     expect(h.evalRuns.started).toHaveLength(1);
   });
 });
@@ -1247,7 +1248,7 @@ describe('POST /v1/proposals/:id/request', () => {
     expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('refused');
 
     const again = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(again.status).toBe(202);
     expect(again.body.status).toBe('evaluating');
@@ -1296,7 +1297,7 @@ describe('POST /v1/proposals/:id/rollback and /withdraw', () => {
     const res = await call('POST', `/v1/proposals/${id}/withdraw`, { reason: 'wrong segment' });
     expect(res.body).toMatchObject({ status: 'withdrawn', withdrawn: { reason: 'wrong segment' } });
     const evaluate = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(evaluate.status).toBe(409);
   });
@@ -1376,7 +1377,7 @@ describe('GET /v1/proposals', () => {
       change: { blockId: WEIGHTS, content: { values: { recency: 0.4, fit: 0.6 } } },
     });
     const started = await call('POST', `/v1/proposals/${second.body.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     await evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0.2 });
 
@@ -1423,7 +1424,7 @@ describe('authorization on the agent', () => {
 
     const h = await drafted({ grants: [`read agent:${AGENT}`, `publish agent:${AGENT}`] });
     const started = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0.1 });
     const request = await h.call('POST', `/v1/proposals/${h.id}/request`, {});
@@ -1435,7 +1436,7 @@ describe('authorization on the agent', () => {
     const grants = [`read agent:${AGENT}`, `publish agent:${AGENT}`];
     const h = await drafted({ grants });
     const started = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0 });
     grants.pop(); // read only, from here on
@@ -1510,7 +1511,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     const evaluated = await service.evaluate({
       tenantId,
       proposal: drafted.value.proposal,
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
       actor,
     });
@@ -1637,7 +1638,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     const evaluated = await service.evaluate({
       tenantId,
       proposal: drafted.value.proposal,
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
       actor,
     });
@@ -1832,7 +1833,7 @@ describe('a proposal a drafter wrote (not a person)', () => {
     const evaluated = await service.evaluate({
       tenantId,
       proposal: drafted.value.proposal,
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
       actor,
     });
@@ -1972,7 +1973,7 @@ describe("a change held to the current version's replays (an improvement pass's 
     const reference = await h.evalRuns.binding.start({
       tenantId,
       projectId,
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       agentRef: { agentId: AGENT as never, version: '1.0.0' as Semver },
     });
     if (reference.kind !== 'ok') throw new Error(reference.kind);
@@ -1980,7 +1981,7 @@ describe("a change held to the current version's replays (an improvement pass's 
     const evaluated = await service.evaluate({
       tenantId,
       proposal: drafted.value.proposal,
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       objective: 'weightedYesShare',
       actor: { kind: 'service', id: 'improvement-pass' },
       against: { rule, reference: { evalRunId: referenceId } },
@@ -2267,7 +2268,7 @@ describe("a change held to the current version's replays (an improvement pass's 
     const start = h.evalRuns.binding.start;
     h.evalRuns.binding.start = async (input) =>
       input.comparison?.rescoreOf === h.referenceId
-        ? { kind: 'suite-not-found', suiteId: input.suiteId }
+        ? { kind: 'test-set-not-found', testSetId: input.testSetId }
         : start(input);
     const cancelled: string[] = [];
     h.evalRuns.binding.cancel = async ({ runId }) => {
@@ -2275,7 +2276,7 @@ describe("a change held to the current version's replays (an improvement pass's 
       return { kind: 'ok' };
     };
     const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`);
-    expect(res.body.error).toMatchObject({ code: 'eval-suite-not-found' });
+    expect(res.body.error).toMatchObject({ code: 'test-set-not-found' });
     const rescored = [...h.evalRuns.runs.values()].find((r) => r.comparison?.rescoreOf === h.runId);
     expect(cancelled).toEqual([rescored?.runId]);
     expect(h.proposals.rows.get(h.id)).toEqual(before);
@@ -2324,14 +2325,14 @@ describe("what a proposal names must be in its agent's project's reach", () => {
     expect(proposals.rows.size).toBe(0);
   });
 
-  test('evaluating on a suite out of reach is refused, and starts no eval run', async () => {
+  test('evaluating on a test set out of reach is refused, and starts no eval run', async () => {
     const out = new Set<string>();
     const { call, id, evalRuns } = await drafted({ referenceScope: reach(out) });
     out.add('acme.scoring-judged');
     const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
-    expect(refused(res)).toEqual(['/suiteId suite acme.scoring-judged']);
+    expect(refused(res)).toEqual(['/testSetId test-set acme.scoring-judged']);
     expect(evalRuns.started).toEqual([]);
   });
 
@@ -2344,12 +2345,12 @@ describe("what a proposal names must be in its agent's project's reach", () => {
     expect(releases.calls.filter((c) => c.method === 'request')).toEqual([]);
   });
 
-  test('improve on a suite out of reach, or for a scope in another project, starts no pass', async () => {
+  test('improve on a test set out of reach, or for a scope in another project, starts no pass', async () => {
     for (const [out, body, issue] of [
       [
         new Set(['acme.scoring-judged']),
-        { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' },
-        '/suiteId suite acme.scoring-judged',
+        { agentId: AGENT, scope: SEGMENT_WIRE, testSetId: 'acme.scoring-judged' },
+        '/testSetId test-set acme.scoring-judged',
       ],
       [
         new Set<string>(),
@@ -2357,7 +2358,7 @@ describe("what a proposal names must be in its agent's project's reach", () => {
           agentId: AGENT,
           scope: OTHER_SEGMENT,
           fromVersion: '1.0.0',
-          suiteId: 'acme.scoring-judged',
+          testSetId: 'acme.scoring-judged',
         },
         `/scope agent ${AGENT}`,
       ],
@@ -2377,7 +2378,7 @@ describe("what a proposal names must be in its agent's project's reach", () => {
 });
 
 describe('improvement passes', () => {
-  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' };
+  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, testSetId: 'acme.scoring-judged' };
 
   test('improve starts a pass for the version serving the scope, with the default budget (202)', async () => {
     const passes = inMemoryPasses();
@@ -2589,16 +2590,16 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test("resolves against the suite's project, not where the agent is made", async () => {
+  test("resolves against the test set's project, not where the agent is made", async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    const suiteProjectId = randomUUID() as ProjectId;
-    // The agent is made in `projectId`, but its suite reads corrections from
+    const testSetProjectId = randomUUID() as ProjectId;
+    // The agent is made in `projectId`, but its test set reads corrections from
     // another environment's project, where the expert group lives: the pass
-    // counts trusted only, keying off the suite's project.
+    // counts trusted only, keying off the test set's project.
     await corrections.createGroup({
       tenantId,
-      scope: { kind: 'project', projectId: suiteProjectId },
+      scope: { kind: 'project', projectId: testSetProjectId },
       name: 'expert',
       weight: 3,
       assertableBy: { principalKinds: ['user'] },
@@ -2607,7 +2608,7 @@ describe('improvement passes', () => {
       tunable: true,
       passes: passes.binding,
       correctionRegistry: corrections,
-      suiteProjectId,
+      testSetProjectId,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
@@ -2615,13 +2616,13 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test("an expert group only where the agent is made, not in the suite's project, doesn't count", async () => {
+  test("an expert group only where the agent is made, not in the test set's project, doesn't count", async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    const suiteProjectId = randomUUID() as ProjectId;
+    const testSetProjectId = randomUUID() as ProjectId;
     // The inverse: the expert group is in the agent's own project, but the
-    // suite reads from another, so the default must NOT flip — the pass
-    // counts the suite project's corrections, not `from.projectId`'s.
+    // test set reads from another, so the default must NOT flip — the pass
+    // counts the test set project's corrections, not `from.projectId`'s.
     await corrections.createGroup({
       tenantId,
       scope: { kind: 'project', projectId },
@@ -2633,7 +2634,7 @@ describe('improvement passes', () => {
       tunable: true,
       passes: passes.binding,
       correctionRegistry: corrections,
-      suiteProjectId,
+      testSetProjectId,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
@@ -2641,12 +2642,12 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
-  test('a non-judged suite keys off its row project, not its spec project', async () => {
+  test('a non-corrections test set keys off its row project, not its spec project', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
     const rowProjectId = randomUUID() as ProjectId;
     const specProjectId = randomUUID() as ProjectId;
-    // A non-judged suite records its project on the row, not in `spec`. The
+    // A non-corrections test set records its project on the row, not in `spec`. The
     // expert group is in the row project, so the default flips. Reading
     // `spec.projectId` regardless of kind would miss it; dropping the
     // `?? row project` fallback would read the agent's project instead.
@@ -2661,14 +2662,14 @@ describe('improvement passes', () => {
       tunable: true,
       passes: passes.binding,
       correctionRegistry: corrections,
-      suiteRecord: {
+      testSetRecord: {
         id: 'acme.scoring-judged',
         tenantId,
         version: '1.0.0',
         kind: 'accuracy',
         projectId: rowProjectId,
         spec: { projectId: specProjectId },
-      } as unknown as EvalSuiteRecord,
+      } as unknown as TestSetRecord,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
@@ -2676,10 +2677,10 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test('a missing suite falls back to the project the agent is made in', async () => {
+  test('a missing testSet falls back to the project the agent is made in', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    // The suite binding finds no record; the default then keys off the agent
+    // The test set binding finds no record; the default then keys off the agent
     // version's project, where this expert group lives. Dropping the
     // `?? from.projectId` fallback would ask only the tenant scope.
     await corrections.createGroup({
@@ -2693,7 +2694,7 @@ describe('improvement passes', () => {
       tunable: true,
       passes: passes.binding,
       correctionRegistry: corrections,
-      suiteRecord: null,
+      testSetRecord: null,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
@@ -2701,16 +2702,16 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test("an expert group on the agent in the suite's project flips the default", async () => {
+  test("an expert group on the agent in the test set's project flips the default", async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    const suiteProjectId = randomUUID() as ProjectId;
-    // The agent-scope expert group is in the SUITE's project, not the agent's
-    // own. Keying off the suite's project, the agent clause finds it; keying
+    const testSetProjectId = randomUUID() as ProjectId;
+    // The agent-scope expert group is in the TEST_SET's project, not the agent's
+    // own. Keying off the test set's project, the agent clause finds it; keying
     // off `from.projectId` would miss it.
     await corrections.createGroup({
       tenantId,
-      scope: { kind: 'agent', projectId: suiteProjectId, agentId: AGENT },
+      scope: { kind: 'agent', projectId: testSetProjectId, agentId: AGENT },
       name: 'expert',
       weight: 3,
       assertableBy: { principalKinds: ['user'] },
@@ -2719,7 +2720,7 @@ describe('improvement passes', () => {
       tunable: true,
       passes: passes.binding,
       correctionRegistry: corrections,
-      suiteProjectId,
+      testSetProjectId,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
@@ -2727,16 +2728,16 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test('an explicit groupWeights skips the suite read', async () => {
+  test('an explicit groupWeights skips the test set read', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
     // With `groupWeights` set, the default isn't resolved, so the route must
-    // not read the suite at all — the stub throws if it does.
+    // not read the test set at all — the stub throws if it does.
     const h = await harness({
       tunable: true,
       passes: passes.binding,
       correctionRegistry: corrections,
-      suiteGetThrows: true,
+      testSetGetThrows: true,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', {
@@ -2747,11 +2748,11 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
-  test('with no corrector-group registry wired, the suite read is skipped', async () => {
+  test('with no corrector-group registry wired, the test set read is skipped', async () => {
     const passes = inMemoryPasses();
     // No correctionRegistry, so there are no corrector groups to resolve a default
-    // from: the route must not read the suite — the stub throws if it does.
-    const h = await harness({ tunable: true, passes: passes.binding, suiteGetThrows: true });
+    // from: the route must not read the test set — the stub throws if it does.
+    const h = await harness({ tunable: true, passes: passes.binding, testSetGetThrows: true });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -2997,7 +2998,7 @@ describe('improvement passes', () => {
       agentId: 'acme.secret',
       fromVersion: '1.0.0',
       scope: { kind: 'tenant' },
-      suiteId: 's',
+      testSetId: 's',
       tiers: ['settings'],
       objective: 'weightedYesShare',
       groupWeights: 'experts-only',
@@ -3013,7 +3014,7 @@ describe("POST /v1/proposals/:id/evaluate: who is made the derived version's own
   const evaluate = async (token?: string) => {
     const h = await drafted(token === undefined ? {} : { token });
     const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     return h.agents.written.filter((t) => t.relation === 'owner').map((t) => t.user);
@@ -3029,7 +3030,7 @@ describe("POST /v1/proposals/:id/evaluate: who is made the derived version's own
 });
 
 describe('POST /v1/proposals/improve/estimate', () => {
-  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' };
+  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, testSetId: 'acme.scoring-judged' };
 
   /** The in-memory passes binding plus an `estimateBasis` stub, and the inputs it saw. */
   function withEstimate(basis: ImprovementPassEstimateBasis) {
@@ -3063,7 +3064,7 @@ describe('POST /v1/proposals/improve/estimate', () => {
     expect(got).toMatchObject({
       tenantId,
       agentId: AGENT,
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
       tiers: ['settings'],
     });
     expect(got.scope).toBeDefined();
@@ -3141,7 +3142,7 @@ describe('POST /v1/proposals/improve/estimate', () => {
   const PROD_SET = 'acme.scoring-prod-judged';
   function inProd(shipped: string[], grants?: string[]): Parameters<typeof harness>[0] {
     const reached = new Map<string, Set<string>>([
-      [projectId, new Set([AGENT, `${AGENT}@1.0.0`, IMPROVE.suiteId])],
+      [projectId, new Set([AGENT, `${AGENT}@1.0.0`, IMPROVE.testSetId])],
       [PROD, new Set([AGENT, ...shipped.map((v) => `${AGENT}@${v}`), PROD_SET])],
     ]);
     return {
@@ -3191,14 +3192,14 @@ describe('POST /v1/proposals/improve/estimate', () => {
       code: 'agent-version-not-found',
     },
     {
-      label: 'a missing suiteId',
+      label: 'a missing testSetId',
       opts: {},
       body: { agentId: AGENT, scope: SEGMENT_WIRE },
       status: 400,
       code: 'bad-input',
     },
     {
-      label: 'a suite the project does not reach',
+      label: 'a test set the project does not reach',
       opts: { referenceScope: reach(new Set(['acme.scoring-judged'])) },
       body: { ...IMPROVE, fromVersion: '1.0.0' },
       status: 400,
@@ -3221,14 +3222,14 @@ describe('POST /v1/proposals/improve/estimate', () => {
     {
       label: 'another project, without write there',
       opts: inProd(['1.0.0'], [`read project:${projectId}`, `write project:${projectId}`]),
-      body: { ...IMPROVE, scope: PROD_SEGMENT, suiteId: PROD_SET, fromVersion: '1.0.0' },
+      body: { ...IMPROVE, scope: PROD_SEGMENT, testSetId: PROD_SET, fromVersion: '1.0.0' },
       status: 403,
       code: 'permission-denied',
     },
     {
       label: "a version its project doesn't reach",
       opts: inProd([]),
-      body: { ...IMPROVE, scope: PROD_SEGMENT, suiteId: PROD_SET, fromVersion: '1.0.0' },
+      body: { ...IMPROVE, scope: PROD_SEGMENT, testSetId: PROD_SET, fromVersion: '1.0.0' },
       status: 400,
       code: 'reference-out-of-scope',
     },
@@ -3261,12 +3262,12 @@ describe('an agent an order carries from its project to prod', () => {
   ];
   /** Runs the order's first environment (where the agent's versions are made). */
   const maker = [`read project:${projectId}`, `write project:${projectId}`];
-  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, suiteId: 'acme.scoring-judged' };
+  const IMPROVE = { agentId: AGENT, scope: SEGMENT_WIRE, testSetId: 'acme.scoring-judged' };
 
   async function evaluatedBy(grants: string[]) {
     const h = await drafted({ grants, orders, items: items() });
     const started = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(started.status, JSON.stringify(started.body)).toBe(202);
     await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0.1 });
@@ -3384,7 +3385,7 @@ describe('an agent an order carries from its project to prod', () => {
 });
 
 describe("an agent registry that takes Improve's candidates (kindgi dev)", () => {
-  const IMPROVE = { agentId: AGENT, scope: { kind: 'tenant' }, suiteId: 'acme.scoring-judged' };
+  const IMPROVE = { agentId: AGENT, scope: { kind: 'tenant' }, testSetId: 'acme.scoring-judged' };
   const NARROWER = {
     code: 'registry-read-only',
     message: TAKES_CANDIDATES.takesCandidates.scopeReason,
@@ -3444,7 +3445,7 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     if (row === undefined) throw new Error('no proposal');
     h.proposals.rows.set(h.id, { ...row, scope: { kind: 'project', projectId } });
     const res = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatchObject(NARROWER);
@@ -3454,7 +3455,7 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
   test('an evaluation publishes the block version, derives its agent version, and starts the comparison (202)', async () => {
     const { call, id, evalRuns } = await drafted({ readOnly: 'takes-candidates' });
     const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
-      suiteId: 'acme.scoring-judged',
+      testSetId: 'acme.scoring-judged',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body.candidate).toMatchObject({ agentVersion: '1.0.1', blockVersion: '1.0.1' });
@@ -3534,25 +3535,29 @@ describe("a pass started by hand works in one project: the one named, else its s
 
   test("a scope in prod: the pass works in prod, on prod's test set, and asks whether prod is suspended", async () => {
     const h = await improver();
-    const res = await h.improve({ scope: PROD_SEGMENT, suiteId: PROD_SET });
+    const res = await h.improve({ scope: PROD_SEGMENT, testSetId: PROD_SET });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(h.passes.started.map((p) => p.projectId)).toEqual([PROD]);
     expect(h.asked).toEqual([PROD]);
     // In the first environment, prod's test set is out of reach, as before.
-    expect(refused(await h.improve({ scope: SEGMENT_WIRE, suiteId: PROD_SET }))).toEqual([
-      `/suiteId suite ${PROD_SET}`,
+    expect(refused(await h.improve({ scope: SEGMENT_WIRE, testSetId: PROD_SET }))).toEqual([
+      `/testSetId test-set ${PROD_SET}`,
     ]);
     expect(h.passes.started).toHaveLength(1);
   });
 
   test("a tenant scope: the version's project, unless `projectId` names another", async () => {
     const h = await improver();
-    const own = await h.improve({ scope: { kind: 'tenant' }, suiteId: DEV_SET });
+    const own = await h.improve({ scope: { kind: 'tenant' }, testSetId: DEV_SET });
     expect(own.status, JSON.stringify(own.body)).toBe(202);
-    expect(refused(await h.improve({ scope: { kind: 'tenant' }, suiteId: PROD_SET }))).toEqual([
-      `/suiteId suite ${PROD_SET}`,
+    expect(refused(await h.improve({ scope: { kind: 'tenant' }, testSetId: PROD_SET }))).toEqual([
+      `/testSetId test-set ${PROD_SET}`,
     ]);
-    const prod = await h.improve({ scope: { kind: 'tenant' }, projectId: PROD, suiteId: PROD_SET });
+    const prod = await h.improve({
+      scope: { kind: 'tenant' },
+      projectId: PROD,
+      testSetId: PROD_SET,
+    });
     expect(prod.status, JSON.stringify(prod.body)).toBe(202);
     expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId, PROD]);
   });
@@ -3560,9 +3565,9 @@ describe("a pass started by hand works in one project: the one named, else its s
   test('a project or segment scope must be in `projectId`: 400, naming no project, and no pass', async () => {
     const h = await improver();
     for (const body of [
-      { scope: SEGMENT_WIRE, projectId: PROD, suiteId: PROD_SET },
-      { scope: PROD_SEGMENT, projectId, suiteId: DEV_SET },
-      { scope: { kind: 'project', projectId: PROD }, projectId, suiteId: DEV_SET },
+      { scope: SEGMENT_WIRE, projectId: PROD, testSetId: PROD_SET },
+      { scope: PROD_SEGMENT, projectId, testSetId: DEV_SET },
+      { scope: { kind: 'project', projectId: PROD }, projectId, testSetId: DEV_SET },
     ]) {
       const res = await h.improve(body);
       expect(res.status, JSON.stringify(res.body)).toBe(400);
@@ -3577,9 +3582,9 @@ describe("a pass started by hand works in one project: the one named, else its s
   test('a version prod never got: refused at /fromVersion, naming no project, and no pass', async () => {
     const h = await improver({ shipped: [] });
     for (const body of [
-      { scope: PROD_SEGMENT, suiteId: PROD_SET },
-      { scope: PROD_SEGMENT, fromVersion: '1.0.0', suiteId: PROD_SET },
-      { scope: { kind: 'tenant' }, projectId: PROD, suiteId: PROD_SET },
+      { scope: PROD_SEGMENT, testSetId: PROD_SET },
+      { scope: PROD_SEGMENT, fromVersion: '1.0.0', testSetId: PROD_SET },
+      { scope: { kind: 'tenant' }, projectId: PROD, testSetId: PROD_SET },
     ]) {
       const res = await h.improve(body);
       expect(refused(res)).toEqual([`/fromVersion agent ${AGENT}`]);
@@ -3587,7 +3592,7 @@ describe("a pass started by hand works in one project: the one named, else its s
       expect(res.body.error.message).not.toContain(projectId);
     }
     // Its own project reaches the version it was made in: not asked again there.
-    const own = await h.improve({ scope: SEGMENT_WIRE, suiteId: DEV_SET });
+    const own = await h.improve({ scope: SEGMENT_WIRE, testSetId: DEV_SET });
     expect(own.status, JSON.stringify(own.body)).toBe(202);
     expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId]);
   });
@@ -3595,14 +3600,14 @@ describe("a pass started by hand works in one project: the one named, else its s
   test("a project other than the version's needs write there, as the pass's eval runs do", async () => {
     const grants = [`read project:${projectId}`, `write project:${projectId}`];
     const h = await improver({ grants });
-    const denied = await h.improve({ scope: PROD_SEGMENT, suiteId: PROD_SET });
+    const denied = await h.improve({ scope: PROD_SEGMENT, testSetId: PROD_SET });
     expect(denied.status, JSON.stringify(denied.body)).toBe(403);
     expect(denied.body.error.code).toBe('permission-denied');
     // The version's own project needs nothing more than before.
-    const own = await h.improve({ scope: SEGMENT_WIRE, suiteId: DEV_SET });
+    const own = await h.improve({ scope: SEGMENT_WIRE, testSetId: DEV_SET });
     expect(own.status, JSON.stringify(own.body)).toBe(202);
     grants.push(`write project:${PROD}`);
-    const prod = await h.improve({ scope: PROD_SEGMENT, suiteId: PROD_SET });
+    const prod = await h.improve({ scope: PROD_SEGMENT, testSetId: PROD_SET });
     expect(prod.status, JSON.stringify(prod.body)).toBe(202);
     expect(h.passes.started.map((p) => p.projectId)).toEqual([projectId, PROD]);
   });
@@ -3613,7 +3618,7 @@ describe("a pass started by hand works in one project: the one named, else its s
       const res = await h.improve({
         scope: { kind: 'tenant' },
         projectId: projectIdValue,
-        suiteId: DEV_SET,
+        testSetId: DEV_SET,
       });
       expect(res.status, JSON.stringify(res.body)).toBe(400);
       expect(res.body.error).toMatchObject({

@@ -628,46 +628,44 @@ OPERATIONS: dict[str, Operation] = {
     "retention.sweepDomain": Operation(
         "retention.sweepDomain", "POST", "/v1/retention/sweep/{domain}", "json", False
     ),
-    "evalSuites.list": Operation("evalSuites.list", "GET", "/v1/eval-suites", "json", False),
-    "evalSuites.publish": Operation("evalSuites.publish", "POST", "/v1/eval-suites", "json", True),
-    "evalSuites.get": Operation(
-        "evalSuites.get", "GET", "/v1/eval-suites/{suiteId}", "json", False
+    "testSets.list": Operation("testSets.list", "GET", "/v1/test-sets", "json", False),
+    "testSets.publish": Operation("testSets.publish", "POST", "/v1/test-sets", "json", True),
+    "testSets.get": Operation("testSets.get", "GET", "/v1/test-sets/{testSetId}", "json", False),
+    "testSets.versions.list": Operation(
+        "testSets.versions.list", "GET", "/v1/test-sets/{testSetId}/versions", "json", False
     ),
-    "evalSuites.versions.list": Operation(
-        "evalSuites.versions.list", "GET", "/v1/eval-suites/{suiteId}/versions", "json", False
-    ),
-    "evalSuites.versions.get": Operation(
-        "evalSuites.versions.get",
+    "testSets.versions.get": Operation(
+        "testSets.versions.get",
         "GET",
-        "/v1/eval-suites/{suiteId}/versions/{version}",
+        "/v1/test-sets/{testSetId}/versions/{version}",
         "json",
         False,
     ),
-    "evalSuites.buildFromCorrections": Operation(
-        "evalSuites.buildFromCorrections",
+    "testSets.buildFromCorrections": Operation(
+        "testSets.buildFromCorrections",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/from-corrections",
+        "/v1/test-sets/{testSetId}/versions/from-corrections",
         "json",
         True,
     ),
-    "evalSuites.listCases": Operation(
-        "evalSuites.listCases",
+    "testSets.listCases": Operation(
+        "testSets.listCases",
         "GET",
-        "/v1/eval-suites/{suiteId}/versions/{version}/cases",
+        "/v1/test-sets/{testSetId}/versions/{version}/cases",
         "json",
         False,
     ),
-    "evalSuites.versions.unregister": Operation(
-        "evalSuites.versions.unregister",
+    "testSets.versions.unregister": Operation(
+        "testSets.versions.unregister",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/{version}/unregister",
+        "/v1/test-sets/{testSetId}/versions/{version}/unregister",
         "json",
         True,
     ),
-    "evalSuites.reinstateVersion": Operation(
-        "evalSuites.reinstateVersion",
+    "testSets.reinstateVersion": Operation(
+        "testSets.reinstateVersion",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/{version}/reinstate",
+        "/v1/test-sets/{testSetId}/versions/{version}/reinstate",
         "json",
         True,
     ),
@@ -695,7 +693,7 @@ OPERATIONS: dict[str, Operation] = {
         True,
     ),
     "evalRuns.start": Operation(
-        "evalRuns.start", "POST", "/v1/eval-suites/{suiteId}/runs", "json", True
+        "evalRuns.start", "POST", "/v1/test-sets/{testSetId}/runs", "json", True
     ),
     "evalRuns.list": Operation("evalRuns.list", "GET", "/v1/eval-runs", "json", False),
     "evalRuns.get": Operation("evalRuns.get", "GET", "/v1/eval-runs/{runId}", "json", False),
@@ -1319,10 +1317,10 @@ OPERATIONS: dict[str, Operation] = {
         "auth.sites.enroll", "POST", "/v1/auth/sites/enroll", "json", False
     ),
     "auth.siteSignIn": Operation("auth.siteSignIn", "POST", "/v1/auth/site-sign-in", "json", False),
-    "evalSuites.unregister": Operation(
-        "evalSuites.unregister",
+    "testSets.unregister": Operation(
+        "testSets.unregister",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/{version}/unregister",
+        "/v1/test-sets/{testSetId}/versions/{version}/unregister",
         "json",
         True,
     ),
@@ -6334,7 +6332,7 @@ class RetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6404,7 +6402,7 @@ class RetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6442,74 +6440,74 @@ class RetentionResource:
         )
 
 
-class EvalSuitesVersionsResource:
-    """`client.eval_suites.versions` — the `evalSuites.versions` operations."""
+class TestSetsVersionsResource:
+    """`client.test_sets.versions` — the `testSets.versions` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
 
     def list(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         include_tombstoned: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
+    ) -> _models.TestSetCollectionPage:
+        """List versions of an test set. `GET /v1/test-sets/{testSetId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired testSet (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.versions.list"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.versions.list"],
+            path={"testSetId": test_set_id},
             query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     def get(
-        self, suite_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.EvalSuite:
-        """Fetch a specific eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}`"""
+        self, test_set_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.TestSet:
+        """Fetch a specific test set version. `GET /v1/test-sets/{testSetId}/versions/{version}`"""
         return self._client._request(
-            _OPERATIONS["evalSuites.versions.get"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.get"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return self._client._request(
-            _OPERATIONS["evalSuites.versions.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
 
-class EvalSuitesResource:
-    """`client.eval_suites` — the `evalSuites` operations."""
+class TestSetsResource:
+    """`client.test_sets` — the `testSets` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
-        self.versions = EvalSuitesVersionsResource(client)
+        self.versions = TestSetsVersionsResource(client)
 
     def list(
         self,
@@ -6518,7 +6516,13 @@ class EvalSuitesResource:
         limit: int | None = None,
         cursor: str | None = None,
         kind: Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | None = None,
         name: str | None = None,
@@ -6527,13 +6531,13 @@ class EvalSuitesResource:
         inherit: bool | None = None,
         include_retired: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List tenant eval suites. `GET /v1/eval-suites`
+    ) -> _models.TestSetCollectionPage:
+        """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: testSet id ascending. Latest version per id. A retired testSet (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.list"],
+            _OPERATIONS["testSets.list"],
             path={},
             query={
                 "limit": limit,
@@ -6546,81 +6550,81 @@ class EvalSuitesResource:
                 "includeRetired": include_retired,
             },
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     def publish(
         self,
-        body: _models.PublishEvalSuiteBody | Mapping[str, Any] | None = None,
+        body: _models.PublishTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.PublishEvalSuiteResult:
-        """Publish an eval suite. `POST /v1/eval-suites`
+    ) -> _models.PublishTestSetResult:
+        """Publish an test set. `POST /v1/test-sets`
 
-        Body is a full `EvalSuite` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(suiteId, version)` returns `409 eval-suite-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.publish"],
+            _OPERATIONS["testSets.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishEvalSuiteBody, body, fields),
-            response=_models.PublishEvalSuiteResult,
+            body=_body(_models.PublishTestSetBody, body, fields),
+            response=_models.PublishTestSetResult,
             timeout=timeout,
         )
 
     def get(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+    ) -> _models.TestSet:
+        """Fetch an test set (latest version). `GET /v1/test-sets/{testSetId}`
 
         An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.get"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.get"],
+            path={"testSetId": test_set_id},
             query={"projectId": project_id},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     def build_from_corrections(
         self,
-        suite_id: str | UUID,
-        body: _models.BuildCorrectedSuiteBody | Mapping[str, Any] | None = None,
+        test_set_id: str | UUID,
+        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.BuildCorrectedSuiteResult:
-        """Build a test set from corrections. `POST /v1/eval-suites/{suiteId}/versions/from-corrections`
+    ) -> _models.BuildCorrectedTestSetResult:
+        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
 
-        Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
+        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.buildFromCorrections"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.buildFromCorrections"],
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedSuiteBody, body, fields),
-            response=_models.BuildCorrectedSuiteResult,
+            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
+            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 
     def list_cases(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
@@ -6628,13 +6632,13 @@ class EvalSuitesResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.CorrectedEvalCaseCollectionPage:
-        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+        """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
         Cursor-paginated, in the order the cases were stored (newest corrected run first).
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.listCases"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.listCases"],
+            path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.CorrectedEvalCaseCollectionPage,
@@ -6643,42 +6647,42 @@ class EvalSuitesResource:
 
     def reinstate_version(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ReinstateEvalSuiteVersionResult:
-        """Reinstate a specific tombstoned eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/reinstate`
+    ) -> _models.ReinstateTestSetVersionResult:
+        """Reinstate a specific tombstoned test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `suiteKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `testSetKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.reinstateVersion"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.reinstateVersion"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ReinstateEvalSuiteVersionResult,
+            response=_models.ReinstateTestSetVersionResult,
             timeout=timeout,
         )
 
     def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return self._client._request(
-            _OPERATIONS["evalSuites.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
@@ -6865,7 +6869,7 @@ class EvalRunsResource:
 
     def start(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -6873,13 +6877,13 @@ class EvalRunsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.StartEvalRunResult:
-        """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
+        """Start an eval run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.start"],
-            path={"suiteId": suite_id},
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.StartEvalRunBody, body, fields),
@@ -6893,7 +6897,7 @@ class EvalRunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        suite_id: str | UUID | None = None,
+        test_set_id: str | UUID | None = None,
         status: Literal["pending", "running", "completed", "failed", "cancelled"] | None = None,
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
@@ -6906,7 +6910,7 @@ class EvalRunsResource:
     ) -> _models.EvalRunCollectionPage:
         """List eval runs. `GET /v1/eval-runs`
 
-        Cursor-paginated. Filters: `?suiteId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
+        Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.list"],
@@ -6914,7 +6918,7 @@ class EvalRunsResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
-                "suiteId": suite_id,
+                "testSetId": test_set_id,
                 "status": status,
                 "agentId": agent_id,
                 "flowId": flow_id,
@@ -6965,7 +6969,7 @@ class EvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's testSet and `write` on its project.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.rescore"],
@@ -8650,7 +8654,7 @@ class ProjectsExpertQueueResource:
     ) -> _models.ExpertQueuePage:
         """The project's expert queue. `GET /v1/projects/{projectId}/expert-queue`
 
-        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `corrections` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.expertQueue.list"],
@@ -16178,7 +16182,7 @@ class AsyncRetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -16248,7 +16252,7 @@ class AsyncRetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -16286,74 +16290,74 @@ class AsyncRetentionResource:
         )
 
 
-class AsyncEvalSuitesVersionsResource:
-    """`client.eval_suites.versions` — the `evalSuites.versions` operations."""
+class AsyncTestSetsVersionsResource:
+    """`client.test_sets.versions` — the `testSets.versions` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
 
     async def list(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         include_tombstoned: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
+    ) -> _models.TestSetCollectionPage:
+        """List versions of an test set. `GET /v1/test-sets/{testSetId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired testSet (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.versions.list"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.versions.list"],
+            path={"testSetId": test_set_id},
             query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     async def get(
-        self, suite_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.EvalSuite:
-        """Fetch a specific eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}`"""
+        self, test_set_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.TestSet:
+        """Fetch a specific test set version. `GET /v1/test-sets/{testSetId}/versions/{version}`"""
         return await self._client._request(
-            _OPERATIONS["evalSuites.versions.get"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.get"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     async def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return await self._client._request(
-            _OPERATIONS["evalSuites.versions.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
 
-class AsyncEvalSuitesResource:
-    """`client.eval_suites` — the `evalSuites` operations."""
+class AsyncTestSetsResource:
+    """`client.test_sets` — the `testSets` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
-        self.versions = AsyncEvalSuitesVersionsResource(client)
+        self.versions = AsyncTestSetsVersionsResource(client)
 
     async def list(
         self,
@@ -16362,7 +16366,13 @@ class AsyncEvalSuitesResource:
         limit: int | None = None,
         cursor: str | None = None,
         kind: Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | None = None,
         name: str | None = None,
@@ -16371,13 +16381,13 @@ class AsyncEvalSuitesResource:
         inherit: bool | None = None,
         include_retired: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List tenant eval suites. `GET /v1/eval-suites`
+    ) -> _models.TestSetCollectionPage:
+        """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: testSet id ascending. Latest version per id. A retired testSet (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.list"],
+            _OPERATIONS["testSets.list"],
             path={},
             query={
                 "limit": limit,
@@ -16390,81 +16400,81 @@ class AsyncEvalSuitesResource:
                 "includeRetired": include_retired,
             },
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     async def publish(
         self,
-        body: _models.PublishEvalSuiteBody | Mapping[str, Any] | None = None,
+        body: _models.PublishTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.PublishEvalSuiteResult:
-        """Publish an eval suite. `POST /v1/eval-suites`
+    ) -> _models.PublishTestSetResult:
+        """Publish an test set. `POST /v1/test-sets`
 
-        Body is a full `EvalSuite` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(suiteId, version)` returns `409 eval-suite-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.publish"],
+            _OPERATIONS["testSets.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishEvalSuiteBody, body, fields),
-            response=_models.PublishEvalSuiteResult,
+            body=_body(_models.PublishTestSetBody, body, fields),
+            response=_models.PublishTestSetResult,
             timeout=timeout,
         )
 
     async def get(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+    ) -> _models.TestSet:
+        """Fetch an test set (latest version). `GET /v1/test-sets/{testSetId}`
 
         An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.get"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.get"],
+            path={"testSetId": test_set_id},
             query={"projectId": project_id},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     async def build_from_corrections(
         self,
-        suite_id: str | UUID,
-        body: _models.BuildCorrectedSuiteBody | Mapping[str, Any] | None = None,
+        test_set_id: str | UUID,
+        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.BuildCorrectedSuiteResult:
-        """Build a test set from corrections. `POST /v1/eval-suites/{suiteId}/versions/from-corrections`
+    ) -> _models.BuildCorrectedTestSetResult:
+        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
 
-        Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
+        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.buildFromCorrections"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.buildFromCorrections"],
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedSuiteBody, body, fields),
-            response=_models.BuildCorrectedSuiteResult,
+            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
+            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 
     async def list_cases(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
@@ -16472,13 +16482,13 @@ class AsyncEvalSuitesResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.CorrectedEvalCaseCollectionPage:
-        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+        """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
         Cursor-paginated, in the order the cases were stored (newest corrected run first).
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.listCases"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.listCases"],
+            path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
             response=_models.CorrectedEvalCaseCollectionPage,
@@ -16487,42 +16497,42 @@ class AsyncEvalSuitesResource:
 
     async def reinstate_version(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ReinstateEvalSuiteVersionResult:
-        """Reinstate a specific tombstoned eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/reinstate`
+    ) -> _models.ReinstateTestSetVersionResult:
+        """Reinstate a specific tombstoned test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `suiteKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `testSetKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.reinstateVersion"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.reinstateVersion"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ReinstateEvalSuiteVersionResult,
+            response=_models.ReinstateTestSetVersionResult,
             timeout=timeout,
         )
 
     async def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return await self._client._request(
-            _OPERATIONS["evalSuites.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
@@ -16709,7 +16719,7 @@ class AsyncEvalRunsResource:
 
     async def start(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
         /,
         *,
@@ -16717,13 +16727,13 @@ class AsyncEvalRunsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.StartEvalRunResult:
-        """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
+        """Start an eval run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.start"],
-            path={"suiteId": suite_id},
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.StartEvalRunBody, body, fields),
@@ -16737,7 +16747,7 @@ class AsyncEvalRunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        suite_id: str | UUID | None = None,
+        test_set_id: str | UUID | None = None,
         status: Literal["pending", "running", "completed", "failed", "cancelled"] | None = None,
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
@@ -16750,7 +16760,7 @@ class AsyncEvalRunsResource:
     ) -> _models.EvalRunCollectionPage:
         """List eval runs. `GET /v1/eval-runs`
 
-        Cursor-paginated. Filters: `?suiteId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
+        Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.list"],
@@ -16758,7 +16768,7 @@ class AsyncEvalRunsResource:
             query={
                 "limit": limit,
                 "cursor": cursor,
-                "suiteId": suite_id,
+                "testSetId": test_set_id,
                 "status": status,
                 "agentId": agent_id,
                 "flowId": flow_id,
@@ -16811,7 +16821,7 @@ class AsyncEvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's testSet and `write` on its project.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.rescore"],
@@ -18500,7 +18510,7 @@ class AsyncProjectsExpertQueueResource:
     ) -> _models.ExpertQueuePage:
         """The project's expert queue. `GET /v1/projects/{projectId}/expert-queue`
 
-        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `corrections` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.expertQueue.list"],
@@ -21056,7 +21066,7 @@ class Resources:
     adapters: AdaptersResource
     policies: PoliciesResource
     retention: RetentionResource
-    eval_suites: EvalSuitesResource
+    test_sets: TestSetsResource
     blocks: BlocksResource
     eval_runs: EvalRunsResource
     auth: AuthResource
@@ -21117,7 +21127,7 @@ class Resources:
         self.adapters = AdaptersResource(client)
         self.policies = PoliciesResource(client)
         self.retention = RetentionResource(client)
-        self.eval_suites = EvalSuitesResource(client)
+        self.test_sets = TestSetsResource(client)
         self.blocks = BlocksResource(client)
         self.eval_runs = EvalRunsResource(client)
         self.auth = AuthResource(client)
@@ -21180,7 +21190,7 @@ class AsyncResources:
     adapters: AsyncAdaptersResource
     policies: AsyncPoliciesResource
     retention: AsyncRetentionResource
-    eval_suites: AsyncEvalSuitesResource
+    test_sets: AsyncTestSetsResource
     blocks: AsyncBlocksResource
     eval_runs: AsyncEvalRunsResource
     auth: AsyncAuthResource
@@ -21241,7 +21251,7 @@ class AsyncResources:
         self.adapters = AsyncAdaptersResource(client)
         self.policies = AsyncPoliciesResource(client)
         self.retention = AsyncRetentionResource(client)
-        self.eval_suites = AsyncEvalSuitesResource(client)
+        self.test_sets = AsyncTestSetsResource(client)
         self.blocks = AsyncBlocksResource(client)
         self.eval_runs = AsyncEvalRunsResource(client)
         self.auth = AsyncAuthResource(client)

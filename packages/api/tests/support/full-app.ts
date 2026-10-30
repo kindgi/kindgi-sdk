@@ -37,7 +37,6 @@ import type {
   EnvironmentOrderBinding,
   EvalCaseStoreBinding,
   EvalRunBinding,
-  EvalSuiteRegistryBinding,
   ExpertQueueBinding,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
@@ -62,6 +61,7 @@ import type {
   SessionStoreBinding,
   SigningKeyBinding as SigningKeyRegistryBinding,
   SupervisorBinding,
+  TestSetRegistryBinding,
   TokenAdmin,
   TokenResolver,
   ToolRegistryBinding,
@@ -339,15 +339,15 @@ const noopPolicyRegistry: PolicyRegistryBinding = {
   reinstateVersion: async ({ policyId, version }) => ({ kind: 'not-found', policyId, version }),
 };
 
-const noopEvalSuiteRegistry: EvalSuiteRegistryBinding = {
+const noopTestSetRegistry: TestSetRegistryBinding = {
   list: async () => ({ data: [] }),
   get: async () => null,
   getVersion: async () => null,
   headExists: async () => false,
   listVersions: async () => ({ data: [] }),
-  publish: async ({ suite }) => ({ kind: 'ok', suiteId: suite.id, version: suite.version }),
+  publish: async ({ testSet }) => ({ kind: 'ok', testSetId: testSet.id, version: testSet.version }),
   unregister: async () => ({ unregistered: false }),
-  reinstateVersion: async ({ suiteId, version }) => ({ kind: 'not-found', suiteId, version }),
+  reinstateVersion: async ({ testSetId, version }) => ({ kind: 'not-found', testSetId, version }),
 };
 
 const noopBlockRegistry: BlockRegistryBinding = {
@@ -416,7 +416,7 @@ const noopExpertQueue: ExpertQueueBinding = {
 };
 
 const noopEvalRunBinding: EvalRunBinding = {
-  start: async () => ({ kind: 'suite-not-found', suiteId: 'noop' }),
+  start: async () => ({ kind: 'test-set-not-found', testSetId: 'noop' }),
   get: async () => null,
   list: async () => ({ data: [] }),
   cancel: async () => ({ kind: 'not-found' }),
@@ -700,7 +700,7 @@ export function fullAppInput(): CreateAppInput {
     publicRunTokens: publicRunTokensConfig(),
     policyRegistry: noopPolicyRegistry,
     retention: noopRetention,
-    evalSuiteRegistry: noopEvalSuiteRegistry,
+    testSetRegistry: noopTestSetRegistry,
     blockRegistry: noopBlockRegistry,
     evalRunBinding: noopEvalRunBinding,
     correctionRegistry: noopCorrectionRegistry,

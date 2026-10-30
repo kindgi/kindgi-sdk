@@ -43,11 +43,11 @@ import { parseTimeInput } from './time-input.js';
  * Eval-run resource routes — data-plane surface for the evaluation
  * harness. Follows `/v1/runs/*` structurally: `start` +
  * `get` + `list` + `cancel` + `events` (SSE). The registry surface
- * (`/v1/eval-suites/*`) resolves suite definitions; this
+ * (`/v1/test-sets/*`) resolves test set definitions; this
  * router dispatches runs against them.
  *
- * The `start` route is anchored at `/v1/eval-suites/:suiteId/runs`
- * because the suite is the durable definition and the caller supplies
+ * The `start` route is anchored at `/v1/test-sets/:testSetId/runs`
+ * because the test set is the durable definition and the caller supplies
  * an agent/flow to *evaluate against* — not a run body. Read routes
  * live under a sibling `/v1/eval-runs/*` for uniform pagination /
  * filter shape across the resource.
@@ -60,8 +60,8 @@ import { parseTimeInput } from './time-input.js';
  *
  * With an authorizer (T243 A): starting a run needs `write` on the
  * project it lands in and `execute` on what it evaluates (the agent or
- * flow), on top of the eval-suites router's own check on the suite. An
- * eval run is read through its suite: `read` on the suite to list, get or
+ * flow), on top of the test-sets router's own check on the test set. An
+ * eval run is read through its test set: `read` on the test set to list, get or
  * follow it, `write` to cancel it. A run that isn't there is still the
  * handler's 404.
  */
@@ -85,9 +85,9 @@ export function evalRunsRouters(
   /** Whether a project is suspended: no eval run starts in one. Absent: no check. */
   projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
   /**
-   * Rights on a suite, agent or flow more than one project serves
+   * Rights on a test set, agent or flow more than one project serves
    * (`item-rights.ts`): running one in one of its projects is that
-   * project's `execute` (`call` for an agent), and a run of such a suite
+   * project's `execute` (`call` for an agent), and a run of such a test set
    * is read, cancelled and rescored on its own project. Absent: every item
    * has one project.
    */
@@ -107,7 +107,7 @@ export function evalRunsRouters(
   };
 }
 
-// ---------- POST /v1/eval-suites/:suiteId/runs ----------
+// ---------- POST /v1/test-sets/:testSetId/runs ----------
 
 /** The `validation-failed` error for a flow candidate's `versions` that don't fit the flow; `undefined` when they do. */
 async function versionsRefusal(
@@ -182,7 +182,7 @@ function startRouter(
    */
   async function runRefusal(
     c: Context<AppEnv>,
-    item: { readonly kind: 'agent' | 'flow' | 'eval_suite'; readonly id: string },
+    item: { readonly kind: 'agent' | 'flow' | 'test_set'; readonly id: string },
     projectId: string,
   ): Promise<Response | undefined> {
     const served =
@@ -192,10 +192,10 @@ function startRouter(
       : deniedBy(authorizer, c, 'execute', ref(item.kind, item.id));
   }
 
-  r.post('/:suiteId/runs', async (c) => {
+  r.post('/:testSetId/runs', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const suiteId = c.req.param('suiteId');
+    const testSetId = c.req.param('testSetId');
 
     let body: unknown = {};
     const hasBody =
@@ -222,21 +222,21 @@ function startRouter(
       agentRef !== undefined
         ? { kind: 'agent' as const, id: agentRef.agentId as unknown as string }
         : { kind: 'flow' as const, id: flowRef?.flowId as unknown as string };
-    // Running the suite takes `execute` on it (an editor of its project, or
+    // Running the test set takes `execute` on it (an editor of its project, or
     // an executor), whichever project the run lands in; its results land
-    // in that project, which takes `write`. A suite or target more than one
+    // in that project, which takes `write`. A test set or target more than one
     // project serves, run in one of them: that project's right instead.
     const refused =
-      (await runRefusal(c, { kind: 'eval_suite', id: suiteId }, projectId as unknown as string)) ??
+      (await runRefusal(c, { kind: 'test_set', id: testSetId }, projectId as unknown as string)) ??
       (await deniedBy(authorizer, c, 'write', ref('project', projectId as unknown as string))) ??
       (await runRefusal(c, target, projectId as unknown as string));
     if (refused !== undefined) return refused;
-    // The suite and what it runs must be the run's project's to reach
+    // The test set and what it runs must be the run's project's to reach
     // (`reference-scope.ts`): at the version named, when one is, since each
     // case replays that version in the run's project. That holds for a flow
     // candidate's `versions` too, each at its own path.
     const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
-      { path: '/suiteId', kind: 'suite', id: suiteId },
+      { path: '/testSetId', kind: 'test-set', id: testSetId },
       agentRef !== undefined
         ? {
             path: '/agentRef/agentId',
@@ -277,7 +277,7 @@ function startRouter(
     const outcome = await binding.start({
       tenantId,
       projectId: parsed.value.projectId,
-      suiteId,
+      testSetId,
       ...(parsed.value.agentRef !== undefined && { agentRef: parsed.value.agentRef }),
       ...(parsed.value.flowRef !== undefined && { flowRef: parsed.value.flowRef }),
       ...(parsed.value.dryRun !== undefined && { dryRun: parsed.value.dryRun }),
@@ -298,14 +298,14 @@ function startAnswer(
   requestId: string,
   outcome: EvalRunStartOutcome,
 ): Response {
-  if (outcome.kind === 'suite-not-found') {
-    c.status(statusFor('eval-suite-not-found') as never);
+  if (outcome.kind === 'test-set-not-found') {
+    c.status(statusFor('test-set-not-found') as never);
     return c.json(
       toWireError(
         {
-          code: 'eval-suite-not-found',
-          message: `No eval suite registered with id "${outcome.suiteId}"`,
-          suiteId: outcome.suiteId,
+          code: 'test-set-not-found',
+          message: `No test set registered with id "${outcome.testSetId}"`,
+          testSetId: outcome.testSetId,
         },
         requestId,
       ),
@@ -341,7 +341,7 @@ function startAnswer(
     // this tenant. Distinct signal from `dispatcher-input-invalid`
     // so the client can prompt for a valid project rather than
     // assume a dispatcher wiring problem. Answered as `400 bad-input`,
-    // like the eval-suites route; the caller learns from the message
+    // like the test-sets route; the caller learns from the message
     // which field was invalid.
     c.status(statusFor('bad-input') as never);
     return c.json(
@@ -371,11 +371,11 @@ function readbackRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   /**
-   * The refusal, if any, of `action` on the suite of the run named in the
-   * path. A run of a suite more than one project serves is its own
+   * The refusal, if any, of `action` on the test set of the run named in the
+   * path. A run of a test set more than one project serves is its own
    * project's: `read` on it, or to change it, `execute` (`onProject`).
    */
-  const onRunSuite = async (
+  const onRunTestSet = async (
     c: Context<AppEnv>,
     action: Action,
     onProject: Action = action,
@@ -387,12 +387,12 @@ function readbackRouter(
     const own = await ownProject(
       c,
       itemRights,
-      'eval_suite',
-      run.suiteId,
+      'test_set',
+      run.testSetId,
       run.projectId as unknown as string | undefined,
     );
     return own === undefined
-      ? deniedBy(authorizer, c, action, ref('eval_suite', run.suiteId))
+      ? deniedBy(authorizer, c, action, ref('test_set', run.testSetId))
       : deniedBy(authorizer, c, onProject, ref('project', own));
   };
 
@@ -417,9 +417,9 @@ function readbackRouter(
       );
     }
     const filter: EvalRunFilter = {};
-    const suiteIdRaw = c.req.query('suiteId');
-    if (suiteIdRaw !== undefined && suiteIdRaw.length > 0) {
-      (filter as { suiteId?: string }).suiteId = suiteIdRaw;
+    const testSetIdRaw = c.req.query('testSetId');
+    if (testSetIdRaw !== undefined && testSetIdRaw.length > 0) {
+      (filter as { testSetId?: string }).testSetId = testSetIdRaw;
     }
     if (statusRaw !== undefined && statusRaw.length > 0) {
       (filter as { status?: EvalRunStatus }).status = statusRaw as EvalRunStatus;
@@ -467,10 +467,10 @@ function readbackRouter(
     const visible =
       authorizer === undefined
         ? page.data
-        : await filterOwned(c, authorizer, itemRights, 'eval_suite', page.data, {
-            idOf: (run) => run.suiteId,
+        : await filterOwned(c, authorizer, itemRights, 'test_set', page.data, {
+            idOf: (run) => run.testSetId,
             projectOf: (run) => run.projectId as unknown as string | undefined,
-            todayRef: (run) => ref('eval_suite', run.suiteId),
+            todayRef: (run) => ref('test_set', run.testSetId),
           });
     return c.json({
       data: visible.map(serializeEvalRun),
@@ -481,7 +481,7 @@ function readbackRouter(
 
   // ---------- GET /:runId ----------
   r.get('/:runId', async (c) => {
-    const refused = await onRunSuite(c, 'read');
+    const refused = await onRunTestSet(c, 'read');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -505,7 +505,7 @@ function readbackRouter(
   // settings that replays nothing: it scores the run's replays again, with
   // what people corrected on them since. The run rescored stays as it was.
   r.post('/:runId/rescore', async (c) => {
-    const refused = await onRunSuite(c, 'admin', 'execute');
+    const refused = await onRunTestSet(c, 'admin', 'execute');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -553,7 +553,7 @@ function readbackRouter(
 
   // ---------- POST /:runId/cancel ----------
   r.post('/:runId/cancel', async (c) => {
-    const refused = await onRunSuite(c, 'write', 'execute');
+    const refused = await onRunTestSet(c, 'write', 'execute');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -597,7 +597,7 @@ function readbackRouter(
 
   // ---------- GET /:runId/events (SSE) ----------
   r.get('/:runId/events', async (c) => {
-    const refused = await onRunSuite(c, 'read');
+    const refused = await onRunTestSet(c, 'read');
     if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -750,8 +750,8 @@ function serializeEvalRun(run: EvalRun): Record<string, unknown> {
     runId: run.runId as unknown as string,
     tenantId: run.tenantId as unknown as string,
     ...(run.projectId !== undefined && { projectId: run.projectId as unknown as string }),
-    suiteId: run.suiteId,
-    suiteVersion: run.suiteVersion,
+    testSetId: run.testSetId,
+    testSetVersion: run.testSetVersion,
     kind: run.kind,
     ...(run.agentRef !== undefined && {
       agentRef: {
