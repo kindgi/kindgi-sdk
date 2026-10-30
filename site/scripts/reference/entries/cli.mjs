@@ -2079,6 +2079,12 @@ export const CLI_EXAMPLES = {
       line: 'kindgi test-runs list --agent=acme-ops.article-picker --status=failed --limit=10',
     },
   ],
+  'test-runs show': [
+    {
+      purpose: "Show a test run's status and, once it's done, its summary.",
+      line: 'kindgi test-runs show <test-run-id>',
+    },
+  ],
   'test-runs cancel': [
     {
       purpose: 'Cancel a pending or running test run.',
