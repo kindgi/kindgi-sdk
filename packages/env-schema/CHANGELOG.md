@@ -1,5 +1,11 @@
 # @kindgi/env-schema
 
+## 0.3.0
+
+### Patch Changes
+
+- af11ccc: `KINDGI_SEED_USER_ID`'s description says the id is a UUID, as the tenant id's already does, and that the runtime reads it in lower case.
+
 ## 0.3.0-rc.0
 
 ### Patch Changes
