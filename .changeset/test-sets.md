@@ -6,6 +6,7 @@
 "@kindgi/policy-contract": patch
 "@kindgi/types": patch
 "@kindgi/authz": patch
+"@kindgi/specs": patch
 ---
 
 **Eval suites are now test sets.** This is a breaking rename, and no old name is kept.
@@ -20,4 +21,5 @@
 - **Errors.** Codes starting `eval-suite-` start `test-set-`.
 - **Schemas and types.** `EvalSuite*` names are `TestSet*`. `EvalKind` is `TestSetKind` (and `EVAL_KINDS` is `TEST_SET_KINDS`), and `CorrectedEvalCase`, `CorrectedEvalCaseCollectionPage` and `CorrectedEvalCaseCorrection` are `CorrectedTestCase`, `CorrectedTestCaseCollectionPage` and `CorrectedTestCaseCorrection`.
 - **TypeScript client.** `client.evalSuites` is `client.testSets`.
+- **Specs.** `@kindgi/specs/eval-suite.schema.json` is `@kindgi/specs/test-set.schema.json`, its `$id` is `https://kindgi.com/schemas/v1/test-set.schema.json` and its title "Test set", and its reference page is `reference/schemas/test-set/`. Its `kind` takes `corrections`, as the API does.
 - **CLI.** `kindgi eval-suites` is `kindgi test-sets`, `--suite` is `--test-set`, and `--suite-version` is `--test-set-version`. `kindgi exports create` writes them as `test-sets` and `test-set-versions`.
