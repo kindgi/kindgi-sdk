@@ -771,6 +771,12 @@ export interface ApprovalDecisionRecord {
    * older runtime recorded.
    */
   readonly deciderName?: string;
+  /**
+   * The text a reviewer approved a remembered fact with, in place of the
+   * agent's (the approval's `description`). Absent when the fact was
+   * approved as the agent wrote it.
+   */
+  readonly factText?: string;
 }
 
 /**
@@ -786,6 +792,12 @@ export interface ReviewDecision {
   readonly rationale?: string;
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: import('@kindgi/types').Timestamp;
+  /**
+   * The text a reviewer approved a remembered fact with, in place of the
+   * agent's (the approval's `description`). Absent when the fact was
+   * approved as the agent wrote it.
+   */
+  readonly factText?: string;
 }
 
 /**

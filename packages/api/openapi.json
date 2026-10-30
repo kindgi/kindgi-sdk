@@ -5129,6 +5129,10 @@
           "deciderName": {
             "type": "string",
             "description": "The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded."
+          },
+          "factText": {
+            "type": "string",
+            "description": "The text a reviewer approved a remembered fact with, in place of the agent's (the approval's `description`), which the fact now holds. Absent when the fact was approved as the agent wrote it."
           }
         }
       },
@@ -5179,6 +5183,10 @@
           "decidedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "factText": {
+            "type": "string",
+            "description": "The text a reviewer approved a remembered fact with, in place of the agent's (the approval's `description`), which the fact now holds. Absent when the fact was approved as the agent wrote it."
           }
         }
       },
@@ -5241,6 +5249,12 @@
           },
           "value": {
             "description": "Payload passed to the run waitpoint (`RunBinding.completeToken`) when the approval is linked to a suspended run and the decision is `approve` or `reject`. Refused (400 `bad-input`) for an agent's tool-call or session gate (`tool-call:pending`, `agent-turn:session-hitl-gate`): those resume on the decision alone."
+          },
+          "factText": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "Only with `decision: approve`, on the approval of a fact an agent wants to remember (`subjectKind: fact`): the text the fact holds once approved, in place of the agent's. The approval keeps the agent's text as its `description`, and its decision records this one. More than spaces, at most 2000 characters. Refused (400 `bad-input`) on any other decision or approval."
           }
         }
       },

@@ -13,6 +13,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a fact's approval takes the reviewer's text.**
+  `client.approvals.complete(approval_id, decision="approve", fact_text=...)`
+  approves a fact an agent wants to remember (`subject_kind` `fact`) with
+  that text in place of the agent's. Only with `approve` on such an
+  approval; anything else is refused (400 `bad-input`). The decision it
+  answers and the approval read back carry it (`ReviewDecision.fact_text`,
+  `ApprovalDecisionRecord.fact_text`).
 - `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
   tenant.** A run that names no flow version takes the version pinned for its
   project (the project's own pin, then its org's, then the tenant's), else the
