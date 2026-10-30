@@ -14801,6 +14801,10 @@ class CorrectedTestCase(BaseModel):
     """
     The case's id. A frozen case of an agent's test set has its correction's id, or a `case-` id when it was added by hand. A `corrections` test set built before 0.4.0 used the corrected run's id.
     """
+    run_id: Annotated[str | None, Field(alias="runId")] = None
+    """
+    The run the case was copied from. Absent from older servers: there a case of a `corrections` test set built before 0.4.0 has the run's id as its `caseId`.
+    """
     subject: CorrectedSubject
     input: Any
     context: CorrectedRunContext | None = None

@@ -14,4 +14,6 @@
 
 **Test sets built from corrections are gone.** `POST /v1/test-sets/{testSetId}/versions/from-corrections` (`client.testSets.buildFromCorrections`) and `kindgi test-sets from-corrections` are removed, with `buildCorrectedTestSet`, `MAX_CORRECTED_CASES` and the `BuildCorrectedTestSet*` types. A `corrections` test set built before is still read by id, and its cases at `GET /v1/test-sets/{testSetId}/versions/{version}/cases`, but `GET /v1/test-sets` lists it only when asked with `kind=corrections`, as it does an agent's frozen versions, and so does `kindgi test-sets list --kind=corrections`.
 
+**A test case names the run it was copied from.** `CorrectedTestCase` gains `runId`, required: an `EvalCaseStoreBinding` fills it for the cases it kept from before, whose `caseId` is the run's id. A test run replays that run, and its `RunReplayRef` gains `caseId`, the case the replay ran. `GET /v1/test-sets/{testSetId}/versions/{version}/cases` answers `runId`; older servers leave it out.
+
 **`kindgi exports create`** asks for `corrections` test sets too, and reads each agent's test set in each project it serves, its cases added by hand and retired ones included.

@@ -32,6 +32,7 @@ const CASES = '/v1/test-sets/acme.matches/versions/1.0.0/cases';
 function aCase(caseId: string): CorrectedTestCase {
   return {
     caseId,
+    runId: caseId,
     subject: { kind: 'agent', id: 'acme.matcher', version: '1.0.0' },
     input: { query: caseId },
     output: { matches: [] },

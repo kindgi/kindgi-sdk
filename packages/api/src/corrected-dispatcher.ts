@@ -801,7 +801,8 @@ async function invokeCase(
       abortSignal: ctx.abortSignal,
       ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
       replay: {
-        of: correctedCase.caseId as unknown as RunId,
+        of: correctedCase.runId as unknown as RunId,
+        caseId: correctedCase.caseId,
         testRunId: ctx.testRunId as unknown as string,
       },
       ...(correctedCase.subject.kind === 'agent' && {

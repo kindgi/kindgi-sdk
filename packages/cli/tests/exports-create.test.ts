@@ -255,7 +255,7 @@ describe('kindgi exports create', () => {
             : [{ id: 'acme.smoke', kind: 'custom', version: '1.0.0' }],
         ),
       [`/v1/test-sets/${frozen}/versions`]: [{ id: frozen, version: '1.0.0' }],
-      [`/v1/test-sets/${frozen}/versions/1.0.0/cases`]: [{ caseId: 'c-1' }],
+      [`/v1/test-sets/${frozen}/versions/1.0.0/cases`]: [{ caseId: 'c-1', runId: 'run-1' }],
     });
     const res = await cli(fake);
     expect(res.exitCode, res.stderr).toBe(0);
@@ -271,7 +271,7 @@ describe('kindgi exports create', () => {
       item: unknown;
     }[];
     expect(cases).toEqual([
-      { parent: { testSetId: frozen, version: '1.0.0' }, item: { caseId: 'c-1' } },
+      { parent: { testSetId: frozen, version: '1.0.0' }, item: { caseId: 'c-1', runId: 'run-1' } },
     ]);
   });
 

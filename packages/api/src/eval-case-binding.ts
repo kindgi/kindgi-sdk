@@ -81,6 +81,8 @@ export interface CorrectedTestCase {
    * `corrections` test set built before 0.4.0 used the corrected run's id.
    */
   readonly caseId: string;
+  /** The run the case was copied from. */
+  readonly runId: string;
   /** What ran: the agent or flow at a version (the baseline when comparing to the recording). */
   readonly subject: CorrectedSubject;
   readonly input: unknown;
